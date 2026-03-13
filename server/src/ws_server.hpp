@@ -20,4 +20,4 @@ private:
     boost::asio::ip::tcp::acceptor acceptor_;
 };
 
-} // namespace driscord 
+} // namespace driscord
