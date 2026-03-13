@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)
-find_package(Boost 1.78 REQUIRED COMPONENTS system)
+find_package(Boost 1.78 REQUIRED)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -26,7 +26,6 @@ add_executable(driscord_server
 target_include_directories(driscord_server PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 target_link_libraries(driscord_server PRIVATE
-    Boost::system
     OpenSSL::SSL
     OpenSSL::Crypto
     Threads::Threads

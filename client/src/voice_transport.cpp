@@ -4,13 +4,10 @@
 
 using json = nlohmann::json;
 
-VoiceTransport::VoiceTransport() {
-    rtc_config_.iceServers.push_back(rtc::IceServer("stun:stun.l.google.com:19302"));
-}
 
-VoiceTransport::~VoiceTransport() {
-    disconnect();
-}
+VoiceTransport::VoiceTransport() { rtc_config_.iceServers.push_back(rtc::IceServer("stun:stun.l.google.com:19302")); }
+
+VoiceTransport::~VoiceTransport() { disconnect(); }
 
 void VoiceTransport::connect(const std::string& ws_url) {
     disconnect();
@@ -28,9 +25,7 @@ void VoiceTransport::connect(const std::string& ws_url) {
         ws_connected_ = false;
     });
 
-    ws_->onError([](std::string error) {
-        std::cerr << "ws error: " << error << std::endl;
-    });
+    ws_->onError([](std::string error) { std::cerr << "ws error: " << error << std::endl; });
 
     ws_->onMessage([this](auto msg) {
         if (auto* str = std::get_if<std::string>(&msg)) {
@@ -45,8 +40,12 @@ void VoiceTransport::disconnect() {
     {
         std::scoped_lock lk(peers_mutex_);
         for (auto& [_, state] : peers_) {
-            if (state.dc) state.dc->close();
-            if (state.pc) state.pc->close();
+            if (state.dc) {
+                state.dc->close();
+            }
+            if (state.pc) {
+                state.pc->close();
+            }
         }
         peers_.clear();
     }
@@ -74,10 +73,13 @@ void VoiceTransport::send_audio(const uint8_t* data, size_t len) {
 
 std::vector<VoiceTransport::PeerInfo> VoiceTransport::peers() const {
     std::scoped_lock lk(peers_mutex_);
+
     std::vector<PeerInfo> result;
+    result.reserve(peers_.size());
     for (auto& [id, state] : peers_) {
-        result.push_back({id, state.dc_open});
+        result.emplace_back(id, state.dc_open);
     }
+
     return result;
 }
 
@@ -100,7 +102,9 @@ void VoiceTransport::on_ws_message(const std::string& raw) {
         } else if (type == "peer_joined") {
             std::string peer_id = msg["id"];
             std::cout << "peer joined: " << peer_id << std::endl;
-            if (on_peer_joined_) on_peer_joined_(peer_id);
+            if (on_peer_joined_) {
+                on_peer_joined_(peer_id);
+            }
         } else if (type == "peer_left") {
             std::string peer_id = msg["id"];
             std::cout << "peer left: " << peer_id << std::endl;
@@ -108,7 +112,9 @@ void VoiceTransport::on_ws_message(const std::string& raw) {
                 std::scoped_lock lk(peers_mutex_);
                 peers_.erase(peer_id);
             }
-            if (on_peer_left_) on_peer_left_(peer_id);
+            if (on_peer_left_) {
+                on_peer_left_(peer_id);
+            }
         } else if (type == "offer") {
             handle_offer(msg["from"], msg["sdp"]);
         } else if (type == "answer") {
@@ -147,7 +153,7 @@ void VoiceTransport::create_peer(const std::string& peer_id, bool create_offer) 
     });
 
     pc->onStateChange([peer_id](rtc::PeerConnection::State state) {
-        std::cout << "peer " << peer_id << " state: " << static_cast<int>(state) << std::endl;
+        std::cout << "peer " << peer_id << " state: " << state << std::endl;
     });
 
     PeerState state;
@@ -179,6 +185,7 @@ void VoiceTransport::handle_offer(const std::string& from, const std::string& sd
 
 void VoiceTransport::handle_answer(const std::string& from, const std::string& sdp) {
     std::cout << "received answer from " << from << std::endl;
+    
     std::scoped_lock lk(peers_mutex_);
     auto it = peers_.find(from);
     if (it != peers_.end()) {
@@ -216,17 +223,12 @@ void VoiceTransport::setup_data_channel(const std::string& peer_id, std::shared_
     dc->onMessage([this, peer_id](auto msg) {
         if (auto* data = std::get_if<rtc::binary>(&msg)) {
             if (on_audio_) {
-                on_audio_(
-                    peer_id,
-                    reinterpret_cast<const uint8_t*>(data->data()),
-                    data->size());
+                on_audio_(peer_id, reinterpret_cast<const uint8_t*>(data->data()), data->size());
             }
         }
     });
 
-    dc->onError([peer_id](std::string error) {
-        std::cerr << "dc error [" << peer_id << "]: " << error << std::endl;
-    });
+    dc->onError([peer_id](std::string error) { std::cerr << "dc error [" << peer_id << "]: " << error << std::endl; });
 
     std::scoped_lock lk(peers_mutex_);
     auto it = peers_.find(peer_id);

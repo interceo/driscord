@@ -1,17 +1,16 @@
 #pragma once
 
-#include <rtc/rtc.hpp>
-#include <nlohmann/json.hpp>
-
 #include <atomic>
 #include <functional>
-#include <string>
 #include <memory>
 #include <mutex>
+#include <nlohmann/json.hpp>
+#include <rtc/rtc.hpp>
 #include <string>
 #include <unordered_map>
 
-// Manages WebSocket signaling and WebRTC peer connections with audio data channels.
+// Manages WebSocket signaling and WebRTC peer connections with audio data
+// channels.
 class VoiceTransport {
 public:
     using AudioPacketCb = std::function<void(const std::string& peer_id, const uint8_t* data, size_t len)>;

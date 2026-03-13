@@ -1,9 +1,9 @@
-#include "app.hpp"
-#include "ui.hpp"
-
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
+
+#include "app.hpp"
+#include "ui.hpp"
 
 #ifdef __APPLE__
 #include <OpenGL/gl3.h>

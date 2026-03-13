@@ -1,12 +1,12 @@
 #pragma once
 
-#include "ring_buffer.hpp"
-
 #include <atomic>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <vector>
+
+#include "ring_buffer.hpp"
 
 struct OpusEncoder;
 struct OpusDecoder;
@@ -16,7 +16,7 @@ class AudioEngine {
 public:
     static constexpr int SAMPLE_RATE = 48000;
     static constexpr int CHANNELS = 1;
-    static constexpr int FRAME_SIZE = 960;   // 20ms @ 48kHz
+    static constexpr int FRAME_SIZE = 960;  // 20ms @ 48kHz
     static constexpr int MAX_OPUS_PACKET = 4000;
 
     using PacketCallback = std::function<void(const uint8_t* data, size_t len)>;
@@ -34,13 +34,13 @@ public:
     void feed_packet(const uint8_t* data, size_t len);
 
     void set_muted(bool m) { muted_ = m; }
-    bool muted() const { return muted_; }
+    bool muted() const noexcept { return muted_; }
 
     void set_output_volume(float v) { output_volume_ = v; }
-    float output_volume() const { return output_volume_; }
+    float output_volume() const noexcept { return output_volume_; }
 
-    float input_level() const { return input_level_; }
-    float output_level() const { return output_level_; }
+    float input_level() const noexcept { return input_level_; }
+    float output_level() const noexcept { return output_level_; }
 
 private:
     void on_capture(const float* input, uint32_t frames);

@@ -1,57 +1,53 @@
 #include "ws_server.hpp"
 
+#include <boost/asio/strand.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
-#include <boost/asio/strand.hpp>
-#include <nlohmann/json.hpp>
-#include <unordered_map>
-#include <mutex>
+#include <iomanip>
 #include <iostream>
+#include <mutex>
+#include <nlohmann/json.hpp>
 #include <random>
 #include <sstream>
-#include <iomanip>
+#include <unordered_map>
 
 namespace beast = boost::beast;
 namespace http = beast::http;
 namespace websocket = beast::websocket;
+
 using tcp = boost::asio::ip::tcp;
 using json = nlohmann::json;
-
-namespace driscord {
 
 namespace {
 
 std::string generate_id() {
     static std::mt19937 rng{std::random_device{}()};
     std::uniform_int_distribution<uint64_t> dist;
+
     std::ostringstream ss;
     ss << std::hex << std::setfill('0') << std::setw(16) << dist(rng);
     return ss.str();
 }
 
 struct Session : public std::enable_shared_from_this<Session> {
-    websocket::stream<beast::tcp_stream> ws;
     beast::flat_buffer buffer;
+    websocket::stream<beast::tcp_stream> ws;
+
     std::string id;
     std::mutex* broadcast_mutex;
     std::unordered_map<std::string, Session*>* sessions;
 
-    Session(tcp::socket&& socket,
-            std::mutex& bmutex,
-            std::unordered_map<std::string, Session*>& all)
-        : ws(std::move(socket))
-        , id(generate_id())
-        , broadcast_mutex(&bmutex)
-        , sessions(&all) {}
+    Session(tcp::socket&& socket, std::mutex& bmutex, std::unordered_map<std::string, Session*>& all)
+        : ws(std::move(socket)), id(generate_id()), broadcast_mutex(&bmutex), sessions(&all) {}
 
     void start() {
         ws.set_option(websocket::stream_base::timeout::suggested(beast::role_type::server));
-        ws.set_option(websocket::stream_base::decorator(
-            [](websocket::response_type& res) {
-                res.set(http::field::server, "driscord/ws");
-            }));
-        ws.async_accept(
-            beast::bind_front_handler(&Session::on_accept, shared_from_this()));
+
+        ws.set_option(websocket::stream_base::decorator([](websocket::response_type& res) {
+            res.set(http::field::server, "driscord/ws");
+        }));
+
+        ws.async_accept(beast::bind_front_handler(&Session::on_accept, shared_from_this()));
     }
 
     void on_accept(beast::error_code ec) {
@@ -85,7 +81,8 @@ struct Session : public std::enable_shared_from_this<Session> {
                 s->ws.text(true);
                 s->ws.async_write(
                     boost::asio::buffer(joined_msg),
-                    [self = s->shared_from_this()](beast::error_code, std::size_t) {});
+                    [self = s->shared_from_this()](beast::error_code, std::size_t) {}
+                );
             }
 
             sessions->emplace(id, this);
@@ -94,9 +91,7 @@ struct Session : public std::enable_shared_from_this<Session> {
         do_read();
     }
 
-    void do_read() {
-        ws.async_read(buffer, beast::bind_front_handler(&Session::on_read, shared_from_this()));
-    }
+    void do_read() { ws.async_read(buffer, beast::bind_front_handler(&Session::on_read, shared_from_this())); }
 
     void on_read(beast::error_code ec, std::size_t) {
         if (ec == websocket::error::closed) {
@@ -124,17 +119,21 @@ struct Session : public std::enable_shared_from_this<Session> {
                     it->second->ws.text(true);
                     it->second->ws.async_write(
                         boost::asio::buffer(fwd),
-                        [self = it->second->shared_from_this()](beast::error_code, std::size_t) {});
+                        [self = it->second->shared_from_this()](beast::error_code, std::size_t) {}
+                    );
                 }
             } else {
                 auto fwd = msg.dump();
                 std::scoped_lock lk(*broadcast_mutex);
                 for (auto& [pid, s] : *sessions) {
-                    if (pid == id) continue;
+                    if (pid == id) {
+                        continue;
+                    }
                     s->ws.text(true);
                     s->ws.async_write(
                         boost::asio::buffer(fwd),
-                        [self = s->shared_from_this()](beast::error_code, std::size_t) {});
+                        [self = s->shared_from_this()](beast::error_code, std::size_t) {}
+                    );
                 }
             }
         } catch (const json::exception& e) {
@@ -152,35 +151,34 @@ struct Session : public std::enable_shared_from_this<Session> {
         json left;
         left["type"] = "peer_left";
         left["id"] = id;
+
         auto msg = left.dump();
         for (auto& [_, s] : *sessions) {
             s->ws.text(true);
-            s->ws.async_write(
-                boost::asio::buffer(msg),
-                [self = s->shared_from_this()](beast::error_code, std::size_t) {});
+            s->ws.async_write(boost::asio::buffer(msg), [self = s->shared_from_this()](beast::error_code, std::size_t) {
+            });
         }
     }
 };
 
-} // namespace
+}  // namespace
+
+namespace driscord {
 
 WebSocketServer::WebSocketServer(boost::asio::io_context& io_context, unsigned short port)
-    : io_context_(io_context),
-      acceptor_(io_context_, tcp::endpoint(tcp::v4(), port)) {}
+    : io_context_(io_context), acceptor_(io_context_, tcp::endpoint(tcp::v4(), port)) {}
 
 void WebSocketServer::run() { do_accept(); }
 
 void WebSocketServer::do_accept() {
-    acceptor_.async_accept(
-        boost::asio::make_strand(io_context_),
-        [this](beast::error_code ec, tcp::socket socket) {
-            if (!ec) {
-                static std::mutex bmutex;
-                static std::unordered_map<std::string, Session*> sessions;
-                std::make_shared<Session>(std::move(socket), bmutex, sessions)->start();
-            }
-            do_accept();
-        });
+    acceptor_.async_accept(boost::asio::make_strand(io_context_), [this](beast::error_code ec, tcp::socket socket) {
+        if (!ec) {
+            static std::mutex bmutex;
+            static std::unordered_map<std::string, Session*> sessions;
+            std::make_shared<Session>(std::move(socket), bmutex, sessions)->start();
+        }
+        do_accept();
+    });
 }
 
-} // namespace driscord
+}  // namespace driscord
