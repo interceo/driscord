@@ -137,6 +137,7 @@ void App::update() {
         std::vector<uint8_t> rgba;
         int dec_w = 0, dec_h = 0;
         if (pd.vs->decoder.decode(pd.data.data(), pd.data.size(), rgba, dec_w, dec_h)) {
+            pd.vs->decode_failures = 0;
             pd.vs->measured_kbps = static_cast<int>(pd.kbps);
 
             if (video_delay == 0) {
@@ -154,6 +155,11 @@ void App::update() {
                     pd.vs->buffered_at = now_ms();
                     pd.vs->held = true;
                 }
+            }
+        } else {
+            ++pd.vs->decode_failures;
+            if (pd.vs->decode_failures % 5 == 1) {
+                transport_.send_keyframe_request();
             }
         }
     }
