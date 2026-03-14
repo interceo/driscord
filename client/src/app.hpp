@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <memory>
 #include <mutex>
@@ -110,6 +111,7 @@ private:
     Config config_;
     AppState state_ = AppState::Disconnected;
     bool sharing_ = false;
+    std::atomic<bool> encoding_{false};
 
     AudioEngine audio_;
     VoiceTransport transport_;
@@ -141,5 +143,6 @@ private:
     std::unordered_map<std::string, float> peer_volumes_;
 
     uint16_t send_frame_id_ = 0;
+    std::vector<uint8_t> frame_buf_;
     std::vector<uint8_t> send_buf_;
 };

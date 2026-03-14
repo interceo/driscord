@@ -17,10 +17,10 @@ extern "C" {
 
 #include "log.hpp"
 
+#include <X11/extensions/Xrandr.h>
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
-#include <X11/extensions/Xrandr.h>
 
 // --- target enumeration -----------------------------------------------------
 
@@ -33,9 +33,10 @@ static std::string x11_window_name(Display* dpy, Window win) {
     unsigned long nitems{}, after{};
     unsigned char* data = nullptr;
 
-    if (XGetWindowProperty(dpy, win, net_wm_name, 0, 256, False, utf8,
-                           &type, &format, &nitems, &after, &data) == Success &&
-        data && nitems > 0) {
+    if (XGetWindowProperty(dpy, win, net_wm_name, 0, 256, False, utf8, &type, &format, &nitems, &after, &data) ==
+            Success &&
+        data && nitems > 0)
+    {
         std::string name(reinterpret_cast<char*>(data), nitems);
         XFree(data);
         return name;
@@ -54,7 +55,9 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
     std::vector<CaptureTarget> targets;
 
     Display* dpy = XOpenDisplay(nullptr);
-    if (!dpy) return targets;
+    if (!dpy) {
+        return targets;
+    }
 
     int screen = DefaultScreen(dpy);
     Window root = RootWindow(dpy, screen);
@@ -63,7 +66,9 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
     if (res) {
         for (int i = 0; i < res->ncrtc; ++i) {
             XRRCrtcInfo* crtc = XRRGetCrtcInfo(dpy, res, res->crtcs[i]);
-            if (!crtc) continue;
+            if (!crtc) {
+                continue;
+            }
             if (crtc->mode == None || crtc->width == 0 || crtc->height == 0) {
                 XRRFreeCrtcInfo(crtc);
                 continue;
@@ -77,8 +82,7 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
                     XRRFreeOutputInfo(output);
                 }
             }
-            name += " (" + std::to_string(crtc->width) + "x" +
-                    std::to_string(crtc->height) + ")";
+            name += " (" + std::to_string(crtc->width) + "x" + std::to_string(crtc->height) + ")";
 
             CaptureTarget t;
             t.type = CaptureTarget::Monitor;
@@ -99,8 +103,7 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
         XGetWindowAttributes(dpy, root, &root_attrs);
         CaptureTarget t;
         t.type = CaptureTarget::Monitor;
-        t.name = "Full Desktop (" + std::to_string(root_attrs.width) + "x" +
-                 std::to_string(root_attrs.height) + ")";
+        t.name = "Full Desktop (" + std::to_string(root_attrs.width) + "x" + std::to_string(root_attrs.height) + ")";
         t.width = root_attrs.width;
         t.height = root_attrs.height;
         targets.push_back(std::move(t));
@@ -112,21 +115,41 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
     unsigned long nitems{}, after{};
     unsigned char* data = nullptr;
 
-    if (XGetWindowProperty(dpy, root, net_client_list, 0, ~0L, False,
-                           XA_WINDOW, &type, &format, &nitems, &after, &data) == Success &&
-        data) {
+    if (XGetWindowProperty(
+            dpy,
+            root,
+            net_client_list,
+            0,
+            ~0L,
+            False,
+            XA_WINDOW,
+            &type,
+            &format,
+            &nitems,
+            &after,
+            &data
+        ) == Success &&
+        data)
+    {
         auto* windows = reinterpret_cast<Window*>(data);
         for (unsigned long i = 0; i < nitems; ++i) {
             XWindowAttributes attrs{};
-            if (!XGetWindowAttributes(dpy, windows[i], &attrs)) continue;
-            if (attrs.map_state != IsViewable) continue;
-            if (attrs.width < 50 || attrs.height < 50) continue;
+            if (!XGetWindowAttributes(dpy, windows[i], &attrs)) {
+                continue;
+            }
+            if (attrs.map_state != IsViewable) {
+                continue;
+            }
+            if (attrs.width < 50 || attrs.height < 50) {
+                continue;
+            }
 
             std::string name = x11_window_name(dpy, windows[i]);
-            if (name.empty()) continue;
+            if (name.empty()) {
+                continue;
+            }
 
-            name += " (" + std::to_string(attrs.width) + "x" +
-                    std::to_string(attrs.height) + ")";
+            name += " (" + std::to_string(attrs.width) + "x" + std::to_string(attrs.height) + ")";
 
             CaptureTarget t;
             t.type = CaptureTarget::Window;
@@ -145,11 +168,12 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
 
 // --- thumbnail --------------------------------------------------------------
 
-ScreenCapture::Frame ScreenCapture::grab_thumbnail(const CaptureTarget& target,
-                                                    int max_w, int max_h) {
+ScreenCapture::Frame ScreenCapture::grab_thumbnail(const CaptureTarget& target, int max_w, int max_h) {
     Frame f;
     Display* dpy = XOpenDisplay(nullptr);
-    if (!dpy) return f;
+    if (!dpy) {
+        return f;
+    }
 
     int scr = DefaultScreen(dpy);
     Window root = RootWindow(dpy, scr);
@@ -179,12 +203,20 @@ ScreenCapture::Frame ScreenCapture::grab_thumbnail(const CaptureTarget& target,
         return f;
     }
 
-    XImage* img = XGetImage(dpy, grab_win, src_x, src_y,
-                            static_cast<unsigned>(src_w),
-                            static_cast<unsigned>(src_h),
-                            AllPlanes, ZPixmap);
+    XImage* img = XGetImage(
+        dpy,
+        grab_win,
+        src_x,
+        src_y,
+        static_cast<unsigned>(src_w),
+        static_cast<unsigned>(src_h),
+        AllPlanes,
+        ZPixmap
+    );
     XCloseDisplay(dpy);
-    if (!img) return f;
+    if (!img) {
+        return f;
+    }
 
     std::vector<uint8_t> bgra(static_cast<size_t>(src_w) * src_h * 4);
     for (int y = 0; y < src_h; ++y) {
@@ -220,9 +252,10 @@ class LinuxScreenCapture : public ScreenCapture {
 public:
     ~LinuxScreenCapture() override { stop(); }
 
-    bool start(int fps, const CaptureTarget& target,
-               int max_w, int max_h, FrameCallback cb) override {
-        if (running_) return false;
+    bool start(int fps, const CaptureTarget& target, int max_w, int max_h, FrameCallback cb) override {
+        if (running_) {
+            return false;
+        }
 
         callback_ = std::move(cb);
         max_w_ = max_w;
@@ -249,14 +282,11 @@ public:
         if (target.type == CaptureTarget::Window && !target.id.empty()) {
             url = display;
             av_dict_set(&opts, "window_id", target.id.c_str(), 0);
-            std::string vsize = std::to_string(target.width) + "x" +
-                                std::to_string(target.height);
+            std::string vsize = std::to_string(target.width) + "x" + std::to_string(target.height);
             av_dict_set(&opts, "video_size", vsize.c_str(), 0);
         } else {
-            url = display + "+" + std::to_string(target.x) + "," +
-                  std::to_string(target.y);
-            std::string vsize = std::to_string(target.width) + "x" +
-                                std::to_string(target.height);
+            url = display + "+" + std::to_string(target.x) + "," + std::to_string(target.y);
+            std::string vsize = std::to_string(target.width) + "x" + std::to_string(target.height);
             av_dict_set(&opts, "video_size", vsize.c_str(), 0);
         }
 
@@ -315,9 +345,18 @@ public:
         int src_h = dec_ctx_->height;
         compute_output_size(src_w, src_h, max_w_, max_h_, out_w_, out_h_);
 
-        sws_ = sws_getContext(src_w, src_h, dec_ctx_->pix_fmt,
-                              out_w_, out_h_, AV_PIX_FMT_BGRA,
-                              SWS_BILINEAR, nullptr, nullptr, nullptr);
+        sws_ = sws_getContext(
+            src_w,
+            src_h,
+            dec_ctx_->pix_fmt,
+            out_w_,
+            out_h_,
+            AV_PIX_FMT_BGRA,
+            SWS_BILINEAR,
+            nullptr,
+            nullptr,
+            nullptr
+        );
         if (!sws_) {
             LOG_ERROR() << "sws_getContext (capture) failed";
             cleanup();
@@ -335,15 +374,20 @@ public:
         running_ = true;
         thread_ = std::thread(&LinuxScreenCapture::capture_loop, this);
 
-        LOG_INFO() << "screen capture started: " << src_w << "x" << src_h
-                   << " -> " << out_w_ << "x" << out_h_ << " @ " << fps << " fps";
+        LOG_INFO()
+            << "screen capture started: " << src_w << "x" << src_h << " -> " << out_w_ << "x" << out_h_ << " @ " << fps
+            << " fps";
         return true;
     }
 
     void stop() override {
-        if (!running_.exchange(false)) return;
+        if (!running_.exchange(false)) {
+            return;
+        }
         stopping_ = true;
-        if (thread_.joinable()) thread_.join();
+        if (thread_.joinable()) {
+            thread_.join();
+        }
         stopping_ = false;
         cleanup();
         LOG_INFO() << "screen capture stopped";
@@ -361,7 +405,9 @@ private:
         while (running_) {
             int ret = av_read_frame(fmt_ctx_, pkt_);
             if (ret < 0) {
-                if (ret == AVERROR_EOF || stopping_) break;
+                if (ret == AVERROR_EOF || stopping_) {
+                    break;
+                }
                 continue;
             }
 
@@ -373,25 +419,36 @@ private:
             avcodec_send_packet(dec_ctx_, pkt_);
             while (avcodec_receive_frame(dec_ctx_, frame_) >= 0) {
                 av_frame_make_writable(bgra_frame_);
-                sws_scale(sws_, frame_->data, frame_->linesize, 0,
-                          dec_ctx_->height,
-                          bgra_frame_->data, bgra_frame_->linesize);
+                sws_scale(
+                    sws_,
+                    frame_->data,
+                    frame_->linesize,
+                    0,
+                    dec_ctx_->height,
+                    bgra_frame_->data,
+                    bgra_frame_->linesize
+                );
 
                 Frame out;
                 out.width = out_w_;
                 out.height = out_h_;
-                auto nbytes = static_cast<size_t>(out_w_) * out_h_ * 4;
+                auto row_bytes = static_cast<size_t>(out_w_) * 4;
+                auto nbytes = row_bytes * out_h_;
                 out.data.resize(nbytes);
 
                 const uint8_t* src = bgra_frame_->data[0];
                 int stride = bgra_frame_->linesize[0];
-                for (int y = 0; y < out_h_; ++y) {
-                    std::memcpy(out.data.data() + y * out_w_ * 4,
-                                src + y * stride,
-                                static_cast<size_t>(out_w_) * 4);
+                if (static_cast<size_t>(stride) == row_bytes) {
+                    std::memcpy(out.data.data(), src, nbytes);
+                } else {
+                    for (int y = 0; y < out_h_; ++y) {
+                        std::memcpy(out.data.data() + y * row_bytes, src + y * stride, row_bytes);
+                    }
                 }
 
-                if (callback_ && running_) callback_(out);
+                if (callback_ && running_) {
+                    callback_(out);
+                }
             }
 
             av_packet_unref(pkt_);
@@ -399,12 +456,25 @@ private:
     }
 
     void cleanup() {
-        if (bgra_frame_) { av_frame_free(&bgra_frame_); }
-        if (frame_) { av_frame_free(&frame_); }
-        if (pkt_) { av_packet_free(&pkt_); }
-        if (sws_) { sws_freeContext(sws_); sws_ = nullptr; }
-        if (dec_ctx_) { avcodec_free_context(&dec_ctx_); }
-        if (fmt_ctx_) { avformat_close_input(&fmt_ctx_); }
+        if (bgra_frame_) {
+            av_frame_free(&bgra_frame_);
+        }
+        if (frame_) {
+            av_frame_free(&frame_);
+        }
+        if (pkt_) {
+            av_packet_free(&pkt_);
+        }
+        if (sws_) {
+            sws_freeContext(sws_);
+            sws_ = nullptr;
+        }
+        if (dec_ctx_) {
+            avcodec_free_context(&dec_ctx_);
+        }
+        if (fmt_ctx_) {
+            avformat_close_input(&fmt_ctx_);
+        }
         video_idx_ = -1;
         out_w_ = 0;
         out_h_ = 0;
@@ -428,6 +498,4 @@ private:
     int out_h_ = 0;
 };
 
-std::unique_ptr<ScreenCapture> ScreenCapture::create() {
-    return std::make_unique<LinuxScreenCapture>();
-}
+std::unique_ptr<ScreenCapture> ScreenCapture::create() { return std::make_unique<LinuxScreenCapture>(); }

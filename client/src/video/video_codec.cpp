@@ -7,6 +7,7 @@ extern "C" {
 
 #include <algorithm>
 #include <string>
+#include <thread>
 
 #include "log.hpp"
 #include "video_codec.hpp"
@@ -63,7 +64,7 @@ static void setup_rate_control(AVCodecContext* ctx, int64_t bitrate_bps, const s
         av_opt_set(ctx->priv_data, "tune", "zerolatency", 0);
         ctx->profile = AV_PROFILE_H264_HIGH;
         av_opt_set(ctx->priv_data, "nal-hrd", "cbr", 0);
-        av_opt_set(ctx->priv_data, "crf", "-1", 0);
+        av_opt_set(ctx->priv_data, "rc-lookahead", "0", 0);
         av_opt_set(ctx->priv_data, "vbv-maxrate", std::to_string(bitrate_bps / 1000).c_str(), 0);
         av_opt_set(ctx->priv_data, "vbv-bufsize", std::to_string(bitrate_bps / 1000).c_str(), 0);
     } else if (enc_name.find("h264_mf") != std::string::npos) {
@@ -79,6 +80,14 @@ static void setup_rate_control(AVCodecContext* ctx, int64_t bitrate_bps, const s
     }
 }
 
+static int optimal_thread_count() {
+    unsigned hw = std::thread::hardware_concurrency();
+    if (hw == 0) {
+        return 2;
+    }
+    return static_cast<int>(std::min(hw, 4u));
+}
+
 static void setup_common_ctx(AVCodecContext* ctx, int width, int height, int fps) {
     ctx->width = width;
     ctx->height = height;
@@ -88,7 +97,7 @@ static void setup_common_ctx(AVCodecContext* ctx, int width, int height, int fps
     ctx->color_range = AVCOL_RANGE_MPEG;
     ctx->gop_size = fps;
     ctx->max_b_frames = 0;
-    ctx->thread_count = 2;
+    ctx->thread_count = optimal_thread_count();
     ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
 }
 
@@ -230,9 +239,11 @@ void VideoEncoder::shutdown() {
     pts_ = 0;
 }
 
-std::vector<uint8_t> VideoEncoder::encode(const uint8_t* bgra, int width, int height) {
+const std::vector<uint8_t>& VideoEncoder::encode(const uint8_t* bgra, int width, int height) {
+    encode_buf_.clear();
+
     if (!ctx_ || width != width_ || height != height_) {
-        return {};
+        return encode_buf_;
     }
 
     av_frame_make_writable(frame_);
@@ -245,17 +256,16 @@ std::vector<uint8_t> VideoEncoder::encode(const uint8_t* bgra, int width, int he
 
     int ret = avcodec_send_frame(ctx_, frame_);
     if (ret < 0) {
-        return {};
+        return encode_buf_;
     }
 
-    std::vector<uint8_t> result;
     while (avcodec_receive_packet(ctx_, pkt_) >= 0) {
-        result.insert(result.end(), pkt_->data, pkt_->data + pkt_->size);
+        encode_buf_.insert(encode_buf_.end(), pkt_->data, pkt_->data + pkt_->size);
         av_packet_unref(pkt_);
     }
 
-    if (!result.empty()) {
-        bytes_since_calc_ += result.size();
+    if (!encode_buf_.empty()) {
+        bytes_since_calc_ += encode_buf_.size();
         auto now = std::chrono::steady_clock::now();
         auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_calc_).count();
         if (elapsed_ms >= 1000) {
@@ -265,7 +275,7 @@ std::vector<uint8_t> VideoEncoder::encode(const uint8_t* bgra, int width, int he
         }
     }
 
-    return result;
+    return encode_buf_;
 }
 
 // --- VideoDecoder -----------------------------------------------------------
@@ -282,7 +292,7 @@ bool VideoDecoder::init() {
     }
 
     ctx_ = avcodec_alloc_context3(codec);
-    ctx_->thread_count = 2;
+    ctx_->thread_count = optimal_thread_count();
 
     int ret = avcodec_open2(ctx_, codec, nullptr);
     if (ret < 0) {
@@ -362,7 +372,10 @@ bool VideoDecoder::decode(const uint8_t* data, size_t len, std::vector<uint8_t>&
 
     out_w = w;
     out_h = h;
-    rgba_out.resize(static_cast<size_t>(w) * h * 4);
+    size_t needed = static_cast<size_t>(w) * h * 4;
+    if (rgba_out.size() != needed) {
+        rgba_out.resize(needed);
+    }
 
     uint8_t* dst_slices[1] = {rgba_out.data()};
     int dst_stride[1] = {w * 4};
