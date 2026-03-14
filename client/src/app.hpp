@@ -166,4 +166,5 @@ private:
     uint16_t send_frame_id_ = 0;
     std::vector<uint8_t> frame_buf_;
     std::vector<uint8_t> send_buf_;
+    uint32_t sync_log_counter_ = 0;
 };
