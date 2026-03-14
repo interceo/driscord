@@ -4,6 +4,13 @@
 #include <fmt/format.h>
 
 #include <string>
+#include <vector>
+
+struct TurnServer {
+    std::string url;
+    std::string user;
+    std::string pass;
+};
 
 struct Config {
     std::string server_host = "localhost";
@@ -13,9 +20,7 @@ struct Config {
     int capture_height = 1080;
     int video_bitrate_kbps = 8000;
 
-    std::string turn_url;
-    std::string turn_user;
-    std::string turn_pass;
+    std::vector<TurnServer> turn_servers;
 
     std::string server_url() const { return fmt::format(FMT_COMPILE("ws://{}:{}"), server_host, server_port); }
 

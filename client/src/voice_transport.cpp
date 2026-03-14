@@ -202,12 +202,17 @@ void VoiceTransport::create_peer(const std::string& peer_id, bool create_offer) 
     });
 
     pc->onLocalCandidate([this, peer_id](rtc::Candidate cand) {
+        LOG_INFO() << "ICE candidate for " << peer_id << ": " << std::string(cand);
         json msg;
         msg["type"] = "candidate";
         msg["to"] = peer_id;
         msg["candidate"] = std::string(cand);
         msg["sdpMid"] = cand.mid();
         send_signal(msg);
+    });
+
+    pc->onGatheringStateChange([peer_id](rtc::PeerConnection::GatheringState state) {
+        LOG_INFO() << "peer " << peer_id << " ICE gathering: " << static_cast<int>(state);
     });
 
     pc->onDataChannel([this, peer_id](std::shared_ptr<rtc::DataChannel> dc) {
@@ -270,6 +275,7 @@ void VoiceTransport::handle_answer(const std::string& from, const std::string& s
 }
 
 void VoiceTransport::handle_candidate(const std::string& from, const std::string& candidate, const std::string& mid) {
+    LOG_INFO() << "remote ICE candidate from " << from << ": " << candidate;
     std::scoped_lock lk(peers_mutex_);
     auto it = peers_.find(from);
     if (it != peers_.end()) {
