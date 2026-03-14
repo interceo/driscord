@@ -4,6 +4,16 @@ setlocal
 set ROOT=%~dp0..
 set BUILD=%ROOT%\build
 
+:: --- activate MSVC environment if not already active ---
+if not defined VSINSTALLDIR (
+    for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath 2^>nul`) do (
+        if exist "%%i\VC\Auxiliary\Build\vcvars64.bat" (
+            echo ==^> Activating MSVC environment...
+            call "%%i\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1
+        )
+    )
+)
+
 :: --- auto-detect vcpkg toolchain ---
 set "TOOLCHAIN="
 if defined VCPKG_ROOT set "TOOLCHAIN=-DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake"
