@@ -164,26 +164,6 @@ void UIRenderer::render_voice_panel(App& app) {
         ImGui::PopStyleColor(3);
     }
 
-    ImGui::SameLine();
-
-    bool sharing = app.sharing();
-    if (sharing) {
-        ImVec4 green(0.20f, 0.70f, 0.30f, 1.0f);
-        ImGui::PushStyleColor(ImGuiCol_Button, green);
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.80f, 0.35f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.15f, 0.60f, 0.25f, 1.0f));
-    }
-    if (ImGui::Button(sharing ? "Stop Sharing" : "Share Screen", ImVec2(140, 32))) {
-        if (sharing) {
-            app.stop_sharing();
-        } else {
-            app.start_sharing();
-        }
-    }
-    if (sharing) {
-        ImGui::PopStyleColor(3);
-    }
-
     ImGui::Spacing();
 
     volume_ = app.volume();
@@ -199,13 +179,67 @@ void UIRenderer::render_voice_panel(App& app) {
 
     render_level_bar("Mic    ", in_level, muted ? 0xFF4444AA : 0xFF44AA44);
     render_level_bar("Speaker", out_level, 0xFF44AA44);
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+    ImGui::Text("Screen Sharing");
+    ImGui::Spacing();
+
+    bool sharing = app.sharing();
+
+    if (!sharing) {
+        ImGui::SetNextItemWidth(300);
+        auto getter = [](void* data, int idx) -> const char* {
+            auto* v = static_cast<std::vector<CaptureTarget>*>(data);
+            return (*v)[static_cast<size_t>(idx)].name.c_str();
+        };
+        ImGui::Combo("##target", &selected_target_, getter, &targets_,
+                      static_cast<int>(targets_.size()));
+
+        ImGui::SameLine();
+        if (ImGui::Button("Refresh")) {
+            targets_ = ScreenCapture::list_targets();
+            selected_target_ = 0;
+        }
+
+        if (targets_.empty()) {
+            if (ImGui::IsItemDeactivated()) {
+                targets_ = ScreenCapture::list_targets();
+                selected_target_ = 0;
+            }
+        }
+
+        ImGui::Spacing();
+
+        bool has_target = !targets_.empty() &&
+                          selected_target_ >= 0 &&
+                          selected_target_ < static_cast<int>(targets_.size());
+
+        if (!has_target) {
+            ImGui::TextDisabled("Press Refresh to load capture targets");
+        }
+
+        if (has_target && ImGui::Button("Share Screen", ImVec2(160, 32))) {
+            app.start_sharing(targets_[static_cast<size_t>(selected_target_)]);
+        }
+    } else {
+        ImVec4 green(0.20f, 0.70f, 0.30f, 1.0f);
+        ImGui::PushStyleColor(ImGuiCol_Button, green);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.80f, 0.35f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.15f, 0.60f, 0.25f, 1.0f));
+        if (ImGui::Button("Stop Sharing", ImVec2(160, 32))) {
+            app.stop_sharing();
+        }
+        ImGui::PopStyleColor(3);
+    }
 }
 
 void UIRenderer::render_video_panel(App& app) {
     auto active = app.video_renderer().active_peers();
     if (active.empty() && !app.sharing()) return;
 
-    ImGui::Text("Screen Sharing");
+    ImGui::Text("Video Streams");
     ImGui::Spacing();
 
     ImVec2 avail = ImGui::GetContentRegionAvail();

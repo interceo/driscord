@@ -4,8 +4,10 @@
 #include <cstdint>
 #include <vector>
 
-#include <vpx/vpx_decoder.h>
-#include <vpx/vpx_encoder.h>
+struct AVCodecContext;
+struct SwsContext;
+struct AVFrame;
+struct AVPacket;
 
 class VideoEncoder {
 public:
@@ -15,16 +17,20 @@ public:
     VideoEncoder(const VideoEncoder&) = delete;
     VideoEncoder& operator=(const VideoEncoder&) = delete;
 
-    bool init(int width, int height, int bitrate_kbps = 1500);
+    bool init(int width, int height, int bitrate_kbps);
+    bool reinit(int width, int height, int bitrate_kbps);
     void shutdown();
 
-    // Encodes a BGRA frame, returns VP8 bitstream (empty on failure / no output).
     std::vector<uint8_t> encode(const uint8_t* bgra, int width, int height);
 
+    int width() const { return width_; }
+    int height() const { return height_; }
+
 private:
-    vpx_codec_ctx_t codec_{};
-    vpx_image_t* image_ = nullptr;
-    bool initialized_ = false;
+    AVCodecContext* ctx_ = nullptr;
+    SwsContext* sws_ = nullptr;
+    AVFrame* frame_ = nullptr;
+    AVPacket* pkt_ = nullptr;
     int width_ = 0;
     int height_ = 0;
     int64_t pts_ = 0;
@@ -41,11 +47,14 @@ public:
     bool init();
     void shutdown();
 
-    // Decodes VP8 bitstream into RGBA pixels. Returns false on failure.
     bool decode(const uint8_t* data, size_t len,
                 std::vector<uint8_t>& rgba_out, int& out_w, int& out_h);
 
 private:
-    vpx_codec_ctx_t codec_{};
-    bool initialized_ = false;
+    AVCodecContext* ctx_ = nullptr;
+    SwsContext* sws_ = nullptr;
+    AVFrame* frame_ = nullptr;
+    AVPacket* pkt_ = nullptr;
+    int last_w_ = 0;
+    int last_h_ = 0;
 };

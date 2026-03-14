@@ -1,6 +1,9 @@
 #pragma once
 
 #include <string>
+#include <vector>
+
+#include "video/screen_capture.hpp"
 
 class App;
 struct Config;
@@ -16,6 +19,9 @@ public:
 private:
     char server_url_buf_[256]{};
     float volume_ = 1.0f;
+
+    std::vector<CaptureTarget> targets_;
+    int selected_target_ = 0;
 
     void render_sidebar(App& app);
     void render_voice_panel(App& app);

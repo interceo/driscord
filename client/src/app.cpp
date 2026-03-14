@@ -1,5 +1,6 @@
 #include "app.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstring>
 
@@ -65,7 +66,6 @@ void App::update() {
         }
     }
 
-    // Drain pending decoded video frames → upload to GL textures (main thread).
     {
         std::scoped_lock lk(video_mutex_);
         for (auto& [peer_id, vs] : peer_video_) {
@@ -103,34 +103,59 @@ void App::toggle_mute() { audio_.set_muted(!audio_.muted()); }
 
 void App::set_volume(float vol) { audio_.set_output_volume(vol); }
 
-void App::start_sharing() {
+void App::start_sharing(const CaptureTarget& target) {
     if (sharing_ || state_ != AppState::Connected) {
         return;
     }
 
-    int cw = config_.capture_width;
-    int ch = config_.capture_height;
+    int max_w = config_.capture_width;
+    int max_h = config_.capture_height;
 
-    if (!video_encoder_.init(cw, ch, config_.video_bitrate_kbps)) {
+    int enc_w = target.width;
+    int enc_h = target.height;
+
+    if (enc_w > max_w || enc_h > max_h) {
+        float scale = std::min(static_cast<float>(max_w) / enc_w,
+                               static_cast<float>(max_h) / enc_h);
+        enc_w = static_cast<int>(enc_w * scale) & ~1;
+        enc_h = static_cast<int>(enc_h * scale) & ~1;
+    } else {
+        enc_w = enc_w & ~1;
+        enc_h = enc_h & ~1;
+    }
+
+    if (enc_w <= 0 || enc_h <= 0) {
+        LOG_ERROR() << "invalid capture dimensions";
+        return;
+    }
+
+    if (!video_encoder_.init(enc_w, enc_h, config_.video_bitrate_kbps)) {
         LOG_ERROR() << "failed to init video encoder";
         return;
     }
 
     screen_capture_ = ScreenCapture::create();
-    if (!screen_capture_->start(config_.screen_fps, cw, ch, [this](const ScreenCapture::Frame& frame) {
-            auto vp8 = video_encoder_.encode(frame.data.data(), frame.width, frame.height);
-            if (vp8.empty()) {
-                return;
-            }
+    if (!screen_capture_->start(config_.screen_fps, target, max_w, max_h,
+            [this](const ScreenCapture::Frame& frame) {
+                if (frame.width != video_encoder_.width() ||
+                    frame.height != video_encoder_.height()) {
+                    if (!video_encoder_.reinit(frame.width, frame.height,
+                                               config_.video_bitrate_kbps)) {
+                        return;
+                    }
+                }
 
-            std::vector<uint8_t> packet(kVideoHeaderSize + vp8.size());
-            write_u32_le(packet.data() + 0, static_cast<uint32_t>(frame.width));
-            write_u32_le(packet.data() + 4, static_cast<uint32_t>(frame.height));
-            write_u32_le(packet.data() + 8, now_ms());
-            std::memcpy(packet.data() + kVideoHeaderSize, vp8.data(), vp8.size());
+                auto encoded = video_encoder_.encode(frame.data.data(), frame.width, frame.height);
+                if (encoded.empty()) return;
 
-            transport_.send_video(packet.data(), packet.size());
-        }))
+                std::vector<uint8_t> packet(kVideoHeaderSize + encoded.size());
+                write_u32_le(packet.data() + 0, static_cast<uint32_t>(frame.width));
+                write_u32_le(packet.data() + 4, static_cast<uint32_t>(frame.height));
+                write_u32_le(packet.data() + 8, now_ms());
+                std::memcpy(packet.data() + kVideoHeaderSize, encoded.data(), encoded.size());
+
+                transport_.send_video(packet.data(), packet.size());
+            }))
     {
         LOG_ERROR() << "failed to start screen capture";
         video_encoder_.shutdown();
@@ -138,7 +163,7 @@ void App::start_sharing() {
     }
 
     sharing_ = true;
-    LOG_INFO() << "screen sharing started";
+    LOG_INFO() << "screen sharing started: " << target.name;
 }
 
 void App::stop_sharing() {
@@ -172,10 +197,9 @@ void App::on_video_packet(const std::string& peer_id, const uint8_t* data, size_
 
     uint32_t w = read_u32_le(data + 0);
     uint32_t h = read_u32_le(data + 4);
-    // timestamp at offset 8 (unused for now)
 
-    const uint8_t* vp8 = data + kVideoHeaderSize;
-    size_t vp8_len = len - kVideoHeaderSize;
+    const uint8_t* payload = data + kVideoHeaderSize;
+    size_t payload_len = len - kVideoHeaderSize;
 
     if (w == 0 || h == 0 || w > 4096 || h > 4096) {
         return;
@@ -194,7 +218,7 @@ void App::on_video_packet(const std::string& peer_id, const uint8_t* data, size_
     }
 
     auto& vs = *it->second;
-    if (vs.decoder.decode(vp8, vp8_len, vs.rgba, vs.width, vs.height)) {
+    if (vs.decoder.decode(payload, payload_len, vs.rgba, vs.width, vs.height)) {
         vs.dirty = true;
     }
 }

@@ -31,7 +31,7 @@ public:
     void toggle_mute();
     void set_volume(float vol);
 
-    void start_sharing();
+    void start_sharing(const CaptureTarget& target);
     void stop_sharing();
     bool sharing() const { return sharing_; }
 

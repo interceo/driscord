@@ -104,18 +104,10 @@ endif()
 add_library(miniaudio_lib INTERFACE)
 target_include_directories(miniaudio_lib INTERFACE ${miniaudio_SOURCE_DIR})
 
-# --- libvpx (system dependency) ---
+# --- FFmpeg (system dependency) ---
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(VPX REQUIRED IMPORTED_TARGET vpx)
-
-# --- Platform-specific screen capture sources ---
-set(SCREEN_CAPTURE_SOURCES "")
-if(APPLE)
-    set(SCREEN_CAPTURE_SOURCES src/video/screen_capture_mac.cpp)
-elseif(UNIX)
-    find_package(X11 REQUIRED)
-    set(SCREEN_CAPTURE_SOURCES src/video/screen_capture_x11.cpp)
-endif()
+pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
+    libavcodec libavformat libavdevice libswscale libavutil)
 
 # --- driscord_client executable ---
 add_executable(driscord_client
@@ -126,8 +118,8 @@ add_executable(driscord_client
     src/ui.cpp
     src/config.cpp
     src/video/video_codec.cpp
+    src/video/screen_capture_ffmpeg.cpp
     src/video_renderer.cpp
-    ${SCREEN_CAPTURE_SOURCES}
 )
 
 target_include_directories(driscord_client PRIVATE
@@ -143,7 +135,7 @@ target_link_libraries(driscord_client PRIVATE
     Opus::opus
     nlohmann_json::nlohmann_json
     miniaudio_lib
-    PkgConfig::VPX
+    PkgConfig::FFMPEG
     fmt::fmt
 )
 
@@ -159,10 +151,8 @@ if(APPLE)
         ${COREGRAPHICS_FRAMEWORK}
     )
 elseif(UNIX)
-    target_link_libraries(driscord_client PRIVATE
-        X11::X11
-        X11::Xext
-    )
+    find_package(X11 REQUIRED)
+    target_link_libraries(driscord_client PRIVATE X11::X11)
 endif()
 
 if(MSVC)
