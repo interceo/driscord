@@ -56,18 +56,53 @@ if errorlevel 1 (
     exit /b 1
 )
 
-:: --- copy FFmpeg DLLs next to executables (fallback for dynamic builds) ---
+:: --- collect DLLs next to client exe ---
 set "CLIENT_DIR=%BUILD%\client"
 if exist "C:\vcpkg\installed\x64-windows\bin\avutil*.dll" (
-    echo ==^> Copying FFmpeg DLLs to client directory...
     copy /Y "C:\vcpkg\installed\x64-windows\bin\av*.dll" "%CLIENT_DIR%\" >nul 2>&1
     copy /Y "C:\vcpkg\installed\x64-windows\bin\sw*.dll" "%CLIENT_DIR%\" >nul 2>&1
 )
 if exist "C:\ffmpeg\bin\avutil*.dll" (
-    echo ==^> Copying FFmpeg DLLs to client directory...
     copy /Y "C:\ffmpeg\bin\av*.dll" "%CLIENT_DIR%\" >nul 2>&1
     copy /Y "C:\ffmpeg\bin\sw*.dll" "%CLIENT_DIR%\" >nul 2>&1
 )
+
+:: --- package into zip archives on Z:\ ---
+echo ==^> Packaging...
+
+set "STAGING=%BUILD%\staging"
+
+:: Client archive
+if exist "%STAGING%\client" rd /s /q "%STAGING%\client"
+mkdir "%STAGING%\client"
+copy /Y "%BUILD%\client\driscord_client.exe" "%STAGING%\client\" >nul
+copy /Y "%BUILD%\client\driscord.json" "%STAGING%\client\" >nul
+if exist "%CLIENT_DIR%\*.dll" (
+    copy /Y "%CLIENT_DIR%\*.dll" "%STAGING%\client\" >nul
+)
+echo ==^> Creating Z:\driscord_client.zip ...
+powershell -NoProfile -Command "Compress-Archive -Path '%STAGING%\client\*' -DestinationPath 'Z:\driscord_client.zip' -Force"
+if errorlevel 1 (
+    echo WARNING: Failed to create Z:\driscord_client.zip
+) else (
+    echo     Z:\driscord_client.zip created
+)
+
+:: Server archive
+if exist "%STAGING%\server" rd /s /q "%STAGING%\server"
+mkdir "%STAGING%\server"
+copy /Y "%BUILD%\server\driscord_server.exe" "%STAGING%\server\" >nul
+copy /Y "%BUILD%\client\driscord.json" "%STAGING%\server\" >nul
+echo ==^> Creating Z:\driscord_server.zip ...
+powershell -NoProfile -Command "Compress-Archive -Path '%STAGING%\server\*' -DestinationPath 'Z:\driscord_server.zip' -Force"
+if errorlevel 1 (
+    echo WARNING: Failed to create Z:\driscord_server.zip
+) else (
+    echo     Z:\driscord_server.zip created
+)
+
+:: Cleanup staging
+rd /s /q "%STAGING%" >nul 2>&1
 
 echo ==^> Done
 echo     Server: %BUILD%\server\driscord_server.exe
