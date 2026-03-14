@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -25,6 +27,7 @@ public:
 
     int width() const { return width_; }
     int height() const { return height_; }
+    int measured_kbps() const { return measured_kbps_; }
 
 private:
     AVCodecContext* ctx_ = nullptr;
@@ -34,6 +37,10 @@ private:
     int width_ = 0;
     int height_ = 0;
     int64_t pts_ = 0;
+
+    std::atomic<int> measured_kbps_{0};
+    size_t bytes_since_calc_ = 0;
+    std::chrono::steady_clock::time_point last_calc_ = std::chrono::steady_clock::now();
 };
 
 class VideoDecoder {

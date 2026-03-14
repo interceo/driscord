@@ -8,7 +8,7 @@
 
 namespace {
 
-constexpr size_t kVideoHeaderSize = 12;  // width(4) + height(4) + timestamp(4)
+constexpr size_t kVideoHeaderSize = 16;  // width(4) + height(4) + timestamp(4) + bitrate_kbps(4)
 constexpr int kStaleVideoSeconds = 3;
 
 uint32_t now_ms() {
@@ -174,10 +174,9 @@ void App::start_sharing(const CaptureTarget& target, int preset_idx, int fps) {
                 if (!video_encoder_.reinit(frame.width, frame.height, br)) {
                     return;
                 }
+                LOG_INFO()
+                    << "reinit video encoder: " << frame.width << "x" << frame.height << " @ " << br << " kbps";
             }
-
-            LOG_INFO()
-                << "reinit video encoder: " << frame.width << "x" << frame.height << " (bitrate " << br << " kbps)";
 
             auto encoded = video_encoder_.encode(frame.data.data(), frame.width, frame.height);
             if (encoded.empty()) {
@@ -188,6 +187,7 @@ void App::start_sharing(const CaptureTarget& target, int preset_idx, int fps) {
             write_u32_le(packet.data() + 0, static_cast<uint32_t>(frame.width));
             write_u32_le(packet.data() + 4, static_cast<uint32_t>(frame.height));
             write_u32_le(packet.data() + 8, now_ms());
+            write_u32_le(packet.data() + 12, static_cast<uint32_t>(video_encoder_.measured_kbps()));
             std::memcpy(packet.data() + kVideoHeaderSize, encoded.data(), encoded.size());
 
             transport_.send_video(packet.data(), packet.size());
@@ -255,11 +255,12 @@ void App::on_video_packet(const std::string& peer_id, const uint8_t* data, size_
 
     uint32_t w = read_u32_le(data + 0);
     uint32_t h = read_u32_le(data + 4);
+    uint32_t sender_kbps = read_u32_le(data + 12);
 
     const uint8_t* payload = data + kVideoHeaderSize;
     size_t payload_len = len - kVideoHeaderSize;
 
-    if (w == 0 || h == 0 || w > 4096 || h > 4096) {
+    if (w == 0 || h == 0 || w > 7680 || h > 4320) {
         return;
     }
 
@@ -272,24 +273,14 @@ void App::on_video_packet(const std::string& peer_id, const uint8_t* data, size_
             LOG_ERROR() << "failed to init video decoder for " << peer_id;
             return;
         }
-
-        const auto now_tp = std::chrono::steady_clock::now();
-        vs->last_frame = now_tp;
-        vs->last_bitrate_calc = now_tp;
+        vs->last_frame = std::chrono::steady_clock::now();
         it = peer_video_.emplace(peer_id, std::move(vs)).first;
     }
 
     auto& vs = *it->second;
-    vs.bytes_since_calc += len;
+    vs.measured_kbps = static_cast<int>(sender_kbps);
 
     auto now = std::chrono::steady_clock::now();
-    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - vs.last_bitrate_calc).count();
-    if (elapsed_ms >= 1000) {
-        vs.measured_kbps = static_cast<int>(vs.bytes_since_calc * 8 / elapsed_ms);
-        vs.bytes_since_calc = 0;
-        vs.last_bitrate_calc = now;
-    }
-
     if (vs.decoder.decode(payload, payload_len, vs.rgba, vs.width, vs.height)) {
         vs.dirty = true;
         vs.last_frame = now;

@@ -42,10 +42,6 @@ inline constexpr int kFpsOptionCount = sizeof(kFpsOptions) / sizeof(kFpsOptions[
 struct StreamStats {
     int width = 0;
     int height = 0;
-    int bitrate_kbps = 0;
-    int fps = 0;
-    size_t bytes_received = 0;
-    std::chrono::steady_clock::time_point last_calc;
     int measured_kbps = 0;
 };
 
@@ -109,9 +105,7 @@ private:
         int height = 0;
         bool dirty = false;
         std::chrono::steady_clock::time_point last_frame;
-        size_t bytes_since_calc = 0;
-        std::chrono::steady_clock::time_point last_bitrate_calc;
-        int measured_kbps = 0;
+        int measured_kbps = 0;  // from sender via packet header
     };
     mutable std::mutex video_mutex_;
     std::unordered_map<std::string, std::unique_ptr<PeerVideoState>> peer_video_;

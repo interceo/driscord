@@ -11,7 +11,7 @@ struct Config {
     int screen_fps = 60;
     int capture_width = 1920;
     int capture_height = 1080;
-    int video_bitrate_kbps = 4000;
+    int video_bitrate_kbps = 8000;
 
     std::string server_url() const { return fmt::format(FMT_COMPILE("ws://{}:{}"), server_host, server_port); }
 

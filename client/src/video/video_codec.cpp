@@ -38,6 +38,23 @@ static const AVCodec* pick_h264_encoder() {
     return avcodec_find_encoder(AV_CODEC_ID_H264);
 }
 
+static void setup_rate_control(AVCodecContext* ctx, int64_t bitrate_bps, bool is_videotoolbox, bool is_libx264) {
+    ctx->bit_rate = bitrate_bps;
+    ctx->rc_max_rate = bitrate_bps;
+    ctx->rc_buffer_size = static_cast<int>(bitrate_bps);  // 1-second VBV buffer
+
+    if (is_videotoolbox) {
+        av_opt_set(ctx->priv_data, "allow_sw", "true", 0);
+        av_opt_set_int(ctx->priv_data, "profile", AV_PROFILE_H264_BASELINE, 0);
+        av_opt_set(ctx->priv_data, "constant_bit_rate", "true", AV_OPT_SEARCH_CHILDREN);
+    } else if (is_libx264) {
+        av_opt_set(ctx->priv_data, "preset", "ultrafast", 0);
+        av_opt_set(ctx->priv_data, "tune", "zerolatency", 0);
+        ctx->profile = AV_PROFILE_H264_BASELINE;
+        av_opt_set(ctx->priv_data, "nal-hrd", "cbr", 0);
+    }
+}
+
 // --- VideoEncoder -----------------------------------------------------------
 
 VideoEncoder::~VideoEncoder() { shutdown(); }
@@ -56,11 +73,12 @@ bool VideoEncoder::init(int width, int height, int bitrate_kbps) {
         return false;
     }
 
+    int64_t bitrate_bps = static_cast<int64_t>(bitrate_kbps) * 1000;
+
     ctx_ = avcodec_alloc_context3(codec);
     ctx_->width = width;
     ctx_->height = height;
     ctx_->time_base = {1, 1000};
-    ctx_->bit_rate = static_cast<int64_t>(bitrate_kbps) * 1000;
     ctx_->pix_fmt = AV_PIX_FMT_YUV420P;
     ctx_->color_range = AVCOL_RANGE_MPEG;
     ctx_->gop_size = 120;
@@ -72,15 +90,7 @@ bool VideoEncoder::init(int width, int height, int bitrate_kbps) {
     bool is_videotoolbox = (enc_name.find("videotoolbox") != std::string::npos);
     bool is_libx264 = (enc_name.find("libx264") != std::string::npos);
 
-    if (is_videotoolbox) {
-        av_opt_set(ctx_->priv_data, "realtime", "true", 0);
-        av_opt_set(ctx_->priv_data, "allow_sw", "true", 0);
-        av_opt_set_int(ctx_->priv_data, "profile", AV_PROFILE_H264_BASELINE, 0);
-    } else if (is_libx264) {
-        av_opt_set(ctx_->priv_data, "preset", "ultrafast", 0);
-        av_opt_set(ctx_->priv_data, "tune", "zerolatency", 0);
-        ctx_->profile = AV_PROFILE_H264_BASELINE;
-    }
+    setup_rate_control(ctx_, bitrate_bps, is_videotoolbox, is_libx264);
 
     int ret = avcodec_open2(ctx_, codec, nullptr);
     if (ret < 0) {
@@ -101,16 +111,16 @@ bool VideoEncoder::init(int width, int height, int bitrate_kbps) {
             ctx_->width = width;
             ctx_->height = height;
             ctx_->time_base = {1, 1000};
-            ctx_->bit_rate = static_cast<int64_t>(bitrate_kbps) * 1000;
             ctx_->pix_fmt = AV_PIX_FMT_YUV420P;
             ctx_->color_range = AVCOL_RANGE_MPEG;
             ctx_->gop_size = 120;
             ctx_->max_b_frames = 0;
             ctx_->thread_count = 2;
             ctx_->flags |= AV_CODEC_FLAG_LOW_DELAY;
-            ctx_->profile = AV_PROFILE_H264_BASELINE;
-            av_opt_set(ctx_->priv_data, "preset", "ultrafast", 0);
-            av_opt_set(ctx_->priv_data, "tune", "zerolatency", 0);
+
+            enc_name = codec->name;
+            is_libx264 = (enc_name.find("libx264") != std::string::npos);
+            setup_rate_control(ctx_, bitrate_bps, false, is_libx264);
 
             ret = avcodec_open2(ctx_, codec, nullptr);
             if (ret < 0) {
@@ -118,7 +128,6 @@ bool VideoEncoder::init(int width, int height, int bitrate_kbps) {
                 avcodec_free_context(&ctx_);
                 return false;
             }
-            enc_name = codec->name;
         } else {
             return false;
         }
@@ -153,9 +162,14 @@ bool VideoEncoder::init(int width, int height, int bitrate_kbps) {
     width_ = width;
     height_ = height;
     pts_ = 0;
+    bytes_since_calc_ = 0;
+    measured_kbps_ = 0;
+    last_calc_ = std::chrono::steady_clock::now();
 
     LOG_INFO()
-        << "video encoder: " << width << "x" << height << " H.264 (" << enc_name << ") @ " << bitrate_kbps << " kbps";
+        << "video encoder: " << width << "x" << height << " H.264 (" << enc_name << ") @ " << bitrate_kbps
+        << " kbps (rc_max_rate=" << ctx_->rc_max_rate / 1000 << " kbps, vbv_buf=" << ctx_->rc_buffer_size / 1000
+        << " kbps)";
     return true;
 }
 
@@ -209,6 +223,18 @@ std::vector<uint8_t> VideoEncoder::encode(const uint8_t* bgra, int width, int he
         result.insert(result.end(), pkt_->data, pkt_->data + pkt_->size);
         av_packet_unref(pkt_);
     }
+
+    if (!result.empty()) {
+        bytes_since_calc_ += result.size();
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_calc_).count();
+        if (elapsed_ms >= 1000) {
+            measured_kbps_ = static_cast<int>(bytes_since_calc_ * 8 / elapsed_ms);
+            bytes_since_calc_ = 0;
+            last_calc_ = now;
+        }
+    }
+
     return result;
 }
 
