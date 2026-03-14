@@ -134,25 +134,27 @@ void App::toggle_deafen() {
 
 void App::set_volume(float vol) { audio_.set_output_volume(vol); }
 
-void App::start_sharing(const CaptureTarget& target) {
+void App::start_sharing(const CaptureTarget& target, int preset_idx, int fps) {
     if (sharing_ || state_ != AppState::Connected) {
         return;
     }
 
-    int max_w = config_.capture_width;
-    int max_h = config_.capture_height;
-
-    int enc_w = target.width;
-    int enc_h = target.height;
-
-    if (enc_w > max_w || enc_h > max_h) {
-        float scale = std::min(static_cast<float>(max_w) / enc_w,
-                               static_cast<float>(max_h) / enc_h);
-        enc_w = static_cast<int>(enc_w * scale) & ~1;
-        enc_h = static_cast<int>(enc_h * scale) & ~1;
+    int max_w, max_h;
+    if (preset_idx <= 0 || preset_idx >= kStreamPresetCount) {
+        max_w = target.width;
+        max_h = target.height;
     } else {
-        enc_w = enc_w & ~1;
-        enc_h = enc_h & ~1;
+        max_w = kStreamPresets[preset_idx].width;
+        max_h = kStreamPresets[preset_idx].height;
+    }
+
+    int enc_w = std::min(target.width, max_w) & ~1;
+    int enc_h = std::min(target.height, max_h) & ~1;
+    if (target.width > max_w || target.height > max_h) {
+        float scale = std::min(static_cast<float>(max_w) / target.width,
+                               static_cast<float>(max_h) / target.height);
+        enc_w = static_cast<int>(target.width * scale) & ~1;
+        enc_h = static_cast<int>(target.height * scale) & ~1;
     }
 
     if (enc_w <= 0 || enc_h <= 0) {
@@ -167,7 +169,7 @@ void App::start_sharing(const CaptureTarget& target) {
     }
 
     screen_capture_ = ScreenCapture::create();
-    if (!screen_capture_->start(config_.screen_fps, target, max_w, max_h,
+    if (!screen_capture_->start(fps, target, max_w, max_h,
             [this](const ScreenCapture::Frame& frame) {
                 if (frame.width != video_encoder_.width() ||
                     frame.height != video_encoder_.height()) {
@@ -198,6 +200,7 @@ void App::start_sharing(const CaptureTarget& target) {
     clear_preview();
     sharing_ = true;
     LOG_INFO() << "screen sharing started: " << target.name
+               << " " << enc_w << "x" << enc_h << " @ " << fps << " fps"
                << " (bitrate " << bitrate << " kbps)";
 }
 
@@ -274,8 +277,31 @@ void App::on_video_packet(const std::string& peer_id, const uint8_t* data, size_
     }
 
     auto& vs = *it->second;
+    vs.bytes_since_calc += len;
+
+    auto now = std::chrono::steady_clock::now();
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now - vs.last_bitrate_calc).count();
+    if (elapsed_ms >= 1000) {
+        vs.measured_kbps = static_cast<int>(vs.bytes_since_calc * 8 / elapsed_ms);
+        vs.bytes_since_calc = 0;
+        vs.last_bitrate_calc = now;
+    }
+
     if (vs.decoder.decode(payload, payload_len, vs.rgba, vs.width, vs.height)) {
         vs.dirty = true;
-        vs.last_frame = std::chrono::steady_clock::now();
+        vs.last_frame = now;
     }
+}
+
+StreamStats App::stream_stats(const std::string& peer_id) const {
+    StreamStats s;
+    std::scoped_lock lk(video_mutex_);
+    auto it = peer_video_.find(peer_id);
+    if (it != peer_video_.end()) {
+        s.width = it->second->width;
+        s.height = it->second->height;
+        s.measured_kbps = it->second->measured_kbps;
+    }
+    return s;
 }

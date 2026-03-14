@@ -22,6 +22,33 @@ enum class AppState {
     Connected,
 };
 
+struct StreamPreset {
+    const char* label;
+    int width;
+    int height;
+};
+
+inline constexpr StreamPreset kStreamPresets[] = {
+    {"Source",  0,    0},
+    {"720p",   1280, 720},
+    {"1080p",  1920, 1080},
+    {"1440p",  2560, 1440},
+};
+inline constexpr int kStreamPresetCount = sizeof(kStreamPresets) / sizeof(kStreamPresets[0]);
+
+inline constexpr int kFpsOptions[] = {15, 30, 60};
+inline constexpr int kFpsOptionCount = sizeof(kFpsOptions) / sizeof(kFpsOptions[0]);
+
+struct StreamStats {
+    int width = 0;
+    int height = 0;
+    int bitrate_kbps = 0;
+    int fps = 0;
+    size_t bytes_received = 0;
+    std::chrono::steady_clock::time_point last_calc;
+    int measured_kbps = 0;
+};
+
 class App {
 public:
     explicit App(const Config& cfg);
@@ -35,7 +62,7 @@ public:
     void toggle_deafen();
     void set_volume(float vol);
 
-    void start_sharing(const CaptureTarget& target);
+    void start_sharing(const CaptureTarget& target, int preset_idx, int fps);
     void stop_sharing();
     bool sharing() const { return sharing_; }
 
@@ -52,6 +79,7 @@ public:
     const Config& config() const noexcept { return config_; }
 
     VideoRenderer& video_renderer() { return video_renderer_; }
+    StreamStats stream_stats(const std::string& peer_id) const;
 
     struct PeerView {
         std::string id;
@@ -81,8 +109,11 @@ private:
         int height = 0;
         bool dirty = false;
         std::chrono::steady_clock::time_point last_frame;
+        size_t bytes_since_calc = 0;
+        std::chrono::steady_clock::time_point last_bitrate_calc;
+        int measured_kbps = 0;
     };
-    std::mutex video_mutex_;
+    mutable std::mutex video_mutex_;
     std::unordered_map<std::string, std::unique_ptr<PeerVideoState>> peer_video_;
 
     std::vector<uint8_t> send_buf_;
