@@ -84,6 +84,17 @@ bool AudioEngine::start(PacketCallback on_packet) {
     decoder_ = std::move(dec);
     device_ = std::move(dev);
     playback_ring_.clear();
+
+    // Always create screen audio decoder so we can receive screen audio from any peer
+    if (!screen_decoder_) {
+        OpusDecoderPtr sdec(opus_decoder_create(SAMPLE_RATE, SCREEN_AUDIO_CHANNELS, &err));
+        if (err == OPUS_OK) {
+            screen_decoder_ = std::move(sdec);
+        } else {
+            LOG_ERROR() << "screen opus_decoder_create failed: " << opus_strerror(err);
+        }
+    }
+
     running_ = true;
 
     LOG_INFO() << "audio engine started";
@@ -104,6 +115,9 @@ void AudioEngine::stop() {
 
     encoder_.reset();
     decoder_.reset();
+    screen_encoder_.reset();
+    screen_decoder_.reset();
+    on_screen_audio_packet_ = nullptr;
 
     LOG_INFO() << "audio engine stopped";
 }

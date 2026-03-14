@@ -71,6 +71,7 @@ public:
 
         dispatch_semaphore_t sem = dispatch_semaphore_create(0);
         __block bool success = false;
+        auto* capture = this;
 
         [SCShareableContent getShareableContentWithCompletionHandler:^(SCShareableContent *content, NSError *error) {
             if (error || !content) {
@@ -80,7 +81,6 @@ public:
                 return;
             }
 
-            // Exclude our own application from capture
             pid_t myPid = [[NSProcessInfo processInfo] processIdentifier];
             NSMutableArray<SCRunningApplication *> *excludedApps = [NSMutableArray array];
             for (SCRunningApplication *app in content.applications) {
@@ -101,27 +101,26 @@ public:
             config.sampleRate = SAMPLE_RATE;
             config.channelCount = CHANNELS;
 
-            // We only need audio, minimize video overhead
             config.width = 2;
             config.height = 2;
             config.minimumFrameInterval = CMTimeMake(1, 1);
 
-            self->stream_ = [[SCStream alloc] initWithFilter:filter configuration:config delegate:nil];
-            self->output_ = [[DRAudioStreamOutput alloc] init];
-            self->output_.callback = self->callback_;
+            capture->stream_ = [[SCStream alloc] initWithFilter:filter configuration:config delegate:nil];
+            capture->output_ = [[DRAudioStreamOutput alloc] init];
+            capture->output_.callback = capture->callback_;
 
             NSError *addErr = nil;
-            [self->stream_ addStreamOutput:self->output_
-                                      type:SCStreamOutputTypeAudio
-                        sampleHandlerQueue:dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0)
-                                     error:&addErr];
+            [capture->stream_ addStreamOutput:capture->output_
+                                         type:SCStreamOutputTypeAudio
+                           sampleHandlerQueue:dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0)
+                                        error:&addErr];
             if (addErr) {
                 LOG_ERROR() << "addStreamOutput error: " << [[addErr localizedDescription] UTF8String];
                 dispatch_semaphore_signal(sem);
                 return;
             }
 
-            [self->stream_ startCaptureWithCompletionHandler:^(NSError *startErr) {
+            [capture->stream_ startCaptureWithCompletionHandler:^(NSError *startErr) {
                 if (startErr) {
                     LOG_ERROR() << "startCapture error: " << [[startErr localizedDescription] UTF8String];
                 } else {
