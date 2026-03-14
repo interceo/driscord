@@ -76,7 +76,7 @@ set "STAGING=%BUILD%\staging"
 if exist "%STAGING%\client" rd /s /q "%STAGING%\client"
 mkdir "%STAGING%\client"
 copy /Y "%BUILD%\client\driscord_client.exe" "%STAGING%\client\" >nul
-copy /Y "%BUILD%\client\driscord.json" "%STAGING%\client\" >nul
+copy /Y "%ROOT%\driscord.json" "%STAGING%\client\" >nul
 if exist "%CLIENT_DIR%\*.dll" (
     copy /Y "%CLIENT_DIR%\*.dll" "%STAGING%\client\" >nul
 )
@@ -92,7 +92,7 @@ if errorlevel 1 (
 if exist "%STAGING%\server" rd /s /q "%STAGING%\server"
 mkdir "%STAGING%\server"
 copy /Y "%BUILD%\server\driscord_server.exe" "%STAGING%\server\" >nul
-copy /Y "%BUILD%\client\driscord.json" "%STAGING%\server\" >nul
+copy /Y "%ROOT%\driscord.json" "%STAGING%\server\" >nul
 echo ==^> Creating Z:\driscord_server.zip ...
 powershell -NoProfile -Command "Compress-Archive -Path '%STAGING%\server\*' -DestinationPath 'Z:\driscord_server.zip' -Force"
 if errorlevel 1 (

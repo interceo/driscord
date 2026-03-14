@@ -12,8 +12,26 @@ VoiceTransport::VoiceTransport() {
 }
 
 void VoiceTransport::add_turn_server(const std::string& url, const std::string& user, const std::string& pass) {
-    rtc_config_.iceServers.push_back(rtc::IceServer(url, user, pass));
-    LOG_INFO() << "TURN server added: " << url;
+    // Parse "turn:host:port" or "turns:host:port"
+    auto relay_type = rtc::IceServer::RelayType::TurnUdp;
+    std::string host = url;
+
+    if (host.rfind("turns:", 0) == 0) {
+        host = host.substr(6);
+        relay_type = rtc::IceServer::RelayType::TurnTls;
+    } else if (host.rfind("turn:", 0) == 0) {
+        host = host.substr(5);
+    }
+
+    uint16_t port = 3478;
+    auto colon = host.rfind(':');
+    if (colon != std::string::npos) {
+        port = static_cast<uint16_t>(std::stoi(host.substr(colon + 1)));
+        host = host.substr(0, colon);
+    }
+
+    rtc_config_.iceServers.push_back(rtc::IceServer(host, port, user, pass, relay_type));
+    LOG_INFO() << "TURN server added: " << host << ":" << port;
 }
 
 VoiceTransport::~VoiceTransport() { disconnect(); }
