@@ -28,6 +28,13 @@ Config Config::load(const std::string& path) {
         if (j.contains("server_port")) {
             cfg.server_port = j["server_port"].get<int>();
         }
+        if (j.contains("screen_fps")) {
+            cfg.screen_fps = j["screen_fps"].get<int>();
+        }
+        if (j.contains("video_bitrate_kbps")) {
+            cfg.video_bitrate_kbps = j["video_bitrate_kbps"].get<int>();
+        }
+
         LOG_INFO() << "config loaded from " << path;
     } catch (const json::exception& e) {
         LOG_ERROR() << "failed to parse config " << path << ": " << e.what();

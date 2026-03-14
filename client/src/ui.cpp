@@ -73,6 +73,8 @@ void UIRenderer::render(App& app) {
 
     ImGui::BeginChild("##Content", ImVec2(0, 0));
     render_voice_panel(app);
+    ImGui::Separator();
+    render_video_panel(app);
     ImGui::EndChild();
 
     ImGui::End();
@@ -155,10 +157,30 @@ void UIRenderer::render_voice_panel(App& app) {
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.95f, 0.35f, 0.35f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.75f, 0.20f, 0.20f, 1.0f));
     }
-    if (ImGui::Button(muted ? "Unmute" : "Mute", ImVec2(200, 32))) {
+    if (ImGui::Button(muted ? "Unmute" : "Mute", ImVec2(120, 32))) {
         app.toggle_mute();
     }
     if (muted) {
+        ImGui::PopStyleColor(3);
+    }
+
+    ImGui::SameLine();
+
+    bool sharing = app.sharing();
+    if (sharing) {
+        ImVec4 green(0.20f, 0.70f, 0.30f, 1.0f);
+        ImGui::PushStyleColor(ImGuiCol_Button, green);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.80f, 0.35f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.15f, 0.60f, 0.25f, 1.0f));
+    }
+    if (ImGui::Button(sharing ? "Stop Sharing" : "Share Screen", ImVec2(140, 32))) {
+        if (sharing) {
+            app.stop_sharing();
+        } else {
+            app.start_sharing();
+        }
+    }
+    if (sharing) {
         ImGui::PopStyleColor(3);
     }
 
@@ -177,6 +199,42 @@ void UIRenderer::render_voice_panel(App& app) {
 
     render_level_bar("Mic    ", in_level, muted ? 0xFF4444AA : 0xFF44AA44);
     render_level_bar("Speaker", out_level, 0xFF44AA44);
+}
+
+void UIRenderer::render_video_panel(App& app) {
+    auto active = app.video_renderer().active_peers();
+    if (active.empty() && !app.sharing()) return;
+
+    ImGui::Text("Screen Sharing");
+    ImGui::Spacing();
+
+    ImVec2 avail = ImGui::GetContentRegionAvail();
+
+    int count = static_cast<int>(active.size());
+    if (count == 0) {
+        ImGui::TextDisabled("You are sharing your screen");
+        return;
+    }
+
+    int cols = (count <= 1) ? 1 : 2;
+    float tile_w = (avail.x - ImGui::GetStyle().ItemSpacing.x * static_cast<float>(cols - 1)) /
+                   static_cast<float>(cols);
+    float tile_h = tile_w * (9.0f / 16.0f);
+
+    for (int i = 0; i < count; ++i) {
+        const auto& peer_id = active[static_cast<size_t>(i)];
+        auto tex = app.video_renderer().texture(peer_id);
+        if (!tex) continue;
+
+        if (i > 0 && (i % cols) != 0) {
+            ImGui::SameLine();
+        }
+
+        ImGui::BeginGroup();
+        ImGui::Image(tex, ImVec2(tile_w, tile_h));
+        ImGui::TextDisabled("%s", peer_id.c_str());
+        ImGui::EndGroup();
+    }
 }
 
 void UIRenderer::render_level_bar(const char* label, float level, unsigned int color) {

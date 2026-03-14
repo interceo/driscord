@@ -19,5 +19,6 @@ private:
 
     void render_sidebar(App& app);
     void render_voice_panel(App& app);
+    void render_video_panel(App& app);
     void render_level_bar(const char* label, float level, unsigned int color);
 };

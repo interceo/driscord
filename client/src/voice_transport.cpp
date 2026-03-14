@@ -39,12 +39,9 @@ void VoiceTransport::disconnect() {
     {
         std::scoped_lock lk(peers_mutex_);
         for (auto& [_, state] : peers_) {
-            if (state.dc) {
-                state.dc->close();
-            }
-            if (state.pc) {
-                state.pc->close();
-            }
+            if (state.dc) state.dc->close();
+            if (state.video_dc) state.video_dc->close();
+            if (state.pc) state.pc->close();
         }
         peers_.clear();
     }
@@ -65,6 +62,19 @@ void VoiceTransport::send_audio(const uint8_t* data, size_t len) {
                 state.dc->send(reinterpret_cast<const std::byte*>(data), len);
             } catch (const std::exception& e) {
                 LOG_ERROR() << "send_audio: " << e.what();
+            }
+        }
+    }
+}
+
+void VoiceTransport::send_video(const uint8_t* data, size_t len) {
+    std::scoped_lock lk(peers_mutex_);
+    for (auto& [_, state] : peers_) {
+        if (state.video_dc && state.video_dc_open) {
+            try {
+                state.video_dc->send(reinterpret_cast<const std::byte*>(data), len);
+            } catch (const std::exception& e) {
+                LOG_ERROR() << "send_video: " << e.what();
             }
         }
     }
@@ -144,8 +154,14 @@ void VoiceTransport::create_peer(const std::string& peer_id, bool create_offer) 
     });
 
     pc->onDataChannel([this, peer_id](std::shared_ptr<rtc::DataChannel> dc) {
-        LOG_INFO() << "received data channel from " << peer_id;
-        setup_data_channel(peer_id, dc);
+        std::string label = dc->label();
+        if (label == "audio") {
+            LOG_INFO() << "received audio channel from " << peer_id;
+            setup_audio_channel(peer_id, dc);
+        } else if (label == "video") {
+            LOG_INFO() << "received video channel from " << peer_id;
+            setup_video_channel(peer_id, dc);
+        }
     });
 
     pc->onStateChange([peer_id](rtc::PeerConnection::State state) {
@@ -159,9 +175,14 @@ void VoiceTransport::create_peer(const std::string& peer_id, bool create_offer) 
         rtc::DataChannelInit init;
         init.reliability.unordered = true;
         init.reliability.maxRetransmits = 0;
-        auto dc = pc->createDataChannel("audio", init);
-        setup_data_channel(peer_id, dc);
-        state.dc = dc;
+
+        auto audio_dc = pc->createDataChannel("audio", init);
+        setup_audio_channel(peer_id, audio_dc);
+        state.dc = audio_dc;
+
+        auto video_dc = pc->createDataChannel("video", init);
+        setup_video_channel(peer_id, video_dc);
+        state.video_dc = video_dc;
     }
 
     std::scoped_lock lk(peers_mutex_);
@@ -197,9 +218,9 @@ void VoiceTransport::handle_candidate(const std::string& from, const std::string
     }
 }
 
-void VoiceTransport::setup_data_channel(const std::string& peer_id, std::shared_ptr<rtc::DataChannel> dc) {
+void VoiceTransport::setup_audio_channel(const std::string& peer_id, std::shared_ptr<rtc::DataChannel> dc) {
     dc->onOpen([this, peer_id]() {
-        LOG_INFO() << "data channel open with " << peer_id;
+        LOG_INFO() << "audio channel open with " << peer_id;
         std::scoped_lock lk(peers_mutex_);
         auto it = peers_.find(peer_id);
         if (it != peers_.end()) {
@@ -208,7 +229,7 @@ void VoiceTransport::setup_data_channel(const std::string& peer_id, std::shared_
     });
 
     dc->onClosed([this, peer_id]() {
-        LOG_INFO() << "data channel closed with " << peer_id;
+        LOG_INFO() << "audio channel closed with " << peer_id;
         std::scoped_lock lk(peers_mutex_);
         auto it = peers_.find(peer_id);
         if (it != peers_.end()) {
@@ -224,12 +245,48 @@ void VoiceTransport::setup_data_channel(const std::string& peer_id, std::shared_
         }
     });
 
-    dc->onError([peer_id](std::string error) { LOG_ERROR() << "dc error [" << peer_id << "]: " << error; });
+    dc->onError([peer_id](std::string error) { LOG_ERROR() << "audio dc error [" << peer_id << "]: " << error; });
 
     std::scoped_lock lk(peers_mutex_);
     auto it = peers_.find(peer_id);
     if (it != peers_.end()) {
         it->second.dc = dc;
+    }
+}
+
+void VoiceTransport::setup_video_channel(const std::string& peer_id, std::shared_ptr<rtc::DataChannel> dc) {
+    dc->onOpen([this, peer_id]() {
+        LOG_INFO() << "video channel open with " << peer_id;
+        std::scoped_lock lk(peers_mutex_);
+        auto it = peers_.find(peer_id);
+        if (it != peers_.end()) {
+            it->second.video_dc_open = true;
+        }
+    });
+
+    dc->onClosed([this, peer_id]() {
+        LOG_INFO() << "video channel closed with " << peer_id;
+        std::scoped_lock lk(peers_mutex_);
+        auto it = peers_.find(peer_id);
+        if (it != peers_.end()) {
+            it->second.video_dc_open = false;
+        }
+    });
+
+    dc->onMessage([this, peer_id](auto msg) {
+        if (auto* data = std::get_if<rtc::binary>(&msg)) {
+            if (on_video_) {
+                on_video_(peer_id, reinterpret_cast<const uint8_t*>(data->data()), data->size());
+            }
+        }
+    });
+
+    dc->onError([peer_id](std::string error) { LOG_ERROR() << "video dc error [" << peer_id << "]: " << error; });
+
+    std::scoped_lock lk(peers_mutex_);
+    auto it = peers_.find(peer_id);
+    if (it != peers_.end()) {
+        it->second.video_dc = dc;
     }
 }
 

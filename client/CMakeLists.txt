@@ -104,18 +104,33 @@ endif()
 add_library(miniaudio_lib INTERFACE)
 target_include_directories(miniaudio_lib INTERFACE ${miniaudio_SOURCE_DIR})
 
+# --- libvpx (system dependency) ---
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(VPX REQUIRED IMPORTED_TARGET vpx)
+
+# --- Platform-specific screen capture sources ---
+set(SCREEN_CAPTURE_SOURCES "")
+if(APPLE)
+    set(SCREEN_CAPTURE_SOURCES src/video/screen_capture_mac.cpp)
+endif()
+
 # --- driscord_client executable ---
 add_executable(driscord_client
     src/main.cpp
     src/app.cpp
-    src/audio_engine.cpp
+    src/audio/audio_engine.cpp
     src/voice_transport.cpp
     src/ui.cpp
     src/config.cpp
+    src/video/video_codec.cpp
+    src/video_renderer.cpp
+    ${SCREEN_CAPTURE_SOURCES}
 )
 
 target_include_directories(driscord_client PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/audio
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/video
     ${CMAKE_SOURCE_DIR}/common
 )
 
@@ -125,6 +140,7 @@ target_link_libraries(driscord_client PRIVATE
     Opus::opus
     nlohmann_json::nlohmann_json
     miniaudio_lib
+    PkgConfig::VPX
     fmt::fmt
 )
 
@@ -132,10 +148,12 @@ if(APPLE)
     find_library(AUDIOTOOLBOX_FRAMEWORK AudioToolbox REQUIRED)
     find_library(COREAUDIO_FRAMEWORK CoreAudio REQUIRED)
     find_library(COREFOUNDATION_FRAMEWORK CoreFoundation REQUIRED)
+    find_library(COREGRAPHICS_FRAMEWORK CoreGraphics REQUIRED)
     target_link_libraries(driscord_client PRIVATE
         ${AUDIOTOOLBOX_FRAMEWORK}
         ${COREAUDIO_FRAMEWORK}
         ${COREFOUNDATION_FRAMEWORK}
+        ${COREGRAPHICS_FRAMEWORK}
     )
 endif()
 
