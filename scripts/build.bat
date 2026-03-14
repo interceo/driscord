@@ -4,11 +4,12 @@ set ROOT=%~dp0..
 set BUILD=%ROOT%\build
 
 :: --- detect vcpkg BEFORE vcvars (vcvars sets its own VCPKG_ROOT with spaces) ---
+set "VCPKG_EXE="
 set "TOOLCHAIN="
-set "VCPKG_TRIPLET="
-if exist "C:\vcpkg\scripts\buildsystems\vcpkg.cmake" (
+set "VCPKG_TRIPLET=x64-windows-static"
+if exist "C:\vcpkg\vcpkg.exe" (
+    set "VCPKG_EXE=C:\vcpkg\vcpkg.exe"
     set "TOOLCHAIN=-DCMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake"
-    set "VCPKG_TRIPLET=-DVCPKG_TARGET_TRIPLET=x64-windows-static"
 )
 
 :: --- activate MSVC environment if cl.exe not found ---
@@ -31,18 +32,34 @@ if errorlevel 1 (
     exit /b 1
 )
 
-:: --- auto-detect FFmpeg ---
-set "FFMPEG_PATH="
-if exist "C:\ffmpeg\lib" set "FFMPEG_PATH=-DCMAKE_PREFIX_PATH=C:\ffmpeg"
+:: --- install vcpkg dependencies if available ---
+if defined VCPKG_EXE (
+    echo ==^> Checking vcpkg dependencies...
+    "%VCPKG_EXE%" install openssl:%VCPKG_TRIPLET% ffmpeg[avcodec,avformat,avdevice,swscale]:%VCPKG_TRIPLET% boost-beast:%VCPKG_TRIPLET% boost-asio:%VCPKG_TRIPLET% --no-print-usage 2>nul
+    if errorlevel 1 (
+        echo WARNING: Some vcpkg packages may have failed to install.
+        echo Trying with x64-windows triplet as fallback...
+        set "VCPKG_TRIPLET=x64-windows"
+        "%VCPKG_EXE%" install openssl:%VCPKG_TRIPLET% ffmpeg[avcodec,avformat,avdevice,swscale]:%VCPKG_TRIPLET% boost-beast:%VCPKG_TRIPLET% boost-asio:%VCPKG_TRIPLET% --no-print-usage 2>nul
+    )
+)
 
-:: --- auto-detect OpenSSL ---
+:: --- auto-detect FFmpeg (fallback for manual installs) ---
+set "FFMPEG_PATH="
+if not defined VCPKG_EXE (
+    if exist "C:\ffmpeg\lib" set "FFMPEG_PATH=-DCMAKE_PREFIX_PATH=C:\ffmpeg"
+)
+
+:: --- auto-detect OpenSSL (fallback for manual installs) ---
 set "OPENSSL_PATH="
-if exist "C:\Program Files\OpenSSL-Win64" set "OPENSSL_PATH=-DOPENSSL_ROOT_DIR=C:\Program Files\OpenSSL-Win64"
+if not defined VCPKG_EXE (
+    if exist "C:\Program Files\OpenSSL-Win64\include\openssl" set "OPENSSL_PATH=-DOPENSSL_ROOT_DIR=C:/Program Files/OpenSSL-Win64"
+)
 
 if exist "%BUILD%\CMakeCache.txt" goto build
 
 echo ==^> Configuring CMake...
-cmake -S "%ROOT%" -B "%BUILD%" -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release %TOOLCHAIN% %VCPKG_TRIPLET% %FFMPEG_PATH% %OPENSSL_PATH%
+cmake -S "%ROOT%" -B "%BUILD%" -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release %TOOLCHAIN% -DVCPKG_TARGET_TRIPLET=%VCPKG_TRIPLET% %FFMPEG_PATH% %OPENSSL_PATH%
 if errorlevel 1 (
     echo CMake configuration failed.
     exit /b 1
