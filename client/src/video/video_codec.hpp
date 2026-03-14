@@ -25,6 +25,8 @@ public:
 
     const std::vector<uint8_t>& encode(const uint8_t* bgra, int width, int height);
 
+    void force_keyframe() { force_keyframe_ = true; }
+
     int width() const { return width_; }
     int height() const { return height_; }
     int fps() const { return fps_; }
@@ -43,6 +45,7 @@ private:
     int64_t pts_ = 0;
 
     std::vector<uint8_t> encode_buf_;
+    std::atomic<bool> force_keyframe_{false};
 
     std::atomic<int> measured_kbps_{0};
     size_t bytes_since_calc_ = 0;

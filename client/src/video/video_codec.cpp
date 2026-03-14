@@ -1,6 +1,7 @@
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavutil/imgutils.h>
+#include <libavutil/log.h>
 #include <libavutil/opt.h>
 #include <libswscale/swscale.h>
 }
@@ -12,6 +13,13 @@ extern "C" {
 
 #include "log.hpp"
 #include "video_codec.hpp"
+
+namespace {
+struct FFmpegLogInit {
+    FFmpegLogInit() { av_log_set_level(AV_LOG_WARNING); }
+};
+static FFmpegLogInit ff_log_init;
+}  // namespace
 
 static std::string ff_err(int errnum) {
     char buf[AV_ERROR_MAX_STRING_SIZE]{};
@@ -66,6 +74,7 @@ static void setup_rate_control(AVCodecContext* ctx, int64_t bitrate_bps, const s
         ctx->profile = AV_PROFILE_H264_HIGH;
         av_opt_set(ctx->priv_data, "nal-hrd", "cbr", 0);
         av_opt_set(ctx->priv_data, "rc-lookahead", "0", 0);
+        av_opt_set(ctx->priv_data, "repeat-headers", "1", 0);
         av_opt_set(ctx->priv_data, "vbv-maxrate", std::to_string(bitrate_bps / 1000).c_str(), 0);
         av_opt_set(ctx->priv_data, "vbv-bufsize", std::to_string(bitrate_bps / 1000).c_str(), 0);
     } else if (enc_name.find("h264_mf") != std::string::npos) {
@@ -254,6 +263,12 @@ const std::vector<uint8_t>& VideoEncoder::encode(const uint8_t* bgra, int width,
     sws_scale(sws_, src_slices, src_stride, 0, height, frame_->data, frame_->linesize);
 
     frame_->pts = pts_++;
+    frame_->pict_type = AV_PICTURE_TYPE_NONE;
+    frame_->key_frame = 0;
+    if (force_keyframe_.exchange(false)) {
+        frame_->pict_type = AV_PICTURE_TYPE_I;
+        frame_->key_frame = 1;
+    }
 
     int ret = avcodec_send_frame(ctx_, frame_);
     if (ret < 0) {
@@ -331,14 +346,12 @@ bool VideoDecoder::decode(const uint8_t* data, size_t len, std::vector<uint8_t>&
         return false;
     }
 
-    av_packet_unref(pkt_);
-    if (av_new_packet(pkt_, static_cast<int>(len)) < 0) {
-        return false;
-    }
-    std::memcpy(pkt_->data, data, len);
+    pkt_->data = const_cast<uint8_t*>(data);
+    pkt_->size = static_cast<int>(len);
 
     int ret = avcodec_send_packet(ctx_, pkt_);
-    av_packet_unref(pkt_);
+    pkt_->data = nullptr;
+    pkt_->size = 0;
     if (ret < 0) {
         return false;
     }

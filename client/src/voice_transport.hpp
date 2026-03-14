@@ -32,10 +32,13 @@ public:
     void send_audio(const uint8_t* data, size_t len);
     void send_video(const uint8_t* data, size_t len);
 
+    using Callback = std::function<void()>;
+
     void on_audio_received(AudioPacketCb cb) { on_audio_ = std::move(cb); }
     void on_video_received(VideoPacketCb cb) { on_video_ = std::move(cb); }
     void on_peer_joined(PeerEventCb cb) { on_peer_joined_ = std::move(cb); }
     void on_peer_left(PeerEventCb cb) { on_peer_left_ = std::move(cb); }
+    void on_video_channel_opened(Callback cb) { on_video_channel_opened_ = std::move(cb); }
 
     struct PeerInfo {
         std::string id;
@@ -76,4 +79,5 @@ private:
     VideoPacketCb on_video_;
     PeerEventCb on_peer_joined_;
     PeerEventCb on_peer_left_;
+    Callback on_video_channel_opened_;
 };
