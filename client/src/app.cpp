@@ -32,13 +32,6 @@ uint32_t read_u32_le(const uint8_t* src) {
 
 }  // namespace
 
-int App::compute_bitrate(int w, int h, int base_kbps) {
-    constexpr double kRefPixels = 1920.0 * 1080.0;
-    double pixels = static_cast<double>(w) * h;
-    int kbps = static_cast<int>(base_kbps * (pixels / kRefPixels));
-    return std::max(kbps, 200);
-}
-
 App::App(const Config& cfg) : config_(cfg) {
     transport_.on_audio_received([this](const std::string& /*peer_id*/, const uint8_t* data, size_t len) {
         audio_.feed_packet(data, len);
@@ -160,22 +153,19 @@ void App::start_sharing(const CaptureTarget& target, int preset_idx, int fps) {
         return;
     }
 
-    int bitrate = compute_bitrate(enc_w, enc_h, config_.video_bitrate_kbps);
-    if (!video_encoder_.init(enc_w, enc_h, bitrate)) {
+    int base_br = config_.video_bitrate_kbps;
+    if (!video_encoder_.init(enc_w, enc_h, fps, base_br)) {
         LOG_ERROR() << "failed to init video encoder";
         return;
     }
 
     screen_capture_ = ScreenCapture::create();
-    if (!screen_capture_->start(fps, target, max_w, max_h, [this, bitrate](const ScreenCapture::Frame& frame) {
-            int br = bitrate;
+    if (!screen_capture_->start(fps, target, max_w, max_h, [this, fps, base_br](const ScreenCapture::Frame& frame) {
             if (frame.width != video_encoder_.width() || frame.height != video_encoder_.height()) {
-                br = compute_bitrate(frame.width, frame.height, config_.video_bitrate_kbps);
-                if (!video_encoder_.reinit(frame.width, frame.height, br)) {
+                if (!video_encoder_.reinit(frame.width, frame.height, fps, base_br)) {
                     return;
                 }
-                LOG_INFO()
-                    << "reinit video encoder: " << frame.width << "x" << frame.height << " @ " << br << " kbps";
+                LOG_INFO() << "reinit video encoder: " << frame.width << "x" << frame.height;
             }
 
             auto encoded = video_encoder_.encode(frame.data.data(), frame.width, frame.height);
@@ -200,9 +190,7 @@ void App::start_sharing(const CaptureTarget& target, int preset_idx, int fps) {
 
     clear_preview();
     sharing_ = true;
-    LOG_INFO()
-        << "screen sharing started: " << target.name << " " << enc_w << "x" << enc_h << " @ " << fps << " fps"
-        << " (bitrate " << bitrate << " kbps)";
+    LOG_INFO() << "screen sharing started: " << target.name << " " << enc_w << "x" << enc_h << " @ " << fps << " fps";
 }
 
 void App::stop_sharing() {

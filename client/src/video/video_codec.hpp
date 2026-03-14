@@ -19,15 +19,18 @@ public:
     VideoEncoder(const VideoEncoder&) = delete;
     VideoEncoder& operator=(const VideoEncoder&) = delete;
 
-    bool init(int width, int height, int bitrate_kbps);
-    bool reinit(int width, int height, int bitrate_kbps);
+    bool init(int width, int height, int fps, int base_bitrate_kbps);
+    bool reinit(int width, int height, int fps, int base_bitrate_kbps);
     void shutdown();
 
     std::vector<uint8_t> encode(const uint8_t* bgra, int width, int height);
 
     int width() const { return width_; }
     int height() const { return height_; }
+    int fps() const { return fps_; }
     int measured_kbps() const { return measured_kbps_; }
+
+    static int compute_bitrate(int w, int h, int base_kbps);
 
 private:
     AVCodecContext* ctx_ = nullptr;
@@ -36,6 +39,7 @@ private:
     AVPacket* pkt_ = nullptr;
     int width_ = 0;
     int height_ = 0;
+    int fps_ = 30;
     int64_t pts_ = 0;
 
     std::atomic<int> measured_kbps_{0};
@@ -54,8 +58,7 @@ public:
     bool init();
     void shutdown();
 
-    bool decode(const uint8_t* data, size_t len,
-                std::vector<uint8_t>& rgba_out, int& out_w, int& out_h);
+    bool decode(const uint8_t* data, size_t len, std::vector<uint8_t>& rgba_out, int& out_w, int& out_h);
 
 private:
     AVCodecContext* ctx_ = nullptr;
