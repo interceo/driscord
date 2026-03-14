@@ -2,6 +2,8 @@
 
 #ifdef _WIN32
 
+#include <Windows.h>
+
 #include <atomic>
 #include <thread>
 

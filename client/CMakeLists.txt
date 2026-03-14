@@ -1,10 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-if(APPLE)
-    project(driscord_client LANGUAGES C CXX OBJCXX)
-else()
-    project(driscord_client LANGUAGES C CXX)
-endif()
+project(driscord_client LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -144,6 +140,10 @@ endif()
 if(APPLE)
     set(CAPTURE_SOURCES src/video/screen_capture_mac.cpp)
     set(SYSTEM_AUDIO_SOURCES src/audio/system_audio_capture_mac.mm)
+    set_source_files_properties(src/audio/system_audio_capture_mac.mm PROPERTIES
+        LANGUAGE CXX
+        COMPILE_FLAGS "-x objective-c++"
+    )
 elseif(WIN32)
     set(CAPTURE_SOURCES src/video/screen_capture_win.cpp)
     set(SYSTEM_AUDIO_SOURCES src/audio/system_audio_capture_win.cpp)
