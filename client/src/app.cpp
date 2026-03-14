@@ -18,8 +18,6 @@ constexpr int kStaleVideoSeconds = 3;
 }  // namespace
 
 App::App(const Config& cfg) : config_(cfg) {
-    max_video_queue_ = static_cast<size_t>(cfg.screen_buffer_ms) * 120 / 1000 + 30;
-
     for (auto& ts : cfg.turn_servers) {
         transport_.add_turn_server(ts.url, ts.user, ts.pass);
     }
@@ -72,6 +70,7 @@ void App::update() {
         state_ = AppState::Connected;
         LOG_INFO() << "connected, id: " << transport_.local_id();
 
+        audio_.set_screen_stream(&stream_jitter_);
         bool ok = audio_.start([this](const uint8_t* data, size_t len) { transport_.send_audio(data, len); });
 
         if (!ok) {
@@ -125,17 +124,7 @@ void App::update() {
         if (pd.vs->decoder.decode(pd.data.data(), pd.data.size(), rgba, dec_w, dec_h)) {
             pd.vs->decode_failures = 0;
             pd.vs->measured_kbps = static_cast<int>(pd.kbps);
-
-            TimedFrame tf;
-            tf.rgba = std::move(rgba);
-            tf.width = dec_w;
-            tf.height = dec_h;
-            tf.sender_ts = pd.sender_ts;
-            pd.vs->frame_queue.push_back(std::move(tf));
-
-            while (pd.vs->frame_queue.size() > max_video_queue_) {
-                pd.vs->frame_queue.pop_front();
-            }
+            stream_jitter_.push_video(std::move(rgba), dec_w, dec_h, pd.sender_ts);
         } else {
             ++pd.vs->decode_failures;
             if (pd.vs->decode_failures % 5 == 1) {
@@ -144,90 +133,12 @@ void App::update() {
         }
     }
 
-    const uint32_t audio_ts = audio_.screen_playback_ts();
-    const bool has_audio_clock = (audio_ts > 0);
-    const bool sync_log = (++sync_log_counter_ % 60 == 0);
-    const uint32_t max_gap = static_cast<uint32_t>(config_.max_sync_gap_ms);
-    const uint32_t buffer_ms = static_cast<uint32_t>(config_.screen_buffer_ms);
-
-    {
+    if (auto* frame = stream_jitter_.pop_video()) {
         std::scoped_lock lk(video_mutex_);
         for (auto& [peer_id, vs] : peer_video_) {
-            if (vs->frame_queue.empty()) {
-                continue;
-            }
-
-            if (!vs->video_primed) {
-                uint32_t span = vs->frame_queue.back().sender_ts - vs->frame_queue.front().sender_ts;
-                if (span < buffer_ms && has_audio_clock) {
-                    if (sync_log) {
-                        LOG_INFO()
-                            << "[sync-recv] priming: span=" << span << "ms target=" << buffer_ms
-                            << "ms queue=" << vs->frame_queue.size();
-                    }
-                    continue;
-                }
-                vs->video_primed = true;
-                LOG_INFO()
-                    << "[sync-recv] video primed, queue=" << vs->frame_queue.size()
-                    << " span=" << (vs->frame_queue.back().sender_ts - vs->frame_queue.front().sender_ts) << "ms";
-            }
-
-            if (!has_audio_clock) {
-                auto& f = vs->frame_queue.back();
-                video_renderer_.update_frame(peer_id, f.rgba.data(), f.width, f.height);
-                vs->width = f.width;
-                vs->height = f.height;
-                if (sync_log) {
-                    LOG_INFO()
-                        << "[sync-recv] no audio clock, showing latest video ts=" << f.sender_ts
-                        << " queue=" << vs->frame_queue.size();
-                }
-                vs->frame_queue.clear();
-                continue;
-            }
-
-            uint32_t front_ts = vs->frame_queue.front().sender_ts;
-            int32_t gap = static_cast<int32_t>(front_ts - audio_ts);
-
-            if (gap > static_cast<int32_t>(max_gap)) {
-                auto& f = vs->frame_queue.back();
-                LOG_INFO()
-                    << "[sync-recv] RESYNC: gap=" << gap << "ms > " << max_gap << "ms, force display ts=" << f.sender_ts
-                    << " queue=" << vs->frame_queue.size();
-                video_renderer_.update_frame(peer_id, f.rgba.data(), f.width, f.height);
-                vs->width = f.width;
-                vs->height = f.height;
-                audio_.re_anchor_screen(f.sender_ts);
-                vs->frame_queue.clear();
-                continue;
-            }
-
-            int last_ready = -1;
-            for (int i = 0; i < static_cast<int>(vs->frame_queue.size()); ++i) {
-                if (vs->frame_queue[i].sender_ts <= audio_ts) {
-                    last_ready = i;
-                } else {
-                    break;
-                }
-            }
-            if (last_ready >= 0) {
-                auto& f = vs->frame_queue[last_ready];
-                if (sync_log) {
-                    int32_t delta = static_cast<int32_t>(audio_ts - f.sender_ts);
-                    LOG_INFO()
-                        << "[sync-recv] display video_ts=" << f.sender_ts << " audio_ts=" << audio_ts
-                        << " delta=" << delta << "ms queue=" << vs->frame_queue.size() << " dropped=" << last_ready;
-                }
-                video_renderer_.update_frame(peer_id, f.rgba.data(), f.width, f.height);
-                vs->width = f.width;
-                vs->height = f.height;
-                vs->frame_queue.erase(vs->frame_queue.begin(), vs->frame_queue.begin() + last_ready + 1);
-            } else if (sync_log) {
-                LOG_INFO()
-                    << "[sync-recv] waiting: front_video_ts=" << front_ts << " audio_ts=" << audio_ts << " wait=" << gap
-                    << "ms queue=" << vs->frame_queue.size();
-            }
+            video_renderer_.update_frame(peer_id, frame->rgba.data(), frame->width, frame->height);
+            vs->width = frame->width;
+            vs->height = frame->height;
         }
     }
 
@@ -384,6 +295,7 @@ void App::start_sharing(const CaptureTarget& target, StreamQuality quality, int 
                 transport_.send_screen_audio(data, len);
             }))
         {
+            audio_.set_screen_stream(&stream_jitter_);
             system_audio_capture_ = SystemAudioCapture::create();
             if (system_audio_capture_ &&
                 system_audio_capture_->start([this](const float* samples, size_t frames, int ch) {
@@ -413,6 +325,7 @@ void App::stop_sharing() {
         system_audio_capture_.reset();
     }
     audio_.shutdown_screen_audio();
+    stream_jitter_.reset();
     sharing_audio_ = false;
 
     if (screen_capture_) {

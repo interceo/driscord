@@ -8,6 +8,8 @@
 #include <memory>
 #include <vector>
 
+class ScreenStreamJitter;
+
 struct OpusEncoder;
 struct OpusDecoder;
 struct ma_device;
@@ -35,7 +37,7 @@ public:
 
     using PacketCallback = std::function<void(const uint8_t* data, size_t len)>;
 
-    explicit AudioEngine(int voice_jitter_ms = 80, int screen_jitter_ms = 80);
+    explicit AudioEngine(int voice_jitter_ms = 80);
     ~AudioEngine();
 
     AudioEngine(const AudioEngine&) = delete;
@@ -52,8 +54,7 @@ public:
     void feed_screen_audio_pcm(const float* samples, size_t frames, int channels);
     void feed_screen_audio_packet(const uint8_t* data, size_t len);
 
-    uint32_t screen_playback_ts() const { return screen_jitter_.current_playback_ts(); }
-    void re_anchor_screen(uint32_t ts) { screen_jitter_.re_anchor(ts); }
+    void set_screen_stream(ScreenStreamJitter* stream) { screen_stream_ = stream; }
 
     void set_muted(bool m) { muted_ = m; }
     bool muted() const noexcept { return muted_; }
@@ -97,7 +98,7 @@ private:
     size_t capture_pos_ = 0;
 
     AudioJitter voice_jitter_;
-    AudioJitter screen_jitter_;
+    ScreenStreamJitter* screen_stream_ = nullptr;
     std::vector<float> screen_mix_buf_;
 
     std::vector<uint8_t> encode_buf_;
