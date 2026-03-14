@@ -8,5 +8,7 @@
             "user": "driscord",
             "pass": "driscordpass"
         }
-    ]
+    ],
+    "voice_jitter_ms": 200,
+    "screen_buffer_ms": 200
 }
