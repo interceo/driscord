@@ -108,13 +108,16 @@ void App::start_sharing() {
         return;
     }
 
-    if (!video_encoder_.init(1920, 1080, config_.video_bitrate_kbps)) {
+    int cw = config_.capture_width;
+    int ch = config_.capture_height;
+
+    if (!video_encoder_.init(cw, ch, config_.video_bitrate_kbps)) {
         LOG_ERROR() << "failed to init video encoder";
         return;
     }
 
     screen_capture_ = ScreenCapture::create();
-    if (!screen_capture_->start(config_.screen_fps, [this](const ScreenCapture::Frame& frame) {
+    if (!screen_capture_->start(config_.screen_fps, cw, ch, [this](const ScreenCapture::Frame& frame) {
             auto vp8 = video_encoder_.encode(frame.data.data(), frame.width, frame.height);
             if (vp8.empty()) {
                 return;

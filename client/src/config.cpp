@@ -31,6 +31,12 @@ Config Config::load(const std::string& path) {
         if (j.contains("screen_fps")) {
             cfg.screen_fps = j["screen_fps"].get<int>();
         }
+        if (j.contains("capture_width")) {
+            cfg.capture_width = j["capture_width"].get<int>();
+        }
+        if (j.contains("capture_height")) {
+            cfg.capture_height = j["capture_height"].get<int>();
+        }
         if (j.contains("video_bitrate_kbps")) {
             cfg.video_bitrate_kbps = j["video_bitrate_kbps"].get<int>();
         }

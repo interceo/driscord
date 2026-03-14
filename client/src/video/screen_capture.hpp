@@ -18,7 +18,7 @@ public:
     static std::unique_ptr<ScreenCapture> create();
 
     virtual ~ScreenCapture() = default;
-    virtual bool start(int target_fps, FrameCallback cb) = 0;
+    virtual bool start(int target_fps, int width, int height, FrameCallback cb) = 0;
     virtual void stop() = 0;
     virtual bool running() const = 0;
 };

@@ -112,6 +112,9 @@ pkg_check_modules(VPX REQUIRED IMPORTED_TARGET vpx)
 set(SCREEN_CAPTURE_SOURCES "")
 if(APPLE)
     set(SCREEN_CAPTURE_SOURCES src/video/screen_capture_mac.cpp)
+elseif(UNIX)
+    find_package(X11 REQUIRED)
+    set(SCREEN_CAPTURE_SOURCES src/video/screen_capture_x11.cpp)
 endif()
 
 # --- driscord_client executable ---
@@ -154,6 +157,11 @@ if(APPLE)
         ${COREAUDIO_FRAMEWORK}
         ${COREFOUNDATION_FRAMEWORK}
         ${COREGRAPHICS_FRAMEWORK}
+    )
+elseif(UNIX)
+    target_link_libraries(driscord_client PRIVATE
+        X11::X11
+        X11::Xext
     )
 endif()
 
