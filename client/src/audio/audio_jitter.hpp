@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ring_buffer.hpp"
+#include "utils/byte_utils.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -17,7 +18,7 @@ public:
           target_samples_(target_delay_ms * sample_rate / 1000),
           sample_rate_(sample_rate) {}
 
-    void push(const float* mono_pcm, size_t frames, uint16_t seq) {
+    void push(const float* mono_pcm, size_t frames, uint16_t seq, uint32_t sender_ts = 0) {
         if (first_packet_) {
             first_packet_ = false;
             last_seq_ = seq;
@@ -31,6 +32,10 @@ public:
             last_seq_ = seq;
         }
 
+        if (sender_ts != 0) {
+            latest_sender_ts_.store(sender_ts, std::memory_order_relaxed);
+        }
+
         ring_.write(mono_pcm, frames);
     }
 
@@ -41,6 +46,13 @@ public:
                 return 0;
             }
             primed_ = true;
+
+            uint32_t latest = latest_sender_ts_.load(std::memory_order_relaxed);
+            if (latest != 0) {
+                uint32_t buf_ms = static_cast<uint32_t>(ring_.available_read() * 1000 / sample_rate_);
+                playback_sender_ts_.store(latest - buf_ms, std::memory_order_relaxed);
+                playback_local_ts_.store(drist::now_ms(), std::memory_order_relaxed);
+            }
         }
 
         size_t buffered = ring_.available_read();
@@ -52,7 +64,23 @@ public:
         if (got < frames) {
             std::memset(out + got, 0, (frames - got) * sizeof(float));
         }
+
+        if (got > 0 && playback_sender_ts_.load(std::memory_order_relaxed) != 0) {
+            uint32_t advanced_ms = static_cast<uint32_t>(got * 1000 / sample_rate_);
+            playback_sender_ts_.fetch_add(advanced_ms, std::memory_order_relaxed);
+            playback_local_ts_.store(drist::now_ms(), std::memory_order_relaxed);
+        }
+
         return got;
+    }
+
+    uint32_t current_playback_ts() const {
+        uint32_t pts = playback_sender_ts_.load(std::memory_order_relaxed);
+        if (pts == 0) {
+            return 0;
+        }
+        uint32_t elapsed = drist::now_ms() - playback_local_ts_.load(std::memory_order_relaxed);
+        return pts + elapsed;
     }
 
     void reset() {
@@ -60,6 +88,9 @@ public:
         primed_ = false;
         first_packet_ = true;
         last_seq_ = 0;
+        latest_sender_ts_.store(0, std::memory_order_relaxed);
+        playback_sender_ts_.store(0, std::memory_order_relaxed);
+        playback_local_ts_.store(0, std::memory_order_relaxed);
     }
 
     size_t buffered_ms() const { return ring_.available_read() * 1000 / sample_rate_; }
@@ -95,4 +126,8 @@ private:
     bool primed_ = false;
     bool first_packet_ = true;
     uint16_t last_seq_ = 0;
+
+    std::atomic<uint32_t> latest_sender_ts_{0};
+    std::atomic<uint32_t> playback_sender_ts_{0};
+    std::atomic<uint32_t> playback_local_ts_{0};
 };
