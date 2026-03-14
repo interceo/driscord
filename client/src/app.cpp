@@ -45,11 +45,9 @@ App::App(const Config& cfg) : config_(cfg) {
 
     transport_.on_peer_left([this](const std::string& peer_id) {
         LOG_INFO() << "peer left: " << peer_id;
-        {
-            std::scoped_lock lk(video_mutex_);
-            peer_video_.erase(peer_id);
-        }
-        video_renderer_.remove_peer(peer_id);
+        std::scoped_lock lk(video_mutex_);
+        peer_video_.erase(peer_id);
+        pending_removals_.push_back(peer_id);
     });
 }
 
@@ -67,10 +65,12 @@ void App::update() {
         }
     }
 
-    std::vector<std::string> stale_peers;
+    std::vector<std::string> to_remove;
     {
         std::scoped_lock lk(video_mutex_);
         auto now = std::chrono::steady_clock::now();
+
+        to_remove.swap(pending_removals_);
 
         for (auto& [peer_id, vs] : peer_video_) {
             if (vs->dirty) {
@@ -82,7 +82,7 @@ void App::update() {
         for (auto it = peer_video_.begin(); it != peer_video_.end();) {
             auto age = std::chrono::duration_cast<std::chrono::seconds>(now - it->second->last_frame);
             if (age.count() > kStaleVideoSeconds) {
-                stale_peers.push_back(it->first);
+                to_remove.push_back(it->first);
                 it = peer_video_.erase(it);
             } else {
                 ++it;
@@ -90,7 +90,7 @@ void App::update() {
         }
     }
 
-    for (auto& pid : stale_peers) {
+    for (auto& pid : to_remove) {
         video_renderer_.remove_peer(pid);
     }
 }
@@ -113,6 +113,7 @@ void App::disconnect() {
     {
         std::scoped_lock lk(video_mutex_);
         peer_video_.clear();
+        pending_removals_.clear();
     }
     video_renderer_.cleanup();
 }

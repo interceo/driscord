@@ -108,6 +108,7 @@ private:
     };
     mutable std::mutex video_mutex_;
     std::unordered_map<std::string, std::unique_ptr<PeerVideoState>> peer_video_;
+    std::vector<std::string> pending_removals_;
 
     std::vector<uint8_t> send_buf_;
 };
