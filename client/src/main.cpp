@@ -1,3 +1,7 @@
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
@@ -9,10 +13,7 @@
 
 #ifdef __APPLE__
 #include <OpenGL/gl3.h>
-#elif defined(_WIN32)
-#include <windows.h>
-#include <GL/gl.h>
-#else
+#elif !defined(_WIN32)
 #include <GL/gl.h>
 #endif
 
