@@ -29,10 +29,10 @@ struct StreamPreset {
 };
 
 inline constexpr StreamPreset kStreamPresets[] = {
-    {"Source",  0,    0},
-    {"720p",   1280, 720},
-    {"1080p",  1920, 1080},
-    {"1440p",  2560, 1440},
+    {"Source", 0, 0},
+    {"720p", 1280, 720},
+    {"1080p", 1920, 1080},
+    {"1440p", 2560, 1440},
 };
 inline constexpr int kStreamPresetCount = sizeof(kStreamPresets) / sizeof(kStreamPresets[0]);
 
@@ -85,7 +85,6 @@ public:
 
 private:
     void on_video_packet(const std::string& peer_id, const uint8_t* data, size_t len);
-    static int compute_bitrate(int w, int h, int base_kbps);
 
     Config config_;
     AppState state_ = AppState::Disconnected;

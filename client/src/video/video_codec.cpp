@@ -5,6 +5,7 @@ extern "C" {
 #include <libswscale/swscale.h>
 }
 
+#include <algorithm>
 #include <string>
 
 #include "log.hpp"
@@ -53,11 +54,6 @@ static void setup_rate_control(AVCodecContext* ctx, int64_t bitrate_bps, const s
     ctx->rc_max_rate = bitrate_bps;
     ctx->rc_buffer_size = static_cast<int>(bitrate_bps);
 
-    LOG_INFO()
-        << "setting encoder rate control: bitrate=" << bitrate_bps / 1000 << " kbps"
-        << ", rc_max_rate=" << ctx->rc_max_rate / 1000 << " kbps"
-        << ", vbv_buf=" << ctx->rc_buffer_size / 1000 << " kbps";
-
     if (enc_name.find("videotoolbox") != std::string::npos) {
         av_opt_set(ctx->priv_data, "allow_sw", "true", 0);
         av_opt_set_int(ctx->priv_data, "profile", AV_PROFILE_H264_BASELINE, 0);
@@ -83,11 +79,31 @@ static void setup_rate_control(AVCodecContext* ctx, int64_t bitrate_bps, const s
     }
 }
 
+static void setup_common_ctx(AVCodecContext* ctx, int width, int height, int fps) {
+    ctx->width = width;
+    ctx->height = height;
+    ctx->time_base = {1, fps};
+    ctx->framerate = {fps, 1};
+    ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+    ctx->color_range = AVCOL_RANGE_MPEG;
+    ctx->gop_size = fps * 2;
+    ctx->max_b_frames = 0;
+    ctx->thread_count = 2;
+    ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
+}
+
 // --- VideoEncoder -----------------------------------------------------------
 
 VideoEncoder::~VideoEncoder() { shutdown(); }
 
-bool VideoEncoder::init(int width, int height, int bitrate_kbps) {
+int VideoEncoder::compute_bitrate(int w, int h, int base_kbps) {
+    constexpr double kRefPixels = 1920.0 * 1080.0;
+    double pixels = static_cast<double>(w) * h;
+    int kbps = static_cast<int>(base_kbps * (pixels / kRefPixels));
+    return std::max(kbps, 500);
+}
+
+bool VideoEncoder::init(int width, int height, int fps, int base_bitrate_kbps) {
     shutdown();
 
     if (width % 2 != 0 || height % 2 != 0) {
@@ -95,24 +111,19 @@ bool VideoEncoder::init(int width, int height, int bitrate_kbps) {
         return false;
     }
 
+    fps = std::clamp(fps, 1, 240);
+
     const AVCodec* codec = pick_h264_encoder();
     if (!codec) {
         LOG_ERROR() << "H.264 encoder not found";
         return false;
     }
 
+    int bitrate_kbps = compute_bitrate(width, height, base_bitrate_kbps);
     int64_t bitrate_bps = static_cast<int64_t>(bitrate_kbps) * 1000;
 
     ctx_ = avcodec_alloc_context3(codec);
-    ctx_->width = width;
-    ctx_->height = height;
-    ctx_->time_base = {1, 60};
-    ctx_->pix_fmt = AV_PIX_FMT_YUV420P;
-    ctx_->color_range = AVCOL_RANGE_MPEG;
-    ctx_->gop_size = 120;
-    ctx_->max_b_frames = 0;
-    ctx_->thread_count = 2;
-    ctx_->flags |= AV_CODEC_FLAG_LOW_DELAY;
+    setup_common_ctx(ctx_, width, height, fps);
 
     std::string enc_name(codec->name);
     bool is_hw = (enc_name.find("libx264") == std::string::npos);
@@ -135,15 +146,7 @@ bool VideoEncoder::init(int width, int height, int bitrate_kbps) {
             }
 
             ctx_ = avcodec_alloc_context3(codec);
-            ctx_->width = width;
-            ctx_->height = height;
-            ctx_->time_base = {1, 1000};
-            ctx_->pix_fmt = AV_PIX_FMT_YUV420P;
-            ctx_->color_range = AVCOL_RANGE_MPEG;
-            ctx_->gop_size = 120;
-            ctx_->max_b_frames = 0;
-            ctx_->thread_count = 2;
-            ctx_->flags |= AV_CODEC_FLAG_LOW_DELAY;
+            setup_common_ctx(ctx_, width, height, fps);
 
             enc_name = codec->name;
             setup_rate_control(ctx_, bitrate_bps, enc_name);
@@ -187,24 +190,25 @@ bool VideoEncoder::init(int width, int height, int bitrate_kbps) {
 
     width_ = width;
     height_ = height;
+    fps_ = fps;
     pts_ = 0;
     bytes_since_calc_ = 0;
     measured_kbps_ = 0;
     last_calc_ = std::chrono::steady_clock::now();
 
     LOG_INFO()
-        << "video encoder: " << width << "x" << height << " H.264 (" << enc_name << ") @ " << bitrate_kbps
-        << " kbps (rc_max_rate=" << ctx_->rc_max_rate / 1000 << " kbps, vbv_buf=" << ctx_->rc_buffer_size / 1000
-        << " kbps)";
+        << "video encoder: " << width << "x" << height << " @ " << fps << " fps"
+        << " H.264 (" << enc_name << ") bitrate=" << bitrate_kbps << " kbps"
+        << " time_base=1/" << fps;
     return true;
 }
 
-bool VideoEncoder::reinit(int width, int height, int bitrate_kbps) {
-    if (width == width_ && height == height_) {
+bool VideoEncoder::reinit(int width, int height, int fps, int base_bitrate_kbps) {
+    if (width == width_ && height == height_ && fps == fps_) {
         return true;
     }
     shutdown();
-    return init(width, height, bitrate_kbps);
+    return init(width, height, fps, base_bitrate_kbps);
 }
 
 void VideoEncoder::shutdown() {
