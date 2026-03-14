@@ -12,8 +12,12 @@ struct OpusEncoder;
 struct OpusDecoder;
 struct ma_device;
 
-struct OpusEncoderDeleter { void operator()(OpusEncoder* e) const; };
-struct OpusDecoderDeleter { void operator()(OpusDecoder* d) const; };
+struct OpusEncoderDeleter {
+    void operator()(OpusEncoder* e) const;
+};
+struct OpusDecoderDeleter {
+    void operator()(OpusDecoder* d) const;
+};
 
 using OpusEncoderPtr = std::unique_ptr<OpusEncoder, OpusEncoderDeleter>;
 using OpusDecoderPtr = std::unique_ptr<OpusDecoder, OpusDecoderDeleter>;
@@ -37,12 +41,17 @@ public:
     void stop();
     bool running() const { return running_; }
 
-    void feed_packet(const uint8_t* data, size_t len);
+    void feed_packet(const uint8_t* data, size_t len, float peer_volume = 1.0f);
 
     void set_muted(bool m) { muted_ = m; }
     bool muted() const noexcept { return muted_; }
 
-    void set_deafened(bool d) { deafened_ = d; if (d) muted_ = true; }
+    void set_deafened(bool d) {
+        deafened_ = d;
+        if (d) {
+            muted_ = true;
+        }
+    }
     bool deafened() const noexcept { return deafened_; }
 
     void set_output_volume(float v) { output_volume_ = v; }

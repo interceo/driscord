@@ -44,8 +44,8 @@ uint32_t read_u32_le(const uint8_t* src) {
 }  // namespace
 
 App::App(const Config& cfg) : config_(cfg) {
-    transport_.on_audio_received([this](const std::string& /*peer_id*/, const uint8_t* data, size_t len) {
-        audio_.feed_packet(data, len);
+    transport_.on_audio_received([this](const std::string& peer_id, const uint8_t* data, size_t len) {
+        audio_.feed_packet(data, len, peer_volume(peer_id));
     });
 
     transport_.on_video_received([this](const std::string& peer_id, const uint8_t* data, size_t len) {
@@ -137,6 +137,17 @@ void App::toggle_deafen() {
 }
 
 void App::set_volume(float vol) { audio_.set_output_volume(vol); }
+
+void App::set_peer_volume(const std::string& peer_id, float vol) {
+    std::scoped_lock lk(peer_vol_mutex_);
+    peer_volumes_[peer_id] = vol;
+}
+
+float App::peer_volume(const std::string& peer_id) const {
+    std::scoped_lock lk(peer_vol_mutex_);
+    auto it = peer_volumes_.find(peer_id);
+    return (it != peer_volumes_.end()) ? it->second : 1.0f;
+}
 
 void App::start_sharing(const CaptureTarget& target, StreamQuality quality, int fps) {
     if (sharing_ || state_ != AppState::Connected) {

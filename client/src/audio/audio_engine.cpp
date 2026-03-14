@@ -159,7 +159,7 @@ void AudioEngine::on_playback(float* output, const uint32_t frames) {
     output_level_.store(std::sqrt(sum / static_cast<float>(frames)));
 }
 
-void AudioEngine::feed_packet(const uint8_t* data, size_t len) {
+void AudioEngine::feed_packet(const uint8_t* data, size_t len, float peer_volume) {
     if (!running_ || !decoder_) {
         return;
     }
@@ -168,6 +168,11 @@ void AudioEngine::feed_packet(const uint8_t* data, size_t len) {
         samples = opus_decode_float(decoder_.get(), data, static_cast<int>(len), decode_buf_.data(), FRAME_SIZE, 0);
 
     if (samples > 0) {
+        if (peer_volume != 1.0f) {
+            for (int i = 0; i < samples * CHANNELS; ++i) {
+                decode_buf_[static_cast<size_t>(i)] *= peer_volume;
+            }
+        }
         playback_ring_.write(decode_buf_.data(), static_cast<size_t>(samples));
     }
 }

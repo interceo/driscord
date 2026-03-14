@@ -76,6 +76,8 @@ public:
     void toggle_mute();
     void toggle_deafen();
     void set_volume(float vol);
+    void set_peer_volume(const std::string& peer_id, float vol);
+    float peer_volume(const std::string& peer_id) const;
 
     void start_sharing(const CaptureTarget& target, StreamQuality quality, int fps);
     void stop_sharing();
@@ -134,6 +136,9 @@ private:
     mutable std::mutex video_mutex_;
     std::unordered_map<std::string, std::unique_ptr<PeerVideoState>> peer_video_;
     std::vector<std::string> pending_removals_;
+
+    mutable std::mutex peer_vol_mutex_;
+    std::unordered_map<std::string, float> peer_volumes_;
 
     uint16_t send_frame_id_ = 0;
     std::vector<uint8_t> send_buf_;

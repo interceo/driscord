@@ -19,6 +19,9 @@ public:
 private:
     char server_url_buf_[256]{};
     float volume_ = 1.0f;
+    std::string popup_peer_id_;
+    float popup_peer_vol_ = 1.0f;
+    bool popup_is_self_ = false;
 
     std::vector<CaptureTarget> targets_;
     bool share_popup_open_ = false;
@@ -31,5 +34,6 @@ private:
     void render_content(App& app);
     void render_share_popup(App& app);
     void render_video_panel(App& app);
+    void render_user_popup(App& app);
     void render_level_bar(const char* label, float level, unsigned int color);
 };

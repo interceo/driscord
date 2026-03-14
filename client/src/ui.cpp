@@ -130,19 +130,42 @@ void UIRenderer::render_sidebar(App& app) {
     } else {
         if (state == AppState::Connected) {
             std::string you = app.local_id();
-            if (you.size() > 10) {
-                you = you.substr(0, 10) + "...";
+            std::string you_short = you;
+            if (you_short.size() > 10) {
+                you_short = you_short.substr(0, 10) + "...";
             }
-            ImGui::TextColored({0.2f, 0.9f, 0.3f, 1.0f}, "  %s (you)", you.c_str());
+            char label[128];
+            std::snprintf(label, sizeof(label), "  %s (you)##user_%s", you_short.c_str(), you.c_str());
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.2f, 0.9f, 0.3f, 1.0f));
+            ImGui::Selectable(label, false, ImGuiSelectableFlags_None, ImVec2(0, 0));
+            ImGui::PopStyleColor();
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                popup_peer_id_ = you;
+                popup_is_self_ = true;
+                volume_ = app.volume();
+                ImGui::OpenPopup("##UserPopup");
+            }
         }
         for (auto& p : peers) {
             std::string name = p.id;
             if (name.size() > 10) {
                 name = name.substr(0, 10) + "...";
             }
+            char label[128];
+            std::snprintf(label, sizeof(label), "  %s##user_%s", name.c_str(), p.id.c_str());
             ImVec4 col = p.connected ? ImVec4(0.2f, 0.9f, 0.3f, 1.0f) : ImVec4(0.6f, 0.6f, 0.6f, 1.0f);
-            ImGui::TextColored(col, "  %s", name.c_str());
+            ImGui::PushStyleColor(ImGuiCol_Text, col);
+            ImGui::Selectable(label, false, ImGuiSelectableFlags_None, ImVec2(0, 0));
+            ImGui::PopStyleColor();
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                popup_peer_id_ = p.id;
+                popup_is_self_ = false;
+                popup_peer_vol_ = app.peer_volume(p.id);
+                ImGui::OpenPopup("##UserPopup");
+            }
         }
+
+        render_user_popup(app);
     }
 
     float bottom_h = 52.0f;
@@ -216,24 +239,6 @@ void UIRenderer::render_content(App& app) {
     bool connected = (app.state() == AppState::Connected);
 
     if (connected) {
-        volume_ = app.volume();
-        ImGui::SetNextItemWidth(160);
-        if (ImGui::SliderFloat("Volume", &volume_, 0.0f, 2.0f, "%.1f")) {
-            app.set_volume(volume_);
-        }
-
-        ImGui::SameLine(0, 20);
-        bool m = app.muted();
-        float in_lv = std::min(app.input_level() * 5.0f, 1.0f);
-        float out_lv = std::min(app.output_level() * 5.0f, 1.0f);
-        render_level_bar("Mic", in_lv, m ? 0xFF4444AA : 0xFF44AA44);
-        ImGui::SameLine(0, 12);
-        render_level_bar("Spk", out_lv, app.deafened() ? 0xFF4444AA : 0xFF44AA44);
-
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Spacing();
-
         // Screen sharing controls
         ImGui::Text("Screen Sharing");
         ImGui::Spacing();
@@ -507,6 +512,40 @@ void UIRenderer::render_video_panel(App& app) {
         }
         ImGui::TextDisabled("%s", label.c_str());
         ImGui::EndGroup();
+    }
+}
+
+void UIRenderer::render_user_popup(App& app) {
+    if (ImGui::BeginPopup("##UserPopup")) {
+        std::string display = popup_peer_id_;
+        if (display.size() > 14) {
+            display = display.substr(0, 14) + "...";
+        }
+        ImGui::TextColored({0.34f, 0.54f, 0.93f, 1.0f}, "%s", display.c_str());
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        if (popup_is_self_) {
+            ImGui::Text("Mic Volume");
+            ImGui::SetNextItemWidth(150);
+            if (ImGui::SliderFloat("##mic_vol", &volume_, 0.0f, 2.0f, "%.1f")) {
+                app.set_volume(volume_);
+            }
+
+            ImGui::Spacing();
+            float in_lv = std::min(app.input_level() * 5.0f, 1.0f);
+            float out_lv = std::min(app.output_level() * 5.0f, 1.0f);
+            render_level_bar("Mic", in_lv, app.muted() ? 0xFF4444AA : 0xFF44AA44);
+            render_level_bar("Spk", out_lv, app.deafened() ? 0xFF4444AA : 0xFF44AA44);
+        } else {
+            ImGui::Text("User Volume");
+            ImGui::SetNextItemWidth(150);
+            if (ImGui::SliderFloat("##peer_vol", &popup_peer_vol_, 0.0f, 2.0f, "%.1f")) {
+                app.set_peer_volume(popup_peer_id_, popup_peer_vol_);
+            }
+        }
+
+        ImGui::EndPopup();
     }
 }
 
