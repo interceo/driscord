@@ -5,11 +5,12 @@
 #include <unordered_map>
 #include <vector>
 
+// clang-format off
 #ifdef __APPLE__
 #include <OpenGL/gl3.h>
 #elif defined(_WIN32)
-#include <GL/gl.h>
 #include <windows.h>
+#include <GL/gl.h>
 #ifndef GL_CLAMP_TO_EDGE
 #define GL_CLAMP_TO_EDGE 0x812F
 #endif
@@ -19,6 +20,7 @@
 #else
 #include <GL/gl.h>
 #endif
+// clang-format on
 
 #include <imgui.h>
 

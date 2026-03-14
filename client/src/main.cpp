@@ -1,3 +1,4 @@
+// clang-format off
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -18,6 +19,7 @@
 #endif
 
 #include <GLFW/glfw3.h>
+// clang-format on
 
 int main() {
     auto config = Config::load_default();

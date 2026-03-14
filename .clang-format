@@ -25,4 +25,5 @@ PenaltyBreakBeforeFirstCallParameter: 1
 PenaltyReturnTypeOnItsOwnLine: 10000000
 InsertBraces: true
 IndentWrappedFunctionNames: false
-IncludeBlocks: Regroup
+SortIncludes: CaseInsensitive
+IncludeBlocks: Preserve
