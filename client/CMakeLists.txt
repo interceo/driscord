@@ -110,7 +110,7 @@ target_include_directories(miniaudio_lib INTERFACE ${miniaudio_SOURCE_DIR})
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
     pkg_check_modules(FFMPEG QUIET IMPORTED_TARGET
-        libavcodec libavformat libavdevice libswscale libavutil)
+        libavcodec libavformat libavdevice libswscale libswresample libavutil)
 endif()
 
 if(NOT TARGET PkgConfig::FFMPEG)
@@ -119,6 +119,7 @@ if(NOT TARGET PkgConfig::FFMPEG)
     find_library(AVFORMAT_LIBRARY avformat)
     find_library(AVDEVICE_LIBRARY avdevice)
     find_library(SWSCALE_LIBRARY swscale)
+    find_library(SWRESAMPLE_LIBRARY swresample)
     find_library(AVUTIL_LIBRARY avutil)
 
     if(NOT AVCODEC_LIBRARY)
@@ -131,7 +132,7 @@ if(NOT TARGET PkgConfig::FFMPEG)
     set_target_properties(PkgConfig::FFMPEG PROPERTIES
         INTERFACE_INCLUDE_DIRECTORIES "${AVCODEC_INCLUDE_DIR}"
         INTERFACE_LINK_LIBRARIES
-            "${AVCODEC_LIBRARY};${AVFORMAT_LIBRARY};${AVDEVICE_LIBRARY};${SWSCALE_LIBRARY};${AVUTIL_LIBRARY}"
+            "${AVCODEC_LIBRARY};${AVFORMAT_LIBRARY};${AVDEVICE_LIBRARY};${SWSCALE_LIBRARY};${SWRESAMPLE_LIBRARY};${AVUTIL_LIBRARY}"
     )
 endif()
 
@@ -186,7 +187,7 @@ if(APPLE)
         ${COREGRAPHICS_FRAMEWORK}
     )
 elseif(WIN32)
-    target_link_libraries(driscord_client PRIVATE d3d11 dxgi gdi32)
+    target_link_libraries(driscord_client PRIVATE d3d11 dxgi gdi32 mfuuid mfplat mf strmiids)
 elseif(UNIX)
     find_package(X11 REQUIRED)
     if(NOT X11_Xrandr_FOUND)
