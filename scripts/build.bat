@@ -28,12 +28,9 @@ if exist "C:\Program Files\OpenSSL-Win64" (
 )
 
 :: --- pick generator: Ninja if available, else NMake ---
+set "GENERATOR=-G NMake Makefiles"
 where ninja >nul 2>&1
-if %errorlevel%==0 (
-    set "GENERATOR=-G Ninja"
-) else (
-    set "GENERATOR=-G \"NMake Makefiles\""
-)
+if %errorlevel%==0 set "GENERATOR=-G Ninja"
 
 if not exist "%BUILD%\CMakeCache.txt" (
     echo ==^> Configuring CMake...
