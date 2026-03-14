@@ -30,11 +30,16 @@ private:
     StreamQuality selected_quality_ = StreamQuality::FHD_1080;
     FrameRate selected_fps_ = FrameRate::FPS_30;
 
+    std::string focused_tile_id_;
+    std::string stream_popup_peer_;
+    float stream_popup_vol_ = 1.0f;
+
     void render_sidebar(App& app);
     void render_sidebar_bottom(App& app);
     void render_content(App& app);
     void render_share_popup(App& app);
     void render_video_panel(App& app);
     void render_user_popup(App& app);
+    void render_stream_volume_popup(App& app);
     void render_level_bar(const char* label, float level, unsigned int color);
 };
