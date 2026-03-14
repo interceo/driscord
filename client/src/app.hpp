@@ -132,7 +132,7 @@ private:
         uint32_t sender_ts;
     };
 
-    static constexpr size_t kMaxFrameQueue = 10;
+    static constexpr size_t kMaxFrameQueue = 100;
 
     struct PeerVideoState {
         VideoDecoder decoder;
