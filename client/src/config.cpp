@@ -40,6 +40,12 @@ Config Config::load(const std::string& path) {
         if (j.contains("video_bitrate_kbps")) {
             cfg.video_bitrate_kbps = j["video_bitrate_kbps"].get<int>();
         }
+        if (j.contains("audio_jitter_ms")) {
+            cfg.audio_jitter_ms = j["audio_jitter_ms"].get<int>();
+        }
+        if (j.contains("video_delay_ms")) {
+            cfg.video_delay_ms = j["video_delay_ms"].get<int>();
+        }
         // Single TURN server (legacy format)
         if (j.contains("turn_url") && j["turn_url"].is_string()) {
             TurnServer ts;
@@ -87,6 +93,14 @@ Config Config::load(const std::string& path) {
     if (cfg.server_host.empty()) {
         LOG_WARNING() << "empty server_host, using default localhost";
         cfg.server_host = "localhost";
+    }
+    if (cfg.audio_jitter_ms < 0 || cfg.audio_jitter_ms > 500) {
+        LOG_WARNING() << "invalid audio_jitter_ms " << cfg.audio_jitter_ms << ", using default 60";
+        cfg.audio_jitter_ms = 60;
+    }
+    if (cfg.video_delay_ms < 0 || cfg.video_delay_ms > 500) {
+        LOG_WARNING() << "invalid video_delay_ms " << cfg.video_delay_ms << ", using default 0";
+        cfg.video_delay_ms = 0;
     }
 
     return cfg;

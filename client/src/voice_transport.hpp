@@ -32,6 +32,7 @@ public:
     void send_audio(const uint8_t* data, size_t len);
     void send_video(const uint8_t* data, size_t len);
     void send_screen_audio(const uint8_t* data, size_t len);
+    void send_keyframe_request();
 
     using Callback = std::function<void()>;
 
@@ -41,6 +42,7 @@ public:
     void on_peer_joined(PeerEventCb cb) { on_peer_joined_ = std::move(cb); }
     void on_peer_left(PeerEventCb cb) { on_peer_left_ = std::move(cb); }
     void on_video_channel_opened(Callback cb) { on_video_channel_opened_ = std::move(cb); }
+    void on_keyframe_requested(Callback cb) { on_keyframe_requested_ = std::move(cb); }
 
     struct PeerInfo {
         std::string id;
@@ -86,4 +88,5 @@ private:
     PeerEventCb on_peer_joined_;
     PeerEventCb on_peer_left_;
     Callback on_video_channel_opened_;
+    Callback on_keyframe_requested_;
 };

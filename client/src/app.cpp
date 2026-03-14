@@ -42,6 +42,13 @@ App::App(const Config& cfg) : config_(cfg) {
         }
     });
 
+    transport_.on_keyframe_requested([this]() {
+        if (sharing_) {
+            LOG_INFO() << "keyframe requested by peer";
+            video_encoder_.force_keyframe();
+        }
+    });
+
     transport_.on_peer_left([this](const std::string& peer_id) {
         LOG_INFO() << "peer left: " << peer_id;
         {
@@ -124,17 +131,46 @@ void App::update() {
         }
     }
 
+    const uint32_t video_delay = static_cast<uint32_t>(config_.video_delay_ms);
+
     for (auto& pd : pending_decodes) {
         std::vector<uint8_t> rgba;
         int dec_w = 0, dec_h = 0;
         if (pd.vs->decoder.decode(pd.data.data(), pd.data.size(), rgba, dec_w, dec_h)) {
-            ReadyFrame rf;
-            rf.peer_id = std::move(pd.peer_id);
-            rf.rgba = std::move(rgba);
-            rf.width = dec_w;
-            rf.height = dec_h;
             pd.vs->measured_kbps = static_cast<int>(pd.kbps);
-            ready_frames.push_back(std::move(rf));
+
+            if (video_delay == 0) {
+                ReadyFrame rf;
+                rf.peer_id = std::move(pd.peer_id);
+                rf.rgba = std::move(rgba);
+                rf.width = dec_w;
+                rf.height = dec_h;
+                ready_frames.push_back(std::move(rf));
+            } else {
+                pd.vs->rgba = std::move(rgba);
+                pd.vs->width = dec_w;
+                pd.vs->height = dec_h;
+                if (!pd.vs->held) {
+                    pd.vs->buffered_at = now_ms();
+                    pd.vs->held = true;
+                }
+            }
+        }
+    }
+
+    if (video_delay > 0) {
+        uint32_t cur = now_ms();
+        std::scoped_lock lk(video_mutex_);
+        for (auto& [peer_id, vs] : peer_video_) {
+            if (vs->held && (cur - vs->buffered_at >= video_delay)) {
+                ReadyFrame rf;
+                rf.peer_id = peer_id;
+                rf.rgba.swap(vs->rgba);
+                rf.width = vs->width;
+                rf.height = vs->height;
+                ready_frames.push_back(std::move(rf));
+                vs->held = false;
+            }
         }
     }
 
@@ -390,6 +426,9 @@ void App::on_video_packet(const std::string& peer_id, const uint8_t* data, size_
     auto& vs = *it->second;
 
     if (frame_id != vs.reassembly_frame_id || total_chunks != vs.reassembly_total) {
+        if (vs.reassembly_total > 0 && vs.reassembly_got < vs.reassembly_total) {
+            transport_.send_keyframe_request();
+        }
         vs.reassembly_frame_id = frame_id;
         vs.reassembly_total = total_chunks;
         vs.reassembly_got = 0;

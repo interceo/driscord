@@ -35,7 +35,7 @@ public:
 
     using PacketCallback = std::function<void(const uint8_t* data, size_t len)>;
 
-    AudioEngine();
+    explicit AudioEngine(int jitter_ms = 60);
     ~AudioEngine();
 
     AudioEngine(const AudioEngine&) = delete;

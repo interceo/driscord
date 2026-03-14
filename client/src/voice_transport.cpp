@@ -135,6 +135,21 @@ void VoiceTransport::send_video(const uint8_t* data, size_t len) {
     }
 }
 
+static constexpr std::byte kKeyframeRequestTag{0x01};
+
+void VoiceTransport::send_keyframe_request() {
+    std::scoped_lock lk(peers_mutex_);
+    for (auto& [_, state] : peers_) {
+        if (state.video_dc && state.video_dc_open) {
+            try {
+                state.video_dc->send(&kKeyframeRequestTag, 1);
+            } catch (const std::exception& e) {
+                LOG_ERROR() << "send_keyframe_request: " << e.what();
+            }
+        }
+    }
+}
+
 void VoiceTransport::send_screen_audio(const uint8_t* data, size_t len) {
     std::scoped_lock lk(peers_mutex_);
     for (auto& [_, state] : peers_) {
@@ -276,9 +291,10 @@ void VoiceTransport::create_peer(const std::string& peer_id, bool create_offer) 
         setup_audio_channel(peer_id, audio_dc);
         state.dc = audio_dc;
 
-        // Video must be reliable+ordered: a single lost H.264 packet
-        // corrupts all subsequent P-frames until the next IDR keyframe.
-        auto video_dc = pc->createDataChannel("video");
+        rtc::DataChannelInit video_init;
+        video_init.reliability.unordered = true;
+        video_init.reliability.maxRetransmits = 0;
+        auto video_dc = pc->createDataChannel("video", video_init);
         setup_video_channel(peer_id, video_dc);
         state.video_dc = video_dc;
 
@@ -386,6 +402,12 @@ void VoiceTransport::setup_video_channel(const std::string& peer_id, std::shared
 
     dc->onMessage([this, peer_id](auto msg) {
         if (auto* data = std::get_if<rtc::binary>(&msg)) {
+            if (data->size() == 1 && (*data)[0] == kKeyframeRequestTag) {
+                if (on_keyframe_requested_) {
+                    on_keyframe_requested_();
+                }
+                return;
+            }
             if (on_video_) {
                 on_video_(peer_id, reinterpret_cast<const uint8_t*>(data->data()), data->size());
             }
