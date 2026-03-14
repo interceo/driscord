@@ -95,6 +95,8 @@ if(APPLE)
         ${IOKIT_FRAMEWORK}
         ${COREVIDEO_FRAMEWORK}
     )
+elseif(WIN32)
+    target_link_libraries(imgui_lib PUBLIC opengl32)
 elseif(UNIX)
     find_package(OpenGL REQUIRED)
     target_link_libraries(imgui_lib PUBLIC OpenGL::GL)
@@ -105,13 +107,39 @@ add_library(miniaudio_lib INTERFACE)
 target_include_directories(miniaudio_lib INTERFACE ${miniaudio_SOURCE_DIR})
 
 # --- FFmpeg (system dependency) ---
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
-    libavcodec libavformat libavdevice libswscale libavutil)
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(FFMPEG QUIET IMPORTED_TARGET
+        libavcodec libavformat libavdevice libswscale libavutil)
+endif()
+
+if(NOT TARGET PkgConfig::FFMPEG)
+    find_path(AVCODEC_INCLUDE_DIR libavcodec/avcodec.h)
+    find_library(AVCODEC_LIBRARY avcodec)
+    find_library(AVFORMAT_LIBRARY avformat)
+    find_library(AVDEVICE_LIBRARY avdevice)
+    find_library(SWSCALE_LIBRARY swscale)
+    find_library(AVUTIL_LIBRARY avutil)
+
+    if(NOT AVCODEC_LIBRARY)
+        message(FATAL_ERROR
+            "FFmpeg not found. Install via system package manager, vcpkg, "
+            "or set CMAKE_PREFIX_PATH to the FFmpeg install directory.")
+    endif()
+
+    add_library(PkgConfig::FFMPEG INTERFACE IMPORTED)
+    set_target_properties(PkgConfig::FFMPEG PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${AVCODEC_INCLUDE_DIR}"
+        INTERFACE_LINK_LIBRARIES
+            "${AVCODEC_LIBRARY};${AVFORMAT_LIBRARY};${AVDEVICE_LIBRARY};${SWSCALE_LIBRARY};${AVUTIL_LIBRARY}"
+    )
+endif()
 
 # --- platform-specific screen capture ---
 if(APPLE)
     set(CAPTURE_SOURCES src/video/screen_capture_mac.cpp)
+elseif(WIN32)
+    set(CAPTURE_SOURCES src/video/screen_capture_win.cpp)
 elseif(UNIX)
     set(CAPTURE_SOURCES src/video/screen_capture_linux.cpp)
 endif()
@@ -157,6 +185,8 @@ if(APPLE)
         ${COREFOUNDATION_FRAMEWORK}
         ${COREGRAPHICS_FRAMEWORK}
     )
+elseif(WIN32)
+    target_link_libraries(driscord_client PRIVATE d3d11 dxgi gdi32)
 elseif(UNIX)
     find_package(X11 REQUIRED)
     if(NOT X11_Xrandr_FOUND)
