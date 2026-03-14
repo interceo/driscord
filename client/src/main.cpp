@@ -36,7 +36,20 @@ int main() {
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
 #endif
 
+    const char* glsl_version = "#version 150";
     GLFWwindow* window = glfwCreateWindow(960, 640, "Driscord", nullptr, nullptr);
+
+#ifndef __APPLE__
+    if (!window) {
+        LOG_WARNING() << "OpenGL 3.2 Core not available, falling back to 2.1";
+        glfwDefaultWindowHints();
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 2);
+        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+        glsl_version = "#version 120";
+        window = glfwCreateWindow(960, 640, "Driscord", nullptr, nullptr);
+    }
+#endif
+
     if (!window) {
         LOG_ERROR() << "glfwCreateWindow failed";
         glfwTerminate();
@@ -44,6 +57,8 @@ int main() {
     }
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1);
+
+    LOG_INFO() << "OpenGL: " << glGetString(GL_VERSION);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -54,7 +69,7 @@ int main() {
     UIRenderer::apply_discord_theme();
 
     ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init("#version 150");
+    ImGui_ImplOpenGL3_Init(glsl_version);
 
     App app(config);
     UIRenderer ui(config);
