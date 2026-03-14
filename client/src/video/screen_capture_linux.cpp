@@ -7,8 +7,8 @@ extern "C" {
 }
 
 #include "screen_capture.hpp"
+#include "screen_capture_common.hpp"
 
-#include <algorithm>
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
@@ -17,20 +17,12 @@ extern "C" {
 
 #include "log.hpp"
 
-#ifdef __linux__
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/extensions/Xrandr.h>
-#endif
 
-#ifdef __APPLE__
-#include <CoreGraphics/CoreGraphics.h>
-#endif
-
-// --- target enumeration (platform-specific) ---------------------------------
-
-#ifdef __linux__
+// --- target enumeration -----------------------------------------------------
 
 static std::string x11_window_name(Display* dpy, Window win) {
     Atom net_wm_name = XInternAtom(dpy, "_NET_WM_NAME", False);
@@ -67,7 +59,6 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
     int screen = DefaultScreen(dpy);
     Window root = RootWindow(dpy, screen);
 
-    // Enumerate individual monitors via XRandR
     XRRScreenResources* res = XRRGetScreenResources(dpy, root);
     if (res) {
         for (int i = 0; i < res->ncrtc; ++i) {
@@ -115,7 +106,6 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
         targets.push_back(std::move(t));
     }
 
-    // Enumerate application windows via _NET_CLIENT_LIST
     Atom net_client_list = XInternAtom(dpy, "_NET_CLIENT_LIST", False);
     Atom type{};
     int format{};
@@ -153,49 +143,90 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
     return targets;
 }
 
-#elif defined(__APPLE__)
+// --- thumbnail --------------------------------------------------------------
 
-std::vector<CaptureTarget> ScreenCapture::list_targets() {
-    std::vector<CaptureTarget> targets;
+ScreenCapture::Frame ScreenCapture::grab_thumbnail(const CaptureTarget& target,
+                                                    int max_w, int max_h) {
+    Frame f;
+    Display* dpy = XOpenDisplay(nullptr);
+    if (!dpy) return f;
 
-    CGDirectDisplayID displays[16];
-    uint32_t count = 0;
-    CGGetActiveDisplayList(16, displays, &count);
+    int scr = DefaultScreen(dpy);
+    Window root = RootWindow(dpy, scr);
 
-    for (uint32_t i = 0; i < count; ++i) {
-        auto bounds = CGDisplayBounds(displays[i]);
-        int w = static_cast<int>(bounds.size.width);
-        int h = static_cast<int>(bounds.size.height);
+    int src_x = 0, src_y = 0, src_w = 0, src_h = 0;
+    Window grab_win = root;
 
-        CaptureTarget t;
-        t.type = CaptureTarget::Monitor;
-        t.id = std::to_string(i);
-        t.name = "Display " + std::to_string(i + 1) +
-                 " (" + std::to_string(w) + "x" + std::to_string(h) + ")";
-        t.width = w;
-        t.height = h;
-        targets.push_back(std::move(t));
+    if (target.type == CaptureTarget::Window && !target.id.empty()) {
+        grab_win = static_cast<Window>(std::stoul(target.id));
+        XWindowAttributes attrs{};
+        if (!XGetWindowAttributes(dpy, grab_win, &attrs)) {
+            XCloseDisplay(dpy);
+            return f;
+        }
+        src_w = attrs.width;
+        src_h = attrs.height;
+    } else {
+        src_x = target.x;
+        src_y = target.y;
+        src_w = target.width;
+        src_h = target.height;
+        grab_win = root;
     }
-    return targets;
+
+    if (src_w <= 0 || src_h <= 0) {
+        XCloseDisplay(dpy);
+        return f;
+    }
+
+    XImage* img = XGetImage(dpy, grab_win, src_x, src_y,
+                            static_cast<unsigned>(src_w),
+                            static_cast<unsigned>(src_h),
+                            AllPlanes, ZPixmap);
+    XCloseDisplay(dpy);
+    if (!img) return f;
+
+    std::vector<uint8_t> bgra(static_cast<size_t>(src_w) * src_h * 4);
+    for (int y = 0; y < src_h; ++y) {
+        for (int x = 0; x < src_w; ++x) {
+            unsigned long pixel = XGetPixel(img, x, y);
+            size_t idx = (static_cast<size_t>(y) * src_w + x) * 4;
+            bgra[idx + 0] = static_cast<uint8_t>(pixel & 0xFF);
+            bgra[idx + 1] = static_cast<uint8_t>((pixel >> 8) & 0xFF);
+            bgra[idx + 2] = static_cast<uint8_t>((pixel >> 16) & 0xFF);
+            bgra[idx + 3] = 255;
+        }
+    }
+    XDestroyImage(img);
+
+    int ow, oh;
+    compute_output_size(src_w, src_h, max_w, max_h, ow, oh);
+
+    f.width = ow;
+    f.height = oh;
+    f.data.resize(static_cast<size_t>(ow) * oh * 4);
+
+    if (ow == src_w && oh == src_h) {
+        f.data = std::move(bgra);
+    } else {
+        scale_nearest(bgra.data(), src_w, src_h, f.data.data(), ow, oh);
+    }
+    return f;
 }
 
-#endif
+// --- FFmpeg x11grab capture -------------------------------------------------
 
-// --- FFmpeg capture implementation ------------------------------------------
-
-static std::string ff_err(int errnum) {
-    char buf[AV_ERROR_MAX_STRING_SIZE]{};
-    av_strerror(errnum, buf, sizeof(buf));
-    return buf;
-}
-
-class FFmpegScreenCapture : public ScreenCapture {
+class LinuxScreenCapture : public ScreenCapture {
 public:
-    ~FFmpegScreenCapture() override { stop(); }
+    ~LinuxScreenCapture() override { stop(); }
 
     bool start(int fps, const CaptureTarget& target,
                int max_w, int max_h, FrameCallback cb) override {
         if (running_) return false;
+
+        callback_ = std::move(cb);
+        max_w_ = max_w;
+        max_h_ = max_h;
 
         avdevice_register_all();
 
@@ -204,9 +235,6 @@ public:
         av_dict_set(&opts, "probesize", "5000000", 0);
         av_dict_set(&opts, "analyzeduration", "0", 0);
 
-        std::string url;
-
-#ifdef __linux__
         const AVInputFormat* ifmt = av_find_input_format("x11grab");
         if (!ifmt) {
             LOG_ERROR() << "x11grab input format not found";
@@ -216,6 +244,7 @@ public:
 
         const char* display_env = std::getenv("DISPLAY");
         std::string display = display_env ? display_env : ":0";
+        std::string url;
 
         if (target.type == CaptureTarget::Window && !target.id.empty()) {
             url = display;
@@ -233,24 +262,6 @@ public:
 
         av_dict_set(&opts, "draw_mouse", "1", 0);
 
-#elif defined(__APPLE__)
-        const AVInputFormat* ifmt = av_find_input_format("avfoundation");
-        if (!ifmt) {
-            LOG_ERROR() << "avfoundation input format not found";
-            av_dict_free(&opts);
-            return false;
-        }
-
-        url = "Capture screen " + target.id + ":none";
-        av_dict_set(&opts, "capture_cursor", "1", 0);
-        av_dict_set(&opts, "pixel_format", "uyvy422", 0);
-
-#else
-        LOG_ERROR() << "unsupported platform for screen capture";
-        av_dict_free(&opts);
-        return false;
-#endif
-
         fmt_ctx_ = avformat_alloc_context();
         fmt_ctx_->interrupt_callback.callback = interrupt_cb;
         fmt_ctx_->interrupt_callback.opaque = this;
@@ -267,7 +278,7 @@ public:
 
         if (avformat_find_stream_info(fmt_ctx_, nullptr) < 0) {
             LOG_ERROR() << "avformat_find_stream_info failed";
-            cleanup_ffmpeg();
+            cleanup();
             return false;
         }
 
@@ -280,16 +291,15 @@ public:
         }
         if (video_idx_ < 0) {
             LOG_ERROR() << "no video stream found";
-            cleanup_ffmpeg();
+            cleanup();
             return false;
         }
 
         auto* par = fmt_ctx_->streams[video_idx_]->codecpar;
         const AVCodec* dec = avcodec_find_decoder(par->codec_id);
         if (!dec) {
-            LOG_ERROR() << "no decoder for capture format (codec_id="
-                        << par->codec_id << ")";
-            cleanup_ffmpeg();
+            LOG_ERROR() << "no decoder for capture format";
+            cleanup();
             return false;
         }
 
@@ -297,32 +307,20 @@ public:
         avcodec_parameters_to_context(dec_ctx_, par);
         if (avcodec_open2(dec_ctx_, dec, nullptr) < 0) {
             LOG_ERROR() << "failed to open capture decoder";
-            cleanup_ffmpeg();
+            cleanup();
             return false;
         }
 
         int src_w = dec_ctx_->width;
         int src_h = dec_ctx_->height;
-
-        if (src_w > max_w || src_h > max_h) {
-            float scale = std::min(static_cast<float>(max_w) / src_w,
-                                   static_cast<float>(max_h) / src_h);
-            out_w_ = static_cast<int>(src_w * scale) & ~1;
-            out_h_ = static_cast<int>(src_h * scale) & ~1;
-        } else {
-            out_w_ = src_w & ~1;
-            out_h_ = src_h & ~1;
-        }
-
-        if (out_w_ <= 0) out_w_ = 2;
-        if (out_h_ <= 0) out_h_ = 2;
+        compute_output_size(src_w, src_h, max_w_, max_h_, out_w_, out_h_);
 
         sws_ = sws_getContext(src_w, src_h, dec_ctx_->pix_fmt,
                               out_w_, out_h_, AV_PIX_FMT_BGRA,
                               SWS_BILINEAR, nullptr, nullptr, nullptr);
         if (!sws_) {
             LOG_ERROR() << "sws_getContext (capture) failed";
-            cleanup_ffmpeg();
+            cleanup();
             return false;
         }
 
@@ -334,9 +332,8 @@ public:
         bgra_frame_->height = out_h_;
         av_frame_get_buffer(bgra_frame_, 0);
 
-        callback_ = std::move(cb);
         running_ = true;
-        thread_ = std::thread(&FFmpegScreenCapture::capture_loop, this);
+        thread_ = std::thread(&LinuxScreenCapture::capture_loop, this);
 
         LOG_INFO() << "screen capture started: " << src_w << "x" << src_h
                    << " -> " << out_w_ << "x" << out_h_ << " @ " << fps << " fps";
@@ -348,7 +345,7 @@ public:
         stopping_ = true;
         if (thread_.joinable()) thread_.join();
         stopping_ = false;
-        cleanup_ffmpeg();
+        cleanup();
         LOG_INFO() << "screen capture stopped";
     }
 
@@ -356,7 +353,7 @@ public:
 
 private:
     static int interrupt_cb(void* opaque) {
-        auto* self = static_cast<FFmpegScreenCapture*>(opaque);
+        auto* self = static_cast<LinuxScreenCapture*>(opaque);
         return self->stopping_.load() ? 1 : 0;
     }
 
@@ -401,7 +398,7 @@ private:
         }
     }
 
-    void cleanup_ffmpeg() {
+    void cleanup() {
         if (bgra_frame_) { av_frame_free(&bgra_frame_); }
         if (frame_) { av_frame_free(&frame_); }
         if (pkt_) { av_packet_free(&pkt_); }
@@ -417,6 +414,8 @@ private:
     std::atomic<bool> stopping_{false};
     FrameCallback callback_;
     std::thread thread_;
+    int max_w_ = 1920;
+    int max_h_ = 1080;
 
     AVFormatContext* fmt_ctx_ = nullptr;
     AVCodecContext* dec_ctx_ = nullptr;
@@ -424,12 +423,11 @@ private:
     AVPacket* pkt_ = nullptr;
     AVFrame* frame_ = nullptr;
     AVFrame* bgra_frame_ = nullptr;
-
     int video_idx_ = -1;
     int out_w_ = 0;
     int out_h_ = 0;
 };
 
 std::unique_ptr<ScreenCapture> ScreenCapture::create() {
-    return std::make_unique<FFmpegScreenCapture>();
+    return std::make_unique<LinuxScreenCapture>();
 }

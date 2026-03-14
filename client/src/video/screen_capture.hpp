@@ -30,10 +30,10 @@ public:
 
     static std::unique_ptr<ScreenCapture> create();
     static std::vector<CaptureTarget> list_targets();
+    static Frame grab_thumbnail(const CaptureTarget& target, int max_w, int max_h);
 
     virtual ~ScreenCapture() = default;
-    virtual bool start(int fps, const CaptureTarget& target,
-                       int max_w, int max_h, FrameCallback cb) = 0;
+    virtual bool start(int fps, const CaptureTarget& target, int max_w, int max_h, FrameCallback cb) = 0;
     virtual void stop() = 0;
     virtual bool running() const = 0;
 };

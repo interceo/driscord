@@ -16,6 +16,28 @@ static std::string ff_err(int errnum) {
     return buf;
 }
 
+// --- encoder helper: try opening a named encoder ----------------------------
+
+static const AVCodec* try_encoder(const char* name) {
+    const AVCodec* c = avcodec_find_encoder_by_name(name);
+    if (c) {
+        LOG_INFO() << "found encoder: " << name;
+    }
+    return c;
+}
+
+static const AVCodec* pick_h264_encoder() {
+#ifdef __APPLE__
+    if (auto* c = try_encoder("h264_videotoolbox")) {
+        return c;
+    }
+#endif
+    if (auto* c = try_encoder("libx264")) {
+        return c;
+    }
+    return avcodec_find_encoder(AV_CODEC_ID_H264);
+}
+
 // --- VideoEncoder -----------------------------------------------------------
 
 VideoEncoder::~VideoEncoder() { shutdown(); }
@@ -28,9 +50,9 @@ bool VideoEncoder::init(int width, int height, int bitrate_kbps) {
         return false;
     }
 
-    const AVCodec* codec = avcodec_find_encoder(AV_CODEC_ID_VP8);
+    const AVCodec* codec = pick_h264_encoder();
     if (!codec) {
-        LOG_ERROR() << "VP8 encoder not found";
+        LOG_ERROR() << "H.264 encoder not found";
         return false;
     }
 
@@ -40,20 +62,66 @@ bool VideoEncoder::init(int width, int height, int bitrate_kbps) {
     ctx_->time_base = {1, 1000};
     ctx_->bit_rate = static_cast<int64_t>(bitrate_kbps) * 1000;
     ctx_->pix_fmt = AV_PIX_FMT_YUV420P;
-    ctx_->gop_size = 150;
+    ctx_->color_range = AVCOL_RANGE_MPEG;
+    ctx_->gop_size = 120;
+    ctx_->max_b_frames = 0;
     ctx_->thread_count = 2;
     ctx_->flags |= AV_CODEC_FLAG_LOW_DELAY;
 
-    av_opt_set(ctx_->priv_data, "deadline", "realtime", 0);
-    av_opt_set(ctx_->priv_data, "cpu-used", "8", 0);
-    av_opt_set(ctx_->priv_data, "error-resilient", "1", 0);
-    av_opt_set_int(ctx_->priv_data, "lag-in-frames", 0, 0);
+    std::string enc_name(codec->name);
+    bool is_videotoolbox = (enc_name.find("videotoolbox") != std::string::npos);
+    bool is_libx264 = (enc_name.find("libx264") != std::string::npos);
+
+    if (is_videotoolbox) {
+        av_opt_set(ctx_->priv_data, "realtime", "true", 0);
+        av_opt_set(ctx_->priv_data, "allow_sw", "true", 0);
+        av_opt_set_int(ctx_->priv_data, "profile", AV_PROFILE_H264_BASELINE, 0);
+    } else if (is_libx264) {
+        av_opt_set(ctx_->priv_data, "preset", "ultrafast", 0);
+        av_opt_set(ctx_->priv_data, "tune", "zerolatency", 0);
+        ctx_->profile = AV_PROFILE_H264_BASELINE;
+    }
 
     int ret = avcodec_open2(ctx_, codec, nullptr);
     if (ret < 0) {
-        LOG_ERROR() << "avcodec_open2 (encoder) failed: " << ff_err(ret);
+        LOG_ERROR() << "avcodec_open2 (encoder " << enc_name << ") failed: " << ff_err(ret);
         avcodec_free_context(&ctx_);
-        return false;
+
+        if (is_videotoolbox) {
+            LOG_WARNING() << "falling back to libx264";
+            codec = try_encoder("libx264");
+            if (!codec) {
+                codec = avcodec_find_encoder(AV_CODEC_ID_H264);
+            }
+            if (!codec) {
+                return false;
+            }
+
+            ctx_ = avcodec_alloc_context3(codec);
+            ctx_->width = width;
+            ctx_->height = height;
+            ctx_->time_base = {1, 1000};
+            ctx_->bit_rate = static_cast<int64_t>(bitrate_kbps) * 1000;
+            ctx_->pix_fmt = AV_PIX_FMT_YUV420P;
+            ctx_->color_range = AVCOL_RANGE_MPEG;
+            ctx_->gop_size = 120;
+            ctx_->max_b_frames = 0;
+            ctx_->thread_count = 2;
+            ctx_->flags |= AV_CODEC_FLAG_LOW_DELAY;
+            ctx_->profile = AV_PROFILE_H264_BASELINE;
+            av_opt_set(ctx_->priv_data, "preset", "ultrafast", 0);
+            av_opt_set(ctx_->priv_data, "tune", "zerolatency", 0);
+
+            ret = avcodec_open2(ctx_, codec, nullptr);
+            if (ret < 0) {
+                LOG_ERROR() << "avcodec_open2 (libx264 fallback) failed: " << ff_err(ret);
+                avcodec_free_context(&ctx_);
+                return false;
+            }
+            enc_name = codec->name;
+        } else {
+            return false;
+        }
     }
 
     frame_ = av_frame_alloc();
@@ -86,7 +154,8 @@ bool VideoEncoder::init(int width, int height, int bitrate_kbps) {
     height_ = height;
     pts_ = 0;
 
-    LOG_INFO() << "video encoder: " << width << "x" << height << " VP8 @ " << bitrate_kbps << " kbps";
+    LOG_INFO()
+        << "video encoder: " << width << "x" << height << " H.264 (" << enc_name << ") @ " << bitrate_kbps << " kbps";
     return true;
 }
 
@@ -150,9 +219,9 @@ VideoDecoder::~VideoDecoder() { shutdown(); }
 bool VideoDecoder::init() {
     shutdown();
 
-    const AVCodec* codec = avcodec_find_decoder(AV_CODEC_ID_VP8);
+    const AVCodec* codec = avcodec_find_decoder(AV_CODEC_ID_H264);
     if (!codec) {
-        LOG_ERROR() << "VP8 decoder not found";
+        LOG_ERROR() << "H.264 decoder not found";
         return false;
     }
 
@@ -168,6 +237,7 @@ bool VideoDecoder::init() {
 
     frame_ = av_frame_alloc();
     pkt_ = av_packet_alloc();
+    LOG_INFO() << "video decoder: H.264 (" << codec->name << ")";
     return true;
 }
 

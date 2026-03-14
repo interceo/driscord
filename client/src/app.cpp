@@ -9,6 +9,7 @@
 namespace {
 
 constexpr size_t kVideoHeaderSize = 12;  // width(4) + height(4) + timestamp(4)
+constexpr int kStaleVideoSeconds = 3;
 
 uint32_t now_ms() {
     auto ms =
@@ -30,6 +31,13 @@ uint32_t read_u32_le(const uint8_t* src) {
 }
 
 }  // namespace
+
+int App::compute_bitrate(int w, int h, int base_kbps) {
+    constexpr double kRefPixels = 1920.0 * 1080.0;
+    double pixels = static_cast<double>(w) * h;
+    int kbps = static_cast<int>(base_kbps * (pixels / kRefPixels));
+    return std::max(kbps, 200);
+}
 
 App::App(const Config& cfg) : config_(cfg) {
     transport_.on_audio_received([this](const std::string& /*peer_id*/, const uint8_t* data, size_t len) {
@@ -66,14 +74,32 @@ void App::update() {
         }
     }
 
+    std::vector<std::string> stale_peers;
     {
         std::scoped_lock lk(video_mutex_);
+        auto now = std::chrono::steady_clock::now();
+
         for (auto& [peer_id, vs] : peer_video_) {
             if (vs->dirty) {
                 video_renderer_.update_frame(peer_id, vs->rgba.data(), vs->width, vs->height);
                 vs->dirty = false;
             }
         }
+
+        for (auto it = peer_video_.begin(); it != peer_video_.end();) {
+            auto age = std::chrono::duration_cast<std::chrono::seconds>(
+                now - it->second->last_frame);
+            if (age.count() > kStaleVideoSeconds) {
+                stale_peers.push_back(it->first);
+                it = peer_video_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
+    for (auto& pid : stale_peers) {
+        video_renderer_.remove_peer(pid);
     }
 }
 
@@ -129,7 +155,8 @@ void App::start_sharing(const CaptureTarget& target) {
         return;
     }
 
-    if (!video_encoder_.init(enc_w, enc_h, config_.video_bitrate_kbps)) {
+    int bitrate = compute_bitrate(enc_w, enc_h, config_.video_bitrate_kbps);
+    if (!video_encoder_.init(enc_w, enc_h, bitrate)) {
         LOG_ERROR() << "failed to init video encoder";
         return;
     }
@@ -139,8 +166,9 @@ void App::start_sharing(const CaptureTarget& target) {
             [this](const ScreenCapture::Frame& frame) {
                 if (frame.width != video_encoder_.width() ||
                     frame.height != video_encoder_.height()) {
-                    if (!video_encoder_.reinit(frame.width, frame.height,
-                                               config_.video_bitrate_kbps)) {
+                    int br = compute_bitrate(frame.width, frame.height,
+                                             config_.video_bitrate_kbps);
+                    if (!video_encoder_.reinit(frame.width, frame.height, br)) {
                         return;
                     }
                 }
@@ -162,8 +190,10 @@ void App::start_sharing(const CaptureTarget& target) {
         return;
     }
 
+    clear_preview();
     sharing_ = true;
-    LOG_INFO() << "screen sharing started: " << target.name;
+    LOG_INFO() << "screen sharing started: " << target.name
+               << " (bitrate " << bitrate << " kbps)";
 }
 
 void App::stop_sharing() {
@@ -178,6 +208,26 @@ void App::stop_sharing() {
     video_encoder_.shutdown();
     sharing_ = false;
     LOG_INFO() << "screen sharing stopped";
+}
+
+void App::update_preview(const CaptureTarget& target) {
+    constexpr int kPreviewW = 384;
+    constexpr int kPreviewH = 216;
+
+    auto frame = ScreenCapture::grab_thumbnail(target, kPreviewW, kPreviewH);
+    if (frame.data.empty()) return;
+
+    // BGRA -> RGBA channel swap
+    for (size_t i = 0; i < frame.data.size(); i += 4) {
+        std::swap(frame.data[i], frame.data[i + 2]);
+    }
+
+    video_renderer_.update_frame(kPreviewPeerId, frame.data.data(),
+                                 frame.width, frame.height);
+}
+
+void App::clear_preview() {
+    video_renderer_.remove_peer(kPreviewPeerId);
 }
 
 std::vector<App::PeerView> App::peers() const {
@@ -214,11 +264,13 @@ void App::on_video_packet(const std::string& peer_id, const uint8_t* data, size_
             LOG_ERROR() << "failed to init video decoder for " << peer_id;
             return;
         }
+        vs->last_frame = std::chrono::steady_clock::now();
         it = peer_video_.emplace(peer_id, std::move(vs)).first;
     }
 
     auto& vs = *it->second;
     if (vs.decoder.decode(payload, payload_len, vs.rgba, vs.width, vs.height)) {
         vs.dirty = true;
+        vs.last_frame = std::chrono::steady_clock::now();
     }
 }

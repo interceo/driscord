@@ -51,7 +51,7 @@ std::vector<std::string> VideoRenderer::active_peers() const {
     std::vector<std::string> result;
     result.reserve(textures_.size());
     for (auto& [id, _] : textures_) {
-        result.push_back(id);
+        if (!id.empty() && id[0] != '_') result.push_back(id);
     }
     return result;
 }

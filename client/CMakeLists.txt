@@ -109,6 +109,13 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
     libavcodec libavformat libavdevice libswscale libavutil)
 
+# --- platform-specific screen capture ---
+if(APPLE)
+    set(CAPTURE_SOURCES src/video/screen_capture_mac.cpp)
+elseif(UNIX)
+    set(CAPTURE_SOURCES src/video/screen_capture_linux.cpp)
+endif()
+
 # --- driscord_client executable ---
 add_executable(driscord_client
     src/main.cpp
@@ -118,7 +125,7 @@ add_executable(driscord_client
     src/ui.cpp
     src/config.cpp
     src/video/video_codec.cpp
-    src/video/screen_capture_ffmpeg.cpp
+    ${CAPTURE_SOURCES}
     src/video_renderer.cpp
 )
 

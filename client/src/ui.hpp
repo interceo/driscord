@@ -22,6 +22,7 @@ private:
 
     std::vector<CaptureTarget> targets_;
     int selected_target_ = 0;
+    int last_preview_idx_ = -1;
 
     void render_sidebar(App& app);
     void render_voice_panel(App& app);

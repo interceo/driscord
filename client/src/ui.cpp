@@ -194,33 +194,52 @@ void UIRenderer::render_voice_panel(App& app) {
             auto* v = static_cast<std::vector<CaptureTarget>*>(data);
             return (*v)[static_cast<size_t>(idx)].name.c_str();
         };
-        ImGui::Combo("##target", &selected_target_, getter, &targets_,
-                      static_cast<int>(targets_.size()));
+
+        bool combo_changed = ImGui::Combo("##target", &selected_target_, getter,
+                                           &targets_, static_cast<int>(targets_.size()));
 
         ImGui::SameLine();
-        if (ImGui::Button("Refresh")) {
+        bool refreshed = ImGui::Button("Refresh");
+        if (refreshed) {
             targets_ = ScreenCapture::list_targets();
             selected_target_ = 0;
+            last_preview_idx_ = -1;
+            app.clear_preview();
         }
 
         if (targets_.empty()) {
-            if (ImGui::IsItemDeactivated()) {
-                targets_ = ScreenCapture::list_targets();
-                selected_target_ = 0;
-            }
+            ImGui::Spacing();
+            ImGui::TextDisabled("Press Refresh to load capture targets");
         }
-
-        ImGui::Spacing();
 
         bool has_target = !targets_.empty() &&
                           selected_target_ >= 0 &&
                           selected_target_ < static_cast<int>(targets_.size());
 
-        if (!has_target) {
-            ImGui::TextDisabled("Press Refresh to load capture targets");
+        // Update preview when selection changes
+        if (has_target && (combo_changed || refreshed || last_preview_idx_ != selected_target_)) {
+            last_preview_idx_ = selected_target_;
+            app.update_preview(targets_[static_cast<size_t>(selected_target_)]);
         }
 
+        // Display preview thumbnail
+        if (has_target) {
+            auto preview_tex = app.video_renderer().texture(kPreviewPeerId);
+            if (preview_tex) {
+                ImGui::Spacing();
+                auto sz = app.video_renderer().frame_size(kPreviewPeerId);
+                float aspect = (sz.y > 0) ? sz.x / sz.y : 16.0f / 9.0f;
+                float preview_w = std::min(300.0f, ImGui::GetContentRegionAvail().x);
+                float preview_h = preview_w / aspect;
+                ImGui::Image(preview_tex, ImVec2(preview_w, preview_h));
+            }
+        }
+
+        ImGui::Spacing();
+
         if (has_target && ImGui::Button("Share Screen", ImVec2(160, 32))) {
+            app.clear_preview();
+            last_preview_idx_ = -1;
             app.start_sharing(targets_[static_cast<size_t>(selected_target_)]);
         }
     } else {

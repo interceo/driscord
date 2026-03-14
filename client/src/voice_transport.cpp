@@ -36,15 +36,21 @@ void VoiceTransport::connect(const std::string& ws_url) {
 }
 
 void VoiceTransport::disconnect() {
+    // Move peers out first to avoid deadlock: close() triggers onClosed
+    // callbacks that also lock peers_mutex_.
+    std::unordered_map<std::string, PeerState> local_peers;
     {
         std::scoped_lock lk(peers_mutex_);
-        for (auto& [_, state] : peers_) {
-            if (state.dc) state.dc->close();
-            if (state.video_dc) state.video_dc->close();
-            if (state.pc) state.pc->close();
-        }
+        local_peers = std::move(peers_);
         peers_.clear();
     }
+
+    for (auto& [_, state] : local_peers) {
+        if (state.dc) state.dc->close();
+        if (state.video_dc) state.video_dc->close();
+        if (state.pc) state.pc->close();
+    }
+    local_peers.clear();
 
     if (ws_) {
         ws_->close();
@@ -114,10 +120,21 @@ void VoiceTransport::on_ws_message(const std::string& raw) {
         } else if (type == "peer_left") {
             std::string peer_id = msg["id"];
             LOG_INFO() << "peer left: " << peer_id;
+
+            PeerState removed;
             {
                 std::scoped_lock lk(peers_mutex_);
-                peers_.erase(peer_id);
+                auto it = peers_.find(peer_id);
+                if (it != peers_.end()) {
+                    removed = std::move(it->second);
+                    peers_.erase(it);
+                }
             }
+            // Close outside the lock to avoid deadlock
+            if (removed.dc) removed.dc->close();
+            if (removed.video_dc) removed.video_dc->close();
+            if (removed.pc) removed.pc->close();
+
             if (on_peer_left_) {
                 on_peer_left_(peer_id);
             }
