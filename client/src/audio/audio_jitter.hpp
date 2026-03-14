@@ -8,7 +8,7 @@
 #include <cstdint>
 #include <cstring>
 
-inline constexpr uint32_t kJitterTargetMs = 80;
+inline constexpr uint32_t kJitterTargetMs = 40;
 
 class AudioJitter {
 public:
@@ -31,12 +31,6 @@ public:
             last_seq_ = seq;
         }
 
-        // Overflow protection: if buffer grew beyond 2x target, reset to target
-        if (ring_.available_read() > target_samples_ * 2 + frames) {
-            size_t excess = ring_.available_read() - target_samples_;
-            discard(excess);
-        }
-
         ring_.write(mono_pcm, frames);
     }
 
@@ -47,6 +41,11 @@ public:
                 return 0;
             }
             primed_ = true;
+        }
+
+        size_t buffered = ring_.available_read();
+        if (buffered > target_samples_ * 2) {
+            discard(buffered - target_samples_);
         }
 
         size_t got = ring_.read(out, frames);

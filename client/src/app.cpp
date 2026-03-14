@@ -70,15 +70,22 @@ void App::update() {
         }
     }
 
-    struct DirtyFrame {
+    struct PendingDecode {
+        std::string peer_id;
+        std::shared_ptr<PeerVideoState> vs;
+        std::vector<uint8_t> data;
+        uint32_t kbps;
+    };
+    std::vector<PendingDecode> pending_decodes;
+
+    struct ReadyFrame {
         std::string peer_id;
         std::vector<uint8_t> rgba;
         int width;
         int height;
     };
-    std::vector<DirtyFrame> dirty_frames;
+    std::vector<ReadyFrame> ready_frames;
     std::vector<std::string> to_remove;
-    dirty_frames.reserve(peer_video_.size());
 
     {
         std::scoped_lock lk(video_mutex_);
@@ -87,13 +94,21 @@ void App::update() {
         to_remove.swap(pending_removals_);
 
         for (auto& [peer_id, vs] : peer_video_) {
-            if (vs->dirty) {
-                DirtyFrame df;
-                df.peer_id = peer_id;
-                df.rgba.swap(vs->rgba);
-                df.width = vs->width;
-                df.height = vs->height;
-                dirty_frames.push_back(std::move(df));
+            if (vs->has_pending_decode) {
+                PendingDecode pd;
+                pd.peer_id = peer_id;
+                pd.vs = vs;
+                pd.data.swap(vs->pending_decode);
+                pd.kbps = vs->pending_kbps;
+                vs->has_pending_decode = false;
+                pending_decodes.push_back(std::move(pd));
+            } else if (vs->dirty) {
+                ReadyFrame rf;
+                rf.peer_id = peer_id;
+                rf.rgba.swap(vs->rgba);
+                rf.width = vs->width;
+                rf.height = vs->height;
+                ready_frames.push_back(std::move(rf));
                 vs->dirty = false;
             }
         }
@@ -109,9 +124,22 @@ void App::update() {
         }
     }
 
-    // GL upload outside the lock
-    for (auto& df : dirty_frames) {
-        video_renderer_.update_frame(df.peer_id, df.rgba.data(), df.width, df.height);
+    for (auto& pd : pending_decodes) {
+        std::vector<uint8_t> rgba;
+        int dec_w = 0, dec_h = 0;
+        if (pd.vs->decoder.decode(pd.data.data(), pd.data.size(), rgba, dec_w, dec_h)) {
+            ReadyFrame rf;
+            rf.peer_id = std::move(pd.peer_id);
+            rf.rgba = std::move(rgba);
+            rf.width = dec_w;
+            rf.height = dec_h;
+            pd.vs->measured_kbps = static_cast<int>(pd.kbps);
+            ready_frames.push_back(std::move(rf));
+        }
+    }
+
+    for (auto& rf : ready_frames) {
+        video_renderer_.update_frame(rf.peer_id, rf.rgba.data(), rf.width, rf.height);
     }
 
     for (auto& pid : to_remove) {
@@ -346,79 +374,57 @@ void App::on_video_packet(const std::string& peer_id, const uint8_t* data, size_
     const uint8_t* chunk_data = data + kChunkHeaderSize;
     size_t chunk_len = len - kChunkHeaderSize;
 
-    std::vector<uint8_t> frame_to_decode;
-    uint32_t w = 0, h = 0, sender_kbps = 0;
-    VideoDecoder* decoder_ptr = nullptr;
+    std::scoped_lock lk(video_mutex_);
 
-    {
-        std::scoped_lock lk(video_mutex_);
-
-        auto it = peer_video_.find(peer_id);
-        if (it == peer_video_.end()) {
-            auto vs = std::make_unique<PeerVideoState>();
-            if (!vs->decoder.init()) {
-                LOG_ERROR() << "failed to init video decoder for " << peer_id;
-                return;
-            }
-            vs->last_frame = std::chrono::steady_clock::now();
-            it = peer_video_.emplace(peer_id, std::move(vs)).first;
-        }
-
-        auto& vs = *it->second;
-
-        if (frame_id != vs.reassembly_frame_id || total_chunks != vs.reassembly_total) {
-            vs.reassembly_frame_id = frame_id;
-            vs.reassembly_total = total_chunks;
-            vs.reassembly_got = 0;
-            vs.reassembly_buf.clear();
-        }
-
-        size_t offset = static_cast<size_t>(chunk_idx) * kMaxChunkPayload;
-        size_t needed = offset + chunk_len;
-        if (vs.reassembly_buf.size() < needed) {
-            vs.reassembly_buf.resize(needed);
-        }
-        std::memcpy(vs.reassembly_buf.data() + offset, chunk_data, chunk_len);
-        ++vs.reassembly_got;
-
-        if (vs.reassembly_got < total_chunks) {
+    auto it = peer_video_.find(peer_id);
+    if (it == peer_video_.end()) {
+        auto vs = std::make_shared<PeerVideoState>();
+        if (!vs->decoder.init()) {
+            LOG_ERROR() << "failed to init video decoder for " << peer_id;
             return;
         }
-
-        auto& buf = vs.reassembly_buf;
-        if (buf.size() <= kVideoHeaderSize) {
-            return;
-        }
-
-        w = read_u32_le(buf.data() + 0);
-        h = read_u32_le(buf.data() + 4);
-        sender_kbps = read_u32_le(buf.data() + 12);
-
-        if (w == 0 || h == 0 || w > 7680 || h > 4320) {
-            return;
-        }
-
-        frame_to_decode.assign(buf.data() + kVideoHeaderSize, buf.data() + buf.size());
-        decoder_ptr = &vs.decoder;
+        vs->last_frame = std::chrono::steady_clock::now();
+        it = peer_video_.emplace(peer_id, std::move(vs)).first;
     }
-    // Decode outside the lock — this is the CPU-heavy part
-    std::vector<uint8_t> rgba;
-    int dec_w = 0, dec_h = 0;
-    bool ok = decoder_ptr->decode(frame_to_decode.data(), frame_to_decode.size(), rgba, dec_w, dec_h);
 
-    if (ok) {
-        std::scoped_lock lk(video_mutex_);
-        auto it = peer_video_.find(peer_id);
-        if (it != peer_video_.end()) {
-            auto& vs = *it->second;
-            vs.rgba.swap(rgba);
-            vs.width = dec_w;
-            vs.height = dec_h;
-            vs.measured_kbps = static_cast<int>(sender_kbps);
-            vs.dirty = true;
-            vs.last_frame = std::chrono::steady_clock::now();
-        }
+    auto& vs = *it->second;
+
+    if (frame_id != vs.reassembly_frame_id || total_chunks != vs.reassembly_total) {
+        vs.reassembly_frame_id = frame_id;
+        vs.reassembly_total = total_chunks;
+        vs.reassembly_got = 0;
+        vs.reassembly_buf.clear();
     }
+
+    size_t offset = static_cast<size_t>(chunk_idx) * kMaxChunkPayload;
+    size_t needed = offset + chunk_len;
+    if (vs.reassembly_buf.size() < needed) {
+        vs.reassembly_buf.resize(needed);
+    }
+    std::memcpy(vs.reassembly_buf.data() + offset, chunk_data, chunk_len);
+    ++vs.reassembly_got;
+
+    if (vs.reassembly_got < total_chunks) {
+        return;
+    }
+
+    auto& buf = vs.reassembly_buf;
+    if (buf.size() <= kVideoHeaderSize) {
+        return;
+    }
+
+    uint32_t w = read_u32_le(buf.data() + 0);
+    uint32_t h = read_u32_le(buf.data() + 4);
+    uint32_t sender_kbps = read_u32_le(buf.data() + 12);
+
+    if (w == 0 || h == 0 || w > 7680 || h > 4320) {
+        return;
+    }
+
+    vs.pending_decode.assign(buf.data() + kVideoHeaderSize, buf.data() + buf.size());
+    vs.pending_kbps = sender_kbps;
+    vs.has_pending_decode = true;
+    vs.last_frame = std::chrono::steady_clock::now();
 }
 
 StreamStats App::stream_stats(const std::string& peer_id) const {

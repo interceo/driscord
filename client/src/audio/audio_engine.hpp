@@ -78,6 +78,7 @@ private:
     std::atomic<bool> running_{false};
     std::atomic<bool> muted_{false};
     std::atomic<bool> deafened_{false};
+    std::atomic<bool> sharing_screen_audio_{false};
     std::atomic<float> output_volume_{1.0f};
     std::atomic<float> input_level_{0.0f};
     std::atomic<float> output_level_{0.0f};
