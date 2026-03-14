@@ -134,14 +134,17 @@ private:
         std::chrono::steady_clock::time_point last_frame;
         int measured_kbps = 0;
 
+        std::vector<uint8_t> pending_decode;
+        uint32_t pending_kbps = 0;
+        bool has_pending_decode = false;
+
         uint16_t reassembly_frame_id = 0;
         uint16_t reassembly_total = 0;
         uint16_t reassembly_got = 0;
         std::vector<uint8_t> reassembly_buf;
-        uint32_t reassembly_w = 0, reassembly_h = 0, reassembly_kbps = 0;
     };
     mutable std::mutex video_mutex_;
-    std::unordered_map<std::string, std::unique_ptr<PeerVideoState>> peer_video_;
+    std::unordered_map<std::string, std::shared_ptr<PeerVideoState>> peer_video_;
     std::vector<std::string> pending_removals_;
 
     mutable std::mutex peer_vol_mutex_;

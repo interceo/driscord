@@ -179,8 +179,10 @@ void AudioEngine::on_playback(float* output, const uint32_t frames) {
         screen_mix_buf_.resize(frames);
     }
     screen_jitter_.pop(screen_mix_buf_.data(), frames);
-    for (uint32_t i = 0; i < frames; ++i) {
-        output[i] += screen_mix_buf_[i];
+    if (!sharing_screen_audio_) {
+        for (uint32_t i = 0; i < frames; ++i) {
+            output[i] += screen_mix_buf_[i];
+        }
     }
 
     const float vol = output_volume_.load();
@@ -242,12 +244,14 @@ bool AudioEngine::init_screen_audio(PacketCallback on_screen_audio_packet) {
     screen_decoder_ = std::move(dec);
     on_screen_audio_packet_ = std::move(on_screen_audio_packet);
     screen_capture_pos_ = 0;
+    sharing_screen_audio_ = true;
 
     LOG_INFO() << "screen audio codec initialized";
     return true;
 }
 
 void AudioEngine::shutdown_screen_audio() {
+    sharing_screen_audio_ = false;
     screen_encoder_.reset();
     on_screen_audio_packet_ = nullptr;
     screen_capture_pos_ = 0;
