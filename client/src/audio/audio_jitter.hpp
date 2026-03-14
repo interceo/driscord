@@ -8,11 +8,11 @@
 #include <cstdint>
 #include <cstring>
 
-inline constexpr uint32_t kJitterTargetMs = 40;
+inline constexpr uint32_t kDefaultJitterMs = 60;
 
 class AudioJitter {
 public:
-    explicit AudioJitter(size_t target_delay_ms = kJitterTargetMs, int sample_rate = 48000)
+    explicit AudioJitter(size_t target_delay_ms = kDefaultJitterMs, int sample_rate = 48000)
         : ring_(sample_rate * kMaxBufferSeconds),
           target_samples_(target_delay_ms * sample_rate / 1000),
           sample_rate_(sample_rate) {}

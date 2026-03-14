@@ -117,7 +117,7 @@ private:
     bool sharing_audio_ = false;
     std::atomic<bool> encoding_{false};
 
-    AudioEngine audio_;
+    AudioEngine audio_{config_.audio_jitter_ms};
     VoiceTransport transport_;
     VideoRenderer video_renderer_;
 
@@ -131,6 +131,8 @@ private:
         int width = 0;
         int height = 0;
         bool dirty = false;
+        uint32_t buffered_at = 0;
+        bool held = false;
         std::chrono::steady_clock::time_point last_frame;
         int measured_kbps = 0;
 
