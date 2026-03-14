@@ -3,6 +3,12 @@
 set ROOT=%~dp0..
 set BUILD=%ROOT%\build
 
+:: --- detect vcpkg BEFORE vcvars (vcvars sets its own VCPKG_ROOT with spaces) ---
+set "TOOLCHAIN="
+if exist "C:\vcpkg\scripts\buildsystems\vcpkg.cmake" (
+    set "TOOLCHAIN=-DCMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake"
+)
+
 :: --- activate MSVC environment if cl.exe not found ---
 where cl.exe >nul 2>&1
 if errorlevel 1 (
@@ -12,22 +18,16 @@ if errorlevel 1 (
     ) else if exist "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" (
         call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1
     ) else (
-        echo ERROR: Visual Studio not found. Install VS Build Tools.
+        echo ERROR: Visual Studio not found.
         exit /b 1
     )
 )
 
 where cl.exe >nul 2>&1
 if errorlevel 1 (
-    echo ERROR: cl.exe still not found after vcvars activation.
+    echo ERROR: cl.exe not found after vcvars activation.
     exit /b 1
 )
-echo ==^> Compiler: & where cl.exe
-
-:: --- auto-detect vcpkg toolchain ---
-set "TOOLCHAIN="
-if defined VCPKG_ROOT set "TOOLCHAIN=-DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake"
-if not defined TOOLCHAIN if exist "C:\vcpkg\scripts\buildsystems\vcpkg.cmake" set "TOOLCHAIN=-DCMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake"
 
 :: --- auto-detect FFmpeg ---
 set "FFMPEG_PATH="
