@@ -16,9 +16,9 @@ using namespace drist;
 void OpusEncoderDeleter::operator()(OpusEncoder* e) const { opus_encoder_destroy(e); }
 void OpusDecoderDeleter::operator()(OpusDecoder* d) const { opus_decoder_destroy(d); }
 
-AudioEngine::AudioEngine(int jitter_ms)
-    : voice_jitter_(static_cast<size_t>(jitter_ms)),
-      screen_jitter_(static_cast<size_t>(jitter_ms)),
+AudioEngine::AudioEngine(int voice_jitter_ms, int screen_jitter_ms)
+    : voice_jitter_(static_cast<size_t>(voice_jitter_ms)),
+      screen_jitter_(static_cast<size_t>(screen_jitter_ms)),
       capture_buf_(FRAME_SIZE, 0.0f),
       screen_mix_buf_(FRAME_SIZE, 0.0f),
       encode_buf_(AUDIO_HEADER_SIZE + MAX_OPUS_PACKET),
