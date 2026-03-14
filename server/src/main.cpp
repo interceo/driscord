@@ -6,7 +6,7 @@
 
 int main(int argc, char** argv) {
     try {
-        unsigned short port = 8080;
+        unsigned short port = 9001;
         if (const char* env = std::getenv("DRISCORD_PORT")) {
             port = static_cast<unsigned short>(std::stoi(env));
         }
