@@ -264,10 +264,10 @@ const std::vector<uint8_t>& VideoEncoder::encode(const uint8_t* bgra, int width,
 
     frame_->pts = pts_++;
     frame_->pict_type = AV_PICTURE_TYPE_NONE;
-    frame_->key_frame = 0;
+    frame_->flags &= ~AV_FRAME_FLAG_KEY;
     if (force_keyframe_.exchange(false)) {
         frame_->pict_type = AV_PICTURE_TYPE_I;
-        frame_->key_frame = 1;
+        frame_->flags |= AV_FRAME_FLAG_KEY;
     }
 
     int ret = avcodec_send_frame(ctx_, frame_);
