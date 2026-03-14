@@ -197,6 +197,11 @@ endif()
 
 if(MSVC)
     target_compile_options(driscord_client PRIVATE /W4)
+    target_compile_definitions(driscord_client PRIVATE
+        _WIN32_WINNT=0x0A00
+        _CRT_SECURE_NO_WARNINGS
+        NOMINMAX
+    )
 else()
     target_compile_options(driscord_client PRIVATE -Wall -Wextra -Wpedantic)
 endif()

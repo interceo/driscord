@@ -32,9 +32,13 @@ public:
         const auto now = std::chrono::system_clock::now();
         const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % 1000;
         const auto tt = std::chrono::system_clock::to_time_t(now);
-        
+
         std::tm tm{};
+#ifdef _WIN32
+        localtime_s(&tm, &tt);
+#else
         localtime_r(&tt, &tm);
+#endif
 
         std::scoped_lock lk(mtx);
         auto& out = (level_ == LogLevel::Error) ? std::cerr : std::cout;

@@ -40,6 +40,10 @@ target_link_libraries(driscord_server PRIVATE
 
 if(MSVC)
     target_compile_options(driscord_server PRIVATE /W4)
+    target_compile_definitions(driscord_server PRIVATE
+        _WIN32_WINNT=0x0A00
+        _CRT_SECURE_NO_WARNINGS
+    )
 else()
     target_compile_options(driscord_server PRIVATE -Wall -Wextra -Wpedantic)
 endif()
