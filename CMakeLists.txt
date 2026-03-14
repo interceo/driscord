@@ -12,5 +12,14 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
     message(FATAL_ERROR "In-source builds are not allowed. Use: cmake -S . -B build")
 endif()
 
+include(FetchContent)
+FetchContent_Declare(
+    fmt
+    GIT_REPOSITORY https://github.com/fmtlib/fmt.git
+    GIT_TAG        10.2.1
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(fmt)
+
 add_subdirectory(server)
 add_subdirectory(client)

@@ -111,9 +111,13 @@ add_executable(driscord_client
     src/audio_engine.cpp
     src/voice_transport.cpp
     src/ui.cpp
+    src/config.cpp
 )
 
-target_include_directories(driscord_client PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(driscord_client PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/common
+)
 
 target_link_libraries(driscord_client PRIVATE
     imgui_lib
@@ -121,6 +125,7 @@ target_link_libraries(driscord_client PRIVATE
     Opus::opus
     nlohmann_json::nlohmann_json
     miniaudio_lib
+    fmt::fmt
 )
 
 if(APPLE)

@@ -4,12 +4,13 @@
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
 #include <iomanip>
-#include <iostream>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <random>
 #include <sstream>
 #include <unordered_map>
+
+#include "log.hpp"
 
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -23,7 +24,6 @@ namespace {
 std::string generate_id() {
     static std::mt19937 rng{std::random_device{}()};
     std::uniform_int_distribution<uint64_t> dist;
-
     std::ostringstream ss;
     ss << std::hex << std::setfill('0') << std::setw(16) << dist(rng);
     return ss.str();
@@ -42,17 +42,15 @@ struct Session : public std::enable_shared_from_this<Session> {
 
     void start() {
         ws.set_option(websocket::stream_base::timeout::suggested(beast::role_type::server));
-
         ws.set_option(websocket::stream_base::decorator([](websocket::response_type& res) {
             res.set(http::field::server, "driscord/ws");
         }));
-
         ws.async_accept(beast::bind_front_handler(&Session::on_accept, shared_from_this()));
     }
 
     void on_accept(beast::error_code ec) {
         if (ec) {
-            std::cerr << "accept: " << ec.message() << std::endl;
+            LOG_ERROR() << "accept: " << ec.message();
             return;
         }
 
@@ -62,7 +60,6 @@ struct Session : public std::enable_shared_from_this<Session> {
             json welcome;
             welcome["type"] = "welcome";
             welcome["id"] = id;
-
             json peers = json::array();
             for (auto& [pid, _] : *sessions) {
                 peers.push_back(pid);
@@ -88,6 +85,7 @@ struct Session : public std::enable_shared_from_this<Session> {
             sessions->emplace(id, this);
         }
 
+        LOG_INFO() << "session " << id << " connected";
         do_read();
     }
 
@@ -99,7 +97,7 @@ struct Session : public std::enable_shared_from_this<Session> {
             return;
         }
         if (ec) {
-            std::cerr << "read: " << ec.message() << std::endl;
+            LOG_ERROR() << "read: " << ec.message();
             on_close();
             return;
         }
@@ -137,7 +135,7 @@ struct Session : public std::enable_shared_from_this<Session> {
                 }
             }
         } catch (const json::exception& e) {
-            std::cerr << "json parse error: " << e.what() << std::endl;
+            LOG_ERROR() << "json parse error: " << e.what();
         }
 
         buffer.consume(buffer.size());
@@ -151,13 +149,14 @@ struct Session : public std::enable_shared_from_this<Session> {
         json left;
         left["type"] = "peer_left";
         left["id"] = id;
-
         auto msg = left.dump();
         for (auto& [_, s] : *sessions) {
             s->ws.text(true);
             s->ws.async_write(boost::asio::buffer(msg), [self = s->shared_from_this()](beast::error_code, std::size_t) {
             });
         }
+
+        LOG_INFO() << "session " << id << " disconnected";
     }
 };
 

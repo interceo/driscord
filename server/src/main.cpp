@@ -1,7 +1,7 @@
 #include <boost/asio.hpp>
 #include <cstdlib>
-#include <iostream>
 
+#include "log.hpp"
 #include "ws_server.hpp"
 
 int main(int argc, char** argv) {
@@ -10,7 +10,6 @@ int main(int argc, char** argv) {
         if (const char* env = std::getenv("DRISCORD_PORT")) {
             port = static_cast<unsigned short>(std::stoi(env));
         }
-
         if (argc > 1) {
             port = static_cast<unsigned short>(std::stoi(argv[1]));
         }
@@ -19,10 +18,10 @@ int main(int argc, char** argv) {
         auto server = std::make_shared<driscord::WebSocketServer>(io, port);
         server->run();
 
-        std::cout << "driscord ws server listening on port " << port << std::endl;
+        LOG_INFO() << "driscord ws server listening on port " << port;
         io.run();
     } catch (const std::exception& ex) {
-        std::cerr << "fatal: " << ex.what() << std::endl;
+        LOG_ERROR() << "fatal: " << ex.what();
         return 1;
     }
     return 0;

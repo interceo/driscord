@@ -6,8 +6,11 @@
 #include <cstdio>
 
 #include "app.hpp"
+#include "config.hpp"
 
-UIRenderer::UIRenderer() { std::snprintf(server_url_buf_, sizeof(server_url_buf_), "ws://localhost:8080"); }
+UIRenderer::UIRenderer(const Config& cfg) {
+    std::snprintf(server_url_buf_, sizeof(server_url_buf_), "%s", cfg.server_url().c_str());
+}
 
 void UIRenderer::apply_discord_theme() {
     ImGuiStyle& style = ImGui::GetStyle();
@@ -70,8 +73,6 @@ void UIRenderer::render(App& app) {
 
     ImGui::BeginChild("##Content", ImVec2(0, 0));
     render_voice_panel(app);
-    ImGui::Separator();
-    render_log(app);
     ImGui::EndChild();
 
     ImGui::End();
@@ -113,9 +114,6 @@ void UIRenderer::render_sidebar(App& app) {
     } else if (state == AppState::Connected) {
         ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.3f, 1.0f), "Connected");
         std::string short_id = app.local_id();
-        if (short_id.size() > 8) {
-            short_id = short_id.substr(0, 8) + "...";
-        }
         ImGui::TextDisabled("ID: %s", short_id.c_str());
     } else {
         ImGui::TextDisabled("Disconnected");
@@ -131,11 +129,11 @@ void UIRenderer::render_sidebar(App& app) {
         ImGui::TextDisabled("  —");
     } else {
         if (state == AppState::Connected) {
-            ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.3f, 1.0f), "  %s (you)", app.local_id().substr(0, 8).c_str());
+            ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.3f, 1.0f), "  %s (you)", app.local_id().c_str());
         }
         for (auto& p : peers) {
             ImVec4 col = p.connected ? ImVec4(0.2f, 0.9f, 0.3f, 1.0f) : ImVec4(0.6f, 0.6f, 0.6f, 1.0f);
-            ImGui::TextColored(col, "  %s", p.id.substr(0, 8).c_str());
+            ImGui::TextColored(col, "  %s", p.id.c_str());
         }
     }
 }
@@ -196,24 +194,4 @@ void UIRenderer::render_level_bar(const char* label, float level, unsigned int c
     }
 
     ImGui::Dummy(ImVec2(bar_width, bar_height));
-}
-
-void UIRenderer::render_log(App& app) {
-    ImGui::Text("Log");
-    ImGui::Spacing();
-
-    ImGui::BeginChild("##LogScroll", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
-
-    auto logs = app.recent_logs();
-    for (auto& entry : logs) {
-        ImVec4
-            col = (entry.level == LogEntry::Error) ? ImVec4(1.0f, 0.3f, 0.3f, 1.0f) : ImVec4(0.65f, 0.65f, 0.70f, 1.0f);
-        ImGui::TextColored(col, "%s", entry.text.c_str());
-    }
-
-    if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 10.0f) {
-        ImGui::SetScrollHereY(1.0f);
-    }
-
-    ImGui::EndChild();
 }

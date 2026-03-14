@@ -3,6 +3,8 @@
 #include <imgui_impl_opengl3.h>
 
 #include "app.hpp"
+#include "config.hpp"
+#include "log.hpp"
 #include "ui.hpp"
 
 #ifdef __APPLE__
@@ -13,11 +15,11 @@
 
 #include <GLFW/glfw3.h>
 
-#include <iostream>
-
 int main() {
+    auto config = Config::load_default();
+
     if (!glfwInit()) {
-        std::cerr << "glfwInit failed" << std::endl;
+        LOG_ERROR() << "glfwInit failed";
         return 1;
     }
 
@@ -30,7 +32,7 @@ int main() {
 
     GLFWwindow* window = glfwCreateWindow(960, 640, "Driscord", nullptr, nullptr);
     if (!window) {
-        std::cerr << "glfwCreateWindow failed" << std::endl;
+        LOG_ERROR() << "glfwCreateWindow failed";
         glfwTerminate();
         return 1;
     }
@@ -48,8 +50,8 @@ int main() {
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 150");
 
-    App app;
-    UIRenderer ui;
+    App app(config);
+    UIRenderer ui(config);
 
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();

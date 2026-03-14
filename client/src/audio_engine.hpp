@@ -1,16 +1,22 @@
 #pragma once
 
+#include "ring_buffer.hpp"
+
 #include <atomic>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <vector>
 
-#include "ring_buffer.hpp"
-
 struct OpusEncoder;
 struct OpusDecoder;
 struct ma_device;
+
+struct OpusEncoderDeleter { void operator()(OpusEncoder* e) const; };
+struct OpusDecoderDeleter { void operator()(OpusDecoder* d) const; };
+
+using OpusEncoderPtr = std::unique_ptr<OpusEncoder, OpusEncoderDeleter>;
+using OpusDecoderPtr = std::unique_ptr<OpusDecoder, OpusDecoderDeleter>;
 
 class AudioEngine {
 public:
@@ -56,19 +62,16 @@ private:
 
     PacketCallback on_packet_;
 
-    OpusEncoder* encoder_ = nullptr;
-    OpusDecoder* decoder_ = nullptr;
+    OpusEncoderPtr encoder_;
+    OpusDecoderPtr decoder_;
 
     std::unique_ptr<ma_device> device_;
 
-    // Accumulator for capture frames until we have a full Opus frame
     std::vector<float> capture_buf_;
     size_t capture_pos_ = 0;
 
-    // Ring buffer for decoded playback samples
     RingBuffer<float> playback_ring_{SAMPLE_RATE * 2};
 
-    // Temp buffers to avoid allocations in hot path
     std::vector<uint8_t> encode_buf_;
     std::vector<float> decode_buf_;
 };
