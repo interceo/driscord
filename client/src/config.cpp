@@ -46,6 +46,9 @@ Config Config::load(const std::string& path) {
         if (j.contains("screen_buffer_ms")) {
             cfg.screen_buffer_ms = j["screen_buffer_ms"].get<int>();
         }
+        if (j.contains("max_sync_gap_ms")) {
+            cfg.max_sync_gap_ms = j["max_sync_gap_ms"].get<int>();
+        }
         // Single TURN server (legacy format)
         if (j.contains("turn_url") && j["turn_url"].is_string()) {
             TurnServer ts;
@@ -101,6 +104,10 @@ Config Config::load(const std::string& path) {
     if (cfg.screen_buffer_ms < 0 || cfg.screen_buffer_ms > 500) {
         LOG_WARNING() << "invalid screen_buffer_ms " << cfg.screen_buffer_ms << ", using default 80";
         cfg.screen_buffer_ms = 80;
+    }
+    if (cfg.max_sync_gap_ms < 100 || cfg.max_sync_gap_ms > 10000) {
+        LOG_WARNING() << "invalid max_sync_gap_ms " << cfg.max_sync_gap_ms << ", using default 2000";
+        cfg.max_sync_gap_ms = 2000;
     }
 
     return cfg;

@@ -10,5 +10,6 @@
         }
     ],
     "voice_jitter_ms": 200,
-    "screen_buffer_ms": 200
+    "screen_buffer_ms": 200,
+    "max_sync_gap_ms": 2000
 }

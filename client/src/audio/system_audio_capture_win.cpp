@@ -291,8 +291,19 @@ private:
                     break;
                 }
 
-                if (!(flags & AUDCLNT_BUFFERFLAGS_SILENT) && callback_ && num_frames > 0) {
-                    callback_(reinterpret_cast<const float*>(data), static_cast<size_t>(num_frames), CHANNELS);
+                if (callback_ && num_frames > 0) {
+                    if (flags & AUDCLNT_BUFFERFLAGS_SILENT) {
+                        silence_buf_.assign(static_cast<size_t>(num_frames) * CHANNELS, 0.0f);
+                        callback_(silence_buf_.data(), static_cast<size_t>(num_frames), CHANNELS);
+                        ++silent_count_;
+                    } else {
+                        if (first_audio_logged_ == 0) {
+                            first_audio_logged_ = 1;
+                            LOG_INFO()
+                                << "system audio: first non-silent buffer after " << silent_count_ << " silent buffers";
+                        }
+                        callback_(reinterpret_cast<const float*>(data), static_cast<size_t>(num_frames), CHANNELS);
+                    }
                 }
 
                 capture_client_->ReleaseBuffer(num_frames);
@@ -313,6 +324,9 @@ private:
     IAudioClient* audio_client_ = nullptr;
     IAudioCaptureClient* capture_client_ = nullptr;
     std::thread thread_;
+    std::vector<float> silence_buf_;
+    uint32_t silent_count_ = 0;
+    uint32_t first_audio_logged_ = 0;
 };
 
 bool SystemAudioCapture::available() { return true; }

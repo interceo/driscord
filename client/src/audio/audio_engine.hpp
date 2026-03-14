@@ -53,6 +53,7 @@ public:
     void feed_screen_audio_packet(const uint8_t* data, size_t len);
 
     uint32_t screen_playback_ts() const { return screen_jitter_.current_playback_ts(); }
+    void re_anchor_screen(uint32_t ts) { screen_jitter_.re_anchor(ts); }
 
     void set_muted(bool m) { muted_ = m; }
     bool muted() const noexcept { return muted_; }

@@ -21,6 +21,7 @@ struct Config {
     int video_bitrate_kbps = 8000;
     int voice_jitter_ms = 80;
     int screen_buffer_ms = 80;
+    int max_sync_gap_ms = 2000;
 
     std::vector<TurnServer> turn_servers;
 

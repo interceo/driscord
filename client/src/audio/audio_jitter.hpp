@@ -88,6 +88,14 @@ public:
         return base + samples_ms + interp;
     }
 
+    void re_anchor(uint32_t target_ts) {
+        uint64_t buf_samples = ring_.available_read();
+        uint32_t buf_ms = static_cast<uint32_t>(buf_samples * 1000 / sample_rate_);
+        playback_base_ts_.store(target_ts - buf_ms, std::memory_order_relaxed);
+        playback_samples_.store(0, std::memory_order_relaxed);
+        playback_local_ts_.store(drist::now_ms(), std::memory_order_relaxed);
+    }
+
     void reset() {
         ring_.clear();
         primed_ = false;

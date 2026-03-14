@@ -64,6 +64,7 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
 
     XRRScreenResources* res = XRRGetScreenResources(dpy, root);
     if (res) {
+        targets.reserve(res->ncrtc);
         for (int i = 0; i < res->ncrtc; ++i) {
             XRRCrtcInfo* crtc = XRRGetCrtcInfo(dpy, res, res->crtcs[i]);
             if (!crtc) {
@@ -92,7 +93,7 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
             t.height = static_cast<int>(crtc->height);
             t.x = crtc->x;
             t.y = crtc->y;
-            targets.push_back(std::move(t));
+            targets.emplace_back(std::move(t));
 
             XRRFreeCrtcInfo(crtc);
         }
@@ -108,7 +109,7 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
         t.name = "Full Desktop (" + std::to_string(root_attrs.width) + "x" + std::to_string(root_attrs.height) + ")";
         t.width = root_attrs.width;
         t.height = root_attrs.height;
-        targets.push_back(std::move(t));
+        targets.emplace_back(std::move(t));
     }
 
     Atom net_client_list = XInternAtom(dpy, "_NET_CLIENT_LIST", False);
@@ -159,7 +160,7 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
             t.name = std::move(name);
             t.width = attrs.width;
             t.height = attrs.height;
-            targets.push_back(std::move(t));
+            targets.emplace_back(std::move(t));
         }
         XFree(data);
     }

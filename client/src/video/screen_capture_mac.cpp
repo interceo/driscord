@@ -31,6 +31,7 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
     uint32_t count = 0;
     CGGetActiveDisplayList(16, displays, &count);
 
+    targets.reserve(count);
     for (uint32_t i = 0; i < count; ++i) {
         auto bounds = CGDisplayBounds(displays[i]);
         int w = static_cast<int>(bounds.size.width);
@@ -42,7 +43,7 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
         t.name = "Display " + std::to_string(i + 1) + " (" + std::to_string(w) + "x" + std::to_string(h) + ")";
         t.width = w;
         t.height = h;
-        targets.push_back(std::move(t));
+        targets.emplace_back(std::move(t));
     }
     return targets;
 }

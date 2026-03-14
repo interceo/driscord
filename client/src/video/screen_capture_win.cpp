@@ -63,7 +63,7 @@ static BOOL CALLBACK monitor_enum_proc(HMONITOR hmon, HDC, LPRECT, LPARAM lparam
     t.x = mi.rcMonitor.left;
     t.y = mi.rcMonitor.top;
 
-    data->targets->push_back(std::move(t));
+    data->targets->emplace_back(std::move(t));
     data->index++;
     return TRUE;
 }
