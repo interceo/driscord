@@ -123,11 +123,18 @@ private:
         int height = 0;
         bool dirty = false;
         std::chrono::steady_clock::time_point last_frame;
-        int measured_kbps = 0;  // from sender via packet header
+        int measured_kbps = 0;
+
+        uint16_t reassembly_frame_id = 0;
+        uint16_t reassembly_total = 0;
+        uint16_t reassembly_got = 0;
+        std::vector<uint8_t> reassembly_buf;
+        uint32_t reassembly_w = 0, reassembly_h = 0, reassembly_kbps = 0;
     };
     mutable std::mutex video_mutex_;
     std::unordered_map<std::string, std::unique_ptr<PeerVideoState>> peer_video_;
     std::vector<std::string> pending_removals_;
 
+    uint16_t send_frame_id_ = 0;
     std::vector<uint8_t> send_buf_;
 };

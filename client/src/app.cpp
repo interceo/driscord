@@ -9,6 +9,8 @@
 namespace {
 
 constexpr size_t kVideoHeaderSize = 16;  // width(4) + height(4) + timestamp(4) + bitrate_kbps(4)
+constexpr size_t kChunkHeaderSize = 6;   // frame_id(2) + chunk_idx(2) + total_chunks(2)
+constexpr size_t kMaxChunkPayload = 60000;
 constexpr int kStaleVideoSeconds = 3;
 
 uint32_t now_ms() {
@@ -16,6 +18,15 @@ uint32_t now_ms() {
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
             .count();
     return static_cast<uint32_t>(ms);
+}
+
+void write_u16_le(uint8_t* dst, uint16_t v) {
+    dst[0] = static_cast<uint8_t>(v);
+    dst[1] = static_cast<uint8_t>(v >> 8);
+}
+
+uint16_t read_u16_le(const uint8_t* src) {
+    return static_cast<uint16_t>(src[0]) | (static_cast<uint16_t>(src[1]) << 8);
 }
 
 void write_u32_le(uint8_t* dst, uint32_t v) {
@@ -175,14 +186,32 @@ void App::start_sharing(const CaptureTarget& target, StreamQuality quality, int 
                 return;
             }
 
-            std::vector<uint8_t> packet(kVideoHeaderSize + encoded.size());
-            write_u32_le(packet.data() + 0, static_cast<uint32_t>(frame.width));
-            write_u32_le(packet.data() + 4, static_cast<uint32_t>(frame.height));
-            write_u32_le(packet.data() + 8, now_ms());
-            write_u32_le(packet.data() + 12, static_cast<uint32_t>(video_encoder_.measured_kbps()));
-            std::memcpy(packet.data() + kVideoHeaderSize, encoded.data(), encoded.size());
+            // Build full frame: video header + encoded data
+            std::vector<uint8_t> full(kVideoHeaderSize + encoded.size());
+            write_u32_le(full.data() + 0, static_cast<uint32_t>(frame.width));
+            write_u32_le(full.data() + 4, static_cast<uint32_t>(frame.height));
+            write_u32_le(full.data() + 8, now_ms());
+            write_u32_le(full.data() + 12, static_cast<uint32_t>(video_encoder_.measured_kbps()));
+            std::memcpy(full.data() + kVideoHeaderSize, encoded.data(), encoded.size());
 
-            transport_.send_video(packet.data(), packet.size());
+            uint16_t fid = send_frame_id_++;
+            size_t total_chunks = (full.size() + kMaxChunkPayload - 1) / kMaxChunkPayload;
+            if (total_chunks > 0xFFFF) {
+                return;
+            }
+
+            for (size_t ci = 0; ci < total_chunks; ++ci) {
+                size_t offset = ci * kMaxChunkPayload;
+                size_t chunk_len = std::min(kMaxChunkPayload, full.size() - offset);
+
+                send_buf_.resize(kChunkHeaderSize + chunk_len);
+                write_u16_le(send_buf_.data() + 0, fid);
+                write_u16_le(send_buf_.data() + 2, static_cast<uint16_t>(ci));
+                write_u16_le(send_buf_.data() + 4, static_cast<uint16_t>(total_chunks));
+                std::memcpy(send_buf_.data() + kChunkHeaderSize, full.data() + offset, chunk_len);
+
+                transport_.send_video(send_buf_.data(), send_buf_.size());
+            }
         }))
     {
         LOG_ERROR() << "failed to start screen capture";
@@ -239,20 +268,20 @@ std::vector<App::PeerView> App::peers() const {
 }
 
 void App::on_video_packet(const std::string& peer_id, const uint8_t* data, size_t len) {
-    if (len <= kVideoHeaderSize) {
+    if (len <= kChunkHeaderSize) {
         return;
     }
 
-    uint32_t w = read_u32_le(data + 0);
-    uint32_t h = read_u32_le(data + 4);
-    uint32_t sender_kbps = read_u32_le(data + 12);
+    uint16_t frame_id = read_u16_le(data + 0);
+    uint16_t chunk_idx = read_u16_le(data + 2);
+    uint16_t total_chunks = read_u16_le(data + 4);
 
-    const uint8_t* payload = data + kVideoHeaderSize;
-    size_t payload_len = len - kVideoHeaderSize;
-
-    if (w == 0 || h == 0 || w > 7680 || h > 4320) {
+    if (total_chunks == 0 || chunk_idx >= total_chunks) {
         return;
     }
+
+    const uint8_t* chunk_data = data + kChunkHeaderSize;
+    size_t chunk_len = len - kChunkHeaderSize;
 
     std::scoped_lock lk(video_mutex_);
 
@@ -268,7 +297,44 @@ void App::on_video_packet(const std::string& peer_id, const uint8_t* data, size_
     }
 
     auto& vs = *it->second;
+
+    if (frame_id != vs.reassembly_frame_id || total_chunks != vs.reassembly_total) {
+        vs.reassembly_frame_id = frame_id;
+        vs.reassembly_total = total_chunks;
+        vs.reassembly_got = 0;
+        vs.reassembly_buf.clear();
+    }
+
+    size_t offset = static_cast<size_t>(chunk_idx) * kMaxChunkPayload;
+    size_t needed = offset + chunk_len;
+    if (vs.reassembly_buf.size() < needed) {
+        vs.reassembly_buf.resize(needed);
+    }
+    std::memcpy(vs.reassembly_buf.data() + offset, chunk_data, chunk_len);
+    ++vs.reassembly_got;
+
+    if (vs.reassembly_got < total_chunks) {
+        return;
+    }
+
+    // All chunks received — decode the frame
+    auto& buf = vs.reassembly_buf;
+    if (buf.size() <= kVideoHeaderSize) {
+        return;
+    }
+
+    uint32_t w = read_u32_le(buf.data() + 0);
+    uint32_t h = read_u32_le(buf.data() + 4);
+    uint32_t sender_kbps = read_u32_le(buf.data() + 12);
+
+    if (w == 0 || h == 0 || w > 7680 || h > 4320) {
+        return;
+    }
+
     vs.measured_kbps = static_cast<int>(sender_kbps);
+
+    const uint8_t* payload = buf.data() + kVideoHeaderSize;
+    size_t payload_len = buf.size() - kVideoHeaderSize;
 
     auto now = std::chrono::steady_clock::now();
     if (vs.decoder.decode(payload, payload_len, vs.rgba, vs.width, vs.height)) {
