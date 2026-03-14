@@ -19,7 +19,7 @@ struct Config {
     int capture_width = 1920;
     int capture_height = 1080;
     int video_bitrate_kbps = 8000;
-    int audio_jitter_ms = 60;
+    int audio_jitter_ms = 80;
     int video_delay_ms = 0;
 
     std::vector<TurnServer> turn_servers;

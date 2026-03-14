@@ -139,6 +139,7 @@ private:
         std::vector<uint8_t> pending_decode;
         uint32_t pending_kbps = 0;
         bool has_pending_decode = false;
+        int decode_failures = 0;
 
         uint16_t reassembly_frame_id = 0;
         uint16_t reassembly_total = 0;

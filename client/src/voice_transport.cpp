@@ -293,7 +293,7 @@ void VoiceTransport::create_peer(const std::string& peer_id, bool create_offer) 
 
         rtc::DataChannelInit video_init;
         video_init.reliability.unordered = true;
-        video_init.reliability.maxRetransmits = 0;
+        video_init.reliability.maxRetransmits = 2;
         auto video_dc = pc->createDataChannel("video", video_init);
         setup_video_channel(peer_id, video_dc);
         state.video_dc = video_dc;

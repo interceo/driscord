@@ -8,7 +8,7 @@
 #include <cstdint>
 #include <cstring>
 
-inline constexpr uint32_t kDefaultJitterMs = 60;
+inline constexpr uint32_t kDefaultJitterMs = 80;
 
 class AudioJitter {
 public:
