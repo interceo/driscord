@@ -26,6 +26,13 @@ public:
         spec.rate = SAMPLE_RATE;
         spec.channels = CHANNELS;
 
+        constexpr uint32_t kFragFrames = 960;  // 20ms @ 48kHz
+        constexpr uint32_t kFragBytes = kFragFrames * CHANNELS * sizeof(float);
+
+        pa_buffer_attr attr{};
+        attr.maxlength = kFragBytes * 4;
+        attr.fragsize = kFragBytes;
+
         int error = 0;
         pa_ = pa_simple_new(
             nullptr,     // default server
@@ -35,7 +42,7 @@ public:
             "screen_audio",
             &spec,
             nullptr,  // default channel map
-            nullptr,  // default buffering
+            &attr,
             &error
         );
 
@@ -100,6 +107,10 @@ bool SystemAudioCapture::available() {
     spec.rate = 48000;
     spec.channels = 2;
 
+    pa_buffer_attr attr{};
+    attr.maxlength = static_cast<uint32_t>(-1);
+    attr.fragsize = 960 * 2 * sizeof(float);
+
     pa_simple* test = pa_simple_new(
         nullptr,
         "driscord_probe",
@@ -108,7 +119,7 @@ bool SystemAudioCapture::available() {
         "probe",
         &spec,
         nullptr,
-        nullptr,
+        &attr,
         &error
     );
     if (test) {
