@@ -26,7 +26,12 @@ void VoiceTransport::add_turn_server(const std::string& url, const std::string& 
     uint16_t port = 3478;
     auto colon = host.rfind(':');
     if (colon != std::string::npos) {
-        port = static_cast<uint16_t>(std::stoi(host.substr(colon + 1)));
+        try {
+            port = static_cast<uint16_t>(std::stoi(host.substr(colon + 1)));
+        } catch (const std::exception&) {
+            LOG_ERROR() << "invalid TURN port in URL: " << url;
+            return;
+        }
         host = host.substr(0, colon);
     }
 
@@ -40,27 +45,30 @@ void VoiceTransport::connect(const std::string& ws_url) {
     disconnect();
     ws_url_ = ws_url;
 
-    ws_ = std::make_shared<rtc::WebSocket>();
+    auto ws = std::make_shared<rtc::WebSocket>();
 
-    ws_->onOpen([this]() {
+    ws->onOpen([this]() {
         LOG_INFO() << "ws connected to " << ws_url_;
         ws_connected_ = true;
     });
 
-    ws_->onClosed([this]() {
+    ws->onClosed([this]() {
         LOG_INFO() << "ws disconnected";
         ws_connected_ = false;
     });
 
-    ws_->onError([](std::string error) { LOG_ERROR() << "ws error: " << error; });
+    ws->onError([](std::string error) { LOG_ERROR() << "ws error: " << error; });
 
-    ws_->onMessage([this](auto msg) {
+    ws->onMessage([this](auto msg) {
         if (auto* str = std::get_if<std::string>(&msg)) {
             on_ws_message(*str);
         }
     });
 
-    ws_->open(ws_url);
+    ws->open(ws_url);
+
+    std::scoped_lock lk(ws_mutex_);
+    ws_ = std::move(ws);
 }
 
 void VoiceTransport::disconnect() {
@@ -86,11 +94,15 @@ void VoiceTransport::disconnect() {
     }
     local_peers.clear();
 
-    if (ws_) {
-        ws_->close();
-        ws_.reset();
+    std::shared_ptr<rtc::WebSocket> ws;
+    {
+        std::scoped_lock lk(ws_mutex_);
+        ws = std::move(ws_);
+        ws_connected_ = false;
     }
-    ws_connected_ = false;
+    if (ws) {
+        ws->close();
+    }
     local_id_.clear();
 }
 
@@ -356,6 +368,7 @@ void VoiceTransport::setup_video_channel(const std::string& peer_id, std::shared
 }
 
 void VoiceTransport::send_signal(const json& msg) {
+    std::scoped_lock lk(ws_mutex_);
     if (ws_ && ws_connected_) {
         ws_->send(msg.dump());
     }

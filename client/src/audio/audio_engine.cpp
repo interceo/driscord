@@ -164,8 +164,13 @@ void AudioEngine::feed_packet(const uint8_t* data, size_t len, float peer_volume
         return;
     }
 
-    const auto
+    const int
         samples = opus_decode_float(decoder_.get(), data, static_cast<int>(len), decode_buf_.data(), FRAME_SIZE, 0);
+
+    if (samples < 0) {
+        LOG_ERROR() << "opus_decode_float failed: " << opus_strerror(samples);
+        return;
+    }
 
     if (samples > 0) {
         if (peer_volume != 1.0f) {
