@@ -272,7 +272,10 @@ void App::on_video_packet(const std::string& peer_id, const uint8_t* data, size_
             LOG_ERROR() << "failed to init video decoder for " << peer_id;
             return;
         }
-        vs->last_frame = std::chrono::steady_clock::now();
+        
+        const auto now_tp = std::chrono::steady_clock::now();
+        vs->last_frame = now_tp;
+        vs->last_bitrate_calc = now_tp;
         it = peer_video_.emplace(peer_id, std::move(vs)).first;
     }
 
