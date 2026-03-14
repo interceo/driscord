@@ -31,6 +31,16 @@ static const AVCodec* pick_h264_encoder() {
     if (auto* c = try_encoder("h264_videotoolbox")) {
         return c;
     }
+#elif defined(_WIN32)
+    if (auto* c = try_encoder("h264_mf")) {
+        return c;
+    }
+    if (auto* c = try_encoder("h264_amf")) {
+        return c;
+    }
+    if (auto* c = try_encoder("h264_qsv")) {
+        return c;
+    }
 #endif
     if (auto* c = try_encoder("libx264")) {
         return c;
@@ -38,20 +48,31 @@ static const AVCodec* pick_h264_encoder() {
     return avcodec_find_encoder(AV_CODEC_ID_H264);
 }
 
-static void setup_rate_control(AVCodecContext* ctx, int64_t bitrate_bps, bool is_videotoolbox, bool is_libx264) {
+static void setup_rate_control(AVCodecContext* ctx, int64_t bitrate_bps,
+                               const std::string& enc_name) {
     ctx->bit_rate = bitrate_bps;
     ctx->rc_max_rate = bitrate_bps;
-    ctx->rc_buffer_size = static_cast<int>(bitrate_bps);  // 1-second VBV buffer
+    ctx->rc_buffer_size = static_cast<int>(bitrate_bps);
 
-    if (is_videotoolbox) {
+    if (enc_name.find("videotoolbox") != std::string::npos) {
         av_opt_set(ctx->priv_data, "allow_sw", "true", 0);
         av_opt_set_int(ctx->priv_data, "profile", AV_PROFILE_H264_BASELINE, 0);
         av_opt_set(ctx->priv_data, "constant_bit_rate", "true", AV_OPT_SEARCH_CHILDREN);
-    } else if (is_libx264) {
+    } else if (enc_name.find("libx264") != std::string::npos) {
         av_opt_set(ctx->priv_data, "preset", "veryfast", 0);
         av_opt_set(ctx->priv_data, "tune", "zerolatency", 0);
         ctx->profile = AV_PROFILE_H264_HIGH;
         av_opt_set(ctx->priv_data, "nal-hrd", "cbr", 0);
+    } else if (enc_name.find("h264_mf") != std::string::npos) {
+        av_opt_set(ctx->priv_data, "rate_control", "cbr", 0);
+        ctx->profile = AV_PROFILE_H264_HIGH;
+    } else if (enc_name.find("h264_amf") != std::string::npos) {
+        av_opt_set(ctx->priv_data, "rc", "cbr", 0);
+        av_opt_set(ctx->priv_data, "quality", "balanced", 0);
+        ctx->profile = AV_PROFILE_H264_HIGH;
+    } else if (enc_name.find("h264_qsv") != std::string::npos) {
+        av_opt_set(ctx->priv_data, "preset", "veryfast", 0);
+        ctx->profile = AV_PROFILE_H264_HIGH;
     }
 }
 
@@ -87,17 +108,16 @@ bool VideoEncoder::init(int width, int height, int bitrate_kbps) {
     ctx_->flags |= AV_CODEC_FLAG_LOW_DELAY;
 
     std::string enc_name(codec->name);
-    bool is_videotoolbox = (enc_name.find("videotoolbox") != std::string::npos);
-    bool is_libx264 = (enc_name.find("libx264") != std::string::npos);
+    bool is_hw = (enc_name.find("libx264") == std::string::npos);
 
-    setup_rate_control(ctx_, bitrate_bps, is_videotoolbox, is_libx264);
+    setup_rate_control(ctx_, bitrate_bps, enc_name);
 
     int ret = avcodec_open2(ctx_, codec, nullptr);
     if (ret < 0) {
         LOG_ERROR() << "avcodec_open2 (encoder " << enc_name << ") failed: " << ff_err(ret);
         avcodec_free_context(&ctx_);
 
-        if (is_videotoolbox) {
+        if (is_hw) {
             LOG_WARNING() << "falling back to libx264";
             codec = try_encoder("libx264");
             if (!codec) {
@@ -119,8 +139,7 @@ bool VideoEncoder::init(int width, int height, int bitrate_kbps) {
             ctx_->flags |= AV_CODEC_FLAG_LOW_DELAY;
 
             enc_name = codec->name;
-            is_libx264 = (enc_name.find("libx264") != std::string::npos);
-            setup_rate_control(ctx_, bitrate_bps, false, is_libx264);
+            setup_rate_control(ctx_, bitrate_bps, enc_name);
 
             ret = avcodec_open2(ctx_, codec, nullptr);
             if (ret < 0) {
