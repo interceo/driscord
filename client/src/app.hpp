@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -125,21 +126,30 @@ private:
     std::unique_ptr<SystemAudioCapture> system_audio_capture_;
     VideoEncoder video_encoder_;
 
+    struct TimedFrame {
+        std::vector<uint8_t> rgba;
+        int width, height;
+        uint32_t sender_ts;
+    };
+
+    static constexpr size_t kMaxFrameQueue = 10;
+
     struct PeerVideoState {
         VideoDecoder decoder;
         std::vector<uint8_t> rgba;
         int width = 0;
         int height = 0;
         bool dirty = false;
-        bool video_primed = false;
-        uint32_t prime_start = 0;
         std::chrono::steady_clock::time_point last_frame;
         int measured_kbps = 0;
 
         std::vector<uint8_t> pending_decode;
         uint32_t pending_kbps = 0;
+        uint32_t pending_sender_ts = 0;
         bool has_pending_decode = false;
         int decode_failures = 0;
+
+        std::deque<TimedFrame> frame_queue;
 
         uint16_t reassembly_frame_id = 0;
         uint16_t reassembly_total = 0;

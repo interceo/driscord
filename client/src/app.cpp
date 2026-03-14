@@ -82,16 +82,9 @@ void App::update() {
         std::shared_ptr<PeerVideoState> vs;
         std::vector<uint8_t> data;
         uint32_t kbps;
+        uint32_t sender_ts;
     };
     std::vector<PendingDecode> pending_decodes;
-
-    struct ReadyFrame {
-        std::string peer_id;
-        std::vector<uint8_t> rgba;
-        int width;
-        int height;
-    };
-    std::vector<ReadyFrame> ready_frames;
     std::vector<std::string> to_remove;
 
     {
@@ -107,16 +100,9 @@ void App::update() {
                 pd.vs = vs;
                 pd.data.swap(vs->pending_decode);
                 pd.kbps = vs->pending_kbps;
+                pd.sender_ts = vs->pending_sender_ts;
                 vs->has_pending_decode = false;
                 pending_decodes.push_back(std::move(pd));
-            } else if (vs->dirty) {
-                ReadyFrame rf;
-                rf.peer_id = peer_id;
-                rf.rgba.swap(vs->rgba);
-                rf.width = vs->width;
-                rf.height = vs->height;
-                ready_frames.push_back(std::move(rf));
-                vs->dirty = false;
             }
         }
 
@@ -131,9 +117,6 @@ void App::update() {
         }
     }
 
-    const uint32_t screen_buf_ms = static_cast<uint32_t>(config_.screen_buffer_ms);
-    uint32_t cur_ms = now_ms();
-
     for (auto& pd : pending_decodes) {
         std::vector<uint8_t> rgba;
         int dec_w = 0, dec_h = 0;
@@ -141,29 +124,15 @@ void App::update() {
             pd.vs->decode_failures = 0;
             pd.vs->measured_kbps = static_cast<int>(pd.kbps);
 
-            if (pd.vs->video_primed || screen_buf_ms == 0) {
-                ReadyFrame rf;
-                rf.peer_id = std::move(pd.peer_id);
-                rf.rgba = std::move(rgba);
-                rf.width = dec_w;
-                rf.height = dec_h;
-                ready_frames.push_back(std::move(rf));
-            } else {
-                pd.vs->rgba = std::move(rgba);
-                pd.vs->width = dec_w;
-                pd.vs->height = dec_h;
-                if (pd.vs->prime_start == 0) {
-                    pd.vs->prime_start = cur_ms;
-                }
-                if (cur_ms - pd.vs->prime_start >= screen_buf_ms) {
-                    pd.vs->video_primed = true;
-                    ReadyFrame rf;
-                    rf.peer_id = std::move(pd.peer_id);
-                    rf.rgba.swap(pd.vs->rgba);
-                    rf.width = pd.vs->width;
-                    rf.height = pd.vs->height;
-                    ready_frames.push_back(std::move(rf));
-                }
+            TimedFrame tf;
+            tf.rgba = std::move(rgba);
+            tf.width = dec_w;
+            tf.height = dec_h;
+            tf.sender_ts = pd.sender_ts;
+            pd.vs->frame_queue.push_back(std::move(tf));
+
+            while (pd.vs->frame_queue.size() > kMaxFrameQueue) {
+                pd.vs->frame_queue.pop_front();
             }
         } else {
             ++pd.vs->decode_failures;
@@ -173,8 +142,41 @@ void App::update() {
         }
     }
 
-    for (auto& rf : ready_frames) {
-        video_renderer_.update_frame(rf.peer_id, rf.rgba.data(), rf.width, rf.height);
+    const uint32_t audio_ts = audio_.screen_playback_ts();
+    const bool has_audio_clock = (audio_ts > 0);
+
+    {
+        std::scoped_lock lk(video_mutex_);
+        for (auto& [peer_id, vs] : peer_video_) {
+            if (vs->frame_queue.empty()) {
+                continue;
+            }
+
+            if (!has_audio_clock) {
+                auto& f = vs->frame_queue.back();
+                video_renderer_.update_frame(peer_id, f.rgba.data(), f.width, f.height);
+                vs->width = f.width;
+                vs->height = f.height;
+                vs->frame_queue.clear();
+                continue;
+            }
+
+            int last_ready = -1;
+            for (int i = 0; i < static_cast<int>(vs->frame_queue.size()); ++i) {
+                if (vs->frame_queue[i].sender_ts <= audio_ts) {
+                    last_ready = i;
+                } else {
+                    break;
+                }
+            }
+            if (last_ready >= 0) {
+                auto& f = vs->frame_queue[last_ready];
+                video_renderer_.update_frame(peer_id, f.rgba.data(), f.width, f.height);
+                vs->width = f.width;
+                vs->height = f.height;
+                vs->frame_queue.erase(vs->frame_queue.begin(), vs->frame_queue.begin() + last_ready + 1);
+            }
+        }
     }
 
     for (auto& pid : to_remove) {
@@ -453,6 +455,7 @@ void App::on_video_packet(const std::string& peer_id, const uint8_t* data, size_
 
     uint32_t w = read_u32_le(buf.data() + 0);
     uint32_t h = read_u32_le(buf.data() + 4);
+    uint32_t sender_ts = read_u32_le(buf.data() + 8);
     uint32_t sender_kbps = read_u32_le(buf.data() + 12);
 
     if (w == 0 || h == 0 || w > 7680 || h > 4320) {
@@ -461,6 +464,7 @@ void App::on_video_packet(const std::string& peer_id, const uint8_t* data, size_
 
     vs.pending_decode.assign(buf.data() + kVideoHeaderSize, buf.data() + buf.size());
     vs.pending_kbps = sender_kbps;
+    vs.pending_sender_ts = sender_ts;
     vs.has_pending_decode = true;
     vs.last_frame = std::chrono::steady_clock::now();
 }

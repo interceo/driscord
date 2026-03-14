@@ -17,9 +17,9 @@ void OpusEncoderDeleter::operator()(OpusEncoder* e) const { opus_encoder_destroy
 void OpusDecoderDeleter::operator()(OpusDecoder* d) const { opus_decoder_destroy(d); }
 
 AudioEngine::AudioEngine(int voice_jitter_ms, int screen_jitter_ms)
-    : voice_jitter_(static_cast<size_t>(voice_jitter_ms)),
+    : capture_buf_(FRAME_SIZE, 0.0f),
+      voice_jitter_(static_cast<size_t>(voice_jitter_ms)),
       screen_jitter_(static_cast<size_t>(screen_jitter_ms)),
-      capture_buf_(FRAME_SIZE, 0.0f),
       screen_mix_buf_(FRAME_SIZE, 0.0f),
       encode_buf_(AUDIO_HEADER_SIZE + MAX_OPUS_PACKET),
       decode_buf_(FRAME_SIZE),
@@ -207,6 +207,7 @@ void AudioEngine::feed_packet(const uint8_t* data, size_t len, float peer_volume
     }
 
     uint16_t seq = read_u16_le(data);
+    uint32_t sender_ts = read_u32_le(data + 2);
     const uint8_t* opus_data = data + AUDIO_HEADER_SIZE;
     int opus_len = static_cast<int>(len - AUDIO_HEADER_SIZE);
 
@@ -223,7 +224,7 @@ void AudioEngine::feed_packet(const uint8_t* data, size_t len, float peer_volume
                 decode_buf_[static_cast<size_t>(i)] *= peer_volume;
             }
         }
-        voice_jitter_.push(decode_buf_.data(), static_cast<size_t>(samples), seq);
+        voice_jitter_.push(decode_buf_.data(), static_cast<size_t>(samples), seq, sender_ts);
     }
 }
 
@@ -313,6 +314,7 @@ void AudioEngine::feed_screen_audio_packet(const uint8_t* data, size_t len) {
     }
 
     uint16_t seq = read_u16_le(data);
+    uint32_t sender_ts = read_u32_le(data + 2);
     const uint8_t* opus_data = data + AUDIO_HEADER_SIZE;
     int opus_len = static_cast<int>(len - AUDIO_HEADER_SIZE);
 
@@ -333,5 +335,5 @@ void AudioEngine::feed_screen_audio_packet(const uint8_t* data, size_t len) {
         float r = screen_decode_buf_[static_cast<size_t>(i) * 2 + 1];
         decode_buf_[static_cast<size_t>(i)] = (l + r) * 0.5f;
     }
-    screen_jitter_.push(decode_buf_.data(), static_cast<size_t>(samples), seq);
+    screen_jitter_.push(decode_buf_.data(), static_cast<size_t>(samples), seq, sender_ts);
 }
