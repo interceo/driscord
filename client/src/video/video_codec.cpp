@@ -86,7 +86,7 @@ static void setup_common_ctx(AVCodecContext* ctx, int width, int height, int fps
     ctx->framerate = {fps, 1};
     ctx->pix_fmt = AV_PIX_FMT_YUV420P;
     ctx->color_range = AVCOL_RANGE_MPEG;
-    ctx->gop_size = fps * 2;
+    ctx->gop_size = fps;
     ctx->max_b_frames = 0;
     ctx->thread_count = 2;
     ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;

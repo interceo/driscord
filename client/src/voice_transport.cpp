@@ -46,9 +46,15 @@ void VoiceTransport::disconnect() {
     }
 
     for (auto& [_, state] : local_peers) {
-        if (state.dc) state.dc->close();
-        if (state.video_dc) state.video_dc->close();
-        if (state.pc) state.pc->close();
+        if (state.dc) {
+            state.dc->close();
+        }
+        if (state.video_dc) {
+            state.video_dc->close();
+        }
+        if (state.pc) {
+            state.pc->close();
+        }
     }
     local_peers.clear();
 
@@ -131,9 +137,15 @@ void VoiceTransport::on_ws_message(const std::string& raw) {
                 }
             }
             // Close outside the lock to avoid deadlock
-            if (removed.dc) removed.dc->close();
-            if (removed.video_dc) removed.video_dc->close();
-            if (removed.pc) removed.pc->close();
+            if (removed.dc) {
+                removed.dc->close();
+            }
+            if (removed.video_dc) {
+                removed.video_dc->close();
+            }
+            if (removed.pc) {
+                removed.pc->close();
+            }
 
             if (on_peer_left_) {
                 on_peer_left_(peer_id);
@@ -189,15 +201,17 @@ void VoiceTransport::create_peer(const std::string& peer_id, bool create_offer) 
     state.pc = pc;
 
     if (create_offer) {
-        rtc::DataChannelInit init;
-        init.reliability.unordered = true;
-        init.reliability.maxRetransmits = 0;
+        rtc::DataChannelInit audio_init;
+        audio_init.reliability.unordered = true;
+        audio_init.reliability.maxRetransmits = 0;
 
-        auto audio_dc = pc->createDataChannel("audio", init);
+        auto audio_dc = pc->createDataChannel("audio", audio_init);
         setup_audio_channel(peer_id, audio_dc);
         state.dc = audio_dc;
 
-        auto video_dc = pc->createDataChannel("video", init);
+        // Video must be reliable+ordered: a single lost H.264 packet
+        // corrupts all subsequent P-frames until the next IDR keyframe.
+        auto video_dc = pc->createDataChannel("video");
         setup_video_channel(peer_id, video_dc);
         state.video_dc = video_dc;
     }
