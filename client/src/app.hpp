@@ -22,6 +22,14 @@ enum class AppState {
     Connected,
 };
 
+enum class StreamQuality : int {
+    Source = 0,
+    HD_720,
+    FHD_1080,
+    QHD_1440,
+    Count,
+};
+
 struct StreamPreset {
     const char* label;
     int width;
@@ -34,10 +42,21 @@ inline constexpr StreamPreset kStreamPresets[] = {
     {"1080p", 1920, 1080},
     {"1440p", 2560, 1440},
 };
-inline constexpr int kStreamPresetCount = sizeof(kStreamPresets) / sizeof(kStreamPresets[0]);
+static_assert(static_cast<int>(StreamQuality::Count) == sizeof(kStreamPresets) / sizeof(kStreamPresets[0]));
+inline constexpr int kStreamPresetCount = static_cast<int>(StreamQuality::Count);
 
-inline constexpr int kFpsOptions[] = {15, 30, 60};
-inline constexpr int kFpsOptionCount = sizeof(kFpsOptions) / sizeof(kFpsOptions[0]);
+enum class FrameRate : int {
+    FPS_15 = 0,
+    FPS_30,
+    FPS_60,
+    Count,
+};
+
+inline constexpr int kFpsValues[] = {15, 30, 60};
+static_assert(static_cast<int>(FrameRate::Count) == sizeof(kFpsValues) / sizeof(kFpsValues[0]));
+inline constexpr int kFpsOptionCount = static_cast<int>(FrameRate::Count);
+
+inline constexpr int fps_value(FrameRate fr) { return kFpsValues[static_cast<int>(fr)]; }
 
 struct StreamStats {
     int width = 0;
@@ -58,7 +77,7 @@ public:
     void toggle_deafen();
     void set_volume(float vol);
 
-    void start_sharing(const CaptureTarget& target, int preset_idx, int fps);
+    void start_sharing(const CaptureTarget& target, StreamQuality quality, int fps);
     void stop_sharing();
     bool sharing() const { return sharing_; }
 

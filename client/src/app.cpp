@@ -127,18 +127,19 @@ void App::toggle_deafen() {
 
 void App::set_volume(float vol) { audio_.set_output_volume(vol); }
 
-void App::start_sharing(const CaptureTarget& target, int preset_idx, int fps) {
+void App::start_sharing(const CaptureTarget& target, StreamQuality quality, int fps) {
     if (sharing_ || state_ != AppState::Connected) {
         return;
     }
 
     int max_w, max_h;
-    if (preset_idx <= 0 || preset_idx >= kStreamPresetCount) {
+    if (quality == StreamQuality::Source) {
         max_w = 7680;
         max_h = 4320;
     } else {
-        max_w = kStreamPresets[preset_idx].width;
-        max_h = kStreamPresets[preset_idx].height;
+        auto idx = static_cast<int>(quality);
+        max_w = kStreamPresets[idx].width;
+        max_h = kStreamPresets[idx].height;
     }
 
     int enc_w = target.width & ~1;

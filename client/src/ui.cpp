@@ -23,30 +23,30 @@ void UIRenderer::apply_discord_theme() {
     style.WindowPadding = ImVec2(12, 12);
 
     auto* c = style.Colors;
-    c[ImGuiCol_WindowBg]           = {0.18f, 0.19f, 0.21f, 1.00f};
-    c[ImGuiCol_ChildBg]            = {0.18f, 0.19f, 0.21f, 1.00f};
-    c[ImGuiCol_PopupBg]            = {0.15f, 0.16f, 0.18f, 1.00f};
-    c[ImGuiCol_Border]             = {0.12f, 0.13f, 0.14f, 1.00f};
-    c[ImGuiCol_FrameBg]            = {0.25f, 0.27f, 0.30f, 1.00f};
-    c[ImGuiCol_FrameBgHovered]     = {0.30f, 0.32f, 0.35f, 1.00f};
-    c[ImGuiCol_FrameBgActive]      = {0.35f, 0.37f, 0.40f, 1.00f};
-    c[ImGuiCol_TitleBg]            = {0.15f, 0.16f, 0.17f, 1.00f};
-    c[ImGuiCol_TitleBgActive]      = {0.18f, 0.19f, 0.21f, 1.00f};
-    c[ImGuiCol_ScrollbarBg]        = {0.15f, 0.16f, 0.17f, 1.00f};
-    c[ImGuiCol_ScrollbarGrab]      = {0.28f, 0.30f, 0.33f, 1.00f};
-    c[ImGuiCol_ScrollbarGrabHovered]= {0.33f, 0.35f, 0.38f, 1.00f};
-    c[ImGuiCol_CheckMark]          = {0.34f, 0.54f, 0.93f, 1.00f};
-    c[ImGuiCol_SliderGrab]         = {0.34f, 0.54f, 0.93f, 1.00f};
-    c[ImGuiCol_SliderGrabActive]   = {0.44f, 0.64f, 1.00f, 1.00f};
-    c[ImGuiCol_Button]             = {0.34f, 0.54f, 0.93f, 1.00f};
-    c[ImGuiCol_ButtonHovered]      = {0.40f, 0.60f, 1.00f, 1.00f};
-    c[ImGuiCol_ButtonActive]       = {0.28f, 0.48f, 0.88f, 1.00f};
-    c[ImGuiCol_Header]             = {0.25f, 0.27f, 0.30f, 1.00f};
-    c[ImGuiCol_HeaderHovered]      = {0.30f, 0.32f, 0.35f, 1.00f};
-    c[ImGuiCol_HeaderActive]       = {0.35f, 0.37f, 0.40f, 1.00f};
-    c[ImGuiCol_Separator]          = {0.12f, 0.13f, 0.14f, 1.00f};
-    c[ImGuiCol_Text]               = {0.90f, 0.91f, 0.92f, 1.00f};
-    c[ImGuiCol_TextDisabled]       = {0.50f, 0.51f, 0.52f, 1.00f};
+    c[ImGuiCol_WindowBg] = {0.18f, 0.19f, 0.21f, 1.00f};
+    c[ImGuiCol_ChildBg] = {0.18f, 0.19f, 0.21f, 1.00f};
+    c[ImGuiCol_PopupBg] = {0.15f, 0.16f, 0.18f, 1.00f};
+    c[ImGuiCol_Border] = {0.12f, 0.13f, 0.14f, 1.00f};
+    c[ImGuiCol_FrameBg] = {0.25f, 0.27f, 0.30f, 1.00f};
+    c[ImGuiCol_FrameBgHovered] = {0.30f, 0.32f, 0.35f, 1.00f};
+    c[ImGuiCol_FrameBgActive] = {0.35f, 0.37f, 0.40f, 1.00f};
+    c[ImGuiCol_TitleBg] = {0.15f, 0.16f, 0.17f, 1.00f};
+    c[ImGuiCol_TitleBgActive] = {0.18f, 0.19f, 0.21f, 1.00f};
+    c[ImGuiCol_ScrollbarBg] = {0.15f, 0.16f, 0.17f, 1.00f};
+    c[ImGuiCol_ScrollbarGrab] = {0.28f, 0.30f, 0.33f, 1.00f};
+    c[ImGuiCol_ScrollbarGrabHovered] = {0.33f, 0.35f, 0.38f, 1.00f};
+    c[ImGuiCol_CheckMark] = {0.34f, 0.54f, 0.93f, 1.00f};
+    c[ImGuiCol_SliderGrab] = {0.34f, 0.54f, 0.93f, 1.00f};
+    c[ImGuiCol_SliderGrabActive] = {0.44f, 0.64f, 1.00f, 1.00f};
+    c[ImGuiCol_Button] = {0.34f, 0.54f, 0.93f, 1.00f};
+    c[ImGuiCol_ButtonHovered] = {0.40f, 0.60f, 1.00f, 1.00f};
+    c[ImGuiCol_ButtonActive] = {0.28f, 0.48f, 0.88f, 1.00f};
+    c[ImGuiCol_Header] = {0.25f, 0.27f, 0.30f, 1.00f};
+    c[ImGuiCol_HeaderHovered] = {0.30f, 0.32f, 0.35f, 1.00f};
+    c[ImGuiCol_HeaderActive] = {0.35f, 0.37f, 0.40f, 1.00f};
+    c[ImGuiCol_Separator] = {0.12f, 0.13f, 0.14f, 1.00f};
+    c[ImGuiCol_Text] = {0.90f, 0.91f, 0.92f, 1.00f};
+    c[ImGuiCol_TextDisabled] = {0.50f, 0.51f, 0.52f, 1.00f};
 }
 
 // ---------------------------------------------------------------------------
@@ -99,8 +99,9 @@ void UIRenderer::render_sidebar(App& app) {
 
     auto state = app.state();
     if (state == AppState::Disconnected) {
-        if (ImGui::Button("Connect", ImVec2(-1, 28)))
+        if (ImGui::Button("Connect", ImVec2(-1, 28))) {
             app.connect(server_url_buf_);
+        }
     }
 
     ImGui::Spacing();
@@ -110,7 +111,9 @@ void UIRenderer::render_sidebar(App& app) {
     } else if (state == AppState::Connected) {
         ImGui::TextColored({0.2f, 0.9f, 0.3f, 1.0f}, "Voice Connected");
         std::string sid = app.local_id();
-        if (sid.size() > 8) sid = sid.substr(0, 8) + "...";
+        if (sid.size() > 8) {
+            sid = sid.substr(0, 8) + "...";
+        }
         ImGui::TextDisabled("%s", sid.c_str());
     } else {
         ImGui::TextDisabled("Not connected");
@@ -127,21 +130,26 @@ void UIRenderer::render_sidebar(App& app) {
     } else {
         if (state == AppState::Connected) {
             std::string you = app.local_id();
-            if (you.size() > 10) you = you.substr(0, 10) + "...";
+            if (you.size() > 10) {
+                you = you.substr(0, 10) + "...";
+            }
             ImGui::TextColored({0.2f, 0.9f, 0.3f, 1.0f}, "  %s (you)", you.c_str());
         }
         for (auto& p : peers) {
             std::string name = p.id;
-            if (name.size() > 10) name = name.substr(0, 10) + "...";
-            ImVec4 col = p.connected ? ImVec4(0.2f, 0.9f, 0.3f, 1.0f)
-                                     : ImVec4(0.6f, 0.6f, 0.6f, 1.0f);
+            if (name.size() > 10) {
+                name = name.substr(0, 10) + "...";
+            }
+            ImVec4 col = p.connected ? ImVec4(0.2f, 0.9f, 0.3f, 1.0f) : ImVec4(0.6f, 0.6f, 0.6f, 1.0f);
             ImGui::TextColored(col, "  %s", name.c_str());
         }
     }
 
     float bottom_h = 52.0f;
     float avail = ImGui::GetContentRegionAvail().y;
-    if (avail > bottom_h) ImGui::Dummy(ImVec2(0, avail - bottom_h));
+    if (avail > bottom_h) {
+        ImGui::Dummy(ImVec2(0, avail - bottom_h));
+    }
 
     render_sidebar_bottom(app);
 }
@@ -159,38 +167,44 @@ void UIRenderer::render_sidebar_bottom(App& app) {
     float w = ImGui::GetContentRegionAvail().x;
     float btn = (w - ImGui::GetStyle().ItemSpacing.x * 2.0f) / 3.0f;
     bool muted = app.muted();
-    bool deaf  = app.deafened();
+    bool deaf = app.deafened();
 
     auto push_toggle = [](bool on) {
         if (on) {
-            ImGui::PushStyleColor(ImGuiCol_Button,        {0.85f, 0.25f, 0.25f, 1.0f});
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  {0.95f, 0.35f, 0.35f, 1.0f});
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive,   {0.75f, 0.20f, 0.20f, 1.0f});
+            ImGui::PushStyleColor(ImGuiCol_Button, {0.85f, 0.25f, 0.25f, 1.0f});
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.95f, 0.35f, 0.35f, 1.0f});
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.75f, 0.20f, 0.20f, 1.0f});
         } else {
-            ImGui::PushStyleColor(ImGuiCol_Button,        {0.28f, 0.30f, 0.33f, 1.0f});
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  {0.35f, 0.37f, 0.40f, 1.0f});
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive,   {0.22f, 0.24f, 0.27f, 1.0f});
+            ImGui::PushStyleColor(ImGuiCol_Button, {0.28f, 0.30f, 0.33f, 1.0f});
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.35f, 0.37f, 0.40f, 1.0f});
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.22f, 0.24f, 0.27f, 1.0f});
         }
     };
 
     push_toggle(muted);
     if (ImGui::Button(muted ? "MIC X" : "MIC", {btn, 30})) {
-        if (deaf) app.toggle_deafen(); else app.toggle_mute();
+        if (deaf) {
+            app.toggle_deafen();
+        } else {
+            app.toggle_mute();
+        }
     }
     ImGui::PopStyleColor(3);
 
     ImGui::SameLine();
     push_toggle(deaf);
-    if (ImGui::Button(deaf ? "DEAF" : "SND", {btn, 30}))
+    if (ImGui::Button(deaf ? "DEAF" : "SND", {btn, 30})) {
         app.toggle_deafen();
+    }
     ImGui::PopStyleColor(3);
 
     ImGui::SameLine();
-    ImGui::PushStyleColor(ImGuiCol_Button,        {0.85f, 0.25f, 0.25f, 1.0f});
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  {0.95f, 0.35f, 0.35f, 1.0f});
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive,   {0.75f, 0.20f, 0.20f, 1.0f});
-    if (ImGui::Button("END", {btn, 30}))
+    ImGui::PushStyleColor(ImGuiCol_Button, {0.85f, 0.25f, 0.25f, 1.0f});
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.95f, 0.35f, 0.35f, 1.0f});
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.75f, 0.20f, 0.20f, 1.0f});
+    if (ImGui::Button("END", {btn, 30})) {
         app.disconnect();
+    }
     ImGui::PopStyleColor(3);
 }
 
@@ -204,14 +218,15 @@ void UIRenderer::render_content(App& app) {
     if (connected) {
         volume_ = app.volume();
         ImGui::SetNextItemWidth(160);
-        if (ImGui::SliderFloat("Volume", &volume_, 0.0f, 2.0f, "%.1f"))
+        if (ImGui::SliderFloat("Volume", &volume_, 0.0f, 2.0f, "%.1f")) {
             app.set_volume(volume_);
+        }
 
         ImGui::SameLine(0, 20);
         bool m = app.muted();
-        float in_lv  = std::min(app.input_level()  * 5.0f, 1.0f);
+        float in_lv = std::min(app.input_level() * 5.0f, 1.0f);
         float out_lv = std::min(app.output_level() * 5.0f, 1.0f);
-        render_level_bar("Mic", in_lv,  m ? 0xFF4444AA : 0xFF44AA44);
+        render_level_bar("Mic", in_lv, m ? 0xFF4444AA : 0xFF44AA44);
         ImGui::SameLine(0, 12);
         render_level_bar("Spk", out_lv, app.deafened() ? 0xFF4444AA : 0xFF44AA44);
 
@@ -227,7 +242,7 @@ void UIRenderer::render_content(App& app) {
             ImVec4 green(0.20f, 0.70f, 0.30f, 1.0f);
             ImGui::PushStyleColor(ImGuiCol_Button, green);
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.25f, 0.80f, 0.35f, 1.0f});
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive,  {0.15f, 0.60f, 0.25f, 1.0f});
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.15f, 0.60f, 0.25f, 1.0f});
             if (ImGui::Button("Share Screen", {160, 30})) {
                 targets_ = ScreenCapture::list_targets();
                 selected_target_ = -1;
@@ -237,10 +252,10 @@ void UIRenderer::render_content(App& app) {
                     std::string tid = "__thumb_" + std::to_string(i) + "__";
                     auto frame = ScreenCapture::grab_thumbnail(targets_[i], 320, 180);
                     if (!frame.data.empty()) {
-                        for (size_t j = 0; j < frame.data.size(); j += 4)
+                        for (size_t j = 0; j < frame.data.size(); j += 4) {
                             std::swap(frame.data[j], frame.data[j + 2]);
-                        app.video_renderer().update_frame(tid, frame.data.data(),
-                                                          frame.width, frame.height);
+                        }
+                        app.video_renderer().update_frame(tid, frame.data.data(), frame.width, frame.height);
                     }
                 }
             }
@@ -248,11 +263,12 @@ void UIRenderer::render_content(App& app) {
         } else {
             ImGui::TextColored({0.2f, 0.9f, 0.3f, 1.0f}, "Sharing your screen");
             ImGui::Spacing();
-            ImGui::PushStyleColor(ImGuiCol_Button,        {0.85f, 0.25f, 0.25f, 1.0f});
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  {0.95f, 0.35f, 0.35f, 1.0f});
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive,   {0.75f, 0.20f, 0.20f, 1.0f});
-            if (ImGui::Button("Stop Sharing", {160, 30}))
+            ImGui::PushStyleColor(ImGuiCol_Button, {0.85f, 0.25f, 0.25f, 1.0f});
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.95f, 0.35f, 0.35f, 1.0f});
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.75f, 0.20f, 0.20f, 1.0f});
+            if (ImGui::Button("Stop Sharing", {160, 30})) {
                 app.stop_sharing();
+            }
             ImGui::PopStyleColor(3);
         }
     } else {
@@ -270,7 +286,9 @@ void UIRenderer::render_content(App& app) {
 // ---------------------------------------------------------------------------
 
 void UIRenderer::render_share_popup(App& app) {
-    if (!share_popup_open_) return;
+    if (!share_popup_open_) {
+        return;
+    }
 
     ImGui::OpenPopup("##SharePicker");
 
@@ -278,8 +296,7 @@ void UIRenderer::render_share_popup(App& app) {
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, {0.5f, 0.5f});
     ImGui::SetNextWindowSize({700, 500}, ImGuiCond_Appearing);
 
-    if (ImGui::BeginPopupModal("##SharePicker", &share_popup_open_,
-                                ImGuiWindowFlags_NoTitleBar)) {
+    if (ImGui::BeginPopupModal("##SharePicker", &share_popup_open_, ImGuiWindowFlags_NoTitleBar)) {
         ImGui::Text("Choose what to share");
         ImGui::Separator();
         ImGui::Spacing();
@@ -292,20 +309,22 @@ void UIRenderer::render_share_popup(App& app) {
 
         ImGui::BeginChild("##Targets", {0, -80});
         for (int i = 0; i < static_cast<int>(targets_.size()); ++i) {
-            if (i > 0 && (i % cols) != 0) ImGui::SameLine();
+            if (i > 0 && (i % cols) != 0) {
+                ImGui::SameLine();
+            }
 
             ImGui::BeginGroup();
             ImGui::PushID(i);
 
             bool sel = (selected_target_ == i);
             if (sel) {
-                ImGui::PushStyleColor(ImGuiCol_Button,        {0.20f, 0.40f, 0.80f, 1.0f});
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  {0.25f, 0.45f, 0.85f, 1.0f});
-                ImGui::PushStyleColor(ImGuiCol_ButtonActive,   {0.15f, 0.35f, 0.75f, 1.0f});
+                ImGui::PushStyleColor(ImGuiCol_Button, {0.20f, 0.40f, 0.80f, 1.0f});
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.25f, 0.45f, 0.85f, 1.0f});
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.15f, 0.35f, 0.75f, 1.0f});
             } else {
-                ImGui::PushStyleColor(ImGuiCol_Button,        {0.22f, 0.23f, 0.26f, 1.0f});
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  {0.28f, 0.30f, 0.33f, 1.0f});
-                ImGui::PushStyleColor(ImGuiCol_ButtonActive,   {0.18f, 0.19f, 0.22f, 1.0f});
+                ImGui::PushStyleColor(ImGuiCol_Button, {0.22f, 0.23f, 0.26f, 1.0f});
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.28f, 0.30f, 0.33f, 1.0f});
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.18f, 0.19f, 0.22f, 1.0f});
             }
 
             std::string tid = "__thumb_" + std::to_string(i) + "__";
@@ -315,12 +334,19 @@ void UIRenderer::render_share_popup(App& app) {
             } else {
                 ImGui::Button("##tb", {thumb_w - 8, thumb_h});
             }
-            if (ImGui::IsItemClicked()) selected_target_ = i;
+            if (ImGui::IsItemClicked()) {
+                selected_target_ = i;
+                if (targets_[i].type == CaptureTarget::Window) {
+                    selected_quality_ = StreamQuality::Source;
+                }
+            }
 
             ImGui::PopStyleColor(3);
 
             std::string label = targets_[i].name;
-            if (label.size() > 22) label = label.substr(0, 22) + "...";
+            if (label.size() > 22) {
+                label = label.substr(0, 22) + "...";
+            }
             ImGui::TextWrapped("%s", label.c_str());
             ImGui::PopID();
             ImGui::EndGroup();
@@ -334,12 +360,16 @@ void UIRenderer::render_share_popup(App& app) {
         ImGui::Text("Quality:");
         ImGui::SameLine();
         ImGui::SetNextItemWidth(100);
-        if (ImGui::BeginCombo("##res", kStreamPresets[selected_preset_].label)) {
+        int qi = static_cast<int>(selected_quality_);
+        if (ImGui::BeginCombo("##res", kStreamPresets[qi].label)) {
             for (int i = 0; i < kStreamPresetCount; ++i) {
-                bool s = (selected_preset_ == i);
-                if (ImGui::Selectable(kStreamPresets[i].label, s))
-                    selected_preset_ = i;
-                if (s) ImGui::SetItemDefaultFocus();
+                bool s = (qi == i);
+                if (ImGui::Selectable(kStreamPresets[i].label, s)) {
+                    selected_quality_ = static_cast<StreamQuality>(i);
+                }
+                if (s) {
+                    ImGui::SetItemDefaultFocus();
+                }
             }
             ImGui::EndCombo();
         }
@@ -348,33 +378,38 @@ void UIRenderer::render_share_popup(App& app) {
         ImGui::Text("FPS:");
         ImGui::SameLine();
         ImGui::SetNextItemWidth(70);
+        int fi = static_cast<int>(selected_fps_);
         char fps_label[16];
-        std::snprintf(fps_label, sizeof(fps_label), "%d", kFpsOptions[selected_fps_]);
+        std::snprintf(fps_label, sizeof(fps_label), "%d", kFpsValues[fi]);
         if (ImGui::BeginCombo("##fps", fps_label)) {
             for (int i = 0; i < kFpsOptionCount; ++i) {
                 char buf[16];
-                std::snprintf(buf, sizeof(buf), "%d", kFpsOptions[i]);
-                bool s = (selected_fps_ == i);
-                if (ImGui::Selectable(buf, s))
-                    selected_fps_ = i;
-                if (s) ImGui::SetItemDefaultFocus();
+                std::snprintf(buf, sizeof(buf), "%d", kFpsValues[i]);
+                bool s = (fi == i);
+                if (ImGui::Selectable(buf, s)) {
+                    selected_fps_ = static_cast<FrameRate>(i);
+                }
+                if (s) {
+                    ImGui::SetItemDefaultFocus();
+                }
             }
             ImGui::EndCombo();
         }
 
         ImGui::SameLine(0, 30);
 
-        bool can_go = selected_target_ >= 0 &&
-                      selected_target_ < static_cast<int>(targets_.size());
-        if (!can_go) ImGui::BeginDisabled();
+        bool can_go = selected_target_ >= 0 && selected_target_ < static_cast<int>(targets_.size());
+        if (!can_go) {
+            ImGui::BeginDisabled();
+        }
 
         ImVec4 green(0.20f, 0.70f, 0.30f, 1.0f);
         ImGui::PushStyleColor(ImGuiCol_Button, green);
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.25f, 0.80f, 0.35f, 1.0f});
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  {0.15f, 0.60f, 0.25f, 1.0f});
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.15f, 0.60f, 0.25f, 1.0f});
         if (ImGui::Button("Go Live", {100, 28})) {
-            int fps = kFpsOptions[selected_fps_];
-            app.start_sharing(targets_[selected_target_], selected_preset_, fps);
+            int fps = fps_value(selected_fps_);
+            app.start_sharing(targets_[selected_target_], selected_quality_, fps);
             // cleanup thumbnails
             for (size_t i = 0; i < targets_.size(); ++i) {
                 app.video_renderer().remove_peer("__thumb_" + std::to_string(i) + "__");
@@ -384,7 +419,9 @@ void UIRenderer::render_share_popup(App& app) {
         }
         ImGui::PopStyleColor(3);
 
-        if (!can_go) ImGui::EndDisabled();
+        if (!can_go) {
+            ImGui::EndDisabled();
+        }
 
         ImGui::SameLine();
         if (ImGui::Button("Cancel", {80, 28})) {
@@ -405,7 +442,9 @@ void UIRenderer::render_share_popup(App& app) {
 
 void UIRenderer::render_video_panel(App& app) {
     auto active = app.video_renderer().active_peers();
-    if (active.empty() && !app.sharing()) return;
+    if (active.empty() && !app.sharing()) {
+        return;
+    }
 
     ImGui::Text("Video Streams");
     ImGui::Spacing();
@@ -419,20 +458,27 @@ void UIRenderer::render_video_panel(App& app) {
     }
 
     int cols = (count <= 1) ? 1 : 2;
-    float tile_w = (avail.x - ImGui::GetStyle().ItemSpacing.x * static_cast<float>(cols - 1))
-                   / static_cast<float>(cols);
-    float tile_h = tile_w * (9.0f / 16.0f);
+    float
+        tile_w = (avail.x - ImGui::GetStyle().ItemSpacing.x * static_cast<float>(cols - 1)) / static_cast<float>(cols);
 
     ImDrawList* draw = ImGui::GetWindowDrawList();
 
     for (int i = 0; i < count; ++i) {
         const auto& pid = active[static_cast<size_t>(i)];
         auto tex = app.video_renderer().texture(pid);
-        if (!tex) continue;
+        if (!tex) {
+            continue;
+        }
 
-        if (i > 0 && (i % cols) != 0) ImGui::SameLine();
+        if (i > 0 && (i % cols) != 0) {
+            ImGui::SameLine();
+        }
 
         ImGui::BeginGroup();
+
+        ImVec2 frame_sz = app.video_renderer().frame_size(pid);
+        float aspect = (frame_sz.x > 0 && frame_sz.y > 0) ? frame_sz.y / frame_sz.x : 9.0f / 16.0f;
+        float tile_h = tile_w * aspect;
 
         ImVec2 img_pos = ImGui::GetCursorScreenPos();
         ImGui::Image(tex, {tile_w, tile_h});
@@ -441,8 +487,7 @@ void UIRenderer::render_video_panel(App& app) {
         auto stats = app.stream_stats(pid);
         if (stats.width > 0) {
             char osd[128];
-            std::snprintf(osd, sizeof(osd), "%dx%d  H.264  %d kbps",
-                          stats.width, stats.height, stats.measured_kbps);
+            std::snprintf(osd, sizeof(osd), "%dx%d  H.264  %d kbps", stats.width, stats.height, stats.measured_kbps);
 
             ImVec2 text_sz = ImGui::CalcTextSize(osd);
             ImVec2 osd_pos = {img_pos.x + 6, img_pos.y + 4};
@@ -450,12 +495,16 @@ void UIRenderer::render_video_panel(App& app) {
             draw->AddRectFilled(
                 {osd_pos.x - 2, osd_pos.y - 1},
                 {osd_pos.x + text_sz.x + 4, osd_pos.y + text_sz.y + 2},
-                IM_COL32(0, 0, 0, 180), 3.0f);
+                IM_COL32(0, 0, 0, 180),
+                3.0f
+            );
             draw->AddText(osd_pos, IM_COL32(220, 220, 220, 255), osd);
         }
 
         std::string label = pid;
-        if (label.size() > 12) label = label.substr(0, 12) + "...";
+        if (label.size() > 12) {
+            label = label.substr(0, 12) + "...";
+        }
         ImGui::TextDisabled("%s", label.c_str());
         ImGui::EndGroup();
     }
@@ -470,8 +519,9 @@ void UIRenderer::render_level_bar(const char* label, float level, unsigned int c
 
     ImDrawList* draw = ImGui::GetWindowDrawList();
     draw->AddRectFilled(pos, {pos.x + bw, pos.y + bh}, IM_COL32(40, 42, 46, 255), 3.0f);
-    if (level > 0.001f)
+    if (level > 0.001f) {
         draw->AddRectFilled(pos, {pos.x + bw * level, pos.y + bh}, color, 3.0f);
+    }
 
     ImGui::Dummy({bw, bh});
 }

@@ -3,9 +3,9 @@
 #include <string>
 #include <vector>
 
+#include "app.hpp"
 #include "video/screen_capture.hpp"
 
-class App;
 struct Config;
 
 class UIRenderer {
@@ -23,8 +23,8 @@ private:
     std::vector<CaptureTarget> targets_;
     bool share_popup_open_ = false;
     int selected_target_ = -1;
-    int selected_preset_ = 2;   // default 1080p
-    int selected_fps_ = 1;      // default 30 fps
+    StreamQuality selected_quality_ = StreamQuality::FHD_1080;
+    FrameRate selected_fps_ = FrameRate::FPS_30;
 
     void render_sidebar(App& app);
     void render_sidebar_bottom(App& app);
