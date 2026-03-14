@@ -23,20 +23,26 @@ public:
     ~MacScreenCapture() override { stop(); }
 
     bool start(int target_fps, FrameCallback cb) override {
-        if (running_) return false;
+        if (running_) {
+            return false;
+        }
         callback_ = std::move(cb);
         target_fps_ = std::max(1, std::min(target_fps, 60));
         running_ = true;
         thread_ = std::thread(&MacScreenCapture::capture_loop, this);
-        LOG_INFO() << "screen capture started (" << kCaptureWidth << "x" << kCaptureHeight
-                   << " @ " << target_fps_ << " fps)";
+        LOG_INFO()
+            << "screen capture started (" << kCaptureWidth << "x" << kCaptureHeight << " @ " << target_fps_ << " fps)";
         return true;
     }
 
     void stop() override {
-        if (!running_) return;
+        if (!running_) {
+            return;
+        }
         running_ = false;
-        if (thread_.joinable()) thread_.join();
+        if (thread_.joinable()) {
+            thread_.join();
+        }
         LOG_INFO() << "screen capture stopped";
     }
 
@@ -58,13 +64,22 @@ private:
 
     void capture_frame() {
         CGImageRef image = CGDisplayCreateImage(CGMainDisplayID());
-        if (!image) return;
+        if (!image) {
+            return;
+        }
 
         CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
         // BGRA in memory (little-endian ARGB)
         CGContextRef ctx = CGBitmapContextCreate(
-            nullptr, kCaptureWidth, kCaptureHeight, 8, kCaptureWidth * 4, cs,
-            kCGBitmapByteOrder32Little | kCGImageAlphaPremultipliedFirst);
+            nullptr,
+            kCaptureWidth,
+            kCaptureHeight,
+            8,
+            kCaptureWidth * 4,
+            cs,
+            static_cast<CGBitmapInfo>(kCGBitmapByteOrder32Little) |
+                static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst)
+        );
         CGColorSpaceRelease(cs);
 
         if (!ctx) {
@@ -86,7 +101,9 @@ private:
         CGContextRelease(ctx);
         CGImageRelease(image);
 
-        if (callback_) callback_(frame);
+        if (callback_) {
+            callback_(frame);
+        }
     }
 
     std::atomic<bool> running_{false};
@@ -95,8 +112,6 @@ private:
     std::thread thread_;
 };
 
-std::unique_ptr<ScreenCapture> ScreenCapture::create() {
-    return std::make_unique<MacScreenCapture>();
-}
+std::unique_ptr<ScreenCapture> ScreenCapture::create() { return std::make_unique<MacScreenCapture>(); }
 
 #endif  // __APPLE__
