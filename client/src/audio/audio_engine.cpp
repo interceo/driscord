@@ -13,7 +13,13 @@
 void OpusEncoderDeleter::operator()(OpusEncoder* e) const { opus_encoder_destroy(e); }
 void OpusDecoderDeleter::operator()(OpusDecoder* d) const { opus_decoder_destroy(d); }
 
-AudioEngine::AudioEngine() : capture_buf_(FRAME_SIZE, 0.0f), encode_buf_(MAX_OPUS_PACKET), decode_buf_(FRAME_SIZE) {}
+AudioEngine::AudioEngine()
+    : capture_buf_(FRAME_SIZE, 0.0f),
+      encode_buf_(MAX_OPUS_PACKET),
+      decode_buf_(FRAME_SIZE),
+      screen_capture_buf_(FRAME_SIZE * SCREEN_AUDIO_CHANNELS, 0.0f),
+      screen_encode_buf_(MAX_OPUS_PACKET),
+      screen_decode_buf_(FRAME_SIZE * SCREEN_AUDIO_CHANNELS) {}
 
 AudioEngine::~AudioEngine() { stop(); }
 
@@ -180,4 +186,100 @@ void AudioEngine::feed_packet(const uint8_t* data, size_t len, float peer_volume
         }
         playback_ring_.write(decode_buf_.data(), static_cast<size_t>(samples));
     }
+}
+
+bool AudioEngine::init_screen_audio(PacketCallback on_screen_audio_packet) {
+    int err;
+    OpusEncoderPtr enc(opus_encoder_create(SAMPLE_RATE, SCREEN_AUDIO_CHANNELS, OPUS_APPLICATION_AUDIO, &err));
+    if (err != OPUS_OK) {
+        LOG_ERROR() << "screen opus_encoder_create failed: " << opus_strerror(err);
+        return false;
+    }
+    opus_encoder_ctl(enc.get(), OPUS_SET_BITRATE(SCREEN_AUDIO_BITRATE));
+
+    OpusDecoderPtr dec(opus_decoder_create(SAMPLE_RATE, SCREEN_AUDIO_CHANNELS, &err));
+    if (err != OPUS_OK) {
+        LOG_ERROR() << "screen opus_decoder_create failed: " << opus_strerror(err);
+        return false;
+    }
+
+    screen_encoder_ = std::move(enc);
+    screen_decoder_ = std::move(dec);
+    on_screen_audio_packet_ = std::move(on_screen_audio_packet);
+    screen_capture_pos_ = 0;
+
+    LOG_INFO() << "screen audio codec initialized";
+    return true;
+}
+
+void AudioEngine::shutdown_screen_audio() {
+    screen_encoder_.reset();
+    screen_decoder_.reset();
+    on_screen_audio_packet_ = nullptr;
+    screen_capture_pos_ = 0;
+    LOG_INFO() << "screen audio codec shut down";
+}
+
+void AudioEngine::feed_screen_audio_pcm(const float* samples, size_t frames, int channels) {
+    if (!screen_encoder_ || !on_screen_audio_packet_) {
+        return;
+    }
+
+    size_t consumed = 0;
+    const size_t stereo_frame_size = static_cast<size_t>(FRAME_SIZE) * SCREEN_AUDIO_CHANNELS;
+
+    while (consumed < frames) {
+        size_t remaining_slots = static_cast<size_t>(FRAME_SIZE) - screen_capture_pos_ / SCREEN_AUDIO_CHANNELS;
+        size_t to_copy = std::min(remaining_slots, frames - consumed);
+
+        for (size_t i = 0; i < to_copy; ++i) {
+            size_t src_idx = (consumed + i) * channels;
+            size_t dst_idx = screen_capture_pos_ + i * SCREEN_AUDIO_CHANNELS;
+            screen_capture_buf_[dst_idx] = samples[src_idx];
+            screen_capture_buf_[dst_idx + 1] = (channels >= 2) ? samples[src_idx + 1] : samples[src_idx];
+        }
+
+        screen_capture_pos_ += to_copy * SCREEN_AUDIO_CHANNELS;
+        consumed += to_copy;
+
+        if (screen_capture_pos_ >= stereo_frame_size) {
+            int bytes = opus_encode_float(
+                screen_encoder_.get(),
+                screen_capture_buf_.data(),
+                FRAME_SIZE,
+                screen_encode_buf_.data(),
+                MAX_OPUS_PACKET
+            );
+            if (bytes > 0) {
+                on_screen_audio_packet_(screen_encode_buf_.data(), static_cast<size_t>(bytes));
+            }
+            screen_capture_pos_ = 0;
+        }
+    }
+}
+
+void AudioEngine::feed_screen_audio_packet(const uint8_t* data, size_t len) {
+    if (!screen_decoder_) {
+        return;
+    }
+
+    const int samples =
+        opus_decode_float(screen_decoder_.get(), data, static_cast<int>(len), screen_decode_buf_.data(), FRAME_SIZE, 0);
+
+    if (samples < 0) {
+        LOG_ERROR() << "screen opus_decode_float failed: " << opus_strerror(samples);
+        return;
+    }
+
+    if (samples <= 0) {
+        return;
+    }
+
+    // Downmix stereo -> mono and write to shared playback ring
+    for (int i = 0; i < samples; ++i) {
+        float l = screen_decode_buf_[static_cast<size_t>(i) * 2];
+        float r = screen_decode_buf_[static_cast<size_t>(i) * 2 + 1];
+        decode_buf_[static_cast<size_t>(i)] = (l + r) * 0.5f;
+    }
+    playback_ring_.write(decode_buf_.data(), static_cast<size_t>(samples));
 }

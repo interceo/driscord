@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(driscord_client LANGUAGES C CXX)
+if(APPLE)
+    project(driscord_client LANGUAGES C CXX OBJCXX)
+else()
+    project(driscord_client LANGUAGES C CXX)
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -139,10 +143,13 @@ endif()
 # --- platform-specific screen capture ---
 if(APPLE)
     set(CAPTURE_SOURCES src/video/screen_capture_mac.cpp)
+    set(SYSTEM_AUDIO_SOURCES src/audio/system_audio_capture_mac.mm)
 elseif(WIN32)
     set(CAPTURE_SOURCES src/video/screen_capture_win.cpp)
+    set(SYSTEM_AUDIO_SOURCES src/audio/system_audio_capture_win.cpp)
 elseif(UNIX)
     set(CAPTURE_SOURCES src/video/screen_capture_linux.cpp)
+    set(SYSTEM_AUDIO_SOURCES src/audio/system_audio_capture_linux.cpp)
 endif()
 
 # --- driscord_client executable ---
@@ -155,6 +162,7 @@ add_executable(driscord_client
     src/config.cpp
     src/video/video_codec.cpp
     ${CAPTURE_SOURCES}
+    ${SYSTEM_AUDIO_SOURCES}
     src/video_renderer.cpp
 )
 
@@ -180,20 +188,34 @@ if(APPLE)
     find_library(COREAUDIO_FRAMEWORK CoreAudio REQUIRED)
     find_library(COREFOUNDATION_FRAMEWORK CoreFoundation REQUIRED)
     find_library(COREGRAPHICS_FRAMEWORK CoreGraphics REQUIRED)
+    find_library(SCREENCAPTUREKIT_FRAMEWORK ScreenCaptureKit)
     target_link_libraries(driscord_client PRIVATE
         ${AUDIOTOOLBOX_FRAMEWORK}
         ${COREAUDIO_FRAMEWORK}
         ${COREFOUNDATION_FRAMEWORK}
         ${COREGRAPHICS_FRAMEWORK}
     )
+    if(SCREENCAPTUREKIT_FRAMEWORK)
+        target_link_libraries(driscord_client PRIVATE ${SCREENCAPTUREKIT_FRAMEWORK})
+    endif()
 elseif(WIN32)
-    target_link_libraries(driscord_client PRIVATE d3d11 dxgi gdi32 mfuuid mfplat mf strmiids)
+    target_link_libraries(driscord_client PRIVATE
+        d3d11 dxgi gdi32 mfuuid mfplat mf strmiids
+        ole32 wmcodecdspuuid ksuser
+    )
 elseif(UNIX)
     find_package(X11 REQUIRED)
     if(NOT X11_Xrandr_FOUND)
         message(FATAL_ERROR "Xrandr not found. Install libxrandr-dev.")
     endif()
     target_link_libraries(driscord_client PRIVATE X11::X11 X11::Xrandr)
+    find_library(PULSE_SIMPLE pulse-simple)
+    find_library(PULSE pulse)
+    if(PULSE_SIMPLE AND PULSE)
+        target_link_libraries(driscord_client PRIVATE ${PULSE_SIMPLE} ${PULSE})
+    else()
+        message(WARNING "PulseAudio not found. System audio capture will be unavailable on Linux.")
+    endif()
 endif()
 
 if(MSVC)

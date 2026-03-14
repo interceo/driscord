@@ -31,11 +31,13 @@ public:
 
     void send_audio(const uint8_t* data, size_t len);
     void send_video(const uint8_t* data, size_t len);
+    void send_screen_audio(const uint8_t* data, size_t len);
 
     using Callback = std::function<void()>;
 
     void on_audio_received(AudioPacketCb cb) { on_audio_ = std::move(cb); }
     void on_video_received(VideoPacketCb cb) { on_video_ = std::move(cb); }
+    void on_screen_audio_received(AudioPacketCb cb) { on_screen_audio_ = std::move(cb); }
     void on_peer_joined(PeerEventCb cb) { on_peer_joined_ = std::move(cb); }
     void on_peer_left(PeerEventCb cb) { on_peer_left_ = std::move(cb); }
     void on_video_channel_opened(Callback cb) { on_video_channel_opened_ = std::move(cb); }
@@ -51,8 +53,10 @@ private:
         std::shared_ptr<rtc::PeerConnection> pc;
         std::shared_ptr<rtc::DataChannel> dc;
         std::shared_ptr<rtc::DataChannel> video_dc;
+        std::shared_ptr<rtc::DataChannel> screen_audio_dc;
         bool dc_open = false;
         bool video_dc_open = false;
+        bool screen_audio_dc_open = false;
     };
 
     void on_ws_message(const std::string& raw);
@@ -62,6 +66,7 @@ private:
     void handle_candidate(const std::string& from, const std::string& candidate, const std::string& mid);
     void setup_audio_channel(const std::string& peer_id, std::shared_ptr<rtc::DataChannel> dc);
     void setup_video_channel(const std::string& peer_id, std::shared_ptr<rtc::DataChannel> dc);
+    void setup_screen_audio_channel(const std::string& peer_id, std::shared_ptr<rtc::DataChannel> dc);
     void send_signal(const nlohmann::json& msg);
 
     mutable std::mutex ws_mutex_;
@@ -77,6 +82,7 @@ private:
 
     AudioPacketCb on_audio_;
     VideoPacketCb on_video_;
+    AudioPacketCb on_screen_audio_;
     PeerEventCb on_peer_joined_;
     PeerEventCb on_peer_left_;
     Callback on_video_channel_opened_;

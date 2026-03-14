@@ -56,6 +56,10 @@ App::App(const Config& cfg) : config_(cfg) {
         on_video_packet(peer_id, data, len);
     });
 
+    transport_.on_screen_audio_received([this](const std::string& /*peer_id*/, const uint8_t* data, size_t len) {
+        audio_.feed_screen_audio_packet(data, len);
+    });
+
     transport_.on_peer_joined([](const std::string& peer_id) { LOG_INFO() << "peer joined: " << peer_id; });
 
     transport_.on_video_channel_opened([this]() {
@@ -184,7 +188,7 @@ float App::peer_volume(const std::string& peer_id) const {
     return (it != peer_volumes_.end()) ? it->second : 1.0f;
 }
 
-void App::start_sharing(const CaptureTarget& target, StreamQuality quality, int fps) {
+void App::start_sharing(const CaptureTarget& target, StreamQuality quality, int fps, bool share_audio) {
     if (sharing_ || state_ != AppState::Connected) {
         return;
     }
@@ -277,6 +281,28 @@ void App::start_sharing(const CaptureTarget& target, StreamQuality quality, int 
 
     clear_preview();
     sharing_ = true;
+
+    if (share_audio && SystemAudioCapture::available()) {
+        if (audio_.init_screen_audio([this](const uint8_t* data, size_t len) {
+                transport_.send_screen_audio(data, len);
+            }))
+        {
+            system_audio_capture_ = SystemAudioCapture::create();
+            if (system_audio_capture_ &&
+                system_audio_capture_->start([this](const float* samples, size_t frames, int ch) {
+                    audio_.feed_screen_audio_pcm(samples, frames, ch);
+                }))
+            {
+                sharing_audio_ = true;
+                LOG_INFO() << "system audio capture started";
+            } else {
+                audio_.shutdown_screen_audio();
+                system_audio_capture_.reset();
+                LOG_ERROR() << "failed to start system audio capture";
+            }
+        }
+    }
+
     LOG_INFO() << "screen sharing started: " << target.name << " " << enc_w << "x" << enc_h << " @ " << fps << " fps";
 }
 
@@ -284,6 +310,13 @@ void App::stop_sharing() {
     if (!sharing_) {
         return;
     }
+
+    if (system_audio_capture_) {
+        system_audio_capture_->stop();
+        system_audio_capture_.reset();
+    }
+    audio_.shutdown_screen_audio();
+    sharing_audio_ = false;
 
     if (screen_capture_) {
         screen_capture_->stop();
