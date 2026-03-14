@@ -21,6 +21,7 @@ extern "C" {
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/extensions/Xrandr.h>
 #endif
 
 #ifdef __APPLE__
@@ -66,16 +67,55 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
     int screen = DefaultScreen(dpy);
     Window root = RootWindow(dpy, screen);
 
-    XWindowAttributes root_attrs{};
-    XGetWindowAttributes(dpy, root, &root_attrs);
-    targets.push_back({
-        std::to_string(static_cast<unsigned long>(root)),
-        "Full Desktop (" + std::to_string(root_attrs.width) + "x" +
-            std::to_string(root_attrs.height) + ")",
-        root_attrs.width,
-        root_attrs.height,
-    });
+    // Enumerate individual monitors via XRandR
+    XRRScreenResources* res = XRRGetScreenResources(dpy, root);
+    if (res) {
+        for (int i = 0; i < res->ncrtc; ++i) {
+            XRRCrtcInfo* crtc = XRRGetCrtcInfo(dpy, res, res->crtcs[i]);
+            if (!crtc) continue;
+            if (crtc->mode == None || crtc->width == 0 || crtc->height == 0) {
+                XRRFreeCrtcInfo(crtc);
+                continue;
+            }
 
+            std::string name = "Monitor " + std::to_string(i + 1);
+            if (crtc->noutput > 0) {
+                XRROutputInfo* output = XRRGetOutputInfo(dpy, res, crtc->outputs[0]);
+                if (output) {
+                    name = std::string(output->name, static_cast<size_t>(output->nameLen));
+                    XRRFreeOutputInfo(output);
+                }
+            }
+            name += " (" + std::to_string(crtc->width) + "x" +
+                    std::to_string(crtc->height) + ")";
+
+            CaptureTarget t;
+            t.type = CaptureTarget::Monitor;
+            t.name = std::move(name);
+            t.width = static_cast<int>(crtc->width);
+            t.height = static_cast<int>(crtc->height);
+            t.x = crtc->x;
+            t.y = crtc->y;
+            targets.push_back(std::move(t));
+
+            XRRFreeCrtcInfo(crtc);
+        }
+        XRRFreeScreenResources(res);
+    }
+
+    if (targets.empty()) {
+        XWindowAttributes root_attrs{};
+        XGetWindowAttributes(dpy, root, &root_attrs);
+        CaptureTarget t;
+        t.type = CaptureTarget::Monitor;
+        t.name = "Full Desktop (" + std::to_string(root_attrs.width) + "x" +
+                 std::to_string(root_attrs.height) + ")";
+        t.width = root_attrs.width;
+        t.height = root_attrs.height;
+        targets.push_back(std::move(t));
+    }
+
+    // Enumerate application windows via _NET_CLIENT_LIST
     Atom net_client_list = XInternAtom(dpy, "_NET_CLIENT_LIST", False);
     Atom type{};
     int format{};
@@ -98,12 +138,13 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
             name += " (" + std::to_string(attrs.width) + "x" +
                     std::to_string(attrs.height) + ")";
 
-            targets.push_back({
-                std::to_string(static_cast<unsigned long>(windows[i])),
-                std::move(name),
-                attrs.width,
-                attrs.height,
-            });
+            CaptureTarget t;
+            t.type = CaptureTarget::Window;
+            t.id = std::to_string(static_cast<unsigned long>(windows[i]));
+            t.name = std::move(name);
+            t.width = attrs.width;
+            t.height = attrs.height;
+            targets.push_back(std::move(t));
         }
         XFree(data);
     }
@@ -126,12 +167,14 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
         int w = static_cast<int>(bounds.size.width);
         int h = static_cast<int>(bounds.size.height);
 
-        targets.push_back({
-            std::to_string(i),
-            "Display " + std::to_string(i + 1) +
-                " (" + std::to_string(w) + "x" + std::to_string(h) + ")",
-            w, h,
-        });
+        CaptureTarget t;
+        t.type = CaptureTarget::Monitor;
+        t.id = std::to_string(i);
+        t.name = "Display " + std::to_string(i + 1) +
+                 " (" + std::to_string(w) + "x" + std::to_string(h) + ")";
+        t.width = w;
+        t.height = h;
+        targets.push_back(std::move(t));
     }
     return targets;
 }
@@ -158,21 +201,50 @@ public:
 
         AVDictionary* opts = nullptr;
         av_dict_set(&opts, "framerate", std::to_string(fps).c_str(), 0);
+        av_dict_set(&opts, "probesize", "5000000", 0);
+        av_dict_set(&opts, "analyzeduration", "0", 0);
+
+        std::string url;
 
 #ifdef __linux__
         const AVInputFormat* ifmt = av_find_input_format("x11grab");
-        const char* display_env = std::getenv("DISPLAY");
-        std::string url = display_env ? display_env : ":0";
+        if (!ifmt) {
+            LOG_ERROR() << "x11grab input format not found";
+            av_dict_free(&opts);
+            return false;
+        }
 
-        av_dict_set(&opts, "window_id", target.id.c_str(), 0);
-        std::string vsize = std::to_string(target.width) + "x" +
-                            std::to_string(target.height);
-        av_dict_set(&opts, "video_size", vsize.c_str(), 0);
+        const char* display_env = std::getenv("DISPLAY");
+        std::string display = display_env ? display_env : ":0";
+
+        if (target.type == CaptureTarget::Window && !target.id.empty()) {
+            url = display;
+            av_dict_set(&opts, "window_id", target.id.c_str(), 0);
+            std::string vsize = std::to_string(target.width) + "x" +
+                                std::to_string(target.height);
+            av_dict_set(&opts, "video_size", vsize.c_str(), 0);
+        } else {
+            url = display + "+" + std::to_string(target.x) + "," +
+                  std::to_string(target.y);
+            std::string vsize = std::to_string(target.width) + "x" +
+                                std::to_string(target.height);
+            av_dict_set(&opts, "video_size", vsize.c_str(), 0);
+        }
+
         av_dict_set(&opts, "draw_mouse", "1", 0);
+
 #elif defined(__APPLE__)
         const AVInputFormat* ifmt = av_find_input_format("avfoundation");
-        std::string url = "Capture screen " + target.id + ":none";
+        if (!ifmt) {
+            LOG_ERROR() << "avfoundation input format not found";
+            av_dict_free(&opts);
+            return false;
+        }
+
+        url = "Capture screen " + target.id + ":none";
         av_dict_set(&opts, "capture_cursor", "1", 0);
+        av_dict_set(&opts, "pixel_format", "uyvy422", 0);
+
 #else
         LOG_ERROR() << "unsupported platform for screen capture";
         av_dict_free(&opts);
@@ -180,6 +252,11 @@ public:
 #endif
 
         fmt_ctx_ = avformat_alloc_context();
+        fmt_ctx_->interrupt_callback.callback = interrupt_cb;
+        fmt_ctx_->interrupt_callback.opaque = this;
+
+        LOG_INFO() << "opening capture: " << url;
+
         int ret = avformat_open_input(&fmt_ctx_, url.c_str(), ifmt, &opts);
         av_dict_free(&opts);
         if (ret < 0) {
@@ -209,6 +286,13 @@ public:
 
         auto* par = fmt_ctx_->streams[video_idx_]->codecpar;
         const AVCodec* dec = avcodec_find_decoder(par->codec_id);
+        if (!dec) {
+            LOG_ERROR() << "no decoder for capture format (codec_id="
+                        << par->codec_id << ")";
+            cleanup_ffmpeg();
+            return false;
+        }
+
         dec_ctx_ = avcodec_alloc_context3(dec);
         avcodec_parameters_to_context(dec_ctx_, par);
         if (avcodec_open2(dec_ctx_, dec, nullptr) < 0) {
@@ -229,6 +313,9 @@ public:
             out_w_ = src_w & ~1;
             out_h_ = src_h & ~1;
         }
+
+        if (out_w_ <= 0) out_w_ = 2;
+        if (out_h_ <= 0) out_h_ = 2;
 
         sws_ = sws_getContext(src_w, src_h, dec_ctx_->pix_fmt,
                               out_w_, out_h_, AV_PIX_FMT_BGRA,
@@ -257,9 +344,10 @@ public:
     }
 
     void stop() override {
-        if (!running_) return;
-        running_ = false;
+        if (!running_.exchange(false)) return;
+        stopping_ = true;
         if (thread_.joinable()) thread_.join();
+        stopping_ = false;
         cleanup_ffmpeg();
         LOG_INFO() << "screen capture stopped";
     }
@@ -267,11 +355,16 @@ public:
     bool running() const override { return running_; }
 
 private:
+    static int interrupt_cb(void* opaque) {
+        auto* self = static_cast<FFmpegScreenCapture*>(opaque);
+        return self->stopping_.load() ? 1 : 0;
+    }
+
     void capture_loop() {
         while (running_) {
             int ret = av_read_frame(fmt_ctx_, pkt_);
             if (ret < 0) {
-                if (ret == AVERROR_EOF) break;
+                if (ret == AVERROR_EOF || stopping_) break;
                 continue;
             }
 
@@ -301,7 +394,7 @@ private:
                                 static_cast<size_t>(out_w_) * 4);
                 }
 
-                if (callback_) callback_(out);
+                if (callback_ && running_) callback_(out);
             }
 
             av_packet_unref(pkt_);
@@ -321,6 +414,7 @@ private:
     }
 
     std::atomic<bool> running_{false};
+    std::atomic<bool> stopping_{false};
     FrameCallback callback_;
     std::thread thread_;
 

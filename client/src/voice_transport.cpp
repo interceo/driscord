@@ -165,7 +165,7 @@ void VoiceTransport::create_peer(const std::string& peer_id, bool create_offer) 
     });
 
     pc->onStateChange([peer_id](rtc::PeerConnection::State state) {
-        LOG_INFO() << "peer " << peer_id << " state: " << static_cast<int>(state);
+        LOG_INFO() << "peer " << peer_id << " state: " << state;
     });
 
     PeerState state;
