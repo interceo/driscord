@@ -26,7 +26,7 @@ public:
         spec.rate = SAMPLE_RATE;
         spec.channels = CHANNELS;
 
-        constexpr uint32_t kFragFrames = 960;  // 20ms @ 48kHz
+        constexpr uint32_t kFragFrames = 96;  // 20ms @ 48kHz
         constexpr uint32_t kFragBytes = kFragFrames * CHANNELS * sizeof(float);
 
         pa_buffer_attr attr{};
