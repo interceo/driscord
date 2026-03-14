@@ -44,8 +44,8 @@ uint32_t read_u32_le(const uint8_t* src) {
 }  // namespace
 
 App::App(const Config& cfg) : config_(cfg) {
-    if (!cfg.turn_url.empty()) {
-        transport_.add_turn_server(cfg.turn_url, cfg.turn_user, cfg.turn_pass);
+    for (auto& ts : cfg.turn_servers) {
+        transport_.add_turn_server(ts.url, ts.user, ts.pass);
     }
 
     transport_.on_audio_received([this](const std::string& peer_id, const uint8_t* data, size_t len) {

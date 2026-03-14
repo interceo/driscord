@@ -1,0 +1,12 @@
+{
+    "server_host": "88.201.132.70",
+    "server_port": 9001,
+    "video_bitrate_kbps": 8000,
+    "turn_servers": [
+        {
+            "url": "turn:your-server:3478",
+            "user": "driscord",
+            "pass": "driscordpass"
+        }
+    ]
+}
