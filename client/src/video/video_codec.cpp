@@ -48,9 +48,9 @@ static void setup_rate_control(AVCodecContext* ctx, int64_t bitrate_bps, bool is
         av_opt_set_int(ctx->priv_data, "profile", AV_PROFILE_H264_BASELINE, 0);
         av_opt_set(ctx->priv_data, "constant_bit_rate", "true", AV_OPT_SEARCH_CHILDREN);
     } else if (is_libx264) {
-        av_opt_set(ctx->priv_data, "preset", "ultrafast", 0);
+        av_opt_set(ctx->priv_data, "preset", "veryfast", 0);
         av_opt_set(ctx->priv_data, "tune", "zerolatency", 0);
-        ctx->profile = AV_PROFILE_H264_BASELINE;
+        ctx->profile = AV_PROFILE_H264_HIGH;
         av_opt_set(ctx->priv_data, "nal-hrd", "cbr", 0);
     }
 }
