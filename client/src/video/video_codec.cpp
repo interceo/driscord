@@ -43,15 +43,23 @@ static void setup_rate_control(AVCodecContext* ctx, int64_t bitrate_bps, bool is
     ctx->rc_max_rate = bitrate_bps;
     ctx->rc_buffer_size = static_cast<int>(bitrate_bps);  // 1-second VBV buffer
 
+    LOG_INFO()
+        << "setting encoder rate control: bitrate=" << bitrate_bps / 1000 << " kbps"
+        << ", rc_max_rate=" << ctx->rc_max_rate / 1000 << " kbps"
+        << ", vbv_buf=" << ctx->rc_buffer_size / 1000 << " kbps";
+
     if (is_videotoolbox) {
         av_opt_set(ctx->priv_data, "allow_sw", "true", 0);
         av_opt_set_int(ctx->priv_data, "profile", AV_PROFILE_H264_BASELINE, 0);
         av_opt_set(ctx->priv_data, "constant_bit_rate", "true", AV_OPT_SEARCH_CHILDREN);
     } else if (is_libx264) {
-        av_opt_set(ctx->priv_data, "preset", "veryfast", 0);
+        av_opt_set(ctx->priv_data, "preset", "fast", 0);
         av_opt_set(ctx->priv_data, "tune", "zerolatency", 0);
-        ctx->profile = AV_PROFILE_H264_HIGH;
+        av_opt_set_int(ctx->priv_data, "profile", AV_PROFILE_H264_HIGH, 0);
         av_opt_set(ctx->priv_data, "nal-hrd", "cbr", 0);
+        av_opt_set(ctx->priv_data, "crf", "-1", 0);
+        av_opt_set(ctx->priv_data, "vbv-maxrate", std::to_string(bitrate_bps / 1000).c_str(), 0);
+        av_opt_set(ctx->priv_data, "vbv-bufsize", std::to_string(bitrate_bps / 1000).c_str(), 0);
     }
 }
 
@@ -78,7 +86,7 @@ bool VideoEncoder::init(int width, int height, int bitrate_kbps) {
     ctx_ = avcodec_alloc_context3(codec);
     ctx_->width = width;
     ctx_->height = height;
-    ctx_->time_base = {1, 1000};
+    ctx_->time_base = {1, 60};
     ctx_->pix_fmt = AV_PIX_FMT_YUV420P;
     ctx_->color_range = AVCOL_RANGE_MPEG;
     ctx_->gop_size = 120;

@@ -20,7 +20,7 @@ inline const char* level_tag(LogLevel l) {
         case LogLevel::Error:
             return "ERROR";
     }
-    return "?????";
+    return "UNKNOWN";
 }
 
 class LogMessage {
@@ -29,9 +29,10 @@ public:
 
     ~LogMessage() {
         static std::mutex mtx;
-        auto now = std::chrono::system_clock::now();
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % 1000;
-        auto tt = std::chrono::system_clock::to_time_t(now);
+        const auto now = std::chrono::system_clock::now();
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() % 1000;
+        const auto tt = std::chrono::system_clock::to_time_t(now);
+        
         std::tm tm{};
         localtime_r(&tt, &tm);
 
