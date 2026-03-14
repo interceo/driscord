@@ -131,7 +131,8 @@ void App::update() {
         }
     }
 
-    const uint32_t video_delay = static_cast<uint32_t>(config_.video_delay_ms);
+    const uint32_t screen_buf_ms = static_cast<uint32_t>(config_.screen_buffer_ms);
+    uint32_t cur_ms = now_ms();
 
     for (auto& pd : pending_decodes) {
         std::vector<uint8_t> rgba;
@@ -140,7 +141,7 @@ void App::update() {
             pd.vs->decode_failures = 0;
             pd.vs->measured_kbps = static_cast<int>(pd.kbps);
 
-            if (video_delay == 0) {
+            if (pd.vs->video_primed || screen_buf_ms == 0) {
                 ReadyFrame rf;
                 rf.peer_id = std::move(pd.peer_id);
                 rf.rgba = std::move(rgba);
@@ -151,31 +152,23 @@ void App::update() {
                 pd.vs->rgba = std::move(rgba);
                 pd.vs->width = dec_w;
                 pd.vs->height = dec_h;
-                if (!pd.vs->held) {
-                    pd.vs->buffered_at = now_ms();
-                    pd.vs->held = true;
+                if (pd.vs->prime_start == 0) {
+                    pd.vs->prime_start = cur_ms;
+                }
+                if (cur_ms - pd.vs->prime_start >= screen_buf_ms) {
+                    pd.vs->video_primed = true;
+                    ReadyFrame rf;
+                    rf.peer_id = std::move(pd.peer_id);
+                    rf.rgba.swap(pd.vs->rgba);
+                    rf.width = pd.vs->width;
+                    rf.height = pd.vs->height;
+                    ready_frames.push_back(std::move(rf));
                 }
             }
         } else {
             ++pd.vs->decode_failures;
             if (pd.vs->decode_failures % 5 == 1) {
                 transport_.send_keyframe_request();
-            }
-        }
-    }
-
-    if (video_delay > 0) {
-        uint32_t cur = now_ms();
-        std::scoped_lock lk(video_mutex_);
-        for (auto& [peer_id, vs] : peer_video_) {
-            if (vs->held && (cur - vs->buffered_at >= video_delay)) {
-                ReadyFrame rf;
-                rf.peer_id = peer_id;
-                rf.rgba.swap(vs->rgba);
-                rf.width = vs->width;
-                rf.height = vs->height;
-                ready_frames.push_back(std::move(rf));
-                vs->held = false;
             }
         }
     }
