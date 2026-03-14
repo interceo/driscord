@@ -4,7 +4,17 @@
 
 using json = nlohmann::json;
 
-VoiceTransport::VoiceTransport() { rtc_config_.iceServers.push_back(rtc::IceServer("stun:stun.l.google.com:19302")); }
+VoiceTransport::VoiceTransport() {
+    rtc_config_.iceServers.push_back(rtc::IceServer("stun:stun.l.google.com:19302"));
+    rtc_config_.iceServers.push_back(rtc::IceServer("stun:stun1.l.google.com:19302"));
+    rtc_config_.iceServers.push_back(rtc::IceServer("stun:stun2.l.google.com:19302"));
+    rtc_config_.iceServers.push_back(rtc::IceServer("stun:stun.cloudflare.com:3478"));
+}
+
+void VoiceTransport::add_turn_server(const std::string& url, const std::string& user, const std::string& pass) {
+    rtc_config_.iceServers.push_back(rtc::IceServer(url, user, pass));
+    LOG_INFO() << "TURN server added: " << url;
+}
 
 VoiceTransport::~VoiceTransport() { disconnect(); }
 

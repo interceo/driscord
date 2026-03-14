@@ -13,6 +13,10 @@ struct Config {
     int capture_height = 1080;
     int video_bitrate_kbps = 8000;
 
+    std::string turn_url;
+    std::string turn_user;
+    std::string turn_pass;
+
     std::string server_url() const { return fmt::format(FMT_COMPILE("ws://{}:{}"), server_host, server_port); }
 
     // Tries ./driscord.json, then ~/.config/driscord/config.json.

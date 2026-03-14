@@ -18,6 +18,8 @@ public:
     VoiceTransport();
     ~VoiceTransport();
 
+    void add_turn_server(const std::string& url, const std::string& user, const std::string& pass);
+
     VoiceTransport(const VoiceTransport&) = delete;
     VoiceTransport& operator=(const VoiceTransport&) = delete;
 

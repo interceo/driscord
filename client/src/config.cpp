@@ -40,6 +40,15 @@ Config Config::load(const std::string& path) {
         if (j.contains("video_bitrate_kbps")) {
             cfg.video_bitrate_kbps = j["video_bitrate_kbps"].get<int>();
         }
+        if (j.contains("turn_url")) {
+            cfg.turn_url = j["turn_url"].get<std::string>();
+        }
+        if (j.contains("turn_user")) {
+            cfg.turn_user = j["turn_user"].get<std::string>();
+        }
+        if (j.contains("turn_pass")) {
+            cfg.turn_pass = j["turn_pass"].get<std::string>();
+        }
 
         LOG_INFO() << "config loaded from " << path;
     } catch (const json::exception& e) {
