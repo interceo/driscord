@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ring_buffer.hpp"
+#include "audio_jitter.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -28,6 +28,7 @@ public:
     static constexpr int CHANNELS = 1;
     static constexpr int FRAME_SIZE = 960;  // 20ms @ 48kHz
     static constexpr int MAX_OPUS_PACKET = 4000;
+    static constexpr size_t AUDIO_HEADER_SIZE = 6;  // seq(2) + timestamp(4)
 
     static constexpr int SCREEN_AUDIO_CHANNELS = 2;
     static constexpr int SCREEN_AUDIO_BITRATE = 128000;
@@ -91,10 +92,15 @@ private:
     std::vector<float> capture_buf_;
     size_t capture_pos_ = 0;
 
-    RingBuffer<float> playback_ring_{SAMPLE_RATE * 2};
+    AudioJitter voice_jitter_;
+    AudioJitter screen_jitter_;
+    std::vector<float> screen_mix_buf_;
 
     std::vector<uint8_t> encode_buf_;
     std::vector<float> decode_buf_;
+
+    uint16_t voice_send_seq_ = 0;
+    uint16_t screen_send_seq_ = 0;
 
     OpusEncoderPtr screen_encoder_;
     OpusDecoderPtr screen_decoder_;

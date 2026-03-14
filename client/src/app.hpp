@@ -131,6 +131,8 @@ private:
         int width = 0;
         int height = 0;
         bool dirty = false;
+        bool pending = false;
+        uint32_t receive_time_ms = 0;
         std::chrono::steady_clock::time_point last_frame;
         int measured_kbps = 0;
 

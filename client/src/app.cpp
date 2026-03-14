@@ -1,45 +1,19 @@
 #include "app.hpp"
 
 #include <algorithm>
-#include <chrono>
 #include <cstring>
 
 #include "log.hpp"
+#include "utils/byte_utils.hpp"
 
 namespace {
+
+using namespace drist;
 
 constexpr size_t kVideoHeaderSize = 16;  // width(4) + height(4) + timestamp(4) + bitrate_kbps(4)
 constexpr size_t kChunkHeaderSize = 6;   // frame_id(2) + chunk_idx(2) + total_chunks(2)
 constexpr size_t kMaxChunkPayload = 60000;
 constexpr int kStaleVideoSeconds = 3;
-
-uint32_t now_ms() {
-    auto ms =
-        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
-            .count();
-    return static_cast<uint32_t>(ms);
-}
-
-void write_u16_le(uint8_t* dst, uint16_t v) {
-    dst[0] = static_cast<uint8_t>(v);
-    dst[1] = static_cast<uint8_t>(v >> 8);
-}
-
-uint16_t read_u16_le(const uint8_t* src) {
-    return static_cast<uint16_t>(src[0]) | (static_cast<uint16_t>(src[1]) << 8);
-}
-
-void write_u32_le(uint8_t* dst, uint32_t v) {
-    dst[0] = static_cast<uint8_t>(v);
-    dst[1] = static_cast<uint8_t>(v >> 8);
-    dst[2] = static_cast<uint8_t>(v >> 16);
-    dst[3] = static_cast<uint8_t>(v >> 24);
-}
-
-uint32_t read_u32_le(const uint8_t* src) {
-    return static_cast<uint32_t>(src[0]) | (static_cast<uint32_t>(src[1]) << 8) |
-           (static_cast<uint32_t>(src[2]) << 16) | (static_cast<uint32_t>(src[3]) << 24);
-}
 
 }  // namespace
 
@@ -112,7 +86,14 @@ void App::update() {
 
         to_remove.swap(pending_removals_);
 
+        uint32_t current_ms = now_ms();
         for (auto& [peer_id, vs] : peer_video_) {
+            if (vs->pending && !vs->dirty) {
+                if (current_ms - vs->receive_time_ms >= kJitterTargetMs) {
+                    vs->dirty = true;
+                    vs->pending = false;
+                }
+            }
             if (vs->dirty) {
                 DirtyFrame df;
                 df.peer_id = peer_id;
@@ -441,7 +422,8 @@ void App::on_video_packet(const std::string& peer_id, const uint8_t* data, size_
             vs.width = dec_w;
             vs.height = dec_h;
             vs.measured_kbps = static_cast<int>(sender_kbps);
-            vs.dirty = true;
+            vs.pending = true;
+            vs.receive_time_ms = now_ms();
             vs.last_frame = std::chrono::steady_clock::now();
         }
     }

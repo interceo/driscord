@@ -9,16 +9,20 @@
 #include <cstring>
 
 #include "log.hpp"
+#include "utils/byte_utils.hpp"
+
+using namespace drist;
 
 void OpusEncoderDeleter::operator()(OpusEncoder* e) const { opus_encoder_destroy(e); }
 void OpusDecoderDeleter::operator()(OpusDecoder* d) const { opus_decoder_destroy(d); }
 
 AudioEngine::AudioEngine()
     : capture_buf_(FRAME_SIZE, 0.0f),
-      encode_buf_(MAX_OPUS_PACKET),
+      screen_mix_buf_(FRAME_SIZE, 0.0f),
+      encode_buf_(AUDIO_HEADER_SIZE + MAX_OPUS_PACKET),
       decode_buf_(FRAME_SIZE),
       screen_capture_buf_(FRAME_SIZE * SCREEN_AUDIO_CHANNELS, 0.0f),
-      screen_encode_buf_(MAX_OPUS_PACKET),
+      screen_encode_buf_(AUDIO_HEADER_SIZE + MAX_OPUS_PACKET),
       screen_decode_buf_(FRAME_SIZE * SCREEN_AUDIO_CHANNELS) {}
 
 AudioEngine::~AudioEngine() { stop(); }
@@ -83,9 +87,10 @@ bool AudioEngine::start(PacketCallback on_packet) {
     encoder_ = std::move(enc);
     decoder_ = std::move(dec);
     device_ = std::move(dev);
-    playback_ring_.clear();
+    voice_jitter_.reset();
+    screen_jitter_.reset();
+    voice_send_seq_ = 0;
 
-    // Always create screen audio decoder so we can receive screen audio from any peer
     if (!screen_decoder_) {
         OpusDecoderPtr sdec(opus_decoder_create(SAMPLE_RATE, SCREEN_AUDIO_CHANNELS, &err));
         if (err == OPUS_OK) {
@@ -118,6 +123,8 @@ void AudioEngine::stop() {
     screen_encoder_.reset();
     screen_decoder_.reset();
     on_screen_audio_packet_ = nullptr;
+    voice_jitter_.reset();
+    screen_jitter_.reset();
 
     LOG_INFO() << "audio engine stopped";
 }
@@ -145,10 +152,12 @@ void AudioEngine::on_capture(const float* input, uint32_t frames) {
         consumed += to_copy;
 
         if (capture_pos_ == static_cast<size_t>(FRAME_SIZE)) {
-            int bytes =
-                opus_encode_float(encoder_.get(), capture_buf_.data(), FRAME_SIZE, encode_buf_.data(), MAX_OPUS_PACKET);
+            uint8_t* opus_start = encode_buf_.data() + AUDIO_HEADER_SIZE;
+            int bytes = opus_encode_float(encoder_.get(), capture_buf_.data(), FRAME_SIZE, opus_start, MAX_OPUS_PACKET);
             if (bytes > 0) {
-                on_packet_(encode_buf_.data(), static_cast<size_t>(bytes));
+                write_u16_le(encode_buf_.data(), voice_send_seq_++);
+                write_u32_le(encode_buf_.data() + 2, now_ms());
+                on_packet_(encode_buf_.data(), AUDIO_HEADER_SIZE + static_cast<size_t>(bytes));
             }
             capture_pos_ = 0;
         }
@@ -157,16 +166,21 @@ void AudioEngine::on_capture(const float* input, uint32_t frames) {
 
 void AudioEngine::on_playback(float* output, const uint32_t frames) {
     if (deafened_) {
-        std::memset(output, 0, frames * sizeof(float));
-        playback_ring_.read(output, frames);
+        voice_jitter_.pop(output, frames);
+        screen_jitter_.pop(output, frames);
         std::memset(output, 0, frames * sizeof(float));
         output_level_.store(0.0f);
         return;
     }
 
-    const size_t got = playback_ring_.read(output, frames);
-    if (got < frames) {
-        std::memset(&output[got], 0, (frames - got) * sizeof(float));
+    voice_jitter_.pop(output, frames);
+
+    if (screen_mix_buf_.size() < frames) {
+        screen_mix_buf_.resize(frames);
+    }
+    screen_jitter_.pop(screen_mix_buf_.data(), frames);
+    for (uint32_t i = 0; i < frames; ++i) {
+        output[i] += screen_mix_buf_[i];
     }
 
     const float vol = output_volume_.load();
@@ -184,8 +198,15 @@ void AudioEngine::feed_packet(const uint8_t* data, size_t len, float peer_volume
         return;
     }
 
-    const int
-        samples = opus_decode_float(decoder_.get(), data, static_cast<int>(len), decode_buf_.data(), FRAME_SIZE, 0);
+    if (len <= AUDIO_HEADER_SIZE) {
+        return;
+    }
+
+    uint16_t seq = read_u16_le(data);
+    const uint8_t* opus_data = data + AUDIO_HEADER_SIZE;
+    int opus_len = static_cast<int>(len - AUDIO_HEADER_SIZE);
+
+    const int samples = opus_decode_float(decoder_.get(), opus_data, opus_len, decode_buf_.data(), FRAME_SIZE, 0);
 
     if (samples < 0) {
         LOG_ERROR() << "opus_decode_float failed: " << opus_strerror(samples);
@@ -198,7 +219,7 @@ void AudioEngine::feed_packet(const uint8_t* data, size_t len, float peer_volume
                 decode_buf_[static_cast<size_t>(i)] *= peer_volume;
             }
         }
-        playback_ring_.write(decode_buf_.data(), static_cast<size_t>(samples));
+        voice_jitter_.push(decode_buf_.data(), static_cast<size_t>(samples), seq);
     }
 }
 
@@ -228,9 +249,10 @@ bool AudioEngine::init_screen_audio(PacketCallback on_screen_audio_packet) {
 
 void AudioEngine::shutdown_screen_audio() {
     screen_encoder_.reset();
-    screen_decoder_.reset();
     on_screen_audio_packet_ = nullptr;
     screen_capture_pos_ = 0;
+    screen_send_seq_ = 0;
+    screen_jitter_.reset();
     LOG_INFO() << "screen audio codec shut down";
 }
 
@@ -257,15 +279,18 @@ void AudioEngine::feed_screen_audio_pcm(const float* samples, size_t frames, int
         consumed += to_copy;
 
         if (screen_capture_pos_ >= stereo_frame_size) {
+            uint8_t* opus_start = screen_encode_buf_.data() + AUDIO_HEADER_SIZE;
             int bytes = opus_encode_float(
                 screen_encoder_.get(),
                 screen_capture_buf_.data(),
                 FRAME_SIZE,
-                screen_encode_buf_.data(),
+                opus_start,
                 MAX_OPUS_PACKET
             );
             if (bytes > 0) {
-                on_screen_audio_packet_(screen_encode_buf_.data(), static_cast<size_t>(bytes));
+                write_u16_le(screen_encode_buf_.data(), screen_send_seq_++);
+                write_u32_le(screen_encode_buf_.data() + 2, now_ms());
+                on_screen_audio_packet_(screen_encode_buf_.data(), AUDIO_HEADER_SIZE + static_cast<size_t>(bytes));
             }
             screen_capture_pos_ = 0;
         }
@@ -277,8 +302,16 @@ void AudioEngine::feed_screen_audio_packet(const uint8_t* data, size_t len) {
         return;
     }
 
+    if (len <= AUDIO_HEADER_SIZE) {
+        return;
+    }
+
+    uint16_t seq = read_u16_le(data);
+    const uint8_t* opus_data = data + AUDIO_HEADER_SIZE;
+    int opus_len = static_cast<int>(len - AUDIO_HEADER_SIZE);
+
     const int samples =
-        opus_decode_float(screen_decoder_.get(), data, static_cast<int>(len), screen_decode_buf_.data(), FRAME_SIZE, 0);
+        opus_decode_float(screen_decoder_.get(), opus_data, opus_len, screen_decode_buf_.data(), FRAME_SIZE, 0);
 
     if (samples < 0) {
         LOG_ERROR() << "screen opus_decode_float failed: " << opus_strerror(samples);
@@ -289,11 +322,10 @@ void AudioEngine::feed_screen_audio_packet(const uint8_t* data, size_t len) {
         return;
     }
 
-    // Downmix stereo -> mono and write to shared playback ring
     for (int i = 0; i < samples; ++i) {
         float l = screen_decode_buf_[static_cast<size_t>(i) * 2];
         float r = screen_decode_buf_[static_cast<size_t>(i) * 2 + 1];
         decode_buf_[static_cast<size_t>(i)] = (l + r) * 0.5f;
     }
-    playback_ring_.write(decode_buf_.data(), static_cast<size_t>(samples));
+    screen_jitter_.push(decode_buf_.data(), static_cast<size_t>(samples), seq);
 }
