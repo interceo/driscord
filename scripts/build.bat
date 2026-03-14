@@ -5,42 +5,34 @@ set ROOT=%~dp0..
 set BUILD=%ROOT%\build
 
 :: --- auto-detect vcpkg toolchain ---
-if defined VCPKG_ROOT (
-    set "TOOLCHAIN=-DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake"
-) else if exist "C:\vcpkg\scripts\buildsystems\vcpkg.cmake" (
-    set "TOOLCHAIN=-DCMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake"
-) else (
-    set "TOOLCHAIN="
-)
+set "TOOLCHAIN="
+if defined VCPKG_ROOT set "TOOLCHAIN=-DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake"
+if not defined TOOLCHAIN if exist "C:\vcpkg\scripts\buildsystems\vcpkg.cmake" set "TOOLCHAIN=-DCMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake"
 
 :: --- auto-detect FFmpeg from BtbN builds ---
-if exist "C:\ffmpeg\lib" (
-    set "FFMPEG_PATH=-DCMAKE_PREFIX_PATH=C:\ffmpeg"
-) else (
-    set "FFMPEG_PATH="
-)
+set "FFMPEG_PATH="
+if exist "C:\ffmpeg\lib" set "FFMPEG_PATH=-DCMAKE_PREFIX_PATH=C:\ffmpeg"
 
-:: --- auto-detect OpenSSL (winget ShiningLight install) ---
-if exist "C:\Program Files\OpenSSL-Win64" (
-    set "OPENSSL_PATH=-DOPENSSL_ROOT_DIR=C:\Program Files\OpenSSL-Win64"
-) else (
-    set "OPENSSL_PATH="
-)
+:: --- auto-detect OpenSSL ---
+set "OPENSSL_PATH="
+if exist "C:\Program Files\OpenSSL-Win64" set "OPENSSL_PATH=-DOPENSSL_ROOT_DIR=C:\Program Files\OpenSSL-Win64"
 
-:: --- pick generator: Ninja if available, else NMake ---
-set "GENERATOR=-G NMake Makefiles"
+if exist "%BUILD%\CMakeCache.txt" goto build
+
+echo ==^> Configuring CMake...
+
 where ninja >nul 2>&1
-if %errorlevel%==0 set "GENERATOR=-G Ninja"
-
-if not exist "%BUILD%\CMakeCache.txt" (
-    echo ==^> Configuring CMake...
-    cmake -S "%ROOT%" -B "%BUILD%" %GENERATOR% -DCMAKE_BUILD_TYPE=Release %TOOLCHAIN% %FFMPEG_PATH% %OPENSSL_PATH%
-    if errorlevel 1 (
-        echo CMake configuration failed.
-        exit /b 1
-    )
+if %errorlevel%==0 (
+    cmake -S "%ROOT%" -B "%BUILD%" -G Ninja -DCMAKE_BUILD_TYPE=Release %TOOLCHAIN% %FFMPEG_PATH% %OPENSSL_PATH%
+) else (
+    cmake -S "%ROOT%" -B "%BUILD%" -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release %TOOLCHAIN% %FFMPEG_PATH% %OPENSSL_PATH%
+)
+if errorlevel 1 (
+    echo CMake configuration failed.
+    exit /b 1
 )
 
+:build
 echo ==^> Building with %NUMBER_OF_PROCESSORS% jobs...
 cmake --build "%BUILD%" -j %NUMBER_OF_PROCESSORS%
 if errorlevel 1 (
