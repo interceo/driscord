@@ -49,15 +49,19 @@ public:
 
             uint32_t latest = latest_sender_ts_.load(std::memory_order_relaxed);
             if (latest != 0) {
-                uint32_t buf_ms = static_cast<uint32_t>(ring_.available_read() * 1000 / sample_rate_);
-                playback_sender_ts_.store(latest - buf_ms, std::memory_order_relaxed);
+                uint64_t buf_samples = ring_.available_read();
+                uint32_t buf_ms = static_cast<uint32_t>(buf_samples * 1000 / sample_rate_);
+                playback_base_ts_.store(latest - buf_ms, std::memory_order_relaxed);
+                playback_samples_.store(0, std::memory_order_relaxed);
                 playback_local_ts_.store(drist::now_ms(), std::memory_order_relaxed);
             }
         }
 
         size_t buffered = ring_.available_read();
         if (buffered > target_samples_ * 2) {
-            discard(buffered - target_samples_);
+            size_t to_discard = buffered - target_samples_;
+            discard(to_discard);
+            playback_samples_.fetch_add(to_discard, std::memory_order_relaxed);
         }
 
         size_t got = ring_.read(out, frames);
@@ -65,9 +69,8 @@ public:
             std::memset(out + got, 0, (frames - got) * sizeof(float));
         }
 
-        if (got > 0 && playback_sender_ts_.load(std::memory_order_relaxed) != 0) {
-            uint32_t advanced_ms = static_cast<uint32_t>(got * 1000 / sample_rate_);
-            playback_sender_ts_.fetch_add(advanced_ms, std::memory_order_relaxed);
+        if (got > 0 && playback_base_ts_.load(std::memory_order_relaxed) != 0) {
+            playback_samples_.fetch_add(got, std::memory_order_relaxed);
             playback_local_ts_.store(drist::now_ms(), std::memory_order_relaxed);
         }
 
@@ -75,12 +78,14 @@ public:
     }
 
     uint32_t current_playback_ts() const {
-        uint32_t pts = playback_sender_ts_.load(std::memory_order_relaxed);
-        if (pts == 0) {
+        uint32_t base = playback_base_ts_.load(std::memory_order_relaxed);
+        if (base == 0) {
             return 0;
         }
-        uint32_t elapsed = drist::now_ms() - playback_local_ts_.load(std::memory_order_relaxed);
-        return pts + elapsed;
+        uint64_t samples = playback_samples_.load(std::memory_order_relaxed);
+        uint32_t samples_ms = static_cast<uint32_t>(samples * 1000 / sample_rate_);
+        uint32_t interp = drist::now_ms() - playback_local_ts_.load(std::memory_order_relaxed);
+        return base + samples_ms + interp;
     }
 
     void reset() {
@@ -89,7 +94,8 @@ public:
         first_packet_ = true;
         last_seq_ = 0;
         latest_sender_ts_.store(0, std::memory_order_relaxed);
-        playback_sender_ts_.store(0, std::memory_order_relaxed);
+        playback_base_ts_.store(0, std::memory_order_relaxed);
+        playback_samples_.store(0, std::memory_order_relaxed);
         playback_local_ts_.store(0, std::memory_order_relaxed);
     }
 
@@ -128,6 +134,7 @@ private:
     uint16_t last_seq_ = 0;
 
     std::atomic<uint32_t> latest_sender_ts_{0};
-    std::atomic<uint32_t> playback_sender_ts_{0};
+    std::atomic<uint32_t> playback_base_ts_{0};
+    std::atomic<uint64_t> playback_samples_{0};
     std::atomic<uint32_t> playback_local_ts_{0};
 };

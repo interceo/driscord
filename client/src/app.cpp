@@ -144,6 +144,7 @@ void App::update() {
 
     const uint32_t audio_ts = audio_.screen_playback_ts();
     const bool has_audio_clock = (audio_ts > 0);
+    const bool sync_log = (++sync_log_counter_ % 60 == 0);
 
     {
         std::scoped_lock lk(video_mutex_);
@@ -157,6 +158,11 @@ void App::update() {
                 video_renderer_.update_frame(peer_id, f.rgba.data(), f.width, f.height);
                 vs->width = f.width;
                 vs->height = f.height;
+                if (sync_log) {
+                    LOG_INFO()
+                        << "[sync-recv] no audio clock, showing latest video ts=" << f.sender_ts
+                        << " queue=" << vs->frame_queue.size();
+                }
                 vs->frame_queue.clear();
                 continue;
             }
@@ -171,10 +177,22 @@ void App::update() {
             }
             if (last_ready >= 0) {
                 auto& f = vs->frame_queue[last_ready];
+                if (sync_log) {
+                    int32_t delta = static_cast<int32_t>(audio_ts - f.sender_ts);
+                    LOG_INFO()
+                        << "[sync-recv] display video_ts=" << f.sender_ts << " audio_ts=" << audio_ts
+                        << " delta=" << delta << "ms queue=" << vs->frame_queue.size() << " dropped=" << last_ready;
+                }
                 video_renderer_.update_frame(peer_id, f.rgba.data(), f.width, f.height);
                 vs->width = f.width;
                 vs->height = f.height;
                 vs->frame_queue.erase(vs->frame_queue.begin(), vs->frame_queue.begin() + last_ready + 1);
+            } else if (sync_log) {
+                uint32_t front_ts = vs->frame_queue.front().sender_ts;
+                int32_t wait = static_cast<int32_t>(front_ts - audio_ts);
+                LOG_INFO()
+                    << "[sync-recv] waiting: front_video_ts=" << front_ts << " audio_ts=" << audio_ts
+                    << " wait=" << wait << "ms queue=" << vs->frame_queue.size();
             }
         }
     }
@@ -284,10 +302,16 @@ void App::start_sharing(const CaptureTarget& target, StreamQuality quality, int 
 
             size_t full_size = kVideoHeaderSize + encoded.size();
             frame_buf_.resize(full_size);
+            uint32_t video_send_ts = now_ms();
             write_u32_le(frame_buf_.data() + 0, static_cast<uint32_t>(frame.width));
             write_u32_le(frame_buf_.data() + 4, static_cast<uint32_t>(frame.height));
-            write_u32_le(frame_buf_.data() + 8, now_ms());
+            write_u32_le(frame_buf_.data() + 8, video_send_ts);
             write_u32_le(frame_buf_.data() + 12, static_cast<uint32_t>(video_encoder_.measured_kbps()));
+            if (send_frame_id_ % 30 == 0) {
+                LOG_INFO()
+                    << "[sync-send] video frame_id=" << send_frame_id_ << " sender_ts=" << video_send_ts
+                    << " size=" << encoded.size();
+            }
             std::memcpy(frame_buf_.data() + kVideoHeaderSize, encoded.data(), encoded.size());
 
             uint16_t fid = send_frame_id_++;

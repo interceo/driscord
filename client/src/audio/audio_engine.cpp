@@ -295,8 +295,13 @@ void AudioEngine::feed_screen_audio_pcm(const float* samples, size_t frames, int
                 MAX_OPUS_PACKET
             );
             if (bytes > 0) {
-                write_u16_le(screen_encode_buf_.data(), screen_send_seq_++);
-                write_u32_le(screen_encode_buf_.data() + 2, now_ms());
+                uint32_t audio_send_ts = now_ms();
+                write_u16_le(screen_encode_buf_.data(), screen_send_seq_);
+                write_u32_le(screen_encode_buf_.data() + 2, audio_send_ts);
+                if (screen_send_seq_ % 50 == 0) {
+                    LOG_INFO() << "[sync-send] screen_audio seq=" << screen_send_seq_ << " sender_ts=" << audio_send_ts;
+                }
+                ++screen_send_seq_;
                 on_screen_audio_packet_(screen_encode_buf_.data(), AUDIO_HEADER_SIZE + static_cast<size_t>(bytes));
             }
             screen_capture_pos_ = 0;
