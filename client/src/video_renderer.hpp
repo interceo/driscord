@@ -8,8 +8,14 @@
 #ifdef __APPLE__
 #include <OpenGL/gl3.h>
 #elif defined(_WIN32)
-#include <windows.h>
 #include <GL/gl.h>
+#include <windows.h>
+#ifndef GL_CLAMP_TO_EDGE
+#define GL_CLAMP_TO_EDGE 0x812F
+#endif
+#ifndef GL_RGBA8
+#define GL_RGBA8 0x8058
+#endif
 #else
 #include <GL/gl.h>
 #endif
