@@ -87,8 +87,7 @@ void App::update() {
         }
 
         for (auto it = peer_video_.begin(); it != peer_video_.end();) {
-            auto age = std::chrono::duration_cast<std::chrono::seconds>(
-                now - it->second->last_frame);
+            auto age = std::chrono::duration_cast<std::chrono::seconds>(now - it->second->last_frame);
             if (age.count() > kStaleVideoSeconds) {
                 stale_peers.push_back(it->first);
                 it = peer_video_.erase(it);
@@ -141,20 +140,19 @@ void App::start_sharing(const CaptureTarget& target, int preset_idx, int fps) {
 
     int max_w, max_h;
     if (preset_idx <= 0 || preset_idx >= kStreamPresetCount) {
-        max_w = target.width;
-        max_h = target.height;
+        max_w = 7680;
+        max_h = 4320;
     } else {
         max_w = kStreamPresets[preset_idx].width;
         max_h = kStreamPresets[preset_idx].height;
     }
 
-    int enc_w = std::min(target.width, max_w) & ~1;
-    int enc_h = std::min(target.height, max_h) & ~1;
-    if (target.width > max_w || target.height > max_h) {
-        float scale = std::min(static_cast<float>(max_w) / target.width,
-                               static_cast<float>(max_h) / target.height);
-        enc_w = static_cast<int>(target.width * scale) & ~1;
-        enc_h = static_cast<int>(target.height * scale) & ~1;
+    int enc_w = target.width & ~1;
+    int enc_h = target.height & ~1;
+    if (enc_w > max_w || enc_h > max_h) {
+        float scale = std::min(static_cast<float>(max_w) / enc_w, static_cast<float>(max_h) / enc_h);
+        enc_w = static_cast<int>(enc_w * scale) & ~1;
+        enc_h = static_cast<int>(enc_h * scale) & ~1;
     }
 
     if (enc_w <= 0 || enc_h <= 0) {
@@ -169,28 +167,30 @@ void App::start_sharing(const CaptureTarget& target, int preset_idx, int fps) {
     }
 
     screen_capture_ = ScreenCapture::create();
-    if (!screen_capture_->start(fps, target, max_w, max_h,
-            [this](const ScreenCapture::Frame& frame) {
-                if (frame.width != video_encoder_.width() ||
-                    frame.height != video_encoder_.height()) {
-                    int br = compute_bitrate(frame.width, frame.height,
-                                             config_.video_bitrate_kbps);
-                    if (!video_encoder_.reinit(frame.width, frame.height, br)) {
-                        return;
-                    }
+    if (!screen_capture_->start(fps, target, max_w, max_h, [this](const ScreenCapture::Frame& frame) {
+            if (frame.width != video_encoder_.width() || frame.height != video_encoder_.height()) {
+                int br = compute_bitrate(frame.width, frame.height, config_.video_bitrate_kbps);
+                if (!video_encoder_.reinit(frame.width, frame.height, br)) {
+                    return;
                 }
+            }
 
-                auto encoded = video_encoder_.encode(frame.data.data(), frame.width, frame.height);
-                if (encoded.empty()) return;
+            LOG_INFO()
+                << "reinit video encoder: " << frame.width << "x" << frame.height << " (bitrate " << br << " kbps)";
 
-                std::vector<uint8_t> packet(kVideoHeaderSize + encoded.size());
-                write_u32_le(packet.data() + 0, static_cast<uint32_t>(frame.width));
-                write_u32_le(packet.data() + 4, static_cast<uint32_t>(frame.height));
-                write_u32_le(packet.data() + 8, now_ms());
-                std::memcpy(packet.data() + kVideoHeaderSize, encoded.data(), encoded.size());
+            auto encoded = video_encoder_.encode(frame.data.data(), frame.width, frame.height);
+            if (encoded.empty()) {
+                return;
+            }
 
-                transport_.send_video(packet.data(), packet.size());
-            }))
+            std::vector<uint8_t> packet(kVideoHeaderSize + encoded.size());
+            write_u32_le(packet.data() + 0, static_cast<uint32_t>(frame.width));
+            write_u32_le(packet.data() + 4, static_cast<uint32_t>(frame.height));
+            write_u32_le(packet.data() + 8, now_ms());
+            std::memcpy(packet.data() + kVideoHeaderSize, encoded.data(), encoded.size());
+
+            transport_.send_video(packet.data(), packet.size());
+        }))
     {
         LOG_ERROR() << "failed to start screen capture";
         video_encoder_.shutdown();
@@ -199,9 +199,9 @@ void App::start_sharing(const CaptureTarget& target, int preset_idx, int fps) {
 
     clear_preview();
     sharing_ = true;
-    LOG_INFO() << "screen sharing started: " << target.name
-               << " " << enc_w << "x" << enc_h << " @ " << fps << " fps"
-               << " (bitrate " << bitrate << " kbps)";
+    LOG_INFO()
+        << "screen sharing started: " << target.name << " " << enc_w << "x" << enc_h << " @ " << fps << " fps"
+        << " (bitrate " << bitrate << " kbps)";
 }
 
 void App::stop_sharing() {
@@ -223,20 +223,19 @@ void App::update_preview(const CaptureTarget& target) {
     constexpr int kPreviewH = 216;
 
     auto frame = ScreenCapture::grab_thumbnail(target, kPreviewW, kPreviewH);
-    if (frame.data.empty()) return;
+    if (frame.data.empty()) {
+        return;
+    }
 
     // BGRA -> RGBA channel swap
     for (size_t i = 0; i < frame.data.size(); i += 4) {
         std::swap(frame.data[i], frame.data[i + 2]);
     }
 
-    video_renderer_.update_frame(kPreviewPeerId, frame.data.data(),
-                                 frame.width, frame.height);
+    video_renderer_.update_frame(kPreviewPeerId, frame.data.data(), frame.width, frame.height);
 }
 
-void App::clear_preview() {
-    video_renderer_.remove_peer(kPreviewPeerId);
-}
+void App::clear_preview() { video_renderer_.remove_peer(kPreviewPeerId); }
 
 std::vector<App::PeerView> App::peers() const {
     std::vector<PeerView> result;
@@ -272,7 +271,7 @@ void App::on_video_packet(const std::string& peer_id, const uint8_t* data, size_
             LOG_ERROR() << "failed to init video decoder for " << peer_id;
             return;
         }
-        
+
         const auto now_tp = std::chrono::steady_clock::now();
         vs->last_frame = now_tp;
         vs->last_bitrate_calc = now_tp;
@@ -283,8 +282,7 @@ void App::on_video_packet(const std::string& peer_id, const uint8_t* data, size_
     vs.bytes_since_calc += len;
 
     auto now = std::chrono::steady_clock::now();
-    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-        now - vs.last_bitrate_calc).count();
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - vs.last_bitrate_calc).count();
     if (elapsed_ms >= 1000) {
         vs.measured_kbps = static_cast<int>(vs.bytes_since_calc * 8 / elapsed_ms);
         vs.bytes_since_calc = 0;
