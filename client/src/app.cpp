@@ -167,9 +167,10 @@ void App::start_sharing(const CaptureTarget& target, int preset_idx, int fps) {
     }
 
     screen_capture_ = ScreenCapture::create();
-    if (!screen_capture_->start(fps, target, max_w, max_h, [this](const ScreenCapture::Frame& frame) {
+    if (!screen_capture_->start(fps, target, max_w, max_h, [this, bitrate](const ScreenCapture::Frame& frame) {
+            int br = bitrate;
             if (frame.width != video_encoder_.width() || frame.height != video_encoder_.height()) {
-                int br = compute_bitrate(frame.width, frame.height, config_.video_bitrate_kbps);
+                br = compute_bitrate(frame.width, frame.height, config_.video_bitrate_kbps);
                 if (!video_encoder_.reinit(frame.width, frame.height, br)) {
                     return;
                 }
