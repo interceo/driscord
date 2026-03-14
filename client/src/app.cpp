@@ -127,6 +127,11 @@ void App::disconnect() {
 
 void App::toggle_mute() { audio_.set_muted(!audio_.muted()); }
 
+void App::toggle_deafen() {
+    bool new_deaf = !audio_.deafened();
+    audio_.set_deafened(new_deaf);
+}
+
 void App::set_volume(float vol) { audio_.set_output_volume(vol); }
 
 void App::start_sharing(const CaptureTarget& target) {

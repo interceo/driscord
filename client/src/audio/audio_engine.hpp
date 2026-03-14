@@ -42,6 +42,9 @@ public:
     void set_muted(bool m) { muted_ = m; }
     bool muted() const noexcept { return muted_; }
 
+    void set_deafened(bool d) { deafened_ = d; if (d) muted_ = true; }
+    bool deafened() const noexcept { return deafened_; }
+
     void set_output_volume(float v) { output_volume_ = v; }
     float output_volume() const noexcept { return output_volume_; }
 
@@ -56,6 +59,7 @@ private:
 
     std::atomic<bool> running_{false};
     std::atomic<bool> muted_{false};
+    std::atomic<bool> deafened_{false};
     std::atomic<float> output_volume_{1.0f};
     std::atomic<float> input_level_{0.0f};
     std::atomic<float> output_level_{0.0f};

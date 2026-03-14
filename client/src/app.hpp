@@ -32,6 +32,7 @@ public:
     void connect(const std::string& server_url);
     void disconnect();
     void toggle_mute();
+    void toggle_deafen();
     void set_volume(float vol);
 
     void start_sharing(const CaptureTarget& target);
@@ -43,6 +44,7 @@ public:
 
     AppState state() const { return state_; }
     bool muted() const { return audio_.muted(); }
+    bool deafened() const { return audio_.deafened(); }
     float volume() const { return audio_.output_volume(); }
     float input_level() const { return audio_.input_level(); }
     float output_level() const { return audio_.output_level(); }

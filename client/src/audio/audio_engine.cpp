@@ -136,6 +136,14 @@ void AudioEngine::on_capture(const float* input, uint32_t frames) {
 }
 
 void AudioEngine::on_playback(float* output, const uint32_t frames) {
+    if (deafened_) {
+        std::memset(output, 0, frames * sizeof(float));
+        playback_ring_.read(output, frames);
+        std::memset(output, 0, frames * sizeof(float));
+        output_level_.store(0.0f);
+        return;
+    }
+
     const size_t got = playback_ring_.read(output, frames);
     if (got < frames) {
         std::memset(&output[got], 0, (frames - got) * sizeof(float));
