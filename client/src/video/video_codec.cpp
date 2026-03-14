@@ -61,7 +61,7 @@ static void setup_rate_control(AVCodecContext* ctx, int64_t bitrate_bps, const s
     } else if (enc_name.find("libx264") != std::string::npos) {
         av_opt_set(ctx->priv_data, "preset", "fast", 0);
         av_opt_set(ctx->priv_data, "tune", "zerolatency", 0);
-        av_opt_set_int(ctx->priv_data, "profile", AV_PROFILE_H264_HIGH, 0);
+        ctx->profile = AV_PROFILE_H264_HIGH;
         av_opt_set(ctx->priv_data, "nal-hrd", "cbr", 0);
         av_opt_set(ctx->priv_data, "crf", "-1", 0);
         av_opt_set(ctx->priv_data, "vbv-maxrate", std::to_string(bitrate_bps / 1000).c_str(), 0);
