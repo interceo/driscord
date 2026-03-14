@@ -9,6 +9,7 @@
 #include <cstring>
 
 #include "log.hpp"
+#include "stream_jitter.hpp"
 #include "utils/byte_utils.hpp"
 
 using namespace drist;
@@ -16,10 +17,9 @@ using namespace drist;
 void OpusEncoderDeleter::operator()(OpusEncoder* e) const { opus_encoder_destroy(e); }
 void OpusDecoderDeleter::operator()(OpusDecoder* d) const { opus_decoder_destroy(d); }
 
-AudioEngine::AudioEngine(int voice_jitter_ms, int screen_jitter_ms)
+AudioEngine::AudioEngine(int voice_jitter_ms)
     : capture_buf_(FRAME_SIZE, 0.0f),
       voice_jitter_(static_cast<size_t>(voice_jitter_ms)),
-      screen_jitter_(static_cast<size_t>(screen_jitter_ms)),
       screen_mix_buf_(FRAME_SIZE, 0.0f),
       encode_buf_(AUDIO_HEADER_SIZE + MAX_OPUS_PACKET),
       decode_buf_(FRAME_SIZE),
@@ -90,7 +90,6 @@ bool AudioEngine::start(PacketCallback on_packet) {
     decoder_ = std::move(dec);
     device_ = std::move(dev);
     voice_jitter_.reset();
-    screen_jitter_.reset();
     voice_send_seq_ = 0;
 
     if (!screen_decoder_) {
@@ -126,7 +125,6 @@ void AudioEngine::stop() {
     screen_decoder_.reset();
     on_screen_audio_packet_ = nullptr;
     voice_jitter_.reset();
-    screen_jitter_.reset();
 
     LOG_INFO() << "audio engine stopped";
 }
@@ -169,7 +167,9 @@ void AudioEngine::on_capture(const float* input, uint32_t frames) {
 void AudioEngine::on_playback(float* output, const uint32_t frames) {
     if (deafened_) {
         voice_jitter_.pop(output, frames);
-        screen_jitter_.pop(output, frames);
+        if (screen_stream_) {
+            screen_stream_->pop_audio(screen_mix_buf_.data(), frames);
+        }
         std::memset(output, 0, frames * sizeof(float));
         output_level_.store(0.0f);
         return;
@@ -177,13 +177,15 @@ void AudioEngine::on_playback(float* output, const uint32_t frames) {
 
     voice_jitter_.pop(output, frames);
 
-    if (screen_mix_buf_.size() < frames) {
-        screen_mix_buf_.resize(frames);
-    }
-    screen_jitter_.pop(screen_mix_buf_.data(), frames);
-    if (!sharing_screen_audio_) {
-        for (uint32_t i = 0; i < frames; ++i) {
-            output[i] += screen_mix_buf_[i];
+    if (screen_stream_) {
+        if (screen_mix_buf_.size() < frames) {
+            screen_mix_buf_.resize(frames);
+        }
+        screen_stream_->pop_audio(screen_mix_buf_.data(), frames);
+        if (!sharing_screen_audio_) {
+            for (uint32_t i = 0; i < frames; ++i) {
+                output[i] += screen_mix_buf_[i];
+            }
         }
     }
 
@@ -259,7 +261,7 @@ void AudioEngine::shutdown_screen_audio() {
     on_screen_audio_packet_ = nullptr;
     screen_capture_pos_ = 0;
     screen_send_seq_ = 0;
-    screen_jitter_.reset();
+    screen_stream_ = nullptr;
     LOG_INFO() << "screen audio codec shut down";
 }
 
@@ -310,7 +312,7 @@ void AudioEngine::feed_screen_audio_pcm(const float* samples, size_t frames, int
 }
 
 void AudioEngine::feed_screen_audio_packet(const uint8_t* data, size_t len) {
-    if (!screen_decoder_) {
+    if (!screen_decoder_ || !screen_stream_) {
         return;
     }
 
@@ -340,5 +342,5 @@ void AudioEngine::feed_screen_audio_packet(const uint8_t* data, size_t len) {
         float r = screen_decode_buf_[static_cast<size_t>(i) * 2 + 1];
         decode_buf_[static_cast<size_t>(i)] = (l + r) * 0.5f;
     }
-    screen_jitter_.push(decode_buf_.data(), static_cast<size_t>(samples), seq, sender_ts);
+    screen_stream_->push_audio(decode_buf_.data(), static_cast<size_t>(samples), seq, sender_ts);
 }

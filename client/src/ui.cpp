@@ -576,7 +576,7 @@ void UIRenderer::render_video_panel(App& app) {
                     }
                     if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
                         stream_popup_peer_ = t.peer_id;
-                        stream_popup_vol_ = app.peer_volume(t.peer_id);
+                        stream_popup_vol_ = app.stream_volume();
                         ImGui::OpenPopup("##StreamVolPopup");
                     }
 
@@ -782,7 +782,7 @@ void UIRenderer::render_stream_volume_popup(App& app) {
         ImGui::Text("Stream Volume");
         ImGui::SetNextItemWidth(150);
         if (ImGui::SliderFloat("##stream_vol", &stream_popup_vol_, 0.0f, 2.0f, "%.1f")) {
-            app.set_peer_volume(stream_popup_peer_, stream_popup_vol_);
+            app.set_stream_volume(stream_popup_vol_);
         }
 
         ImGui::EndPopup();

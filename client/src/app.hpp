@@ -2,7 +2,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -12,6 +11,7 @@
 #include "audio/audio_engine.hpp"
 #include "audio/system_audio_capture.hpp"
 #include "config.hpp"
+#include "stream_jitter.hpp"
 #include "video/screen_capture.hpp"
 #include "video/video_codec.hpp"
 #include "video_renderer.hpp"
@@ -82,6 +82,9 @@ public:
     void set_peer_volume(const std::string& peer_id, float vol);
     float peer_volume(const std::string& peer_id) const;
 
+    void set_stream_volume(float vol) { stream_jitter_.set_volume(vol); }
+    float stream_volume() const { return stream_jitter_.volume(); }
+
     void start_sharing(const CaptureTarget& target, StreamQuality quality, int fps, bool share_audio = false);
     void stop_sharing();
     bool sharing() const { return sharing_; }
@@ -118,7 +121,8 @@ private:
     bool sharing_audio_ = false;
     std::atomic<bool> encoding_{false};
 
-    AudioEngine audio_{config_.voice_jitter_ms, config_.screen_buffer_ms};
+    AudioEngine audio_{config_.voice_jitter_ms};
+    ScreenStreamJitter stream_jitter_{config_.screen_buffer_ms, config_.max_sync_gap_ms};
     VoiceTransport transport_;
     VideoRenderer video_renderer_;
 
@@ -126,18 +130,10 @@ private:
     std::unique_ptr<SystemAudioCapture> system_audio_capture_;
     VideoEncoder video_encoder_;
 
-    struct TimedFrame {
-        std::vector<uint8_t> rgba;
-        int width, height;
-        uint32_t sender_ts;
-    };
-
     struct PeerVideoState {
         VideoDecoder decoder;
-        std::vector<uint8_t> rgba;
         int width = 0;
         int height = 0;
-        bool dirty = false;
         std::chrono::steady_clock::time_point last_frame;
         int measured_kbps = 0;
 
@@ -147,15 +143,11 @@ private:
         bool has_pending_decode = false;
         int decode_failures = 0;
 
-        std::deque<TimedFrame> frame_queue;
-        bool video_primed = false;
-
         uint16_t reassembly_frame_id = 0;
         uint16_t reassembly_total = 0;
         uint16_t reassembly_got = 0;
         std::vector<uint8_t> reassembly_buf;
     };
-    size_t max_video_queue_ = 60;
     mutable std::mutex video_mutex_;
     std::unordered_map<std::string, std::shared_ptr<PeerVideoState>> peer_video_;
     std::vector<std::string> pending_removals_;
@@ -166,5 +158,4 @@ private:
     uint16_t send_frame_id_ = 0;
     std::vector<uint8_t> frame_buf_;
     std::vector<uint8_t> send_buf_;
-    uint32_t sync_log_counter_ = 0;
 };
