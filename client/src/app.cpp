@@ -86,14 +86,7 @@ void App::update() {
 
         to_remove.swap(pending_removals_);
 
-        uint32_t current_ms = now_ms();
         for (auto& [peer_id, vs] : peer_video_) {
-            if (vs->pending && !vs->dirty) {
-                if (current_ms - vs->receive_time_ms >= kJitterTargetMs) {
-                    vs->dirty = true;
-                    vs->pending = false;
-                }
-            }
             if (vs->dirty) {
                 DirtyFrame df;
                 df.peer_id = peer_id;
@@ -422,8 +415,7 @@ void App::on_video_packet(const std::string& peer_id, const uint8_t* data, size_
             vs.width = dec_w;
             vs.height = dec_h;
             vs.measured_kbps = static_cast<int>(sender_kbps);
-            vs.pending = true;
-            vs.receive_time_ms = now_ms();
+            vs.dirty = true;
             vs.last_frame = std::chrono::steady_clock::now();
         }
     }
