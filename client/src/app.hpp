@@ -132,8 +132,6 @@ private:
         uint32_t sender_ts;
     };
 
-    static constexpr size_t kMaxFrameQueue = 100;
-
     struct PeerVideoState {
         VideoDecoder decoder;
         std::vector<uint8_t> rgba;
@@ -150,12 +148,14 @@ private:
         int decode_failures = 0;
 
         std::deque<TimedFrame> frame_queue;
+        bool video_primed = false;
 
         uint16_t reassembly_frame_id = 0;
         uint16_t reassembly_total = 0;
         uint16_t reassembly_got = 0;
         std::vector<uint8_t> reassembly_buf;
     };
+    size_t max_video_queue_ = 60;
     mutable std::mutex video_mutex_;
     std::unordered_map<std::string, std::shared_ptr<PeerVideoState>> peer_video_;
     std::vector<std::string> pending_removals_;
