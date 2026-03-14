@@ -23,7 +23,7 @@ public:
     bool reinit(int width, int height, int fps, int base_bitrate_kbps);
     void shutdown();
 
-    std::vector<uint8_t> encode(const uint8_t* bgra, int width, int height);
+    const std::vector<uint8_t>& encode(const uint8_t* bgra, int width, int height);
 
     int width() const { return width_; }
     int height() const { return height_; }
@@ -41,6 +41,8 @@ private:
     int height_ = 0;
     int fps_ = 30;
     int64_t pts_ = 0;
+
+    std::vector<uint8_t> encode_buf_;
 
     std::atomic<int> measured_kbps_{0};
     size_t bytes_since_calc_ = 0;
