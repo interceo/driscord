@@ -238,46 +238,42 @@ void UIRenderer::render_sidebar_bottom(App& app) {
 void UIRenderer::render_content(App& app) {
     bool connected = (app.state() == AppState::Connected);
 
-    if (connected) {
-        // Screen sharing controls
-        ImGui::Text("Screen Sharing");
-        ImGui::Spacing();
+    if (!connected) {
+        ImGui::TextDisabled("Connect to a server to begin");
+        return;
+    }
 
-        if (!app.sharing()) {
-            ImVec4 green(0.20f, 0.70f, 0.30f, 1.0f);
-            ImGui::PushStyleColor(ImGuiCol_Button, green);
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.25f, 0.80f, 0.35f, 1.0f});
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.15f, 0.60f, 0.25f, 1.0f});
-            if (ImGui::Button("Share Screen", {160, 30})) {
-                targets_ = ScreenCapture::list_targets();
-                selected_target_ = -1;
-                share_popup_open_ = true;
-                // pre-load thumbnails
-                for (size_t i = 0; i < targets_.size(); ++i) {
-                    std::string tid = "__thumb_" + std::to_string(i) + "__";
-                    auto frame = ScreenCapture::grab_thumbnail(targets_[i], 320, 180);
-                    if (!frame.data.empty()) {
-                        for (size_t j = 0; j < frame.data.size(); j += 4) {
-                            std::swap(frame.data[j], frame.data[j + 2]);
-                        }
-                        app.video_renderer().update_frame(tid, frame.data.data(), frame.width, frame.height);
+    if (!app.sharing()) {
+        ImVec4 green(0.20f, 0.70f, 0.30f, 1.0f);
+        ImGui::PushStyleColor(ImGuiCol_Button, green);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.25f, 0.80f, 0.35f, 1.0f});
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.15f, 0.60f, 0.25f, 1.0f});
+        if (ImGui::Button("Share Screen", {140, 26})) {
+            targets_ = ScreenCapture::list_targets();
+            selected_target_ = -1;
+            share_popup_open_ = true;
+            for (size_t i = 0; i < targets_.size(); ++i) {
+                std::string tid = "__thumb_" + std::to_string(i) + "__";
+                auto frame = ScreenCapture::grab_thumbnail(targets_[i], 320, 180);
+                if (!frame.data.empty()) {
+                    for (size_t j = 0; j < frame.data.size(); j += 4) {
+                        std::swap(frame.data[j], frame.data[j + 2]);
                     }
+                    app.video_renderer().update_frame(tid, frame.data.data(), frame.width, frame.height);
                 }
             }
-            ImGui::PopStyleColor(3);
-        } else {
-            ImGui::TextColored({0.2f, 0.9f, 0.3f, 1.0f}, "Sharing your screen");
-            ImGui::Spacing();
-            ImGui::PushStyleColor(ImGuiCol_Button, {0.85f, 0.25f, 0.25f, 1.0f});
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.95f, 0.35f, 0.35f, 1.0f});
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.75f, 0.20f, 0.20f, 1.0f});
-            if (ImGui::Button("Stop Sharing", {160, 30})) {
-                app.stop_sharing();
-            }
-            ImGui::PopStyleColor(3);
         }
+        ImGui::PopStyleColor(3);
     } else {
-        ImGui::TextDisabled("Connect to a server to begin");
+        ImGui::PushStyleColor(ImGuiCol_Button, {0.85f, 0.25f, 0.25f, 1.0f});
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.95f, 0.35f, 0.35f, 1.0f});
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.75f, 0.20f, 0.20f, 1.0f});
+        if (ImGui::Button("Stop Sharing", {140, 26})) {
+            app.stop_sharing();
+        }
+        ImGui::PopStyleColor(3);
+        ImGui::SameLine();
+        ImGui::TextColored({0.2f, 0.9f, 0.3f, 1.0f}, "LIVE");
     }
 
     ImGui::Spacing();
@@ -447,76 +443,349 @@ void UIRenderer::render_share_popup(App& app) {
 }
 
 // ---------------------------------------------------------------------------
-// Video panel with OSD overlay
+// Video panel: Discord-style grid of user tiles + stream tiles
 // ---------------------------------------------------------------------------
 
+namespace {
+
+ImU32 peer_color(const std::string& id) {
+    uint32_t h = 0x811c9dc5;
+    for (char c : id) {
+        h ^= static_cast<uint32_t>(c);
+        h *= 0x01000193;
+    }
+    auto r = static_cast<uint8_t>(80 + (h & 0x7F));
+    auto g = static_cast<uint8_t>(80 + ((h >> 8) & 0x7F));
+    auto b = static_cast<uint8_t>(80 + ((h >> 16) & 0x7F));
+    return IM_COL32(r, g, b, 255);
+}
+
+std::string short_id(const std::string& id, size_t max_len = 10) {
+    if (id.size() <= max_len) {
+        return id;
+    }
+    return id.substr(0, max_len) + "...";
+}
+
+}  // namespace
+
 void UIRenderer::render_video_panel(App& app) {
-    auto active = app.video_renderer().active_peers();
-    if (active.empty() && !app.sharing()) {
+    struct Tile {
+        std::string id;
+        std::string peer_id;
+        std::string label;
+        bool is_stream;
+        ImU32 color;
+    };
+
+    std::vector<Tile> tiles;
+    auto streaming_peers = app.video_renderer().active_peers();
+
+    auto is_streaming = [&](const std::string& pid) {
+        return std::find(streaming_peers.begin(), streaming_peers.end(), pid) != streaming_peers.end();
+    };
+
+    // User tile for self
+    std::string local = app.local_id();
+    if (!local.empty()) {
+        Tile t;
+        t.id = local;
+        t.peer_id = local;
+        t.label = short_id(local) + " (you)";
+        t.is_stream = false;
+        t.color = peer_color(local);
+        tiles.push_back(std::move(t));
+    }
+
+    // User tiles for peers
+    auto peers = app.peers();
+    for (auto& p : peers) {
+        Tile t;
+        t.id = p.id;
+        t.peer_id = p.id;
+        t.label = short_id(p.id);
+        t.is_stream = false;
+        t.color = peer_color(p.id);
+        tiles.push_back(std::move(t));
+    }
+
+    // Stream tiles for peers with active video
+    for (auto& spid : streaming_peers) {
+        Tile t;
+        t.id = "stream_" + spid;
+        t.peer_id = spid;
+        t.label = short_id(spid);
+        t.is_stream = true;
+        t.color = 0;
+        tiles.push_back(std::move(t));
+    }
+
+    if (tiles.empty()) {
         return;
     }
 
-    ImGui::Text("Video Streams");
-    ImGui::Spacing();
-
-    ImVec2 avail = ImGui::GetContentRegionAvail();
-
-    int count = static_cast<int>(active.size());
-    if (count == 0) {
-        ImGui::TextDisabled("You are sharing your screen");
-        return;
+    // Validate focused tile still exists
+    if (!focused_tile_id_.empty()) {
+        bool found = false;
+        for (auto& t : tiles) {
+            if (t.id == focused_tile_id_) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            focused_tile_id_.clear();
+        }
     }
-
-    int cols = (count <= 1) ? 1 : 2;
-    float
-        tile_w = (avail.x - ImGui::GetStyle().ItemSpacing.x * static_cast<float>(cols - 1)) / static_cast<float>(cols);
 
     ImDrawList* draw = ImGui::GetWindowDrawList();
+    ImVec2 avail = ImGui::GetContentRegionAvail();
+
+    // --- Fullscreen mode ---
+    if (!focused_tile_id_.empty()) {
+        for (auto& t : tiles) {
+            if (t.id != focused_tile_id_) {
+                continue;
+            }
+
+            ImGui::PushID(t.id.c_str());
+
+            if (t.is_stream) {
+                auto tex = app.video_renderer().texture(t.peer_id);
+                if (tex) {
+                    ImVec2 frame_sz = app.video_renderer().frame_size(t.peer_id);
+                    float aspect = (frame_sz.x > 0 && frame_sz.y > 0) ? frame_sz.y / frame_sz.x : 9.0f / 16.0f;
+
+                    float fw = avail.x;
+                    float fh = fw * aspect;
+                    if (fh > avail.y - 20.0f) {
+                        fh = avail.y - 20.0f;
+                        fw = fh / aspect;
+                    }
+
+                    float ox = (avail.x - fw) * 0.5f;
+                    if (ox > 0) {
+                        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ox);
+                    }
+
+                    ImVec2 img_pos = ImGui::GetCursorScreenPos();
+                    ImGui::Image(tex, {fw, fh});
+
+                    if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+                        focused_tile_id_.clear();
+                    }
+                    if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                        stream_popup_peer_ = t.peer_id;
+                        stream_popup_vol_ = app.peer_volume(t.peer_id);
+                        ImGui::OpenPopup("##StreamVolPopup");
+                    }
+
+                    auto stats = app.stream_stats(t.peer_id);
+                    if (stats.width > 0) {
+                        char osd[128];
+                        std::snprintf(
+                            osd,
+                            sizeof(osd),
+                            "%dx%d  H.264  %d kbps",
+                            stats.width,
+                            stats.height,
+                            stats.measured_kbps
+                        );
+                        ImVec2 text_sz = ImGui::CalcTextSize(osd);
+                        ImVec2 osd_pos = {img_pos.x + 8, img_pos.y + 6};
+                        draw->AddRectFilled(
+                            {osd_pos.x - 3, osd_pos.y - 2},
+                            {osd_pos.x + text_sz.x + 5, osd_pos.y + text_sz.y + 3},
+                            IM_COL32(0, 0, 0, 190),
+                            4.0f
+                        );
+                        draw->AddText(osd_pos, IM_COL32(220, 220, 220, 255), osd);
+                    }
+
+                    char fs_label[128];
+                    std::snprintf(fs_label, sizeof(fs_label), "%s  LIVE", t.label.c_str());
+                    ImGui::TextDisabled("%s", fs_label);
+                }
+            } else {
+                float sz = std::min(avail.x, avail.y - 20.0f);
+                float ox = (avail.x - sz) * 0.5f;
+                if (ox > 0) {
+                    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ox);
+                }
+
+                ImVec2 pos = ImGui::GetCursorScreenPos();
+                ImGui::InvisibleButton("##fs_tile", {sz, sz});
+                if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+                    focused_tile_id_.clear();
+                }
+
+                draw->AddRectFilled(pos, {pos.x + sz, pos.y + sz}, t.color, 8.0f);
+
+                ImVec2 text_sz = ImGui::CalcTextSize(t.label.c_str());
+                ImVec2 text_pos = {pos.x + (sz - text_sz.x) * 0.5f, pos.y + (sz - text_sz.y) * 0.5f};
+                draw->AddText(text_pos, IM_COL32(255, 255, 255, 230), t.label.c_str());
+
+                if (is_streaming(t.peer_id)) {
+                    const char* live = "LIVE";
+                    ImVec2 lsz = ImGui::CalcTextSize(live);
+                    ImVec2 lpos = {pos.x + sz - lsz.x - 10, pos.y + 8};
+                    draw->AddRectFilled(
+                        {lpos.x - 4, lpos.y - 2},
+                        {lpos.x + lsz.x + 4, lpos.y + lsz.y + 2},
+                        IM_COL32(220, 50, 50, 220),
+                        3.0f
+                    );
+                    draw->AddText(lpos, IM_COL32(255, 255, 255, 255), live);
+                }
+
+                ImGui::TextDisabled("%s", t.label.c_str());
+            }
+
+            render_stream_volume_popup(app);
+            ImGui::PopID();
+            break;
+        }
+        return;
+    }
+
+    // --- Grid mode ---
+    int count = static_cast<int>(tiles.size());
+    int cols = 1;
+    if (count >= 10) {
+        cols = 4;
+    } else if (count >= 5) {
+        cols = 3;
+    } else if (count >= 2) {
+        cols = 2;
+    }
+
+    float spacing = ImGui::GetStyle().ItemSpacing.x;
+    float tile_w = (avail.x - spacing * static_cast<float>(cols - 1)) / static_cast<float>(cols);
+    float tile_h = tile_w * (9.0f / 16.0f);
 
     for (int i = 0; i < count; ++i) {
-        const auto& pid = active[static_cast<size_t>(i)];
-        auto tex = app.video_renderer().texture(pid);
-        if (!tex) {
-            continue;
-        }
+        auto& t = tiles[static_cast<size_t>(i)];
 
         if (i > 0 && (i % cols) != 0) {
             ImGui::SameLine();
         }
 
+        ImGui::PushID(t.id.c_str());
         ImGui::BeginGroup();
 
-        ImVec2 frame_sz = app.video_renderer().frame_size(pid);
-        float aspect = (frame_sz.x > 0 && frame_sz.y > 0) ? frame_sz.y / frame_sz.x : 9.0f / 16.0f;
-        float tile_h = tile_w * aspect;
+        if (t.is_stream) {
+            auto tex = app.video_renderer().texture(t.peer_id);
+            if (tex) {
+                ImVec2 frame_sz = app.video_renderer().frame_size(t.peer_id);
+                float aspect = (frame_sz.x > 0 && frame_sz.y > 0) ? frame_sz.y / frame_sz.x : 9.0f / 16.0f;
+                float th = tile_w * aspect;
 
-        ImVec2 img_pos = ImGui::GetCursorScreenPos();
-        ImGui::Image(tex, {tile_w, tile_h});
+                ImVec2 img_pos = ImGui::GetCursorScreenPos();
+                ImGui::Image(tex, {tile_w, th});
 
-        // OSD overlay: resolution, bitrate, codec
-        auto stats = app.stream_stats(pid);
-        if (stats.width > 0) {
-            char osd[128];
-            std::snprintf(osd, sizeof(osd), "%dx%d  H.264  %d kbps", stats.width, stats.height, stats.measured_kbps);
+                if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+                    focused_tile_id_ = t.id;
+                }
+                if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                    stream_popup_peer_ = t.peer_id;
+                    stream_popup_vol_ = app.peer_volume(t.peer_id);
+                    ImGui::OpenPopup("##StreamVolPopup");
+                }
 
-            ImVec2 text_sz = ImGui::CalcTextSize(osd);
-            ImVec2 osd_pos = {img_pos.x + 6, img_pos.y + 4};
+                auto stats = app.stream_stats(t.peer_id);
+                if (stats.width > 0) {
+                    char osd[128];
+                    std::snprintf(
+                        osd,
+                        sizeof(osd),
+                        "%dx%d  H.264  %d kbps",
+                        stats.width,
+                        stats.height,
+                        stats.measured_kbps
+                    );
+                    ImVec2 text_sz = ImGui::CalcTextSize(osd);
+                    ImVec2 osd_pos = {img_pos.x + 4, img_pos.y + 3};
+                    draw->AddRectFilled(
+                        {osd_pos.x - 2, osd_pos.y - 1},
+                        {osd_pos.x + text_sz.x + 4, osd_pos.y + text_sz.y + 2},
+                        IM_COL32(0, 0, 0, 180),
+                        3.0f
+                    );
+                    draw->AddText(osd_pos, IM_COL32(220, 220, 220, 255), osd);
+                }
 
-            draw->AddRectFilled(
-                {osd_pos.x - 2, osd_pos.y - 1},
-                {osd_pos.x + text_sz.x + 4, osd_pos.y + text_sz.y + 2},
-                IM_COL32(0, 0, 0, 180),
-                3.0f
-            );
-            draw->AddText(osd_pos, IM_COL32(220, 220, 220, 255), osd);
+                const char* live = "LIVE";
+                ImVec2 lsz = ImGui::CalcTextSize(live);
+                ImVec2 lpos = {img_pos.x + tile_w - lsz.x - 8, img_pos.y + 5};
+                draw->AddRectFilled(
+                    {lpos.x - 3, lpos.y - 1},
+                    {lpos.x + lsz.x + 3, lpos.y + lsz.y + 1},
+                    IM_COL32(220, 50, 50, 220),
+                    3.0f
+                );
+                draw->AddText(lpos, IM_COL32(255, 255, 255, 255), live);
+
+                char slabel[128];
+                std::snprintf(slabel, sizeof(slabel), "%s", t.label.c_str());
+                ImGui::TextDisabled("%s", slabel);
+            }
+        } else {
+            ImVec2 pos = ImGui::GetCursorScreenPos();
+            ImGui::InvisibleButton("##tile", {tile_w, tile_h});
+
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+                focused_tile_id_ = t.id;
+            }
+
+            draw->AddRectFilled(pos, {pos.x + tile_w, pos.y + tile_h}, t.color, 6.0f);
+
+            ImVec2 hover_min = pos;
+            ImVec2 hover_max = {pos.x + tile_w, pos.y + tile_h};
+            if (ImGui::IsItemHovered()) {
+                draw->AddRect(hover_min, hover_max, IM_COL32(255, 255, 255, 60), 6.0f, 0, 2.0f);
+            }
+
+            ImVec2 text_sz = ImGui::CalcTextSize(t.label.c_str());
+            ImVec2 text_pos = {pos.x + (tile_w - text_sz.x) * 0.5f, pos.y + (tile_h - text_sz.y) * 0.5f};
+            draw->AddText(text_pos, IM_COL32(255, 255, 255, 220), t.label.c_str());
+
+            if (is_streaming(t.peer_id)) {
+                const char* live = "LIVE";
+                ImVec2 lsz = ImGui::CalcTextSize(live);
+                ImVec2 lpos = {pos.x + tile_w - lsz.x - 8, pos.y + 5};
+                draw->AddRectFilled(
+                    {lpos.x - 3, lpos.y - 1},
+                    {lpos.x + lsz.x + 3, lpos.y + lsz.y + 1},
+                    IM_COL32(220, 50, 50, 220),
+                    3.0f
+                );
+                draw->AddText(lpos, IM_COL32(255, 255, 255, 255), live);
+            }
+
+            ImGui::TextDisabled("%s", t.label.c_str());
         }
 
-        std::string label = pid;
-        if (label.size() > 12) {
-            label = label.substr(0, 12) + "...";
-        }
-        ImGui::TextDisabled("%s", label.c_str());
+        render_stream_volume_popup(app);
+
         ImGui::EndGroup();
+        ImGui::PopID();
+    }
+}
+
+void UIRenderer::render_stream_volume_popup(App& app) {
+    if (ImGui::BeginPopup("##StreamVolPopup")) {
+        std::string display = short_id(stream_popup_peer_, 14);
+        ImGui::TextColored({0.34f, 0.54f, 0.93f, 1.0f}, "%s", display.c_str());
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        ImGui::Text("Stream Volume");
+        ImGui::SetNextItemWidth(150);
+        if (ImGui::SliderFloat("##stream_vol", &stream_popup_vol_, 0.0f, 2.0f, "%.1f")) {
+            app.set_peer_volume(stream_popup_peer_, stream_popup_vol_);
+        }
+
+        ImGui::EndPopup();
     }
 }
 
