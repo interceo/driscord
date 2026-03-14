@@ -334,10 +334,15 @@ void VoiceTransport::setup_audio_channel(const std::string& peer_id, std::shared
 void VoiceTransport::setup_video_channel(const std::string& peer_id, std::shared_ptr<rtc::DataChannel> dc) {
     dc->onOpen([this, peer_id]() {
         LOG_INFO() << "video channel open with " << peer_id;
-        std::scoped_lock lk(peers_mutex_);
-        auto it = peers_.find(peer_id);
-        if (it != peers_.end()) {
-            it->second.video_dc_open = true;
+        {
+            std::scoped_lock lk(peers_mutex_);
+            auto it = peers_.find(peer_id);
+            if (it != peers_.end()) {
+                it->second.video_dc_open = true;
+            }
+        }
+        if (on_video_channel_opened_) {
+            on_video_channel_opened_();
         }
     });
 

@@ -58,6 +58,12 @@ App::App(const Config& cfg) : config_(cfg) {
 
     transport_.on_peer_joined([](const std::string& peer_id) { LOG_INFO() << "peer joined: " << peer_id; });
 
+    transport_.on_video_channel_opened([this]() {
+        if (sharing_) {
+            video_encoder_.force_keyframe();
+        }
+    });
+
     transport_.on_peer_left([this](const std::string& peer_id) {
         LOG_INFO() << "peer left: " << peer_id;
         {
