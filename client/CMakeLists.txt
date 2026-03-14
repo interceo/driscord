@@ -203,7 +203,7 @@ if(APPLE)
 elseif(WIN32)
     target_link_libraries(driscord_client PRIVATE
         d3d11 dxgi gdi32 mfuuid mfplat mf strmiids
-        ole32 wmcodecdspuuid ksuser
+        ole32 wmcodecdspuuid ksuser mmdevapi
     )
 elseif(UNIX)
     find_package(X11 REQUIRED)
