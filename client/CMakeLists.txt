@@ -189,11 +189,13 @@ if(APPLE)
     find_library(COREFOUNDATION_FRAMEWORK CoreFoundation REQUIRED)
     find_library(COREGRAPHICS_FRAMEWORK CoreGraphics REQUIRED)
     find_library(SCREENCAPTUREKIT_FRAMEWORK ScreenCaptureKit)
+    find_library(COREMEDIA_FRAMEWORK CoreMedia REQUIRED)
     target_link_libraries(driscord_client PRIVATE
         ${AUDIOTOOLBOX_FRAMEWORK}
         ${COREAUDIO_FRAMEWORK}
         ${COREFOUNDATION_FRAMEWORK}
         ${COREGRAPHICS_FRAMEWORK}
+        ${COREMEDIA_FRAMEWORK}
     )
     if(SCREENCAPTUREKIT_FRAMEWORK)
         target_link_libraries(driscord_client PRIVATE ${SCREENCAPTUREKIT_FRAMEWORK})
