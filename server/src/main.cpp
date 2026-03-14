@@ -18,8 +18,16 @@ int main(int argc, char** argv) {
         auto server = std::make_shared<driscord::WebSocketServer>(io, port);
         server->run();
 
+        boost::asio::signal_set signals(io, SIGINT, SIGTERM);
+        signals.async_wait([&](boost::system::error_code, int sig) {
+            LOG_INFO() << "received signal " << sig << ", shutting down";
+            server->stop();
+            io.stop();
+        });
+
         LOG_INFO() << "driscord ws server listening on port " << port;
         io.run();
+        LOG_INFO() << "server stopped";
     } catch (const std::exception& ex) {
         LOG_ERROR() << "fatal: " << ex.what();
         return 1;

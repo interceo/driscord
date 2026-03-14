@@ -3,6 +3,10 @@
 VideoRenderer::~VideoRenderer() { cleanup(); }
 
 void VideoRenderer::update_frame(const std::string& peer_id, const uint8_t* rgba, int w, int h) {
+    if (!rgba || w <= 0 || h <= 0) {
+        return;
+    }
+
     auto& info = textures_[peer_id];
 
     if (info.tex_id == 0) {
@@ -27,13 +31,17 @@ void VideoRenderer::update_frame(const std::string& peer_id, const uint8_t* rgba
 
 ImTextureID VideoRenderer::texture(const std::string& peer_id) const {
     auto it = textures_.find(peer_id);
-    if (it == textures_.end() || it->second.tex_id == 0) return ImTextureID{};
+    if (it == textures_.end() || it->second.tex_id == 0) {
+        return ImTextureID{};
+    }
     return static_cast<ImTextureID>(it->second.tex_id);
 }
 
 ImVec2 VideoRenderer::frame_size(const std::string& peer_id) const {
     auto it = textures_.find(peer_id);
-    if (it == textures_.end()) return {0, 0};
+    if (it == textures_.end()) {
+        return {0, 0};
+    }
     return {static_cast<float>(it->second.width), static_cast<float>(it->second.height)};
 }
 
@@ -51,7 +59,9 @@ std::vector<std::string> VideoRenderer::active_peers() const {
     std::vector<std::string> result;
     result.reserve(textures_.size());
     for (auto& [id, _] : textures_) {
-        if (!id.empty() && id[0] != '_') result.push_back(id);
+        if (!id.empty() && id[0] != '_') {
+            result.push_back(id);
+        }
     }
     return result;
 }

@@ -72,6 +72,23 @@ Config Config::load(const std::string& path) {
         LOG_ERROR() << "failed to parse config " << path << ": " << e.what();
     }
 
+    if (cfg.server_port < 1 || cfg.server_port > 65535) {
+        LOG_WARNING() << "invalid server_port " << cfg.server_port << ", using default 8080";
+        cfg.server_port = 8080;
+    }
+    if (cfg.video_bitrate_kbps < 100 || cfg.video_bitrate_kbps > 100000) {
+        LOG_WARNING() << "invalid video_bitrate_kbps " << cfg.video_bitrate_kbps << ", using default 8000";
+        cfg.video_bitrate_kbps = 8000;
+    }
+    if (cfg.screen_fps < 1 || cfg.screen_fps > 240) {
+        LOG_WARNING() << "invalid screen_fps " << cfg.screen_fps << ", using default 60";
+        cfg.screen_fps = 60;
+    }
+    if (cfg.server_host.empty()) {
+        LOG_WARNING() << "empty server_host, using default localhost";
+        cfg.server_host = "localhost";
+    }
+
     return cfg;
 }
 
@@ -80,7 +97,13 @@ Config Config::load_default() {
         return load("driscord.json");
     }
 
-    if (const char* home = std::getenv("HOME")) {
+    const char* home = std::getenv("HOME");
+#ifdef _WIN32
+    if (!home) {
+        home = std::getenv("USERPROFILE");
+    }
+#endif
+    if (home) {
         auto p = fs::path(home) / ".config" / "driscord" / "config.json";
         if (fs::exists(p)) {
             return load(p.string());

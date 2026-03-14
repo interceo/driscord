@@ -86,6 +86,7 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
 
             CaptureTarget t;
             t.type = CaptureTarget::Monitor;
+            t.id = std::to_string(i);
             t.name = std::move(name);
             t.width = static_cast<int>(crtc->width);
             t.height = static_cast<int>(crtc->height);
@@ -103,6 +104,7 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
         XGetWindowAttributes(dpy, root, &root_attrs);
         CaptureTarget t;
         t.type = CaptureTarget::Monitor;
+        t.id = "0";
         t.name = "Full Desktop (" + std::to_string(root_attrs.width) + "x" + std::to_string(root_attrs.height) + ")";
         t.width = root_attrs.width;
         t.height = root_attrs.height;
@@ -182,7 +184,12 @@ ScreenCapture::Frame ScreenCapture::grab_thumbnail(const CaptureTarget& target, 
     Window grab_win = root;
 
     if (target.type == CaptureTarget::Window && !target.id.empty()) {
-        grab_win = static_cast<Window>(std::stoul(target.id));
+        try {
+            grab_win = static_cast<Window>(std::stoul(target.id));
+        } catch (const std::exception&) {
+            XCloseDisplay(dpy);
+            return f;
+        }
         XWindowAttributes attrs{};
         if (!XGetWindowAttributes(dpy, grab_win, &attrs)) {
             XCloseDisplay(dpy);

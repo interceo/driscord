@@ -6,6 +6,7 @@ extern "C" {
 }
 
 #include <algorithm>
+#include <cstring>
 #include <string>
 #include <thread>
 
@@ -330,10 +331,14 @@ bool VideoDecoder::decode(const uint8_t* data, size_t len, std::vector<uint8_t>&
         return false;
     }
 
-    pkt_->data = const_cast<uint8_t*>(data);
-    pkt_->size = static_cast<int>(len);
+    av_packet_unref(pkt_);
+    if (av_new_packet(pkt_, static_cast<int>(len)) < 0) {
+        return false;
+    }
+    std::memcpy(pkt_->data, data, len);
 
     int ret = avcodec_send_packet(ctx_, pkt_);
+    av_packet_unref(pkt_);
     if (ret < 0) {
         return false;
     }

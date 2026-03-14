@@ -60,9 +60,15 @@ App::App(const Config& cfg) : config_(cfg) {
 
     transport_.on_peer_left([this](const std::string& peer_id) {
         LOG_INFO() << "peer left: " << peer_id;
-        std::scoped_lock lk(video_mutex_);
-        peer_video_.erase(peer_id);
-        pending_removals_.push_back(peer_id);
+        {
+            std::scoped_lock lk(video_mutex_);
+            peer_video_.erase(peer_id);
+            pending_removals_.push_back(peer_id);
+        }
+        {
+            std::scoped_lock lk(peer_vol_mutex_);
+            peer_volumes_.erase(peer_id);
+        }
     });
 }
 

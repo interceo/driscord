@@ -61,6 +61,7 @@ private:
     void setup_video_channel(const std::string& peer_id, std::shared_ptr<rtc::DataChannel> dc);
     void send_signal(const nlohmann::json& msg);
 
+    mutable std::mutex ws_mutex_;
     std::shared_ptr<rtc::WebSocket> ws_;
     std::atomic<bool> ws_connected_{false};
     std::string local_id_;

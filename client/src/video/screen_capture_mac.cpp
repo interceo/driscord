@@ -13,9 +13,10 @@
 
 static void check_screen_recording_permission() {
     if (!CGPreflightScreenCaptureAccess()) {
-        LOG_WARNING() << "screen recording permission not granted — "
-                         "grant it in System Settings > Privacy & Security > Screen Recording, "
-                         "then RESTART the app";
+        LOG_WARNING()
+            << "screen recording permission not granted — "
+               "grant it in System Settings > Privacy & Security > Screen Recording, "
+               "then RESTART the app";
         CGRequestScreenCaptureAccess();
     }
 }
@@ -38,8 +39,7 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
         CaptureTarget t;
         t.type = CaptureTarget::Monitor;
         t.id = std::to_string(i);
-        t.name = "Display " + std::to_string(i + 1) +
-                 " (" + std::to_string(w) + "x" + std::to_string(h) + ")";
+        t.name = "Display " + std::to_string(i + 1) + " (" + std::to_string(w) + "x" + std::to_string(h) + ")";
         t.width = w;
         t.height = h;
         targets.push_back(std::move(t));
@@ -53,18 +53,26 @@ static CGDirectDisplayID resolve_display(const std::string& id) {
     CGDirectDisplayID displays[16];
     uint32_t count = 0;
     CGGetActiveDisplayList(16, displays, &count);
-    uint32_t idx = id.empty() ? 0 : static_cast<uint32_t>(std::stoul(id));
+    uint32_t idx = 0;
+    if (!id.empty()) {
+        try {
+            idx = static_cast<uint32_t>(std::stoul(id));
+        } catch (const std::exception&) {
+            return CGMainDisplayID();
+        }
+    }
     return (idx < count) ? displays[idx] : CGMainDisplayID();
 }
 
 // --- thumbnail --------------------------------------------------------------
 
-ScreenCapture::Frame ScreenCapture::grab_thumbnail(const CaptureTarget& target,
-                                                    int max_w, int max_h) {
+ScreenCapture::Frame ScreenCapture::grab_thumbnail(const CaptureTarget& target, int max_w, int max_h) {
     Frame f;
     CGDirectDisplayID did = resolve_display(target.id);
     CGImageRef image = CGDisplayCreateImage(did);
-    if (!image) return f;
+    if (!image) {
+        return f;
+    }
 
     int src_w = static_cast<int>(CGImageGetWidth(image));
     int src_h = static_cast<int>(CGImageGetHeight(image));
@@ -78,9 +86,15 @@ ScreenCapture::Frame ScreenCapture::grab_thumbnail(const CaptureTarget& target,
     f.data.resize(static_cast<size_t>(ow) * oh * 4);
 
     CGContextRef ctx = CGBitmapContextCreate(
-        f.data.data(), ow, oh, 8, ow * 4, cs,
+        f.data.data(),
+        ow,
+        oh,
+        8,
+        ow * 4,
+        cs,
         static_cast<CGBitmapInfo>(kCGBitmapByteOrder32Little) |
-            static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst));
+            static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst)
+    );
     CGContextDrawImage(ctx, CGRectMake(0, 0, ow, oh), image);
     CGContextRelease(ctx);
     CGColorSpaceRelease(cs);
@@ -94,9 +108,10 @@ class MacScreenCapture : public ScreenCapture {
 public:
     ~MacScreenCapture() override { stop(); }
 
-    bool start(int fps, const CaptureTarget& target,
-               int max_w, int max_h, FrameCallback cb) override {
-        if (running_) return false;
+    bool start(int fps, const CaptureTarget& target, int max_w, int max_h, FrameCallback cb) override {
+        if (running_) {
+            return false;
+        }
 
         check_screen_recording_permission();
 
@@ -113,8 +128,12 @@ public:
     }
 
     void stop() override {
-        if (!running_.exchange(false)) return;
-        if (thread_.joinable()) thread_.join();
+        if (!running_.exchange(false)) {
+            return;
+        }
+        if (thread_.joinable()) {
+            thread_.join();
+        }
         release_cached_ctx();
         LOG_INFO() << "screen capture stopped";
     }
@@ -163,7 +182,9 @@ private:
     }
 
     void ensure_ctx(int w, int h) {
-        if (cached_ctx_ && cached_w_ == w && cached_h_ == h) return;
+        if (cached_ctx_ && cached_w_ == w && cached_h_ == h) {
+            return;
+        }
         release_cached_ctx();
 
         cached_w_ = w;
@@ -172,14 +193,26 @@ private:
 
         cached_cs_ = CGColorSpaceCreateDeviceRGB();
         cached_ctx_ = CGBitmapContextCreate(
-            cached_buf_.data(), w, h, 8, w * 4, cached_cs_,
+            cached_buf_.data(),
+            w,
+            h,
+            8,
+            w * 4,
+            cached_cs_,
             static_cast<CGBitmapInfo>(kCGBitmapByteOrder32Little) |
-                static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst));
+                static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst)
+        );
     }
 
     void release_cached_ctx() {
-        if (cached_ctx_) { CGContextRelease(cached_ctx_); cached_ctx_ = nullptr; }
-        if (cached_cs_) { CGColorSpaceRelease(cached_cs_); cached_cs_ = nullptr; }
+        if (cached_ctx_) {
+            CGContextRelease(cached_ctx_);
+            cached_ctx_ = nullptr;
+        }
+        if (cached_cs_) {
+            CGColorSpaceRelease(cached_cs_);
+            cached_cs_ = nullptr;
+        }
         cached_buf_.clear();
         cached_w_ = 0;
         cached_h_ = 0;
@@ -201,6 +234,4 @@ private:
     int cached_h_ = 0;
 };
 
-std::unique_ptr<ScreenCapture> ScreenCapture::create() {
-    return std::make_unique<MacScreenCapture>();
-}
+std::unique_ptr<ScreenCapture> ScreenCapture::create() { return std::make_unique<MacScreenCapture>(); }
