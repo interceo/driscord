@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "audio/audio_engine.hpp"
+#include "audio/system_audio_capture.hpp"
 #include "config.hpp"
 #include "video/screen_capture.hpp"
 #include "video/video_codec.hpp"
@@ -80,9 +81,11 @@ public:
     void set_peer_volume(const std::string& peer_id, float vol);
     float peer_volume(const std::string& peer_id) const;
 
-    void start_sharing(const CaptureTarget& target, StreamQuality quality, int fps);
+    void start_sharing(const CaptureTarget& target, StreamQuality quality, int fps, bool share_audio = false);
     void stop_sharing();
     bool sharing() const { return sharing_; }
+    bool sharing_audio() const { return sharing_audio_; }
+    static bool system_audio_available() { return SystemAudioCapture::available(); }
 
     void update_preview(const CaptureTarget& target);
     void clear_preview();
@@ -111,6 +114,7 @@ private:
     Config config_;
     AppState state_ = AppState::Disconnected;
     bool sharing_ = false;
+    bool sharing_audio_ = false;
     std::atomic<bool> encoding_{false};
 
     AudioEngine audio_;
@@ -118,6 +122,7 @@ private:
     VideoRenderer video_renderer_;
 
     std::unique_ptr<ScreenCapture> screen_capture_;
+    std::unique_ptr<SystemAudioCapture> system_audio_capture_;
     VideoEncoder video_encoder_;
 
     struct PeerVideoState {

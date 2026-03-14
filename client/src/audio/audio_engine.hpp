@@ -29,6 +29,9 @@ public:
     static constexpr int FRAME_SIZE = 960;  // 20ms @ 48kHz
     static constexpr int MAX_OPUS_PACKET = 4000;
 
+    static constexpr int SCREEN_AUDIO_CHANNELS = 2;
+    static constexpr int SCREEN_AUDIO_BITRATE = 128000;
+
     using PacketCallback = std::function<void(const uint8_t* data, size_t len)>;
 
     AudioEngine();
@@ -42,6 +45,11 @@ public:
     bool running() const { return running_; }
 
     void feed_packet(const uint8_t* data, size_t len, float peer_volume = 1.0f);
+
+    bool init_screen_audio(PacketCallback on_screen_audio_packet);
+    void shutdown_screen_audio();
+    void feed_screen_audio_pcm(const float* samples, size_t frames, int channels);
+    void feed_screen_audio_packet(const uint8_t* data, size_t len);
 
     void set_muted(bool m) { muted_ = m; }
     bool muted() const noexcept { return muted_; }
@@ -87,4 +95,12 @@ private:
 
     std::vector<uint8_t> encode_buf_;
     std::vector<float> decode_buf_;
+
+    OpusEncoderPtr screen_encoder_;
+    OpusDecoderPtr screen_decoder_;
+    PacketCallback on_screen_audio_packet_;
+    std::vector<float> screen_capture_buf_;
+    size_t screen_capture_pos_ = 0;
+    std::vector<uint8_t> screen_encode_buf_;
+    std::vector<float> screen_decode_buf_;
 };

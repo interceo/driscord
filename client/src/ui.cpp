@@ -401,7 +401,12 @@ void UIRenderer::render_share_popup(App& app) {
             ImGui::EndCombo();
         }
 
-        ImGui::SameLine(0, 30);
+        ImGui::SameLine(0, 20);
+
+        if (App::system_audio_available()) {
+            ImGui::Checkbox("Share Audio", &share_audio_);
+            ImGui::SameLine(0, 20);
+        }
 
         bool can_go = selected_target_ >= 0 && selected_target_ < static_cast<int>(targets_.size());
         if (!can_go) {
@@ -414,7 +419,7 @@ void UIRenderer::render_share_popup(App& app) {
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.15f, 0.60f, 0.25f, 1.0f});
         if (ImGui::Button("Go Live", {100, 28})) {
             int fps = fps_value(selected_fps_);
-            app.start_sharing(targets_[selected_target_], selected_quality_, fps);
+            app.start_sharing(targets_[selected_target_], selected_quality_, fps, share_audio_);
             // cleanup thumbnails
             for (size_t i = 0; i < targets_.size(); ++i) {
                 app.video_renderer().remove_peer("__thumb_" + std::to_string(i) + "__");

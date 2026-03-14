@@ -88,6 +88,9 @@ void VoiceTransport::disconnect() {
         if (state.video_dc) {
             state.video_dc->close();
         }
+        if (state.screen_audio_dc) {
+            state.screen_audio_dc->close();
+        }
         if (state.pc) {
             state.pc->close();
         }
@@ -127,6 +130,19 @@ void VoiceTransport::send_video(const uint8_t* data, size_t len) {
                 state.video_dc->send(reinterpret_cast<const std::byte*>(data), len);
             } catch (const std::exception& e) {
                 LOG_ERROR() << "send_video: " << e.what();
+            }
+        }
+    }
+}
+
+void VoiceTransport::send_screen_audio(const uint8_t* data, size_t len) {
+    std::scoped_lock lk(peers_mutex_);
+    for (auto& [_, state] : peers_) {
+        if (state.screen_audio_dc && state.screen_audio_dc_open) {
+            try {
+                state.screen_audio_dc->send(reinterpret_cast<const std::byte*>(data), len);
+            } catch (const std::exception& e) {
+                LOG_ERROR() << "send_screen_audio: " << e.what();
             }
         }
     }
@@ -183,6 +199,9 @@ void VoiceTransport::on_ws_message(const std::string& raw) {
             if (removed.video_dc) {
                 removed.video_dc->close();
             }
+            if (removed.screen_audio_dc) {
+                removed.screen_audio_dc->close();
+            }
             if (removed.pc) {
                 removed.pc->close();
             }
@@ -235,6 +254,9 @@ void VoiceTransport::create_peer(const std::string& peer_id, bool create_offer) 
         } else if (label == "video") {
             LOG_INFO() << "received video channel from " << peer_id;
             setup_video_channel(peer_id, dc);
+        } else if (label == "screen_audio") {
+            LOG_INFO() << "received screen_audio channel from " << peer_id;
+            setup_screen_audio_channel(peer_id, dc);
         }
     });
 
@@ -259,6 +281,13 @@ void VoiceTransport::create_peer(const std::string& peer_id, bool create_offer) 
         auto video_dc = pc->createDataChannel("video");
         setup_video_channel(peer_id, video_dc);
         state.video_dc = video_dc;
+
+        rtc::DataChannelInit sa_init;
+        sa_init.reliability.unordered = true;
+        sa_init.reliability.maxRetransmits = 0;
+        auto sa_dc = pc->createDataChannel("screen_audio", sa_init);
+        setup_screen_audio_channel(peer_id, sa_dc);
+        state.screen_audio_dc = sa_dc;
     }
 
     std::scoped_lock lk(peers_mutex_);
@@ -369,6 +398,44 @@ void VoiceTransport::setup_video_channel(const std::string& peer_id, std::shared
     auto it = peers_.find(peer_id);
     if (it != peers_.end()) {
         it->second.video_dc = dc;
+    }
+}
+
+void VoiceTransport::setup_screen_audio_channel(const std::string& peer_id, std::shared_ptr<rtc::DataChannel> dc) {
+    dc->onOpen([this, peer_id]() {
+        LOG_INFO() << "screen_audio channel open with " << peer_id;
+        std::scoped_lock lk(peers_mutex_);
+        auto it = peers_.find(peer_id);
+        if (it != peers_.end()) {
+            it->second.screen_audio_dc_open = true;
+        }
+    });
+
+    dc->onClosed([this, peer_id]() {
+        LOG_INFO() << "screen_audio channel closed with " << peer_id;
+        std::scoped_lock lk(peers_mutex_);
+        auto it = peers_.find(peer_id);
+        if (it != peers_.end()) {
+            it->second.screen_audio_dc_open = false;
+        }
+    });
+
+    dc->onMessage([this, peer_id](auto msg) {
+        if (auto* data = std::get_if<rtc::binary>(&msg)) {
+            if (on_screen_audio_) {
+                on_screen_audio_(peer_id, reinterpret_cast<const uint8_t*>(data->data()), data->size());
+            }
+        }
+    });
+
+    dc->onError([peer_id](std::string error) {
+        LOG_ERROR() << "screen_audio dc error [" << peer_id << "]: " << error;
+    });
+
+    std::scoped_lock lk(peers_mutex_);
+    auto it = peers_.find(peer_id);
+    if (it != peers_.end()) {
+        it->second.screen_audio_dc = dc;
     }
 }
 

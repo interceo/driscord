@@ -25,6 +25,7 @@ private:
 
     std::vector<CaptureTarget> targets_;
     bool share_popup_open_ = false;
+    bool share_audio_ = true;
     int selected_target_ = -1;
     StreamQuality selected_quality_ = StreamQuality::FHD_1080;
     FrameRate selected_fps_ = FrameRate::FPS_30;
