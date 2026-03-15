@@ -56,14 +56,14 @@ private:
 
     std::vector<uint8_t> pending_data_;
     uint32_t pending_kbps_ = 0;
-    drist::WallTimestamp pending_ts_{};
+    utils::WallTimestamp pending_ts_{};
     bool has_pending_ = false;
-    drist::Timestamp last_packet_{};
+    utils::Timestamp last_packet_{};
 
     VideoDecoder decoder_;
     bool decoder_inited_ = false;
     int decode_failures_ = 0;
-    drist::Timestamp last_keyframe_req_{};
+    utils::Timestamp last_keyframe_req_{};
     int width_ = 0;
     int height_ = 0;
     int measured_kbps_ = 0;

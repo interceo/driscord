@@ -7,12 +7,13 @@
 #include <unordered_map>
 #include <vector>
 
-#include "audio/audio_engine.hpp"
-#include "audio/system_audio_capture.hpp"
+#include "audio/audio_receiver.hpp"
+#include "audio/audio_sender.hpp"
+#include "audio/capture/system_audio_capture.hpp"
 #include "config.hpp"
-#include "screen_receiver.hpp"
-#include "screen_sender.hpp"
-#include "video/screen_capture.hpp"
+#include "video/capture/screen_capture.hpp"
+#include "video/screen_receiver.hpp"
+#include "video/screen_sender.hpp"
 #include "video_renderer.hpp"
 #include "voice_transport.hpp"
 
@@ -94,11 +95,11 @@ public:
     void clear_preview();
 
     AppState state() const { return state_; }
-    bool muted() const { return audio_.muted(); }
-    bool deafened() const { return audio_.deafened(); }
-    float volume() const { return audio_.output_volume(); }
-    float input_level() const { return audio_.input_level(); }
-    float output_level() const { return audio_.output_level(); }
+    bool muted() const { return audio_sender_.muted(); }
+    bool deafened() const { return audio_receiver_.deafened(); }
+    float volume() const { return audio_receiver_.output_volume(); }
+    float input_level() const { return audio_sender_.input_level(); }
+    float output_level() const { return audio_receiver_.output_level(); }
     std::string local_id() const { return transport_.local_id(); }
     const Config& config() const noexcept { return config_; }
 
@@ -115,7 +116,8 @@ private:
     Config config_;
     AppState state_ = AppState::Disconnected;
 
-    AudioEngine audio_{config_.voice_jitter_ms};
+    AudioSender audio_sender_;
+    AudioReceiver audio_receiver_{config_.voice_jitter_ms};
     ScreenReceiver receiver_{config_.screen_buffer_ms, config_.max_sync_gap_ms};
     ScreenSender sender_;
     VoiceTransport transport_;

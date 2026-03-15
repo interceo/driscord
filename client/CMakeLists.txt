@@ -138,27 +138,28 @@ endif()
 
 # --- platform-specific screen capture ---
 if(APPLE)
-    set(CAPTURE_SOURCES src/video/screen_capture_mac.cpp)
-    set(SYSTEM_AUDIO_SOURCES src/audio/system_audio_capture_mac.mm)
-    set_source_files_properties(src/audio/system_audio_capture_mac.mm PROPERTIES
+    set(CAPTURE_SOURCES src/video/capture/screen_capture_mac.cpp)
+    set(SYSTEM_AUDIO_SOURCES src/audio/capture/system_audio_capture_mac.mm)
+    set_source_files_properties(src/audio/capture/system_audio_capture_mac.mm PROPERTIES
         LANGUAGE CXX
         COMPILE_FLAGS "-x objective-c++"
     )
 elseif(WIN32)
-    set(CAPTURE_SOURCES src/video/screen_capture_win.cpp)
-    set(SYSTEM_AUDIO_SOURCES src/audio/system_audio_capture_win.cpp)
+    set(CAPTURE_SOURCES src/video/capture/screen_capture_win.cpp)
+    set(SYSTEM_AUDIO_SOURCES src/audio/capture/system_audio_capture_win.cpp)
 elseif(UNIX)
-    set(CAPTURE_SOURCES src/video/screen_capture_linux.cpp)
-    set(SYSTEM_AUDIO_SOURCES src/audio/system_audio_capture_linux.cpp)
+    set(CAPTURE_SOURCES src/video/capture/screen_capture_linux.cpp)
+    set(SYSTEM_AUDIO_SOURCES src/audio/capture/system_audio_capture_linux.cpp)
 endif()
 
 # --- driscord_client executable ---
 add_executable(driscord_client
     src/main.cpp
     src/app.cpp
-    src/screen_sender.cpp
-    src/screen_receiver.cpp
-    src/audio/audio_engine.cpp
+    src/video/screen_sender.cpp
+    src/video/screen_receiver.cpp
+    src/audio/audio_sender.cpp
+    src/audio/audio_receiver.cpp
     src/voice_transport.cpp
     src/ui.cpp
     src/config.cpp

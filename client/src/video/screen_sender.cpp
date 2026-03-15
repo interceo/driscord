@@ -1,13 +1,13 @@
 #include "screen_sender.hpp"
 
-#include "audio/system_audio_capture.hpp"
+#include "audio/capture/system_audio_capture.hpp"
 #include "log.hpp"
 #include "utils/byte_utils.hpp"
 
 #include <algorithm>
 #include <cstring>
 
-using namespace drist;
+using namespace utils;
 
 ScreenSender::ScreenSender() = default;
 ScreenSender::~ScreenSender() { stop(); }

@@ -4,7 +4,7 @@
 #include <vector>
 
 #include "app.hpp"
-#include "video/screen_capture.hpp"
+#include "video/capture/screen_capture.hpp"
 
 struct Config;
 

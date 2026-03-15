@@ -3,7 +3,7 @@
 #include <chrono>
 #include <cstdint>
 
-namespace drist {
+namespace utils {
 
 // Local monotonic clock — for measuring elapsed time within one process.
 using Timestamp = std::chrono::steady_clock::time_point;
@@ -39,4 +39,4 @@ inline int64_t WallElapsedMs(WallTimestamp from, WallTimestamp to = WallNow()) {
 // Convenience: ms since Unix epoch for the current moment.
 inline uint64_t SinceEpochMs() { return WallToMs(WallNow()); }
 
-}  // namespace drist
+}  // namespace utils

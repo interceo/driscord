@@ -12,7 +12,7 @@ App::App(const Config& cfg) : config_(cfg) {
     }
 
     transport_.on_audio_received([this](const std::string& peer_id, const uint8_t* data, size_t len) {
-        audio_.feed_packet(peer_id, data, len, peer_volume(peer_id));
+        audio_receiver_.feed_packet(peer_id, data, len, peer_volume(peer_id));
     });
 
     transport_.on_video_received([this](const std::string& peer_id, const uint8_t* data, size_t len) {
@@ -40,7 +40,7 @@ App::App(const Config& cfg) : config_(cfg) {
 
     transport_.on_peer_left([this](const std::string& peer_id) {
         LOG_INFO() << "peer left: " << peer_id;
-        audio_.remove_voice_peer(peer_id);
+        audio_receiver_.remove_voice_peer(peer_id);
         if (receiver_.active_peer() == peer_id) {
             receiver_.reset();
             video_renderer_.remove_peer(peer_id);
@@ -62,11 +62,15 @@ void App::update() {
         state_ = AppState::Connected;
         LOG_INFO() << "connected, id: " << transport_.local_id();
 
-        audio_.set_screen_stream(receiver_.jitter());
-        bool ok = audio_.start([this](const uint8_t* data, size_t len) { transport_.send_audio(data, len); });
+        audio_receiver_.set_screen_stream(receiver_.jitter());
 
-        if (!ok) {
-            LOG_ERROR() << "failed to start audio engine";
+        const bool sender_ok = audio_sender_.start([this](const uint8_t* data, size_t len) {
+            transport_.send_audio(data, len);
+        });
+        const bool receiver_ok = audio_receiver_.start();
+
+        if (!sender_ok || !receiver_ok) {
+            LOG_ERROR() << "failed to start audio (sender=" << sender_ok << " receiver=" << receiver_ok << ")";
         }
     }
 
@@ -99,7 +103,8 @@ void App::connect(const std::string& server_url) {
 
 void App::disconnect() {
     stop_sharing();
-    audio_.stop();
+    audio_sender_.stop();
+    audio_receiver_.stop();
     transport_.disconnect();
     state_ = AppState::Disconnected;
     receiver_.reset();
@@ -107,14 +112,17 @@ void App::disconnect() {
     video_renderer_.cleanup();
 }
 
-void App::toggle_mute() { audio_.set_muted(!audio_.muted()); }
+void App::toggle_mute() { audio_sender_.set_muted(!audio_sender_.muted()); }
 
 void App::toggle_deafen() {
-    bool new_deaf = !audio_.deafened();
-    audio_.set_deafened(new_deaf);
+    const bool new_deaf = !audio_receiver_.deafened();
+    audio_receiver_.set_deafened(new_deaf);
+    if (new_deaf) {
+        audio_sender_.set_muted(true);
+    }
 }
 
-void App::set_volume(float vol) { audio_.set_output_volume(vol); }
+void App::set_volume(float vol) { audio_receiver_.set_output_volume(vol); }
 
 void App::set_peer_volume(const std::string& peer_id, float vol) {
     std::scoped_lock lk(peer_vol_mutex_);
@@ -142,7 +150,7 @@ void App::start_sharing(const CaptureTarget& target, StreamQuality quality, int 
         max_h = kStreamPresets[idx].height;
     }
 
-    audio_.set_screen_stream(receiver_.jitter());
+    audio_receiver_.set_screen_stream(receiver_.jitter());
 
     if (!sender_.start(
             target,
@@ -159,7 +167,7 @@ void App::start_sharing(const CaptureTarget& target, StreamQuality quality, int 
     }
 
     clear_preview();
-    audio_.set_sharing_screen_audio(sender_.sharing_audio());
+    audio_receiver_.set_sharing_screen_audio(sender_.sharing_audio());
 }
 
 void App::stop_sharing() {
@@ -168,7 +176,7 @@ void App::stop_sharing() {
     }
 
     sender_.stop();
-    audio_.set_sharing_screen_audio(false);
+    audio_receiver_.set_sharing_screen_audio(false);
     receiver_.reset();
 }
 
