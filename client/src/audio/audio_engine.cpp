@@ -2,7 +2,6 @@
 #include "audio_engine.hpp"
 
 #include <miniaudio.h>
-#include <opus.h>
 
 #include <algorithm>
 #include <cmath>
@@ -14,16 +13,13 @@
 
 using namespace drist;
 
-void OpusEncoderDeleter::operator()(OpusEncoder* e) const { opus_encoder_destroy(e); }
-void OpusDecoderDeleter::operator()(OpusDecoder* d) const { opus_decoder_destroy(d); }
-
 AudioEngine::AudioEngine(int voice_jitter_ms)
     : voice_jitter_ms_(voice_jitter_ms),
-      capture_buf_(FRAME_SIZE, 0.0f),
-      voice_mix_buf_(FRAME_SIZE, 0.0f),
-      screen_mix_buf_(FRAME_SIZE, 0.0f),
-      encode_buf_(AUDIO_HEADER_SIZE + MAX_OPUS_PACKET),
-      decode_buf_(FRAME_SIZE) {}
+      capture_buf_(opus::kFrameSize, 0.0f),
+      voice_mix_buf_(opus::kFrameSize, 0.0f),
+      screen_mix_buf_(opus::kFrameSize, 0.0f),
+      encode_buf_(protocol::kAudioHeaderSize + opus::kMaxPacket),
+      decode_buf_(opus::kFrameSize) {}
 
 AudioEngine::~AudioEngine() { stop(); }
 
@@ -47,31 +43,26 @@ bool AudioEngine::start(PacketCallback on_packet) {
     on_packet_ = std::move(on_packet);
     capture_pos_ = 0;
 
-    int err;
-    OpusEncoderPtr enc(opus_encoder_create(SAMPLE_RATE, CHANNELS, OPUS_APPLICATION_VOIP, &err));
-    if (err != OPUS_OK) {
-        LOG_ERROR() << "opus_encoder_create failed: " << opus_strerror(err);
+    auto enc = std::make_unique<OpusEncode>();
+    if (!enc->init(opus::kSampleRate, VOICE_CHANNELS, 64000, 2048 /* OPUS_APPLICATION_VOIP */)) {
         return false;
     }
-    opus_encoder_ctl(enc.get(), OPUS_SET_BITRATE(64000));
-    opus_encoder_ctl(enc.get(), OPUS_SET_SIGNAL(OPUS_SIGNAL_VOICE));
 
-    OpusDecoderPtr dec(opus_decoder_create(SAMPLE_RATE, CHANNELS, &err));
-    if (err != OPUS_OK) {
-        LOG_ERROR() << "opus_decoder_create failed: " << opus_strerror(err);
+    auto dec = std::make_unique<OpusDecode>();
+    if (!dec->init(opus::kSampleRate, VOICE_CHANNELS)) {
         return false;
     }
 
     auto dev = std::make_unique<ma_device>();
     ma_device_config config = ma_device_config_init(ma_device_type_duplex);
     config.capture.format = ma_format_f32;
-    config.capture.channels = CHANNELS;
+    config.capture.channels = VOICE_CHANNELS;
     config.playback.format = ma_format_f32;
-    config.playback.channels = CHANNELS;
-    config.sampleRate = SAMPLE_RATE;
+    config.playback.channels = VOICE_CHANNELS;
+    config.sampleRate = opus::kSampleRate;
     config.dataCallback = [](ma_device* d, void* out, const void* in, ma_uint32 fc) { audio_callback(d, out, in, fc); };
     config.pUserData = this;
-    config.periodSizeInFrames = FRAME_SIZE;
+    config.periodSizeInFrames = opus::kFrameSize;
 
     if (ma_device_init(nullptr, &config, dev.get()) != MA_SUCCESS) {
         LOG_ERROR() << "ma_device_init failed";
@@ -140,18 +131,18 @@ void AudioEngine::on_capture(const float* input, uint32_t frames) {
 
     uint32_t consumed = 0;
     while (consumed < frames) {
-        uint32_t to_copy = std::min(static_cast<uint32_t>(FRAME_SIZE - capture_pos_), frames - consumed);
+        uint32_t to_copy = std::min(static_cast<uint32_t>(opus::kFrameSize - capture_pos_), frames - consumed);
         std::memcpy(&capture_buf_[capture_pos_], &input[consumed], to_copy * sizeof(float));
         capture_pos_ += to_copy;
         consumed += to_copy;
 
-        if (capture_pos_ == static_cast<size_t>(FRAME_SIZE)) {
-            uint8_t* opus_start = encode_buf_.data() + AUDIO_HEADER_SIZE;
-            int bytes = opus_encode_float(encoder_.get(), capture_buf_.data(), FRAME_SIZE, opus_start, MAX_OPUS_PACKET);
+        if (capture_pos_ == static_cast<size_t>(opus::kFrameSize)) {
+            uint8_t* opus_start = encode_buf_.data() + protocol::kAudioHeaderSize;
+            int bytes = encoder_->encode(capture_buf_.data(), opus::kFrameSize, opus_start, opus::kMaxPacket);
             if (bytes > 0) {
                 write_u16_le(encode_buf_.data(), voice_send_seq_++);
                 write_u32_le(encode_buf_.data() + 2, now_ms());
-                on_packet_(encode_buf_.data(), AUDIO_HEADER_SIZE + static_cast<size_t>(bytes));
+                on_packet_(encode_buf_.data(), protocol::kAudioHeaderSize + static_cast<size_t>(bytes));
             }
             capture_pos_ = 0;
         }
@@ -218,28 +209,23 @@ void AudioEngine::feed_packet(const std::string& peer_id, const uint8_t* data, s
         return;
     }
 
-    if (len <= AUDIO_HEADER_SIZE) {
+    if (len <= protocol::kAudioHeaderSize) {
         return;
     }
 
     uint16_t seq = read_u16_le(data);
     uint32_t sender_ts = read_u32_le(data + 2);
-    const uint8_t* opus_data = data + AUDIO_HEADER_SIZE;
-    int opus_len = static_cast<int>(len - AUDIO_HEADER_SIZE);
+    const uint8_t* opus_data = data + protocol::kAudioHeaderSize;
+    int opus_len = static_cast<int>(len - protocol::kAudioHeaderSize);
 
-    const int samples = opus_decode_float(decoder_.get(), opus_data, opus_len, decode_buf_.data(), FRAME_SIZE, 0);
-
-    if (samples < 0) {
-        LOG_ERROR() << "opus_decode_float failed: " << opus_strerror(samples);
-        return;
-    }
+    const int samples = decoder_->decode(opus_data, opus_len, decode_buf_.data(), opus::kFrameSize);
 
     if (samples <= 0) {
         return;
     }
 
     if (peer_volume != 1.0f) {
-        for (int i = 0; i < samples * CHANNELS; ++i) {
+        for (int i = 0; i < samples * VOICE_CHANNELS; ++i) {
             decode_buf_[static_cast<size_t>(i)] *= peer_volume;
         }
     }
