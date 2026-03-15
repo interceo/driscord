@@ -182,6 +182,7 @@ void AudioEngine::on_playback(float* output, const uint32_t frames) {
         }
     }
 
+    ++playback_count_;
     if (screen_stream_) {
         if (screen_mix_buf_.size() < frames) {
             screen_mix_buf_.resize(frames);
@@ -192,6 +193,8 @@ void AudioEngine::on_playback(float* output, const uint32_t frames) {
                 output[i] += screen_mix_buf_[i];
             }
         }
+    } else if (playback_count_ % 500 == 0) {
+        LOG_INFO() << "[audio-engine] playback #" << playback_count_ << " screen_stream_=null";
     }
 
     if (deafened_) {

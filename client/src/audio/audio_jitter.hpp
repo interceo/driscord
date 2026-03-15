@@ -1,5 +1,6 @@
 #pragma once
 
+#include "log.hpp"
 #include "ring_buffer.hpp"
 #include "utils/byte_utils.hpp"
 
@@ -22,13 +23,16 @@ public:
         if (!seq_initialized_) {
             play_seq_ = seq;
             seq_initialized_ = true;
+            LOG_INFO() << "[audio-jitter] init play_seq=" << seq << " sender_ts=" << sender_ts;
         }
 
         int16_t age = static_cast<int16_t>(seq - play_seq_);
         if (age < 0) {
+            ++push_drop_old_;
             return;
         }
         if (static_cast<uint16_t>(age) >= kSlots) {
+            ++push_drop_far_;
             return;
         }
 
@@ -38,17 +42,28 @@ public:
         slot.frames = n;
         slot.sender_ts = sender_ts;
         slot.filled = true;
+        ++push_count_;
 
         flush_ready();
     }
 
     size_t pop(float* out, size_t frames) {
+        ++pop_count_;
         if (!primed_) {
-            if (ring_.available_read() < target_samples_) {
+            size_t avail = ring_.available_read();
+            if (avail < target_samples_) {
+                if (pop_count_ % 200 == 0) {
+                    LOG_INFO()
+                        << "[audio-jitter] not primed: avail=" << avail << " target=" << target_samples_
+                        << " push=" << push_count_ << " drop_old=" << push_drop_old_ << " drop_far=" << push_drop_far_;
+                }
                 std::memset(out, 0, frames * sizeof(float));
                 return 0;
             }
             primed_ = true;
+            LOG_INFO()
+                << "[audio-jitter] PRIMED: avail=" << avail << " target=" << target_samples_
+                << " push_count=" << push_count_;
 
             uint32_t latest = latest_sender_ts_.load(std::memory_order_relaxed);
             if (latest != 0) {
@@ -57,6 +72,11 @@ public:
                 playback_base_ts_.store(latest - buf_ms, std::memory_order_relaxed);
                 playback_samples_.store(0, std::memory_order_relaxed);
                 playback_local_ts_.store(drist::now_ms(), std::memory_order_relaxed);
+                LOG_INFO()
+                    << "[audio-jitter] anchor base_ts=" << (latest - buf_ms) << " latest_sender=" << latest
+                    << " buf_ms=" << buf_ms;
+            } else {
+                LOG_INFO() << "[audio-jitter] PRIMED but latest_sender_ts=0!";
             }
         }
 
@@ -75,6 +95,13 @@ public:
         if (got > 0 && playback_base_ts_.load(std::memory_order_relaxed) != 0) {
             playback_samples_.fetch_add(got, std::memory_order_relaxed);
             playback_local_ts_.store(drist::now_ms(), std::memory_order_relaxed);
+        }
+
+        if (pop_count_ % 500 == 0 && primed_) {
+            LOG_INFO()
+                << "[audio-jitter] pop#" << pop_count_ << " got=" << got << "/" << frames << " ring="
+                << ring_.available_read() << " base_ts=" << playback_base_ts_.load(std::memory_order_relaxed)
+                << " cur_ts=" << current_playback_ts();
         }
 
         return got;
@@ -183,6 +210,11 @@ private:
     size_t target_samples_;
     int sample_rate_;
     bool primed_ = false;
+
+    uint64_t push_count_ = 0;
+    uint64_t push_drop_old_ = 0;
+    uint64_t push_drop_far_ = 0;
+    uint64_t pop_count_ = 0;
 
     std::atomic<uint32_t> latest_sender_ts_{0};
     std::atomic<uint32_t> playback_base_ts_{0};

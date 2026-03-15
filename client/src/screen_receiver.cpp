@@ -152,6 +152,12 @@ void ScreenReceiver::push_audio_packet(const uint8_t* data, size_t len) {
     }
 
     jitter_.push_audio(opus_->mono_buf.data(), static_cast<size_t>(samples), seq, sender_ts);
+
+    if (seq % 50 == 0) {
+        LOG_INFO()
+            << "[screen-audio-recv] seq=" << seq << " sender_ts=" << sender_ts << " samples=" << samples
+            << " buffered=" << jitter_.audio_buffered_ms() << "ms";
+    }
 }
 
 const ScreenStreamJitter::VideoFrame* ScreenReceiver::update() {
