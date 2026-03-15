@@ -43,4 +43,5 @@ private:
     std::atomic<float> output_volume_{1.0f};
     std::atomic<bool> deafened_{false};
     std::atomic<float> output_level_{0.0f};
+    uint64_t playback_count_ = 0;
 };

@@ -54,6 +54,7 @@ bool VideoSender::start(
 
     screen_capture_ = ScreenCapture::create();
     if (!screen_capture_->start(fps, target, max_w, max_h, [this](ScreenCapture::Frame frame) {
+            frame.capture_ts = std::chrono::system_clock::now();
             {
                 std::scoped_lock lk(frame_mutex_);
                 pending_frame_ = std::move(frame);
@@ -156,10 +157,12 @@ void VideoSender::encode_loop() {
             continue;
         }
 
+        const auto capture_ts = frame.capture_ts.time_since_epoch().count() != 0 ? frame.capture_ts : WallNow();
+
         const protocol::VideoHeader vh{
             .width = static_cast<uint32_t>(frame.width),
             .height = static_cast<uint32_t>(frame.height),
-            .sender_ts = WallNow(),
+            .sender_ts = capture_ts,
             .bitrate_kbps = static_cast<uint32_t>(video_encoder_.measured_kbps()),
             .frame_duration_us = static_cast<uint32_t>(1'000'000 / fps_),
         };

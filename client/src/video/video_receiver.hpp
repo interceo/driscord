@@ -1,8 +1,8 @@
 #pragma once
 
-#include "video_jitter.hpp"
 #include "utils/protocol.hpp"
 #include "utils/video_codec.hpp"
+#include "video_jitter.hpp"
 
 #include <cstdint>
 #include <functional>
@@ -45,7 +45,6 @@ private:
         std::vector<uint8_t> data;
         uint32_t kbps = 0;
         utils::WallTimestamp ts{};
-        uint32_t duration_us = 0;
     };
 
     VideoJitter video_;
@@ -62,4 +61,7 @@ private:
     int measured_kbps_ = 0;
 
     std::function<void()> on_keyframe_needed_;
+
+    uint64_t push_count_ = 0;
+    uint64_t pop_count_ = 0;
 };

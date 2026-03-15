@@ -78,7 +78,6 @@ void VideoReceiver::push_video_packet(const std::string& peer_id, const uint8_t*
         ),
         vh.bitrate_kbps,
         vh.sender_ts,
-        vh.frame_duration_us,
     };
 }
 
@@ -96,7 +95,13 @@ const VideoJitter::Frame* VideoReceiver::update() {
         if (decoder_.decode(frame->data.data(), frame->data.size(), rgba, w, h)) {
             decode_failures_ = 0;
             measured_kbps_ = static_cast<int>(frame->kbps);
-            video_.push(std::move(rgba), w, h, frame->duration_us, frame->ts);
+            ++push_count_;
+            if (push_count_ % 30 == 0) {
+                LOG_INFO()
+                    << "[video-recv] push#" << push_count_ << " sender_ts=" << utils::WallToMs(frame->ts)
+                    << " age_ms=" << utils::WallElapsedMs(frame->ts) << " queue=" << video_.queue_size();
+            }
+            video_.push(std::move(rgba), w, h, frame->ts);
         } else {
             ++decode_failures_;
             const auto now = utils::Now();
@@ -107,7 +112,14 @@ const VideoJitter::Frame* VideoReceiver::update() {
         }
     }
 
-    return video_.pop();
+    auto* result = video_.pop();
+    ++pop_count_;
+    if (pop_count_ % 60 == 0) {
+        LOG_INFO()
+            << "[video-recv] pop#" << pop_count_ << " got=" << (result ? "frame" : "null")
+            << " queue=" << video_.queue_size();
+    }
+    return result;
 }
 
 std::string VideoReceiver::active_peer() const {
