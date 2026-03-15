@@ -145,8 +145,10 @@ void ScreenSender::encode_loop() {
             continue;
         }
 
-        if (!video_encoder_.init(frame.width, frame.height, fps_, base_bitrate_kbps_)) {
-            continue;
+        if (frame.width != video_encoder_.width() || frame.height != video_encoder_.height()) {
+            if (!video_encoder_.init(frame.width, frame.height, fps_, base_bitrate_kbps_)) {
+                continue;
+            }
         }
 
         const auto& encoded = video_encoder_.encode(frame.data.data(), frame.width, frame.height);
