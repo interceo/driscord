@@ -189,8 +189,11 @@ const ScreenStreamJitter::VideoFrame* ScreenReceiver::update() {
                 jitter_.push_video(std::move(rgba), w, h, ts);
             } else {
                 ++decode_failures_;
-                if (decode_failures_ % 5 == 1 && on_keyframe_needed_) {
+                auto now = std::chrono::steady_clock::now();
+                auto since = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_keyframe_req_).count();
+                if (on_keyframe_needed_ && (decode_failures_ == 1 || since >= 500)) {
                     on_keyframe_needed_();
+                    last_keyframe_req_ = now;
                 }
             }
         }
