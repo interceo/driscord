@@ -9,6 +9,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -35,8 +36,6 @@ public:
     void set_volume(float v) { jitter_.set_volume(v); }
     float volume() const { return jitter_.volume(); }
 
-    int width() const { return width_; }
-    int height() const { return height_; }
     int measured_kbps() const { return measured_kbps_; }
 
     void reset();
@@ -44,28 +43,30 @@ public:
 private:
     static constexpr int kScreenAudioChannels = 2;
 
+    struct ChunkReassembler {
+        uint16_t frame_id = 0;
+        uint16_t total = 0;
+        uint16_t got = 0;
+        std::vector<uint8_t> buf;
+    };
+
+    struct PendingFrame {
+        std::vector<uint8_t> data;
+        uint32_t kbps = 0;
+        utils::WallTimestamp ts{};
+    };
+
     ScreenStreamJitter jitter_;
 
     mutable std::mutex mutex_;
     std::string current_peer_;
-
-    uint16_t re_frame_id_ = 0;
-    uint16_t re_total_ = 0;
-    uint16_t re_got_ = 0;
-    std::vector<uint8_t> re_buf_;
-
-    std::vector<uint8_t> pending_data_;
-    uint32_t pending_kbps_ = 0;
-    utils::WallTimestamp pending_ts_{};
-    bool has_pending_ = false;
     utils::Timestamp last_packet_{};
+    ChunkReassembler reassembler_;
+    std::optional<PendingFrame> pending_;
 
     VideoDecoder decoder_;
-    bool decoder_inited_ = false;
     int decode_failures_ = 0;
     utils::Timestamp last_keyframe_req_{};
-    int width_ = 0;
-    int height_ = 0;
     int measured_kbps_ = 0;
 
     std::unique_ptr<OpusDecode> opus_decoder_;
