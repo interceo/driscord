@@ -5,7 +5,7 @@
 
 #include <cstring>
 
-using namespace drist;
+using namespace utils;
 
 namespace {
 constexpr int kStaleSeconds = 3;
@@ -41,7 +41,7 @@ void ScreenReceiver::push_video_packet(const std::string& peer_id, const uint8_t
     std::scoped_lock lk(mutex_);
 
     current_peer_ = peer_id;
-    last_packet_ = drist::Now();
+    last_packet_ = utils::Now();
 
     if (ch.frame_id != re_frame_id_ || ch.total_chunks != re_total_) {
         if (re_total_ > 0 && re_got_ < re_total_ && on_keyframe_needed_) {
@@ -110,7 +110,7 @@ void ScreenReceiver::push_audio_packet(const uint8_t* data, size_t len) {
 
     if (ah.seq % 50 == 0) {
         LOG_INFO()
-            << "[screen-audio-recv] seq=" << ah.seq << " sender_ts=" << drist::WallToMs(ah.sender_ts)
+            << "[screen-audio-recv] seq=" << ah.seq << " sender_ts=" << utils::WallToMs(ah.sender_ts)
             << " samples=" << samples << " buffered=" << jitter_.audio_buffered_ms() << "ms";
     }
 }
@@ -118,7 +118,7 @@ void ScreenReceiver::push_audio_packet(const uint8_t* data, size_t len) {
 const ScreenStreamJitter::VideoFrame* ScreenReceiver::update() {
     std::vector<uint8_t> data;
     uint32_t kbps = 0;
-    drist::WallTimestamp ts{};
+    utils::WallTimestamp ts{};
     bool has_data = false;
 
     {
@@ -151,8 +151,8 @@ const ScreenStreamJitter::VideoFrame* ScreenReceiver::update() {
                 jitter_.push_video(std::move(rgba), w, h, ts);
             } else {
                 ++decode_failures_;
-                const auto now = drist::Now();
-                if (on_keyframe_needed_ && (decode_failures_ == 1 || drist::ElapsedMs(last_keyframe_req_, now) >= 500))
+                const auto now = utils::Now();
+                if (on_keyframe_needed_ && (decode_failures_ == 1 || utils::ElapsedMs(last_keyframe_req_, now) >= 500))
                 {
                     on_keyframe_needed_();
                     last_keyframe_req_ = now;
@@ -174,7 +174,7 @@ bool ScreenReceiver::active() const {
     if (current_peer_.empty()) {
         return false;
     }
-    return drist::ElapsedMs(last_packet_) / 1000 <= kStaleSeconds;
+    return utils::ElapsedMs(last_packet_) / 1000 <= kStaleSeconds;
 }
 
 void ScreenReceiver::reset() {

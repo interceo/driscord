@@ -3,7 +3,7 @@
 #include "utils/opus_codec.hpp"
 #include "utils/protocol.hpp"
 #include "utils/video_codec.hpp"
-#include "video/screen_capture.hpp"
+#include "capture/screen_capture.hpp"
 
 #include <atomic>
 #include <condition_variable>

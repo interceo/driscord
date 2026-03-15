@@ -50,7 +50,7 @@ private:
 
     std::atomic<int> measured_kbps_{0};
     size_t bytes_since_calc_ = 0;
-    drist::Timestamp last_calc_ = drist::Now();
+    utils::Timestamp last_calc_ = utils::Now();
 };
 
 class VideoDecoder {

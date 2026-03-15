@@ -1,8 +1,8 @@
 #pragma once
 
 #include "log.hpp"
-#include "ring_buffer.hpp"
 #include "utils/opus_codec.hpp"
+#include "utils/ring_buffer.hpp"
 #include "utils/time.hpp"
 
 #include <algorithm>
@@ -20,11 +20,11 @@ public:
           target_samples_(target_delay_ms * sample_rate / 1000),
           sample_rate_(sample_rate) {}
 
-    void push(const float* mono_pcm, size_t frames, uint64_t seq, drist::WallTimestamp sender_ts = {}) {
+    void push(const float* mono_pcm, size_t frames, uint64_t seq, utils::WallTimestamp sender_ts = {}) {
         if (!seq_initialized_) {
             play_seq_ = seq;
             seq_initialized_ = true;
-            LOG_INFO() << "[audio-jitter] init play_seq=" << seq << " sender_ts=" << drist::WallToMs(sender_ts);
+            LOG_INFO() << "[audio-jitter] init play_seq=" << seq << " sender_ts=" << utils::WallToMs(sender_ts);
         }
 
         int64_t age = static_cast<int64_t>(seq - play_seq_);
@@ -72,7 +72,7 @@ public:
                 uint64_t buf_ms = buf_samples * 1000 / sample_rate_;
                 playback_base_ts_.store(latest_ms - buf_ms, std::memory_order_relaxed);
                 playback_samples_.store(0, std::memory_order_relaxed);
-                playback_local_ts_.store(drist::SinceEpochMs(), std::memory_order_relaxed);
+                playback_local_ts_.store(utils::SinceEpochMs(), std::memory_order_relaxed);
                 LOG_INFO()
                     << "[audio-jitter] anchor base_ts=" << (latest_ms - buf_ms) << " latest_sender=" << latest_ms
                     << " buf_ms=" << buf_ms;
@@ -101,17 +101,17 @@ public:
             }
             if (playback_base_ts_.load(std::memory_order_relaxed) != 0) {
                 playback_samples_.fetch_add(got, std::memory_order_relaxed);
-                playback_local_ts_.store(drist::SinceEpochMs(), std::memory_order_relaxed);
+                playback_local_ts_.store(utils::SinceEpochMs(), std::memory_order_relaxed);
             }
         } else if (primed_) {
             // Freeze the clock during underrun — don't let interpolation
             // advance playback_ts when no actual audio is being played.
-            playback_local_ts_.store(drist::SinceEpochMs(), std::memory_order_relaxed);
+            playback_local_ts_.store(utils::SinceEpochMs(), std::memory_order_relaxed);
             if (!underrun_) {
                 underrun_ = true;
                 LOG_INFO()
                     << "[audio-jitter] UNDERRUN: ring=0"
-                    << " push=" << push_count_ << " cur_ts=" << drist::WallToMs(current_playback_ts());
+                    << " push=" << push_count_ << " cur_ts=" << utils::WallToMs(current_playback_ts());
             }
         }
 
@@ -119,7 +119,7 @@ public:
             LOG_INFO()
                 << "[audio-jitter] pop#" << pop_count_ << " got=" << got << "/" << frames << " ring="
                 << ring_.available_read() << " base_ts=" << playback_base_ts_.load(std::memory_order_relaxed)
-                << " cur_ts=" << drist::WallToMs(current_playback_ts()) << " underrun=" << underrun_;
+                << " cur_ts=" << utils::WallToMs(current_playback_ts()) << " underrun=" << underrun_;
         }
 
         return got;
@@ -127,23 +127,23 @@ public:
 
     // Returns estimated wall-clock position of the current playback head.
     // Returns WallTimestamp{} (epoch) when playback clock is not yet anchored.
-    drist::WallTimestamp current_playback_ts() const {
+    utils::WallTimestamp current_playback_ts() const {
         const uint64_t base = playback_base_ts_.load(std::memory_order_relaxed);
         if (base == 0) {
             return {};
         }
         const uint64_t samples = playback_samples_.load(std::memory_order_relaxed);
         const uint64_t samples_ms = samples * 1000 / sample_rate_;
-        const uint64_t interp = drist::SinceEpochMs() - playback_local_ts_.load(std::memory_order_relaxed);
-        return drist::WallFromMs(base + samples_ms + interp);
+        const uint64_t interp = utils::SinceEpochMs() - playback_local_ts_.load(std::memory_order_relaxed);
+        return utils::WallFromMs(base + samples_ms + interp);
     }
 
-    void re_anchor(drist::WallTimestamp target_ts) {
+    void re_anchor(utils::WallTimestamp target_ts) {
         const uint64_t buf_samples = ring_.available_read();
         const uint64_t buf_ms = buf_samples * 1000 / sample_rate_;
-        playback_base_ts_.store(drist::WallToMs(target_ts) - buf_ms, std::memory_order_relaxed);
+        playback_base_ts_.store(utils::WallToMs(target_ts) - buf_ms, std::memory_order_relaxed);
         playback_samples_.store(0, std::memory_order_relaxed);
-        playback_local_ts_.store(drist::SinceEpochMs(), std::memory_order_relaxed);
+        playback_local_ts_.store(utils::SinceEpochMs(), std::memory_order_relaxed);
     }
 
     void reset() {
@@ -166,14 +166,14 @@ public:
 
 private:
     void flush_ready() {
-        const uint64_t now = drist::SinceEpochMs();
+        const uint64_t now = utils::SinceEpochMs();
 
         while (true) {
             auto& slot = slots_[play_seq_ % kSlots];
             if (slot.filled) {
                 ring_.write(slot.pcm, slot.frames);
-                if (slot.sender_ts != drist::WallTimestamp{}) {
-                    latest_sender_ts_.store(drist::WallToMs(slot.sender_ts), std::memory_order_relaxed);
+                if (slot.sender_ts != utils::WallTimestamp{}) {
+                    latest_sender_ts_.store(utils::WallToMs(slot.sender_ts), std::memory_order_relaxed);
                 }
                 slot.filled = false;
                 ++play_seq_;
@@ -231,7 +231,7 @@ private:
     struct Slot {
         float pcm[opus::kFrameSize]{};
         size_t frames = 0;
-        drist::WallTimestamp sender_ts{};
+        utils::WallTimestamp sender_ts{};
         bool filled = false;
     };
 

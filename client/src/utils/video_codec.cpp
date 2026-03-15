@@ -217,7 +217,7 @@ bool VideoEncoder::init(int width, int height, int fps, int base_bitrate_kbps) {
     pts_ = 0;
     bytes_since_calc_ = 0;
     measured_kbps_ = 0;
-    last_calc_ = drist::Now();
+    last_calc_ = utils::Now();
 
     LOG_INFO()
         << "video encoder: " << width << "x" << height << " @ " << fps << " fps"
@@ -278,8 +278,8 @@ const std::vector<uint8_t>& VideoEncoder::encode(const uint8_t* bgra, int width,
 
     if (!encode_buf_.empty()) {
         bytes_since_calc_ += encode_buf_.size();
-        auto now = drist::Now();
-        auto elapsed_ms = drist::ElapsedMs(last_calc_, now);
+        auto now = utils::Now();
+        auto elapsed_ms = utils::ElapsedMs(last_calc_, now);
         if (elapsed_ms >= 1000) {
             measured_kbps_ = static_cast<int>(bytes_since_calc_ * 8 / elapsed_ms);
             bytes_since_calc_ = 0;

@@ -11,20 +11,20 @@ namespace protocol {
 // Audio packet wire layout: [seq:8][sender_ts:8][opus_data:N]
 struct AudioHeader {
     uint64_t seq = 0;
-    drist::WallTimestamp sender_ts{};
+    utils::WallTimestamp sender_ts{};
 
     static constexpr size_t kWireSize = 16;
 
     static AudioHeader deserialize(const uint8_t* src) {
         AudioHeader h;
-        h.seq = drist::read_u64_le(src);
-        h.sender_ts = drist::WallFromMs(drist::read_u64_le(src + 8));
+        h.seq = utils::read_u64_le(src);
+        h.sender_ts = utils::WallFromMs(utils::read_u64_le(src + 8));
         return h;
     }
 
     void serialize(uint8_t* dst) const {
-        drist::write_u64_le(dst, seq);
-        drist::write_u64_le(dst + 8, drist::WallToMs(sender_ts));
+        utils::write_u64_le(dst, seq);
+        utils::write_u64_le(dst + 8, utils::WallToMs(sender_ts));
     }
 };
 
@@ -33,26 +33,26 @@ struct AudioHeader {
 struct VideoHeader {
     uint32_t width = 0;
     uint32_t height = 0;
-    drist::WallTimestamp sender_ts{};
+    utils::WallTimestamp sender_ts{};
     uint32_t bitrate_kbps = 0;
 
     static constexpr size_t kWireSize = 24;
 
     static VideoHeader deserialize(const uint8_t* src) {
         VideoHeader h;
-        h.width = drist::read_u32_le(src);
-        h.height = drist::read_u32_le(src + 4);
-        h.sender_ts = drist::WallFromMs(drist::read_u64_le(src + 8));
-        h.bitrate_kbps = drist::read_u32_le(src + 16);
+        h.width = utils::read_u32_le(src);
+        h.height = utils::read_u32_le(src + 4);
+        h.sender_ts = utils::WallFromMs(utils::read_u64_le(src + 8));
+        h.bitrate_kbps = utils::read_u32_le(src + 16);
         return h;
     }
 
     void serialize(uint8_t* dst) const {
-        drist::write_u32_le(dst, width);
-        drist::write_u32_le(dst + 4, height);
-        drist::write_u64_le(dst + 8, drist::WallToMs(sender_ts));
-        drist::write_u32_le(dst + 16, bitrate_kbps);
-        drist::write_u32_le(dst + 20, 0);  // _pad
+        utils::write_u32_le(dst, width);
+        utils::write_u32_le(dst + 4, height);
+        utils::write_u64_le(dst + 8, utils::WallToMs(sender_ts));
+        utils::write_u32_le(dst + 16, bitrate_kbps);
+        utils::write_u32_le(dst + 20, 0);  // _pad
     }
 };
 
@@ -66,16 +66,16 @@ struct ChunkHeader {
 
     static ChunkHeader deserialize(const uint8_t* src) {
         ChunkHeader h;
-        h.frame_id = drist::read_u16_le(src);
-        h.chunk_idx = drist::read_u16_le(src + 2);
-        h.total_chunks = drist::read_u16_le(src + 4);
+        h.frame_id = utils::read_u16_le(src);
+        h.chunk_idx = utils::read_u16_le(src + 2);
+        h.total_chunks = utils::read_u16_le(src + 4);
         return h;
     }
 
     void serialize(uint8_t* dst) const {
-        drist::write_u16_le(dst, frame_id);
-        drist::write_u16_le(dst + 2, chunk_idx);
-        drist::write_u16_le(dst + 4, total_chunks);
+        utils::write_u16_le(dst, frame_id);
+        utils::write_u16_le(dst + 2, chunk_idx);
+        utils::write_u16_le(dst + 4, total_chunks);
     }
 };
 

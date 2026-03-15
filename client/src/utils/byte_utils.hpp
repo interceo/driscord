@@ -4,7 +4,7 @@
 
 #include "time.hpp"
 
-namespace drist {
+namespace utils {
 
 inline void write_u16_le(uint8_t* dst, uint16_t v) {
     dst[0] = static_cast<uint8_t>(v);
@@ -45,4 +45,4 @@ inline uint64_t read_u64_le(const uint8_t* src) {
            (static_cast<uint64_t>(src[6]) << 48) | (static_cast<uint64_t>(src[7]) << 56);
 }
 
-}  // namespace drist
+}  // namespace utils

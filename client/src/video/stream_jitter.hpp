@@ -14,7 +14,7 @@ public:
         std::vector<uint8_t> rgba;
         int width = 0;
         int height = 0;
-        drist::WallTimestamp sender_ts{};
+        utils::WallTimestamp sender_ts{};
     };
 
     ScreenStreamJitter(int buffer_ms, int max_sync_gap_ms, int sample_rate = 48000)
@@ -25,7 +25,7 @@ public:
 
     // --- Audio: push from network thread, pop from audio callback (SPSC safe) ---
 
-    void push_audio(const float* mono, size_t frames, uint64_t seq, drist::WallTimestamp sender_ts) {
+    void push_audio(const float* mono, size_t frames, uint64_t seq, utils::WallTimestamp sender_ts) {
         ++audio_push_count_;
         audio_.push(mono, frames, seq, sender_ts);
     }
@@ -43,14 +43,14 @@ public:
             LOG_INFO()
                 << "[stream-jitter-audio] pop=" << audio_pop_count_ << " push=" << audio_push_count_ << " got=" << got
                 << "/" << frames << " buffered=" << audio_.buffered_ms() << "ms"
-                << " playback_ts=" << drist::WallToMs(audio_.current_playback_ts());
+                << " playback_ts=" << utils::WallToMs(audio_.current_playback_ts());
         }
         return got;
     }
 
     // --- Video: push and pop from main thread only ---
 
-    void push_video(std::vector<uint8_t> rgba, int w, int h, drist::WallTimestamp sender_ts) {
+    void push_video(std::vector<uint8_t> rgba, int w, int h, utils::WallTimestamp sender_ts) {
         VideoFrame frame{std::move(rgba), w, h, sender_ts};
         auto it = video_queue_.end();
         while (it != video_queue_.begin()) {
@@ -71,16 +71,16 @@ public:
             return has_current_ ? &current_ : nullptr;
         }
 
-        const drist::WallTimestamp audio_ts = audio_.current_playback_ts();
-        const bool has_clock = (audio_ts != drist::WallTimestamp{});
+        const utils::WallTimestamp audio_ts = audio_.current_playback_ts();
+        const bool has_clock = (audio_ts != utils::WallTimestamp{});
 
         ++video_pop_count_;
         if (video_pop_count_ % 60 == 0) {
             LOG_INFO()
                 << "[stream-jitter-sync] video_pop=" << video_pop_count_ << " primed=" << video_primed_ << " has_clock="
-                << has_clock << " audio_ts=" << drist::WallToMs(audio_ts) << " queue=" << video_queue_.size()
-                << " front_ts=" << drist::WallToMs(video_queue_.front().sender_ts) << " back_ts="
-                << drist::WallToMs(video_queue_.back().sender_ts) << " audio_buf=" << audio_.buffered_ms() << "ms"
+                << has_clock << " audio_ts=" << utils::WallToMs(audio_ts) << " queue=" << video_queue_.size()
+                << " front_ts=" << utils::WallToMs(video_queue_.front().sender_ts) << " back_ts="
+                << utils::WallToMs(video_queue_.back().sender_ts) << " audio_buf=" << audio_.buffered_ms() << "ms"
                 << " audio_push=" << audio_push_count_;
         }
 
@@ -91,7 +91,7 @@ public:
                 video_queue_.clear();
                 return &current_;
             }
-            const int64_t span_ms = drist::WallElapsedMs(video_queue_.front().sender_ts, video_queue_.back().sender_ts);
+            const int64_t span_ms = utils::WallElapsedMs(video_queue_.front().sender_ts, video_queue_.back().sender_ts);
             if (span_ms < buffer_ms_) {
                 return has_current_ ? &current_ : nullptr;
             }
@@ -107,16 +107,16 @@ public:
             return &current_;
         }
 
-        const drist::WallTimestamp front_ts = video_queue_.front().sender_ts;
-        const int64_t gap_ms = drist::WallElapsedMs(audio_ts, front_ts);
+        const utils::WallTimestamp front_ts = video_queue_.front().sender_ts;
+        const int64_t gap_ms = utils::WallElapsedMs(audio_ts, front_ts);
 
         if (gap_ms > static_cast<int64_t>(max_sync_gap_ms_)) {
             current_ = std::move(video_queue_.back());
             has_current_ = true;
             LOG_INFO()
                 << "[stream-jitter] RESYNC: gap=" << gap_ms << "ms"
-                << " force display ts=" << drist::WallToMs(current_.sender_ts)
-                << " audio_ts=" << drist::WallToMs(audio_ts) << " front_ts=" << drist::WallToMs(front_ts)
+                << " force display ts=" << utils::WallToMs(current_.sender_ts)
+                << " audio_ts=" << utils::WallToMs(audio_ts) << " front_ts=" << utils::WallToMs(front_ts)
                 << " queue=" << video_queue_.size() << " audio_buf=" << audio_.buffered_ms() << "ms";
             audio_.re_anchor(current_.sender_ts);
             video_queue_.clear();
@@ -149,7 +149,7 @@ public:
 
     // --- Status ---
 
-    drist::WallTimestamp audio_playback_ts() const { return audio_.current_playback_ts(); }
+    utils::WallTimestamp audio_playback_ts() const { return audio_.current_playback_ts(); }
     size_t audio_buffered_ms() const { return audio_.buffered_ms(); }
     size_t video_queue_size() const { return video_queue_.size(); }
 
