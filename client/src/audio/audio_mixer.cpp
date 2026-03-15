@@ -26,6 +26,15 @@ bool AudioMixer::start() {
     config.dataCallback = [](ma_device* d, void* out, const void* /*in*/, ma_uint32 fc) {
         static_cast<AudioMixer*>(d->pUserData)->on_playback(static_cast<float*>(out), fc);
     };
+    config.notificationCallback = [](const ma_device_notification* n) {
+        auto* self = static_cast<AudioMixer*>(n->pDevice->pUserData);
+        if (n->type == ma_device_notification_type_stopped && self->running_.load()) {
+            LOG_WARNING() << "AudioMixer: playback device stopped unexpectedly, restarting";
+            ma_device_start(n->pDevice);
+        } else if (n->type == ma_device_notification_type_rerouted) {
+            LOG_INFO() << "AudioMixer: playback device rerouted";
+        }
+    };
     config.pUserData = this;
     config.periodSizeInFrames = opus::kFrameSize;
 
