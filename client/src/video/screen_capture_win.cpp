@@ -529,7 +529,7 @@ private:
                     }
 
                     if (callback_ && running_) {
-                        callback_(out);
+                        callback_(std::move(out));
                     }
                 }
             }
@@ -579,7 +579,7 @@ private:
         }
 
         if (callback_ && running_) {
-            callback_(out);
+            callback_(std::move(out));
         }
     }
 

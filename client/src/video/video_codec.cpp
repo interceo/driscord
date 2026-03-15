@@ -256,15 +256,9 @@ const std::vector<uint8_t>& VideoEncoder::encode(const uint8_t* bgra, int width,
         return encode_buf_;
     }
 
-    size_t bgra_size = static_cast<size_t>(width) * height * 4;
-    if (bgra_copy_.size() != bgra_size) {
-        bgra_copy_.resize(bgra_size);
-    }
-    std::memcpy(bgra_copy_.data(), bgra, bgra_size);
-
     av_frame_make_writable(frame_);
 
-    const uint8_t* src_slices[1] = {bgra_copy_.data()};
+    const uint8_t* src_slices[1] = {bgra};
     int src_stride[1] = {width * 4};
     sws_scale(sws_, src_slices, src_stride, 0, height, frame_->data, frame_->linesize);
 
