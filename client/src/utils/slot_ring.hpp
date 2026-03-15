@@ -103,6 +103,13 @@ public:
         return consume_peeked(p->skipped);
     }
 
+    // Advance the expected sequence without consuming a slot (for gap concealment).
+    void advance_seq() {
+        if (initialized_) {
+            ++next_seq_;
+        }
+    }
+
     uint64_t next_seq() const { return next_seq_; }
     size_t size() const { return size_; }
     bool empty() const { return size_ == 0; }

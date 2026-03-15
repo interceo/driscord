@@ -34,4 +34,10 @@ private:
     std::vector<float> decode_buf_;
     std::vector<float> mono_buf_;
     std::atomic<float> volume_{1.0f};
+
+    int id_;
+    uint64_t push_count_ = 0;
+    uint64_t pop_count_ = 0;
+
+    static int next_id_;
 };

@@ -33,6 +33,7 @@ public:
         return std::move(pkt->data.samples);
     }
 
+    size_t queue_size() const { return buf_.queue_size(); }
     size_t buffered_ms() const { return buf_.buffered_ms(); }
     void reset() { buf_.reset(); }
 

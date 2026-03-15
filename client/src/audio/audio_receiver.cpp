@@ -2,8 +2,10 @@
 
 #include "log.hpp"
 
+int AudioReceiver::next_id_ = 0;
+
 AudioReceiver::AudioReceiver(int jitter_ms, int channels, int sample_rate)
-    : jitter_(static_cast<size_t>(jitter_ms)), channels_(channels) {
+    : jitter_(static_cast<size_t>(jitter_ms)), channels_(channels), id_(next_id_++) {
     if (!decoder_.init(sample_rate, channels)) {
         LOG_ERROR() << "AudioReceiver: failed to init Opus decoder (ch=" << channels << ")";
     }
@@ -48,6 +50,22 @@ void AudioReceiver::push_packet(const uint8_t* data, size_t len) {
         std::vector<float> pcm(decode_buf_.begin(), decode_buf_.begin() + samples);
         jitter_.push(std::move(pcm), ah.seq, ah.sender_ts);
     }
+
+    ++push_count_;
+    if (push_count_ % 30 == 0) {
+        LOG_INFO()
+            << "[audio-recv/" << id_ << "] push#" << push_count_ << " sender_ts=" << utils::WallToMs(ah.sender_ts)
+            << " age_ms=" << utils::WallElapsedMs(ah.sender_ts) << " queue=" << jitter_.queue_size();
+    }
 }
 
-std::vector<float> AudioReceiver::pop() { return jitter_.pop(); }
+std::vector<float> AudioReceiver::pop() {
+    auto result = jitter_.pop();
+    ++pop_count_;
+    if (pop_count_ % 60 == 0) {
+        LOG_INFO()
+            << "[audio-recv/" << id_ << "] pop#" << pop_count_ << " got=" << (result.empty() ? "null" : "frame")
+            << " queue=" << jitter_.queue_size();
+    }
+    return result;
+}

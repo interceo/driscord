@@ -90,6 +90,14 @@ public:
             return std::nullopt;
         }
 
+        // Gap detected: insert silence for one missing frame instead of jumping
+        // ahead all at once, which would compress the timeline and sound like speedup.
+        if (peek->skipped > 0) {
+            ring_.advance_seq();
+            ++miss_count_;
+            return std::nullopt;
+        }
+
         if (pace_by_sender_ts_) {
             const auto& pkt_ts = peek->data->sender_ts;
             if (pkt_ts.time_since_epoch().count() != 0) {
@@ -106,8 +114,7 @@ public:
             }
         }
 
-        auto result = ring_.consume_peeked(peek->skipped);
-        miss_count_ += result.skipped;
+        auto result = ring_.consume_peeked(0);
         ++played_count_;
 
         if (played_count_ % 300 == 0) {
