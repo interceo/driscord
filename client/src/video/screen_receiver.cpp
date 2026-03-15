@@ -11,7 +11,7 @@ namespace {
 constexpr int kStaleSeconds = 3;
 }  // namespace
 
-ScreenReceiver::ScreenReceiver(int buffer_ms, int max_sync_gap_ms) : jitter_(buffer_ms, max_sync_gap_ms) {
+ScreenReceiver::ScreenReceiver(int buffer_ms, int /*max_sync_gap_ms*/) : jitter_(buffer_ms) {
     if (!decoder_.init()) {
         LOG_ERROR() << "failed to init video decoder";
     }
@@ -85,6 +85,7 @@ void ScreenReceiver::push_video_packet(const std::string& peer_id, const uint8_t
         ),
         vh.bitrate_kbps,
         vh.sender_ts,
+        vh.frame_duration_us,
     };
 }
 
@@ -136,7 +137,7 @@ const ScreenJitter::VideoFrame* ScreenReceiver::update() {
         if (decoder_.decode(frame->data.data(), frame->data.size(), rgba, w, h)) {
             decode_failures_ = 0;
             measured_kbps_ = static_cast<int>(frame->kbps);
-            jitter_.push_video(std::move(rgba), w, h, frame->ts);
+            jitter_.push_video(std::move(rgba), w, h, frame->duration_us, frame->ts);
         } else {
             ++decode_failures_;
             const auto now = utils::Now();

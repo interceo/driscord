@@ -161,6 +161,7 @@ void ScreenSender::encode_loop() {
             .height = static_cast<uint32_t>(frame.height),
             .sender_ts = WallNow(),
             .bitrate_kbps = static_cast<uint32_t>(video_encoder_.measured_kbps()),
+            .frame_duration_us = static_cast<uint32_t>(1'000'000 / fps_),
         };
         frame_buf_.resize(protocol::VideoHeader::kWireSize + encoded.size());
         vh.serialize(frame_buf_.data());

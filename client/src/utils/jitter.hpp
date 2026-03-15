@@ -3,7 +3,7 @@
 #include "log.hpp"
 #include "time.hpp"
 
-#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <map>
 #include <mutex>
@@ -11,17 +11,22 @@
 
 // Generic jitter buffer keyed by sequence number.
 //
-// Ordering is by seq number only — sender_ts is stored alongside the payload
-// and exposed via current_playback_ts() for A/V synchronization purposes only.
+// Initial delay: pop() returns nullopt until target_delay_ms have elapsed since
+// the first push.  After that packets are returned in sequence order.
+//
+// Rate-limited mode (rate_limit_pop = true): pop() paces output so that at most
+// one packet is returned per packet_duration interval.  Use for video where the
+// consumer runs faster than the frame rate.
 //
 // Thread safety: push() and pop() may be called from different threads.
-//
-// T must be default-constructible (default value is used as silence/placeholder
-// when a packet is missing but the sequence must advance).
+// T must be default-constructible and move-constructible.
 
 template <typename T>
 class JitterBuffer {
 public:
+    using Clock = std::chrono::steady_clock;
+    using Duration = std::chrono::microseconds;
+
     struct Packet {
         T data{};
         utils::WallTimestamp sender_ts{};
@@ -31,103 +36,81 @@ public:
         bool primed = false;
         size_t queue_size = 0;
         size_t buffered_ms = 0;
-        uint64_t push_count = 0;
         uint64_t drop_count = 0;
         uint64_t miss_count = 0;
-        utils::WallTimestamp playback_ts{};
     };
 
-    // packet_duration_ms: how long one packet represents in milliseconds.
-    explicit JitterBuffer(int target_delay_ms, int packet_duration_ms)
-        : packet_ms_(std::max(1, packet_duration_ms)),
-          target_(std::max(1, target_delay_ms / std::max(1, packet_duration_ms))),
-          max_queue_(target_ * 4) {}
+    explicit JitterBuffer(int target_delay_ms, bool rate_limit_pop = false)
+        : target_delay_ms_(std::max(1, target_delay_ms)), rate_limit_(rate_limit_pop) {}
+
+    void set_packet_duration(Duration d) {
+        std::scoped_lock lk(mutex_);
+        packet_duration_ = d;
+    }
 
     void push(uint64_t seq, T data, utils::WallTimestamp sender_ts = {}) {
         std::scoped_lock lk(mutex_);
+
+        if (!first_push_time_) {
+            first_push_time_ = Clock::now();
+        }
 
         if (primed_ && seq < next_seq_) {
             ++drop_count_;
             return;
         }
 
-        // Drop oldest if overfull.
-        if (map_.size() >= max_queue_) {
-            const auto diff = map_.size() - max_queue_;
-            map_.erase(map_.begin(), std::next(map_.begin(), diff));
-            drop_count_ += diff;
+        while (map_.size() >= kMaxQueue) {
+            map_.erase(map_.begin());
+            ++drop_count_;
         }
 
         map_.emplace(seq, Packet{std::move(data), sender_ts});
     }
 
-    // Returns the next packet in sequence order.
-    // Returns a default-constructed Packet (silence) if the packet is missing.
-    // Returns std::nullopt if not yet primed (or after re-priming on underrun).
+    // Returns nullopt while buffering or rate-limited.
+    // Returns a default Packet on a sequence miss.
     std::optional<Packet> pop() {
         std::scoped_lock lk(mutex_);
+        const auto now = Clock::now();
+
+        // Wait target_delay_ms from the first push before returning anything.
+        if (!first_push_time_ || now - *first_push_time_ < std::chrono::milliseconds(target_delay_ms_)) {
+            return std::nullopt;
+        }
+
+        if (map_.empty()) {
+            return std::nullopt;
+        }
 
         if (!primed_) {
-            if (map_.size() < target_) {
-                return std::nullopt;
-            }
             primed_ = true;
             next_seq_ = map_.begin()->first;
-            consecutive_misses_ = 0;
-            anchor_locked();
-            LOG_INFO() << "[jitter] PRIMED: q=" << map_.size() << " next_seq=" << next_seq_ << " target=" << target_;
-        }
-
-        // Drain overrun: burst arrivals can push the buffer far above target.
-        // Skip oldest packets to keep latency near target.
-        if (map_.size() > target_ * 2) {
-            const size_t to_discard = map_.size() - target_;
-            for (size_t i = 0; i < to_discard && !map_.empty(); ++i) {
-                map_.erase(map_.begin());
-                ++drop_count_;
-            }
-            if (!map_.empty()) {
-                next_seq_ = map_.begin()->first;
-            }
+            playback_origin_ = now;
+            played_count_ = 0;
             LOG_INFO()
-                << "[jitter] DRAIN: discarded=" << to_discard << " new_next_seq=" << next_seq_ << " q=" << map_.size();
+                << "[jitter] PRIMED q=" << map_.size() << " seq=" << next_seq_ << " delay=" << target_delay_ms_ << "ms";
         }
 
-        // Evict stale entries that fell behind the playback head.
-        while (!map_.empty() && map_.begin()->first < next_seq_) {
-            map_.erase(map_.begin());
-            ++drop_count_;
-        }
-
-        Packet pkt{};
-        auto it = map_.find(next_seq_);
-        if (it != map_.end()) {
-            pkt = std::move(it->second);
-            map_.erase(it);
-            consecutive_misses_ = 0;
-        } else {
-            ++miss_count_;
-            ++consecutive_misses_;
-            if (miss_count_ % 50 == 0) {
-                LOG_INFO()
-                    << "[jitter] miss#" << miss_count_ << " seq=" << next_seq_ << " q=" << map_.size()
-                    << " streak=" << consecutive_misses_;
-            }
-            // Re-prime after extended silence so playback re-syncs when
-            // the sender resumes instead of drifting on forever.
-            if (consecutive_misses_ >= kRePrimeThreshold) {
-                primed_ = false;
-                consecutive_misses_ = 0;
-                playback_base_ms_.store(0, std::memory_order_relaxed);
-                LOG_INFO()
-                    << "[jitter] RE-PRIME: extended gap at seq=" << next_seq_ << " threshold=" << kRePrimeThreshold;
+        // Rate-limit: at most one packet per packet_duration.
+        if (rate_limit_ && packet_duration_.count() > 0) {
+            if (now < playback_origin_ + played_count_ * packet_duration_) {
                 return std::nullopt;
             }
         }
 
+        auto it = map_.find(next_seq_);
         ++next_seq_;
-        advance_locked();
-        return pkt;
+        ++played_count_;
+
+        if (it != map_.end()) {
+            auto pkt = std::move(it->second);
+            map_.erase(it);
+            return pkt;
+        }
+
+        ++miss_count_;
+        return Packet{};
     }
 
     bool primed() const {
@@ -135,35 +118,17 @@ public:
         return primed_;
     }
 
-    size_t buffered_ms() const {
-        std::scoped_lock lk(mutex_);
-        return map_.size() * static_cast<size_t>(packet_ms_);
-    }
-
     size_t queue_size() const {
         std::scoped_lock lk(mutex_);
         return map_.size();
     }
 
-    // Returns estimated wall-clock position of the playback head.
-    // Thread-safe (reads only atomics).
-    utils::WallTimestamp current_playback_ts() const {
-        const uint64_t base = playback_base_ms_.load();
-        if (base == 0) {
-            return {};
-        }
-        const uint64_t played_ms = played_count_.load() * static_cast<uint64_t>(packet_ms_);
-        const uint64_t interp = utils::SinceEpochMs() - playback_local_ms_.load();
-        return utils::WallFromMs(base + played_ms + interp);
-    }
-
-    // Re-anchor the playback clock to target_ts (called on A/V resync).
-    void re_anchor(utils::WallTimestamp target_ts) {
+    size_t buffered_ms() const {
         std::scoped_lock lk(mutex_);
-        const uint64_t buf_ms = map_.size() * static_cast<uint64_t>(packet_ms_);
-        playback_base_ms_.store(utils::WallToMs(target_ts) - buf_ms);
-        played_count_.store(0);
-        playback_local_ms_.store(utils::SinceEpochMs());
+        if (packet_duration_.count() <= 0) {
+            return 0;
+        }
+        return map_.size() * static_cast<size_t>(packet_duration_.count()) / 1000;
     }
 
     void reset() {
@@ -171,67 +136,38 @@ public:
         map_.clear();
         primed_ = false;
         next_seq_ = 0;
-        push_count_ = 0;
+        first_push_time_.reset();
+        played_count_ = 0;
         drop_count_ = 0;
         miss_count_ = 0;
-        consecutive_misses_ = 0;
-        played_count_.store(0);
-        playback_base_ms_.store(0);
-        playback_local_ms_.store(0);
     }
 
     Stats stats() const {
         std::scoped_lock lk(mutex_);
-        return {
-            .primed = primed_,
-            .queue_size = map_.size(),
-            .buffered_ms = map_.size() * static_cast<size_t>(packet_ms_),
-            .push_count = push_count_,
-            .drop_count = drop_count_,
-            .miss_count = miss_count_,
-            .playback_ts = current_playback_ts(),
-        };
+        size_t buf_ms = 0;
+        if (packet_duration_.count() > 0) {
+            buf_ms = map_.size() * static_cast<size_t>(packet_duration_.count()) / 1000;
+        }
+        return {primed_, map_.size(), buf_ms, drop_count_, miss_count_};
     }
 
 private:
-    void anchor_locked() {
-        if (map_.empty()) {
-            return;
-        }
-        const auto& first = map_.begin()->second;
-        if (first.sender_ts != utils::WallTimestamp{}) {
-            playback_base_ms_.store(utils::WallToMs(first.sender_ts));
-        } else {
-            playback_base_ms_.store(utils::SinceEpochMs());
-        }
-        played_count_.store(0);
-        playback_local_ms_.store(utils::SinceEpochMs());
-    }
-
-    void advance_locked() {
-        played_count_.fetch_add(1);
-        playback_local_ms_.store(utils::SinceEpochMs());
-    }
+    static constexpr size_t kMaxQueue = 64;
 
     mutable std::mutex mutex_;
     std::map<uint64_t, Packet> map_;
 
-    int packet_ms_;
-    size_t target_;
-    size_t max_queue_;
+    int target_delay_ms_;
+    bool rate_limit_;
+    Duration packet_duration_{0};
 
     bool primed_ = false;
     uint64_t next_seq_ = 0;
 
-    // 10 consecutive misses = 200ms silence at 20ms/frame → re-prime.
-    static constexpr uint64_t kRePrimeThreshold = 10;
+    std::optional<Clock::time_point> first_push_time_;
+    Clock::time_point playback_origin_{};
+    uint64_t played_count_ = 0;
 
-    uint64_t push_count_ = 0;
     uint64_t drop_count_ = 0;
     uint64_t miss_count_ = 0;
-    uint64_t consecutive_misses_ = 0;
-
-    std::atomic<uint64_t> played_count_{0};
-    std::atomic<uint64_t> playback_base_ms_{0};
-    std::atomic<uint64_t> playback_local_ms_{0};
 };
