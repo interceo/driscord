@@ -1,4 +1,4 @@
-#include "screen_sender.hpp"
+#include "video_sender.hpp"
 
 #include "audio/capture/system_audio_capture.hpp"
 #include "log.hpp"
@@ -9,10 +9,10 @@
 
 using namespace utils;
 
-ScreenSender::ScreenSender() = default;
-ScreenSender::~ScreenSender() { stop(); }
+VideoSender::VideoSender() = default;
+VideoSender::~VideoSender() { stop(); }
 
-bool ScreenSender::start(
+bool VideoSender::start(
     const CaptureTarget& target,
     int max_w,
     int max_h,
@@ -50,7 +50,7 @@ bool ScreenSender::start(
     send_frame_id_ = 0;
 
     encode_running_ = true;
-    encode_thread_ = std::thread(&ScreenSender::encode_loop, this);
+    encode_thread_ = std::thread(&VideoSender::encode_loop, this);
 
     screen_capture_ = ScreenCapture::create();
     if (!screen_capture_->start(fps, target, max_w, max_h, [this](ScreenCapture::Frame frame) {
@@ -97,7 +97,7 @@ bool ScreenSender::start(
     return true;
 }
 
-void ScreenSender::stop() {
+void VideoSender::stop() {
     if (!sharing_) {
         return;
     }
@@ -128,7 +128,7 @@ void ScreenSender::stop() {
     LOG_INFO() << "screen sharing stopped";
 }
 
-void ScreenSender::encode_loop() {
+void VideoSender::encode_loop() {
     while (encode_running_) {
         ScreenCapture::Frame frame;
         {
@@ -197,7 +197,7 @@ void ScreenSender::encode_loop() {
     }
 }
 
-void ScreenSender::on_audio_captured(const float* samples, size_t frames, int channels) {
+void VideoSender::on_audio_captured(const float* samples, size_t frames, int channels) {
     if (!opus_encoder_ || !on_audio_) {
         return;
     }

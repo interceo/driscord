@@ -156,10 +156,11 @@ endif()
 add_executable(driscord_client
     src/main.cpp
     src/app.cpp
-    src/video/screen_sender.cpp
-    src/video/screen_receiver.cpp
+    src/video/video_sender.cpp
+    src/video/video_receiver.cpp
     src/audio/audio_sender.cpp
     src/audio/audio_receiver.cpp
+    src/audio/audio_mixer.cpp
     src/voice_transport.cpp
     src/ui.cpp
     src/config.cpp

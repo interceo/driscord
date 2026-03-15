@@ -16,15 +16,15 @@
 
 class SystemAudioCapture;
 
-class ScreenSender {
+class VideoSender {
 public:
     using SendCb = std::function<void(const uint8_t* data, size_t len)>;
 
-    ScreenSender();
-    ~ScreenSender();
+    VideoSender();
+    ~VideoSender();
 
-    ScreenSender(const ScreenSender&) = delete;
-    ScreenSender& operator=(const ScreenSender&) = delete;
+    VideoSender(const VideoSender&) = delete;
+    VideoSender& operator=(const VideoSender&) = delete;
 
     bool start(
         const CaptureTarget& target,

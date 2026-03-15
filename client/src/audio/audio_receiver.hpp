@@ -6,64 +6,32 @@
 
 #include <atomic>
 #include <cstdint>
-#include <memory>
-#include <mutex>
-#include <string>
-#include <unordered_map>
 #include <vector>
-
-class ScreenJitter;
-struct ma_device;
 
 class AudioReceiver {
 public:
-    AudioReceiver();
-    explicit AudioReceiver(int jitter_ms);
-    ~AudioReceiver();
+    explicit AudioReceiver(int jitter_ms, int channels = 1, int sample_rate = opus::kSampleRate);
 
     AudioReceiver(const AudioReceiver&) = delete;
     AudioReceiver& operator=(const AudioReceiver&) = delete;
 
-    bool start();
-    void stop();
-    bool running() const { return running_; }
+    void push_packet(const uint8_t* data, size_t len);
+    std::vector<float> pop();
 
-    void feed_packet(const std::string& peer_id, const uint8_t* data, size_t len, float peer_volume = 1.0f);
-    void remove_voice_peer(const std::string& peer_id);
+    void set_volume(float v) { volume_.store(v); }
+    float volume() const { return volume_.load(); }
 
-    void set_screen_stream(ScreenJitter* stream) { screen_stream_ = stream; }
-    void set_sharing_screen_audio(bool v) { sharing_screen_audio_ = v; }
+    size_t buffered_ms() const { return jitter_.buffered_ms(); }
+    void reset() { jitter_.reset(); }
 
-    void set_deafened(bool d) { deafened_ = d; }
-    bool deafened() const noexcept { return deafened_; }
-
-    void set_output_volume(float v) { output_volume_ = v; }
-    float output_volume() const noexcept { return output_volume_; }
-
-    float output_level() const noexcept { return output_level_; }
+    using Stats = AudioJitter::Stats;
+    Stats stats() const { return jitter_.stats(); }
 
 private:
-    void on_playback(float* output, uint32_t frames);
-
-    int jitter_ms_ = 80;
-
-    std::atomic<bool> running_{false};
-    std::atomic<bool> deafened_{false};
-    std::atomic<bool> sharing_screen_audio_{false};
-    std::atomic<float> output_volume_{1.0f};
-    std::atomic<float> output_level_{0.0f};
-
-    std::unique_ptr<OpusDecode> decoder_;
-    std::unique_ptr<ma_device> device_;
-
-    std::mutex voice_mutex_;
-    std::unordered_map<std::string, std::shared_ptr<AudioJitter>> voice_jitters_;
-    std::vector<std::shared_ptr<AudioJitter>> voice_snapshot_;
-    std::vector<float> voice_mix_buf_;
-
-    ScreenJitter* screen_stream_ = nullptr;
-    std::vector<float> screen_mix_buf_;
-
+    AudioJitter jitter_;
+    OpusDecode decoder_;
+    int channels_;
     std::vector<float> decode_buf_;
-    uint64_t playback_count_ = 0;
+    std::vector<float> mono_buf_;
+    std::atomic<float> volume_{1.0f};
 };
