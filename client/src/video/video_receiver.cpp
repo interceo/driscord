@@ -35,83 +35,82 @@ void VideoReceiver::push_video_packet(const std::string& peer_id, const uint8_t*
     const uint8_t* chunk_data = data + protocol::ChunkHeader::kWireSize;
     const size_t chunk_len = len - protocol::ChunkHeader::kWireSize;
 
-    std::scoped_lock lk(mutex_);
+    std::vector<uint8_t> frame_data;
+    uint32_t kbps = 0;
+    utils::WallTimestamp sender_ts{};
 
-    current_peer_ = peer_id;
-    last_packet_ = utils::Now();
+    {
+        std::scoped_lock lk(mutex_);
 
-    if (ch.frame_id != reassembler_.frame_id || ch.total_chunks != reassembler_.total) {
-        if (reassembler_.total > 0 && reassembler_.got < reassembler_.total && on_keyframe_needed_) {
-            on_keyframe_needed_();
+        current_peer_ = peer_id;
+        last_packet_ = utils::Now();
+
+        if (ch.frame_id != reassembler_.frame_id || ch.total_chunks != reassembler_.total) {
+            if (reassembler_.total > 0 && reassembler_.got < reassembler_.total && on_keyframe_needed_) {
+                on_keyframe_needed_();
+            }
+            reassembler_ = ChunkReassembler{};
+            reassembler_.frame_id = ch.frame_id;
+            reassembler_.total = ch.total_chunks;
         }
-        reassembler_ = ChunkReassembler{};
-        reassembler_.frame_id = ch.frame_id;
-        reassembler_.total = ch.total_chunks;
-    }
 
-    const size_t offset = static_cast<size_t>(ch.chunk_idx) * protocol::kMaxChunkPayload;
-    size_t needed = offset + chunk_len;
-    if (reassembler_.buf.size() < needed) {
-        reassembler_.buf.resize(needed);
-    }
-    std::memcpy(reassembler_.buf.data() + offset, chunk_data, chunk_len);
-    ++reassembler_.got;
+        const size_t offset = static_cast<size_t>(ch.chunk_idx) * protocol::kMaxChunkPayload;
+        size_t needed = offset + chunk_len;
+        if (reassembler_.buf.size() < needed) {
+            reassembler_.buf.resize(needed);
+        }
+        std::memcpy(reassembler_.buf.data() + offset, chunk_data, chunk_len);
+        ++reassembler_.got;
 
-    if (reassembler_.got < ch.total_chunks) {
-        return;
-    }
+        if (reassembler_.got < ch.total_chunks) {
+            return;
+        }
 
-    if (reassembler_.buf.size() <= protocol::VideoHeader::kWireSize) {
-        return;
-    }
+        if (reassembler_.buf.size() <= protocol::VideoHeader::kWireSize) {
+            return;
+        }
 
-    const auto vh = protocol::VideoHeader::deserialize(reassembler_.buf.data());
+        const auto vh = protocol::VideoHeader::deserialize(reassembler_.buf.data());
 
-    if (vh.width == 0 || vh.height == 0 || vh.width > 7680 || vh.height > 4320) {
-        return;
-    }
+        if (vh.width == 0 || vh.height == 0 || vh.width > 7680 || vh.height > 4320) {
+            return;
+        }
 
-    pending_ = PendingFrame{
-        std::vector<uint8_t>(
+        frame_data.assign(
             reassembler_.buf.data() + protocol::VideoHeader::kWireSize,
             reassembler_.buf.data() + reassembler_.buf.size()
-        ),
-        vh.bitrate_kbps,
-        vh.sender_ts,
-    };
+        );
+        kbps = vh.bitrate_kbps;
+        sender_ts = vh.sender_ts;
+    }
+
+    if (!decoder_.ready()) {
+        return;
+    }
+
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    if (decoder_.decode(frame_data.data(), frame_data.size(), rgba, w, h)) {
+        decode_failures_ = 0;
+        measured_kbps_.store(static_cast<int>(kbps), std::memory_order_relaxed);
+        ++push_count_;
+        if (push_count_ % 30 == 0) {
+            LOG_INFO()
+                << "[video-recv] push#" << push_count_ << " sender_ts=" << utils::WallToMs(sender_ts)
+                << " age_ms=" << utils::WallElapsedMs(sender_ts) << " queue=" << video_.queue_size();
+        }
+        video_.push(std::move(rgba), w, h, sender_ts);
+    } else {
+        ++decode_failures_;
+        const auto now = utils::Now();
+        if (on_keyframe_needed_ && (decode_failures_ == 1 || utils::ElapsedMs(last_keyframe_req_, now) >= 500)) {
+            on_keyframe_needed_();
+            last_keyframe_req_ = now;
+        }
+    }
 }
 
 const VideoJitter::Frame* VideoReceiver::update() {
-    std::optional<PendingFrame> frame;
-    {
-        std::scoped_lock lk(mutex_);
-        frame = std::move(pending_);
-        pending_.reset();
-    }
-
-    if (frame && decoder_.ready()) {
-        std::vector<uint8_t> rgba;
-        int w = 0, h = 0;
-        if (decoder_.decode(frame->data.data(), frame->data.size(), rgba, w, h)) {
-            decode_failures_ = 0;
-            measured_kbps_ = static_cast<int>(frame->kbps);
-            ++push_count_;
-            if (push_count_ % 30 == 0) {
-                LOG_INFO()
-                    << "[video-recv] push#" << push_count_ << " sender_ts=" << utils::WallToMs(frame->ts)
-                    << " age_ms=" << utils::WallElapsedMs(frame->ts) << " queue=" << video_.queue_size();
-            }
-            video_.push(std::move(rgba), w, h, frame->ts);
-        } else {
-            ++decode_failures_;
-            const auto now = utils::Now();
-            if (on_keyframe_needed_ && (decode_failures_ == 1 || utils::ElapsedMs(last_keyframe_req_, now) >= 500)) {
-                on_keyframe_needed_();
-                last_keyframe_req_ = now;
-            }
-        }
-    }
-
     auto* result = video_.pop();
     ++pop_count_;
     if (pop_count_ % 60 == 0) {
@@ -140,9 +139,8 @@ void VideoReceiver::reset() {
         std::scoped_lock lk(mutex_);
         current_peer_.clear();
         reassembler_ = ChunkReassembler{};
-        pending_.reset();
     }
     video_.reset();
     decode_failures_ = 0;
-    measured_kbps_ = 0;
+    measured_kbps_.store(0, std::memory_order_relaxed);
 }
