@@ -359,8 +359,13 @@ void VoiceTransport::setup_audio_channel(const std::string& peer_id, std::shared
         }
     });
 
-    dc->onMessage([this, peer_id](auto msg) {
+    auto recv_count = std::make_shared<std::atomic<uint64_t>>(0);
+    dc->onMessage([this, peer_id, recv_count](auto msg) {
         if (auto* data = std::get_if<rtc::binary>(&msg)) {
+            const uint64_t n = ++(*recv_count);
+            if (n == 1 || n % 200 == 0) {
+                LOG_INFO() << "[audio-dc] rx#" << n << " peer=" << peer_id << " bytes=" << data->size();
+            }
             if (on_audio_) {
                 on_audio_(peer_id, reinterpret_cast<const uint8_t*>(data->data()), data->size());
             }

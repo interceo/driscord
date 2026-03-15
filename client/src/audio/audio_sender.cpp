@@ -34,6 +34,15 @@ bool AudioSender::start(PacketCallback on_packet) {
     config.dataCallback = [](ma_device* d, void* /*out*/, const void* in, ma_uint32 fc) {
         static_cast<AudioSender*>(d->pUserData)->on_capture(static_cast<const float*>(in), fc);
     };
+    config.notificationCallback = [](const ma_device_notification* n) {
+        auto* self = static_cast<AudioSender*>(n->pDevice->pUserData);
+        if (n->type == ma_device_notification_type_stopped && self->running_.load()) {
+            LOG_WARNING() << "AudioSender: capture device stopped unexpectedly, restarting";
+            ma_device_start(n->pDevice);
+        } else if (n->type == ma_device_notification_type_rerouted) {
+            LOG_INFO() << "AudioSender: capture device rerouted";
+        }
+    };
     config.pUserData = this;
     config.periodSizeInFrames = opus::kFrameSize;
 

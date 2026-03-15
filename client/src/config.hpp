@@ -19,8 +19,8 @@ struct Config {
     int capture_width = 1920;
     int capture_height = 1080;
     int video_bitrate_kbps = 8000;
-    int voice_jitter_ms = 500;
-    int screen_buffer_ms = 500;
+    int voice_jitter_ms = 200;
+    int screen_buffer_ms = 200;
     int max_sync_gap_ms = 2000;
 
     std::vector<TurnServer> turn_servers;

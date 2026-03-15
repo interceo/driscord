@@ -9,7 +9,6 @@ namespace opus {
 constexpr int kSampleRate = 48000;
 constexpr int kFrameSize = 960;  // 20ms @ 48kHz
 constexpr int kMaxPacket = 4000;
-
 }  // namespace opus
 
 struct OpusEncoder;

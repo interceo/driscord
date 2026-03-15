@@ -26,6 +26,9 @@ void AudioReceiver::push_packet(const uint8_t* data, size_t len) {
 
     const int samples = decoder_.decode(opus_data, opus_len, decode_buf_.data(), opus::kFrameSize);
     if (samples <= 0) {
+        LOG_ERROR()
+            << "[audio-recv/" << id_ << "] decode failed seq=" << ah.seq << " opus_len=" << opus_len
+            << " result=" << samples;
         return;
     }
 
@@ -52,10 +55,16 @@ void AudioReceiver::push_packet(const uint8_t* data, size_t len) {
     }
 
     ++push_count_;
-    if (push_count_ % 30 == 0) {
+    if (push_count_ == 1) {
+        LOG_INFO()
+            << "[audio-recv/" << id_ << "] first push seq=" << ah.seq << " sender_ts=" << utils::WallToMs(ah.sender_ts)
+            << " queue=" << jitter_.queue_size();
+    } else if (push_count_ % 30 == 0) {
+        const auto st = jitter_.stats();
         LOG_INFO()
             << "[audio-recv/" << id_ << "] push#" << push_count_ << " sender_ts=" << utils::WallToMs(ah.sender_ts)
-            << " age_ms=" << utils::WallElapsedMs(ah.sender_ts) << " queue=" << jitter_.queue_size();
+            << " age_ms=" << utils::WallElapsedMs(ah.sender_ts) << " queue=" << st.queue_size
+            << " drops=" << st.drop_count << " misses=" << st.miss_count;
     }
 }
 
