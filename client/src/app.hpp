@@ -3,6 +3,7 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -98,6 +99,10 @@ public:
     void set_stream_volume(float vol) { screen_session_.audio_receiver()->set_volume(vol); }
     float stream_volume() const { return screen_session_.audio_receiver()->volume(); }
 
+    void join_stream();
+    void leave_stream();
+    bool watching_stream() const { return watching_stream_.load(); }
+
     void start_sharing(const CaptureTarget& target, StreamQuality quality, int fps, bool share_audio = false);
     void stop_sharing();
     bool sharing() const { return sender_.sharing(); }
@@ -124,6 +129,7 @@ public:
         bool connected;
     };
     std::vector<PeerView> peers() const;
+    std::vector<std::string> streaming_peers() const;
 
 private:
     AudioReceiver* get_or_create_voice(const std::string& peer_id);
@@ -138,6 +144,8 @@ private:
     VoiceTransport transport_;
     VideoRenderer video_renderer_;
 
+    std::atomic<bool> watching_stream_{false};
+
     std::string last_rendered_peer_;
     int last_frame_w_ = 0;
     int last_frame_h_ = 0;
@@ -147,4 +155,7 @@ private:
 
     mutable std::mutex peer_vol_mutex_;
     std::unordered_map<std::string, float> peer_volumes_;
+
+    mutable std::mutex streaming_mutex_;
+    std::set<std::string> video_active_peers_;
 };

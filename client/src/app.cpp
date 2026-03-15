@@ -17,11 +17,19 @@ App::App(const Config& cfg) : config_(cfg) {
     });
 
     transport_.on_video_received([this](const std::string& peer_id, const uint8_t* data, size_t len) {
-        screen_session_.push_video_packet(peer_id, data, len);
+        {
+            std::scoped_lock lk(streaming_mutex_);
+            video_active_peers_.insert(peer_id);
+        }
+        if (watching_stream_.load(std::memory_order_relaxed)) {
+            screen_session_.push_video_packet(peer_id, data, len);
+        }
     });
 
     transport_.on_screen_audio_received([this](const std::string& /*peer_id*/, const uint8_t* data, size_t len) {
-        screen_session_.push_audio_packet(data, len);
+        if (watching_stream_.load(std::memory_order_relaxed)) {
+            screen_session_.push_audio_packet(data, len);
+        }
     });
 
     transport_.on_peer_joined([](const std::string& peer_id) { LOG_INFO() << "peer joined: " << peer_id; });
@@ -41,6 +49,10 @@ App::App(const Config& cfg) : config_(cfg) {
 
     transport_.on_peer_left([this](const std::string& peer_id) {
         LOG_INFO() << "peer left: " << peer_id;
+        {
+            std::scoped_lock lk(streaming_mutex_);
+            video_active_peers_.erase(peer_id);
+        }
         {
             std::scoped_lock lk(voice_mutex_);
             auto it = voice_receivers_.find(peer_id);
@@ -69,8 +81,6 @@ void App::update() {
     if (state_ == AppState::Connecting && transport_.connected()) {
         state_ = AppState::Connected;
         LOG_INFO() << "connected, id: " << transport_.local_id();
-
-        audio_mixer_.add_source(screen_session_.audio_receiver());
 
         const bool sender_ok = audio_sender_.start([this](const uint8_t* data, size_t len) {
             transport_.send_audio(data, len);
@@ -111,10 +121,41 @@ void App::connect(const std::string& server_url) {
     transport_.connect(server_url);
 }
 
+void App::join_stream() {
+    if (!watching_stream_.load()) {
+        // Flush any stale backlog accumulated while not watching so peek_next()
+        // doesn't scan behind the current live data and return nullopt.
+        screen_session_.audio_receiver()->reset();
+        watching_stream_.store(true);
+        audio_mixer_.add_source(screen_session_.audio_receiver());
+    }
+}
+
+void App::leave_stream() {
+    if (watching_stream_.load()) {
+        watching_stream_.store(false);
+        audio_mixer_.remove_source(screen_session_.audio_receiver());
+
+        // Clear the stale video frame from the renderer immediately.
+        std::string peer = screen_session_.active_peer();
+        if (!peer.empty()) {
+            video_renderer_.remove_peer(peer);
+            if (last_rendered_peer_ == peer) {
+                last_rendered_peer_.clear();
+            }
+        }
+    }
+}
+
 void App::disconnect() {
     stop_sharing();
     audio_sender_.stop();
     audio_mixer_.stop();
+    watching_stream_.store(false);
+    {
+        std::scoped_lock lk(streaming_mutex_);
+        video_active_peers_.clear();
+    }
     transport_.disconnect();
     state_ = AppState::Disconnected;
     {
@@ -186,10 +227,6 @@ void App::start_sharing(const CaptureTarget& target, StreamQuality quality, int 
     }
 
     clear_preview();
-
-    if (sender_.sharing_audio()) {
-        audio_mixer_.remove_source(screen_session_.audio_receiver());
-    }
 }
 
 void App::stop_sharing() {
@@ -197,13 +234,7 @@ void App::stop_sharing() {
         return;
     }
 
-    const bool was_sharing_audio = sender_.sharing_audio();
     sender_.stop();
-
-    if (was_sharing_audio) {
-        audio_mixer_.add_source(screen_session_.audio_receiver());
-    }
-
     screen_session_.reset();
 }
 
@@ -224,6 +255,11 @@ void App::update_preview(const CaptureTarget& target) {
 }
 
 void App::clear_preview() { video_renderer_.remove_peer(kPreviewPeerId); }
+
+std::vector<std::string> App::streaming_peers() const {
+    std::scoped_lock lk(streaming_mutex_);
+    return {video_active_peers_.begin(), video_active_peers_.end()};
+}
 
 std::vector<App::PeerView> App::peers() const {
     std::vector<PeerView> result;
