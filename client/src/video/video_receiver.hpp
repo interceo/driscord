@@ -4,10 +4,10 @@
 #include "utils/video_codec.hpp"
 #include "video_jitter.hpp"
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <mutex>
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -27,7 +27,7 @@ public:
 
     std::string active_peer() const;
     bool active() const;
-    int measured_kbps() const { return measured_kbps_; }
+    int measured_kbps() const { return measured_kbps_.load(std::memory_order_relaxed); }
 
     VideoJitter::Stats video_stats() const { return video_.stats(); }
 
@@ -41,24 +41,17 @@ private:
         std::vector<uint8_t> buf;
     };
 
-    struct PendingFrame {
-        std::vector<uint8_t> data;
-        uint32_t kbps = 0;
-        utils::WallTimestamp ts{};
-    };
-
     VideoJitter video_;
 
     mutable std::mutex mutex_;
     std::string current_peer_;
     utils::Timestamp last_packet_{};
     ChunkReassembler reassembler_;
-    std::optional<PendingFrame> pending_;
 
     VideoDecoder decoder_;
     int decode_failures_ = 0;
     utils::Timestamp last_keyframe_req_{};
-    int measured_kbps_ = 0;
+    std::atomic<int> measured_kbps_{0};
 
     std::function<void()> on_keyframe_needed_;
 
