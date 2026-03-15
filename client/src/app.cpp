@@ -218,12 +218,10 @@ StreamStats App::stream_stats(const std::string& /*peer_id*/) const {
 
     const auto js = receiver_.jitter()->stats();
     s.jitter = {
-        .video_primed = js.video.primed,
         .video_queue = static_cast<int>(js.video.queue_size),
         .video_buf_ms = static_cast<int>(js.video.buffered_ms),
         .video_drops = js.video.drop_count,
         .video_misses = js.video.miss_count,
-        .audio_primed = js.audio.primed,
         .audio_queue = static_cast<int>(js.audio.queue_size),
         .audio_buf_ms = static_cast<int>(js.audio.buffered_ms),
         .audio_drops = js.audio.drop_count,

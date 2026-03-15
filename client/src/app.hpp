@@ -67,13 +67,11 @@ struct StreamStats {
     int measured_kbps = 0;
 
     struct JitterStats {
-        bool video_primed = false;
         int video_queue = 0;
         int video_buf_ms = 0;
         uint64_t video_drops = 0;
         uint64_t video_misses = 0;
 
-        bool audio_primed = false;
         int audio_queue = 0;
         int audio_buf_ms = 0;
         uint64_t audio_drops = 0;

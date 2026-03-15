@@ -55,6 +55,7 @@ private:
         std::vector<uint8_t> data;
         uint32_t kbps = 0;
         utils::WallTimestamp ts{};
+        uint32_t duration_us = 0;
     };
 
     ScreenJitter jitter_;

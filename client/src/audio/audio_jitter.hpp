@@ -4,57 +4,50 @@
 #include "utils/opus_codec.hpp"
 #include "utils/time.hpp"
 
-#include <array>
+#include <chrono>
 #include <cstring>
+#include <vector>
 
 inline constexpr uint32_t kDefaultJitterMs = 80;
 
-// Duration of one Opus frame in milliseconds (20ms @ 48kHz).
-inline constexpr int kPcmFrameMs = opus::kFrameSize * 1000 / opus::kSampleRate;
-
 struct PcmFrame {
-    std::array<float, opus::kFrameSize> samples{};
+    std::vector<float> samples;
 };
 
 // Audio jitter buffer.
-//
-// Sequences packets by seq number. Timestamp is stored for A/V sync only
-// (exposed via current_playback_ts / re_anchor).
 //
 // push() — network/decode thread.
 // pop()  — audio callback thread.
 class AudioJitter {
 public:
-    explicit AudioJitter(size_t target_delay_ms = kDefaultJitterMs, int /*sample_rate*/ = opus::kSampleRate)
-        : buf_(static_cast<int>(target_delay_ms), kPcmFrameMs) {}
+    explicit AudioJitter(size_t target_delay_ms = kDefaultJitterMs, int sample_rate = opus::kSampleRate)
+        : buf_(static_cast<int>(target_delay_ms)), sample_rate_(sample_rate) {}
 
     void push(const float* mono_pcm, size_t frames, uint64_t seq, utils::WallTimestamp sender_ts = {}) {
-        PcmFrame f;
         const size_t n = std::min(frames, static_cast<size_t>(opus::kFrameSize));
-        std::memcpy(f.samples.data(), mono_pcm, n * sizeof(float));
+
+        auto duration_us = static_cast<int64_t>(n) * 1'000'000 / sample_rate_;
+        buf_.set_packet_duration(std::chrono::microseconds(duration_us));
+
+        PcmFrame f;
+        f.samples.assign(mono_pcm, mono_pcm + n);
         buf_.push(seq, std::move(f), sender_ts);
     }
 
-    // Copies the next frame into out[0..frames). Returns number of valid
-    // samples written (0 = not primed or packet missing → silence already set).
+    // Writes up to `frames` samples into out.
+    // Returns number of valid samples written (0 = no data, out zeroed).
     size_t pop(float* out, size_t frames) {
+        std::memset(out, 0, frames * sizeof(float));
         auto pkt = buf_.pop();
-        if (!pkt) {
-            std::memset(out, 0, frames * sizeof(float));
+        if (!pkt || pkt->data.samples.empty()) {
             return 0;
         }
-        const size_t n = std::min(frames, static_cast<size_t>(opus::kFrameSize));
+        const size_t n = std::min(frames, pkt->data.samples.size());
         std::memcpy(out, pkt->data.samples.data(), n * sizeof(float));
-        if (n < frames) {
-            std::memset(out + n, 0, (frames - n) * sizeof(float));
-        }
         return n;
     }
 
-    bool primed() const { return buf_.primed(); }
     size_t buffered_ms() const { return buf_.buffered_ms(); }
-    utils::WallTimestamp current_playback_ts() const { return buf_.current_playback_ts(); }
-    void re_anchor(utils::WallTimestamp ts) { buf_.re_anchor(ts); }
     void reset() { buf_.reset(); }
 
     using Stats = JitterBuffer<PcmFrame>::Stats;
@@ -62,4 +55,5 @@ public:
 
 private:
     JitterBuffer<PcmFrame> buf_;
+    int sample_rate_;
 };

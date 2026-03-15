@@ -812,10 +812,10 @@ void UIRenderer::render_stream_osd(
         "V: q=%d buf=%dms%s  A: q=%d buf=%dms%s",
         j.video_queue,
         j.video_buf_ms,
-        j.video_primed ? "" : " [wait]",
+        j.video_queue == 0 ? " [wait]" : "",
         j.audio_queue,
         j.audio_buf_ms,
-        j.audio_misses > 0 ? " [miss]" : (j.audio_primed ? "" : " [wait]")
+        j.audio_misses > 0 ? " [miss]" : (j.audio_queue == 0 ? " [wait]" : "")
     );
 
     const float line_h = ImGui::GetTextLineHeight();
@@ -834,7 +834,7 @@ void UIRenderer::render_stream_osd(
 
     draw->AddText(p1, IM_COL32(220, 220, 220, 255), line1);
 
-    const bool warn = j.audio_misses > 0 || j.video_misses > 0 || !j.video_primed || !j.audio_primed;
+    const bool warn = j.audio_misses > 0 || j.video_misses > 0 || j.video_queue == 0 || j.audio_queue == 0;
     const ImU32 col2 = warn ? IM_COL32(255, 200, 60, 255) : IM_COL32(160, 200, 160, 255);
     draw->AddText(p2, col2, line2);
 }
