@@ -25,6 +25,7 @@ public:
     // --- Audio: push from network thread, pop from audio callback (SPSC safe) ---
 
     void push_audio(const float* mono, size_t frames, uint16_t seq, uint32_t sender_ts) {
+        ++audio_push_count_;
         audio_.push(mono, frames, seq, sender_ts);
     }
 
@@ -35,6 +36,13 @@ public:
             for (size_t i = 0; i < frames; ++i) {
                 out[i] *= vol;
             }
+        }
+        ++audio_pop_count_;
+        if (audio_pop_count_ % 500 == 0) {
+            LOG_INFO()
+                << "[stream-jitter-audio] pop=" << audio_pop_count_ << " push=" << audio_push_count_ << " got=" << got
+                << "/" << frames << " buffered=" << audio_.buffered_ms() << "ms"
+                << " playback_ts=" << audio_.current_playback_ts();
         }
         return got;
     }
@@ -65,6 +73,16 @@ public:
         uint32_t audio_ts = audio_.current_playback_ts();
         bool has_clock = (audio_ts > 0);
 
+        ++video_pop_count_;
+        if (video_pop_count_ % 60 == 0) {
+            LOG_INFO()
+                << "[stream-jitter-sync] video_pop=" << video_pop_count_ << " primed=" << video_primed_
+                << " has_clock=" << has_clock << " audio_ts=" << audio_ts << " queue=" << video_queue_.size()
+                << " front_ts=" << video_queue_.front().sender_ts << " back_ts=" << video_queue_.back().sender_ts
+                << " audio_buf=" << audio_.buffered_ms() << "ms"
+                << " audio_push=" << audio_push_count_;
+        }
+
         if (!video_primed_) {
             if (!has_clock) {
                 current_ = std::move(video_queue_.back());
@@ -81,6 +99,7 @@ public:
         }
 
         if (!has_clock) {
+            LOG_INFO() << "[stream-jitter] clock lost after priming! audio_ts=0 queue=" << video_queue_.size();
             current_ = std::move(video_queue_.back());
             has_current_ = true;
             video_queue_.clear();
@@ -95,7 +114,8 @@ public:
             has_current_ = true;
             LOG_INFO()
                 << "[stream-jitter] RESYNC: gap=" << gap << "ms, force display ts=" << current_.sender_ts
-                << " queue=" << video_queue_.size();
+                << " audio_ts=" << audio_ts << " front_ts=" << front_ts << " queue=" << video_queue_.size()
+                << " audio_buf=" << audio_.buffered_ms() << "ms";
             audio_.re_anchor(current_.sender_ts);
             video_queue_.clear();
             return &current_;
@@ -152,4 +172,8 @@ private:
     bool has_current_ = false;
 
     std::atomic<float> volume_{1.0f};
+
+    uint64_t audio_push_count_ = 0;
+    uint64_t audio_pop_count_ = 0;
+    uint64_t video_pop_count_ = 0;
 };
