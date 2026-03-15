@@ -104,7 +104,7 @@ bool SystemAudioCapture::available() {
     int error = 0;
     pa_sample_spec spec{};
     spec.format = PA_SAMPLE_FLOAT32LE;
-    spec.rate = 48000;
+    spec.rate = opus::kSampleRate;
     spec.channels = 2;
 
     pa_buffer_attr attr{};

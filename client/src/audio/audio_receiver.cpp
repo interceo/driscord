@@ -8,7 +8,7 @@
 
 #include "log.hpp"
 #include "utils/opus_codec.hpp"
-#include "video/stream_jitter.hpp"
+#include "video/stream_jitter.hpp"  // ScreenJitter
 
 using namespace utils;
 
@@ -84,8 +84,7 @@ void AudioReceiver::stop() {
     LOG_INFO() << "AudioReceiver: stopped";
 }
 
-void AudioReceiver::feed_packet(const std::string& peer_id, const uint8_t* data, size_t len,
-                                float peer_volume) {
+void AudioReceiver::feed_packet(const std::string& peer_id, const uint8_t* data, size_t len, float peer_volume) {
     if (!running_ || !decoder_) {
         return;
     }

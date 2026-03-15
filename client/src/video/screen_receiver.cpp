@@ -122,7 +122,7 @@ void ScreenReceiver::push_audio_packet(const uint8_t* data, size_t len) {
     }
 }
 
-const ScreenStreamJitter::VideoFrame* ScreenReceiver::update() {
+const ScreenJitter::VideoFrame* ScreenReceiver::update() {
     std::optional<PendingFrame> frame;
     {
         std::scoped_lock lk(mutex_);

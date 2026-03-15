@@ -580,27 +580,7 @@ void UIRenderer::render_video_panel(App& app) {
                         ImGui::OpenPopup("##StreamVolPopup");
                     }
 
-                    auto stats = app.stream_stats(t.peer_id);
-                    if (stats.width > 0) {
-                        char osd[128];
-                        std::snprintf(
-                            osd,
-                            sizeof(osd),
-                            "%dx%d  H.264  %d kbps",
-                            stats.width,
-                            stats.height,
-                            stats.measured_kbps
-                        );
-                        ImVec2 text_sz = ImGui::CalcTextSize(osd);
-                        ImVec2 osd_pos = {img_pos.x + 8, img_pos.y + 6};
-                        draw->AddRectFilled(
-                            {osd_pos.x - 3, osd_pos.y - 2},
-                            {osd_pos.x + text_sz.x + 5, osd_pos.y + text_sz.y + 3},
-                            IM_COL32(0, 0, 0, 190),
-                            4.0f
-                        );
-                        draw->AddText(osd_pos, IM_COL32(220, 220, 220, 255), osd);
-                    }
+                    render_stream_osd(app, t.peer_id, draw, img_pos, fw);
 
                     char fs_label[128];
                     std::snprintf(fs_label, sizeof(fs_label), "%s  LIVE", t.label.c_str());
@@ -692,27 +672,7 @@ void UIRenderer::render_video_panel(App& app) {
                     ImGui::OpenPopup("##StreamVolPopup");
                 }
 
-                auto stats = app.stream_stats(t.peer_id);
-                if (stats.width > 0) {
-                    char osd[128];
-                    std::snprintf(
-                        osd,
-                        sizeof(osd),
-                        "%dx%d  H.264  %d kbps",
-                        stats.width,
-                        stats.height,
-                        stats.measured_kbps
-                    );
-                    ImVec2 text_sz = ImGui::CalcTextSize(osd);
-                    ImVec2 osd_pos = {img_pos.x + 4, img_pos.y + 3};
-                    draw->AddRectFilled(
-                        {osd_pos.x - 2, osd_pos.y - 1},
-                        {osd_pos.x + text_sz.x + 4, osd_pos.y + text_sz.y + 2},
-                        IM_COL32(0, 0, 0, 180),
-                        3.0f
-                    );
-                    draw->AddText(osd_pos, IM_COL32(220, 220, 220, 255), osd);
-                }
+                render_stream_osd(app, t.peer_id, draw, img_pos, tile_w);
 
                 const char* live = "LIVE";
                 ImVec2 lsz = ImGui::CalcTextSize(live);
@@ -821,6 +781,62 @@ void UIRenderer::render_user_popup(App& app) {
 
         ImGui::EndPopup();
     }
+}
+
+void UIRenderer::render_stream_osd(
+    App& app,
+    const std::string& peer_id,
+    ImDrawList* draw,
+    ImVec2 img_pos,
+    float /*img_w*/
+) {
+    constexpr int64_t kRefreshMs = 500;
+    if (utils::ElapsedMs(stats_last_update_) >= kRefreshMs) {
+        stats_cache_ = app.stream_stats(peer_id);
+        stats_last_update_ = utils::Now();
+    }
+
+    const auto& s = stats_cache_;
+    if (s.width == 0) {
+        return;
+    }
+
+    char line1[128];
+    std::snprintf(line1, sizeof(line1), "%dx%d  H.264  %d kbps", s.width, s.height, s.measured_kbps);
+
+    const auto& j = s.jitter;
+    char line2[512];
+    std::snprintf(
+        line2,
+        sizeof(line2),
+        "V: q=%d buf=%dms%s  A: q=%d buf=%dms%s",
+        j.video_queue,
+        j.video_buf_ms,
+        j.video_primed ? "" : " [wait]",
+        j.audio_queue,
+        j.audio_buf_ms,
+        j.audio_misses > 0 ? " [miss]" : (j.audio_primed ? "" : " [wait]")
+    );
+
+    const float line_h = ImGui::GetTextLineHeight();
+    const float pad_x = 5.0f, pad_y = 3.0f, gap = 2.0f;
+    const float w1 = ImGui::CalcTextSize(line1).x;
+    const float w2 = ImGui::CalcTextSize(line2).x;
+    const float box_w = std::max(w1, w2) + pad_x * 2;
+    const float box_h = line_h * 2 + gap + pad_y * 2;
+
+    const ImVec2 box_min = {img_pos.x + 6, img_pos.y + 6};
+    const ImVec2 box_max = {box_min.x + box_w, box_min.y + box_h};
+    draw->AddRectFilled(box_min, box_max, IM_COL32(0, 0, 0, 185), 4.0f);
+
+    const ImVec2 p1 = {box_min.x + pad_x, box_min.y + pad_y};
+    const ImVec2 p2 = {p1.x, p1.y + line_h + gap};
+
+    draw->AddText(p1, IM_COL32(220, 220, 220, 255), line1);
+
+    const bool warn = j.audio_misses > 0 || j.video_misses > 0 || !j.video_primed || !j.audio_primed;
+    const ImU32 col2 = warn ? IM_COL32(255, 200, 60, 255) : IM_COL32(160, 200, 160, 255);
+    draw->AddText(p2, col2, line2);
 }
 
 void UIRenderer::render_level_bar(const char* label, float level, unsigned int color) {

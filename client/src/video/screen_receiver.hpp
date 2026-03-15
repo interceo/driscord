@@ -24,11 +24,12 @@ public:
     void push_video_packet(const std::string& peer_id, const uint8_t* data, size_t len);
     void push_audio_packet(const uint8_t* data, size_t len);
 
-    const ScreenStreamJitter::VideoFrame* update();
+    const ScreenJitter::VideoFrame* update();
 
     void set_keyframe_callback(std::function<void()> fn);
 
-    ScreenStreamJitter* jitter() { return &jitter_; }
+    ScreenJitter* jitter() { return &jitter_; }
+    const ScreenJitter* jitter() const { return &jitter_; }
 
     std::string active_peer() const;
     bool active() const;
@@ -56,7 +57,7 @@ private:
         utils::WallTimestamp ts{};
     };
 
-    ScreenStreamJitter jitter_;
+    ScreenJitter jitter_;
 
     mutable std::mutex mutex_;
     std::string current_peer_;

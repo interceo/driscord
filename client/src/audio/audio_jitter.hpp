@@ -1,260 +1,65 @@
 #pragma once
 
-#include "log.hpp"
+#include "utils/jitter.hpp"
 #include "utils/opus_codec.hpp"
-#include "utils/ring_buffer.hpp"
 #include "utils/time.hpp"
 
-#include <algorithm>
-#include <atomic>
-#include <cstddef>
-#include <cstdint>
+#include <array>
 #include <cstring>
 
 inline constexpr uint32_t kDefaultJitterMs = 80;
 
+// Duration of one Opus frame in milliseconds (20ms @ 48kHz).
+inline constexpr int kPcmFrameMs = opus::kFrameSize * 1000 / opus::kSampleRate;
+
+struct PcmFrame {
+    std::array<float, opus::kFrameSize> samples{};
+};
+
+// Audio jitter buffer.
+//
+// Sequences packets by seq number. Timestamp is stored for A/V sync only
+// (exposed via current_playback_ts / re_anchor).
+//
+// push() — network/decode thread.
+// pop()  — audio callback thread.
 class AudioJitter {
 public:
-    explicit AudioJitter(size_t target_delay_ms = kDefaultJitterMs, int sample_rate = opus::kSampleRate)
-        : ring_(sample_rate * kMaxBufferSeconds),
-          target_samples_(target_delay_ms * sample_rate / 1000),
-          sample_rate_(sample_rate) {}
+    explicit AudioJitter(size_t target_delay_ms = kDefaultJitterMs, int /*sample_rate*/ = opus::kSampleRate)
+        : buf_(static_cast<int>(target_delay_ms), kPcmFrameMs) {}
 
     void push(const float* mono_pcm, size_t frames, uint64_t seq, utils::WallTimestamp sender_ts = {}) {
-        if (!seq_initialized_) {
-            play_seq_ = seq;
-            seq_initialized_ = true;
-            LOG_INFO() << "[audio-jitter] init play_seq=" << seq << " sender_ts=" << utils::WallToMs(sender_ts);
-        }
-
-        int64_t age = static_cast<int64_t>(seq - play_seq_);
-        if (age < 0) {
-            ++push_drop_old_;
-            return;
-        }
-        if (static_cast<uint64_t>(age) >= kSlots) {
-            ++push_drop_far_;
-            return;
-        }
-
-        auto& slot = slots_[seq % kSlots];
-        size_t n = std::min(frames, static_cast<size_t>(opus::kFrameSize));
-        std::memcpy(slot.pcm, mono_pcm, n * sizeof(float));
-        slot.frames = n;
-        slot.sender_ts = sender_ts;
-        slot.filled = true;
-        ++push_count_;
-
-        flush_ready();
+        PcmFrame f;
+        const size_t n = std::min(frames, static_cast<size_t>(opus::kFrameSize));
+        std::memcpy(f.samples.data(), mono_pcm, n * sizeof(float));
+        buf_.push(seq, std::move(f), sender_ts);
     }
 
+    // Copies the next frame into out[0..frames). Returns number of valid
+    // samples written (0 = not primed or packet missing → silence already set).
     size_t pop(float* out, size_t frames) {
-        ++pop_count_;
-        if (!primed_) {
-            size_t avail = ring_.available_read();
-            if (avail < target_samples_) {
-                if (pop_count_ % 200 == 0) {
-                    LOG_INFO()
-                        << "[audio-jitter] not primed: avail=" << avail << " target=" << target_samples_
-                        << " push=" << push_count_ << " drop_old=" << push_drop_old_ << " drop_far=" << push_drop_far_;
-                }
-                std::memset(out, 0, frames * sizeof(float));
-                return 0;
-            }
-            primed_ = true;
-            LOG_INFO()
-                << "[audio-jitter] PRIMED: avail=" << avail << " target=" << target_samples_
-                << " push_count=" << push_count_;
-
-            const uint64_t latest_ms = latest_sender_ts_.load(std::memory_order_relaxed);
-            if (latest_ms != 0) {
-                uint64_t buf_samples = ring_.available_read();
-                uint64_t buf_ms = buf_samples * 1000 / sample_rate_;
-                playback_base_ts_.store(latest_ms - buf_ms, std::memory_order_relaxed);
-                playback_samples_.store(0, std::memory_order_relaxed);
-                playback_local_ts_.store(utils::SinceEpochMs(), std::memory_order_relaxed);
-                LOG_INFO()
-                    << "[audio-jitter] anchor base_ts=" << (latest_ms - buf_ms) << " latest_sender=" << latest_ms
-                    << " buf_ms=" << buf_ms;
-            } else {
-                LOG_INFO() << "[audio-jitter] PRIMED but latest_sender_ts=0!";
-            }
+        auto pkt = buf_.pop();
+        if (!pkt) {
+            std::memset(out, 0, frames * sizeof(float));
+            return 0;
         }
-
-        size_t buffered = ring_.available_read();
-        if (buffered > target_samples_ * 2) {
-            size_t to_discard = buffered - target_samples_;
-            discard(to_discard);
-            playback_samples_.fetch_add(to_discard, std::memory_order_relaxed);
+        const size_t n = std::min(frames, static_cast<size_t>(opus::kFrameSize));
+        std::memcpy(out, pkt->data.samples.data(), n * sizeof(float));
+        if (n < frames) {
+            std::memset(out + n, 0, (frames - n) * sizeof(float));
         }
-
-        size_t got = ring_.read(out, frames);
-        if (got < frames) {
-            std::memset(out + got, 0, (frames - got) * sizeof(float));
-        }
-
-        if (got > 0) {
-            if (underrun_) {
-                underrun_ = false;
-                LOG_INFO()
-                    << "[audio-jitter] underrun ended, ring=" << ring_.available_read() << " push=" << push_count_;
-            }
-            if (playback_base_ts_.load(std::memory_order_relaxed) != 0) {
-                playback_samples_.fetch_add(got, std::memory_order_relaxed);
-                playback_local_ts_.store(utils::SinceEpochMs(), std::memory_order_relaxed);
-            }
-        } else if (primed_) {
-            // Freeze the clock during underrun — don't let interpolation
-            // advance playback_ts when no actual audio is being played.
-            playback_local_ts_.store(utils::SinceEpochMs(), std::memory_order_relaxed);
-            if (!underrun_) {
-                underrun_ = true;
-                LOG_INFO()
-                    << "[audio-jitter] UNDERRUN: ring=0"
-                    << " push=" << push_count_ << " cur_ts=" << utils::WallToMs(current_playback_ts());
-            }
-        }
-
-        if (pop_count_ % 500 == 0 && primed_) {
-            LOG_INFO()
-                << "[audio-jitter] pop#" << pop_count_ << " got=" << got << "/" << frames << " ring="
-                << ring_.available_read() << " base_ts=" << playback_base_ts_.load(std::memory_order_relaxed)
-                << " cur_ts=" << utils::WallToMs(current_playback_ts()) << " underrun=" << underrun_;
-        }
-
-        return got;
+        return n;
     }
 
-    // Returns estimated wall-clock position of the current playback head.
-    // Returns WallTimestamp{} (epoch) when playback clock is not yet anchored.
-    utils::WallTimestamp current_playback_ts() const {
-        const uint64_t base = playback_base_ts_.load(std::memory_order_relaxed);
-        if (base == 0) {
-            return {};
-        }
-        const uint64_t samples = playback_samples_.load(std::memory_order_relaxed);
-        const uint64_t samples_ms = samples * 1000 / sample_rate_;
-        const uint64_t interp = utils::SinceEpochMs() - playback_local_ts_.load(std::memory_order_relaxed);
-        return utils::WallFromMs(base + samples_ms + interp);
-    }
+    bool primed() const { return buf_.primed(); }
+    size_t buffered_ms() const { return buf_.buffered_ms(); }
+    utils::WallTimestamp current_playback_ts() const { return buf_.current_playback_ts(); }
+    void re_anchor(utils::WallTimestamp ts) { buf_.re_anchor(ts); }
+    void reset() { buf_.reset(); }
 
-    void re_anchor(utils::WallTimestamp target_ts) {
-        const uint64_t buf_samples = ring_.available_read();
-        const uint64_t buf_ms = buf_samples * 1000 / sample_rate_;
-        playback_base_ts_.store(utils::WallToMs(target_ts) - buf_ms, std::memory_order_relaxed);
-        playback_samples_.store(0, std::memory_order_relaxed);
-        playback_local_ts_.store(utils::SinceEpochMs(), std::memory_order_relaxed);
-    }
-
-    void reset() {
-        ring_.clear();
-        for (auto& s : slots_) {
-            s.filled = false;
-        }
-        seq_initialized_ = false;
-        play_seq_ = 0;
-        last_flush_ms_ = 0;
-        primed_ = false;
-        underrun_ = false;
-        latest_sender_ts_.store(0, std::memory_order_relaxed);
-        playback_base_ts_.store(0, std::memory_order_relaxed);
-        playback_samples_.store(0, std::memory_order_relaxed);
-        playback_local_ts_.store(0, std::memory_order_relaxed);
-    }
-
-    size_t buffered_ms() const { return ring_.available_read() * 1000 / sample_rate_; }
+    using Stats = JitterBuffer<PcmFrame>::Stats;
+    Stats stats() const { return buf_.stats(); }
 
 private:
-    void flush_ready() {
-        const uint64_t now = utils::SinceEpochMs();
-
-        while (true) {
-            auto& slot = slots_[play_seq_ % kSlots];
-            if (slot.filled) {
-                ring_.write(slot.pcm, slot.frames);
-                if (slot.sender_ts != utils::WallTimestamp{}) {
-                    latest_sender_ts_.store(utils::WallToMs(slot.sender_ts), std::memory_order_relaxed);
-                }
-                slot.filled = false;
-                ++play_seq_;
-                last_flush_ms_ = now;
-            } else {
-                if (last_flush_ms_ != 0 && (now - last_flush_ms_) > kMaxWaitMs) {
-                    // Skip all contiguous empty slots up to the next filled one
-                    // (or kSlots limit). Avoids O(N) push calls to catch up
-                    // after a long gap.
-                    uint64_t skipped = 0;
-                    while (skipped < kSlots) {
-                        auto& s = slots_[play_seq_ % kSlots];
-                        if (s.filled) {
-                            break;
-                        }
-                        ++play_seq_;
-                        ++skipped;
-                    }
-                    if (skipped > 0) {
-                        fill_silence(opus::kFrameSize * skipped);
-                        last_flush_ms_ = now;
-                        LOG_INFO() << "[audio-jitter] skipped " << skipped << " empty slots";
-                    }
-                    continue;
-                }
-                break;
-            }
-        }
-    }
-
-    void fill_silence(size_t samples) {
-        constexpr size_t kChunk = 256;
-        float zeros[kChunk]{};
-        while (samples > 0) {
-            size_t n = std::min(samples, kChunk);
-            ring_.write(zeros, n);
-            samples -= n;
-        }
-    }
-
-    void discard(size_t samples) {
-        constexpr size_t kChunk = 256;
-        float trash[kChunk];
-        while (samples > 0) {
-            size_t n = std::min(samples, kChunk);
-            ring_.read(trash, n);
-            samples -= n;
-        }
-    }
-
-    static constexpr int kMaxBufferSeconds = 1;
-    static constexpr size_t kSlots = 32;
-    static constexpr uint64_t kMaxWaitMs = 60;
-
-    struct Slot {
-        float pcm[opus::kFrameSize]{};
-        size_t frames = 0;
-        utils::WallTimestamp sender_ts{};
-        bool filled = false;
-    };
-
-    Slot slots_[kSlots]{};
-    uint64_t play_seq_ = 0;
-    bool seq_initialized_ = false;
-    uint64_t last_flush_ms_ = 0;
-
-    RingBuffer<float> ring_;
-    size_t target_samples_;
-    int sample_rate_;
-    bool primed_ = false;
-    bool underrun_ = false;
-
-    uint64_t push_count_ = 0;
-    uint64_t push_drop_old_ = 0;
-    uint64_t push_drop_far_ = 0;
-    uint64_t pop_count_ = 0;
-
-    // Internal atomic storage for timestamps uses uint64_t ms (WallTimestamp
-    // is not lock-free atomically). Convert at boundaries via WallToMs/WallFromMs.
-    std::atomic<uint64_t> latest_sender_ts_{0};
-    std::atomic<uint64_t> playback_base_ts_{0};
-    std::atomic<uint64_t> playback_samples_{0};
-    std::atomic<uint64_t> playback_local_ts_{0};
+    JitterBuffer<PcmFrame> buf_;
 };

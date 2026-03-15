@@ -80,6 +80,8 @@ void App::update() {
             if (!last_rendered_peer_.empty() && last_rendered_peer_ != peer) {
                 video_renderer_.remove_peer(last_rendered_peer_);
             }
+            last_frame_w_ = frame->width;
+            last_frame_h_ = frame->height;
             video_renderer_.update_frame(peer, frame->rgba.data(), frame->width, frame->height);
             last_rendered_peer_ = peer;
         }
@@ -210,8 +212,22 @@ std::vector<App::PeerView> App::peers() const {
 
 StreamStats App::stream_stats(const std::string& /*peer_id*/) const {
     StreamStats s;
-    s.width = receiver_.width();
-    s.height = receiver_.height();
+    s.width = last_frame_w_;
+    s.height = last_frame_h_;
     s.measured_kbps = receiver_.measured_kbps();
+
+    const auto js = receiver_.jitter()->stats();
+    s.jitter = {
+        .video_primed = js.video.primed,
+        .video_queue = static_cast<int>(js.video.queue_size),
+        .video_buf_ms = static_cast<int>(js.video.buffered_ms),
+        .video_drops = js.video.drop_count,
+        .video_misses = js.video.miss_count,
+        .audio_primed = js.audio.primed,
+        .audio_queue = static_cast<int>(js.audio.queue_size),
+        .audio_buf_ms = static_cast<int>(js.audio.buffered_ms),
+        .audio_drops = js.audio.drop_count,
+        .audio_misses = js.audio.miss_count,
+    };
     return s;
 }

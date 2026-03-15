@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "app.hpp"
+#include "utils/time.hpp"
 #include "video/capture/screen_capture.hpp"
 
 struct Config;
@@ -34,6 +35,9 @@ private:
     std::string stream_popup_peer_;
     float stream_popup_vol_ = 1.0f;
 
+    StreamStats stats_cache_;
+    utils::Timestamp stats_last_update_{};
+
     void render_sidebar(App& app);
     void render_sidebar_bottom(App& app);
     void render_content(App& app);
@@ -42,4 +46,5 @@ private:
     void render_user_popup(App& app);
     void render_stream_volume_popup(App& app);
     void render_level_bar(const char* label, float level, unsigned int color);
+    void render_stream_osd(App& app, const std::string& peer_id, struct ImDrawList* draw, ImVec2 img_pos, float img_w);
 };
