@@ -162,7 +162,8 @@ add_executable(driscord_client
     src/voice_transport.cpp
     src/ui.cpp
     src/config.cpp
-    src/video/video_codec.cpp
+    src/utils/video_codec.cpp
+    src/utils/opus_codec.cpp
     ${CAPTURE_SOURCES}
     ${SYSTEM_AUDIO_SOURCES}
     src/video_renderer.cpp

@@ -23,11 +23,11 @@ public:
 
         pa_sample_spec spec{};
         spec.format = PA_SAMPLE_FLOAT32LE;
-        spec.rate = SAMPLE_RATE;
-        spec.channels = CHANNELS;
+        spec.rate = opus::kSampleRate;
+        spec.channels = kChannels;
 
         constexpr uint32_t kFragFrames = 48;  // 20ms @ 48kHz
-        constexpr uint32_t kFragBytes = kFragFrames * CHANNELS * sizeof(float);
+        constexpr uint32_t kFragBytes = kFragFrames * kChannels * sizeof(float);
 
         pa_buffer_attr attr{};
         attr.maxlength = kFragBytes * 4;
@@ -76,8 +76,8 @@ public:
 
 private:
     void capture_loop() {
-        constexpr size_t kFramesPerRead = 960;  // 20ms at 48kHz
-        constexpr size_t kBufSize = kFramesPerRead * CHANNELS;
+        constexpr size_t kFramesPerRead = opus::kFrameSize;
+        constexpr size_t kBufSize = kFramesPerRead * kChannels;
         float buf[kBufSize];
 
         while (running_) {
@@ -89,7 +89,7 @@ private:
             }
 
             if (callback_) {
-                callback_(buf, kFramesPerRead, CHANNELS);
+                callback_(buf, kFramesPerRead, kChannels);
             }
         }
     }

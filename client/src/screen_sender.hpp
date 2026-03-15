@@ -1,7 +1,9 @@
 #pragma once
 
+#include "utils/opus_codec.hpp"
+#include "utils/protocol.hpp"
+#include "utils/video_codec.hpp"
 #include "video/screen_capture.hpp"
-#include "video/video_codec.hpp"
 
 #include <atomic>
 #include <condition_variable>
@@ -47,6 +49,8 @@ private:
     void encode_loop();
     void on_audio_captured(const float* samples, size_t frames, int channels);
 
+    static constexpr int kScreenAudioChannels = 2;
+
     std::atomic<bool> sharing_{false};
     std::atomic<bool> sharing_audio_{false};
 
@@ -68,8 +72,11 @@ private:
     uint16_t send_frame_id_ = 0;
 
     std::unique_ptr<SystemAudioCapture> system_audio_capture_;
-    struct OpusState;
-    std::unique_ptr<OpusState> opus_;
+    std::unique_ptr<OpusEncode> opus_encoder_;
+    std::vector<float> audio_capture_buf_;
+    size_t audio_capture_pos_ = 0;
+    std::vector<uint8_t> audio_encode_buf_;
+    uint16_t audio_send_seq_ = 0;
 
     SendCb on_video_;
     SendCb on_audio_;

@@ -4,55 +4,10 @@
 #include "log.hpp"
 #include "utils/byte_utils.hpp"
 
-#include <opus.h>
-
 #include <algorithm>
 #include <cstring>
 
 using namespace drist;
-
-namespace {
-
-constexpr size_t kVideoHeaderSize = 16;  // width(4) + height(4) + timestamp(4) + bitrate_kbps(4)
-constexpr size_t kChunkHeaderSize = 6;   // frame_id(2) + chunk_idx(2) + total_chunks(2)
-constexpr size_t kMaxChunkPayload = 60000;
-
-}  // namespace
-
-struct ScreenSender::OpusState {
-    static constexpr int kSampleRate = 48000;
-    static constexpr int kChannels = 2;
-    static constexpr int kBitrate = 128000;
-    static constexpr int kFrameSize = 960;
-    static constexpr int kMaxPacket = 4000;
-    static constexpr size_t kHeaderSize = 6;
-
-    OpusEncoder* encoder = nullptr;
-    std::vector<float> capture_buf;
-    size_t capture_pos = 0;
-    std::vector<uint8_t> encode_buf;
-    uint16_t send_seq = 0;
-
-    OpusState()
-        : capture_buf(static_cast<size_t>(kFrameSize) * kChannels, 0.0f), encode_buf(kHeaderSize + kMaxPacket) {}
-
-    ~OpusState() {
-        if (encoder) {
-            opus_encoder_destroy(encoder);
-        }
-    }
-
-    bool init() {
-        int err;
-        encoder = opus_encoder_create(kSampleRate, kChannels, OPUS_APPLICATION_AUDIO, &err);
-        if (err != OPUS_OK) {
-            LOG_ERROR() << "screen opus_encoder_create failed: " << opus_strerror(err);
-            return false;
-        }
-        opus_encoder_ctl(encoder, OPUS_SET_BITRATE(kBitrate));
-        return true;
-    }
-};
 
 ScreenSender::ScreenSender() = default;
 ScreenSender::~ScreenSender() { stop(); }
@@ -118,21 +73,23 @@ bool ScreenSender::start(
     sharing_ = true;
 
     if (share_audio && SystemAudioCapture::available()) {
-        opus_ = std::make_unique<OpusState>();
-        if (opus_->init()) {
+        auto enc = std::make_unique<OpusEncode>();
+        if (enc->init(opus::kSampleRate, kScreenAudioChannels, 128000, 2049 /* OPUS_APPLICATION_AUDIO */)) {
             system_audio_capture_ = SystemAudioCapture::create();
             if (system_audio_capture_ &&
                 system_audio_capture_->start([this](const float* s, size_t f, int c) { on_audio_captured(s, f, c); }))
             {
+                opus_encoder_ = std::move(enc);
+                audio_capture_buf_.resize(static_cast<size_t>(opus::kFrameSize) * kScreenAudioChannels, 0.0f);
+                audio_capture_pos_ = 0;
+                audio_encode_buf_.resize(protocol::kAudioHeaderSize + opus::kMaxPacket);
+                audio_send_seq_ = 0;
                 sharing_audio_ = true;
                 LOG_INFO() << "system audio capture started";
             } else {
                 system_audio_capture_.reset();
-                opus_.reset();
                 LOG_ERROR() << "failed to start system audio capture";
             }
-        } else {
-            opus_.reset();
         }
     }
 
@@ -149,7 +106,7 @@ void ScreenSender::stop() {
         system_audio_capture_->stop();
         system_audio_capture_.reset();
     }
-    opus_.reset();
+    opus_encoder_.reset();
     sharing_audio_ = false;
 
     if (screen_capture_) {
@@ -200,17 +157,17 @@ void ScreenSender::encode_loop() {
             continue;
         }
 
-        size_t full_size = kVideoHeaderSize + encoded.size();
+        size_t full_size = protocol::kVideoHeaderSize + encoded.size();
         frame_buf_.resize(full_size);
         uint32_t video_send_ts = now_ms();
         write_u32_le(frame_buf_.data() + 0, static_cast<uint32_t>(frame.width));
         write_u32_le(frame_buf_.data() + 4, static_cast<uint32_t>(frame.height));
         write_u32_le(frame_buf_.data() + 8, video_send_ts);
         write_u32_le(frame_buf_.data() + 12, static_cast<uint32_t>(video_encoder_.measured_kbps()));
-        std::memcpy(frame_buf_.data() + kVideoHeaderSize, encoded.data(), encoded.size());
+        std::memcpy(frame_buf_.data() + protocol::kVideoHeaderSize, encoded.data(), encoded.size());
 
         uint16_t fid = send_frame_id_++;
-        size_t total_chunks = (frame_buf_.size() + kMaxChunkPayload - 1) / kMaxChunkPayload;
+        size_t total_chunks = (frame_buf_.size() + protocol::kMaxChunkPayload - 1) / protocol::kMaxChunkPayload;
         if (total_chunks > 0xFFFF) {
             continue;
         }
@@ -221,14 +178,14 @@ void ScreenSender::encode_loop() {
         }
 
         for (size_t ci = 0; ci < total_chunks; ++ci) {
-            size_t offset = ci * kMaxChunkPayload;
-            size_t chunk_len = std::min(kMaxChunkPayload, frame_buf_.size() - offset);
+            size_t offset = ci * protocol::kMaxChunkPayload;
+            size_t chunk_len = std::min(protocol::kMaxChunkPayload, frame_buf_.size() - offset);
 
-            send_buf_.resize(kChunkHeaderSize + chunk_len);
+            send_buf_.resize(protocol::kChunkHeaderSize + chunk_len);
             write_u16_le(send_buf_.data() + 0, fid);
             write_u16_le(send_buf_.data() + 2, static_cast<uint16_t>(ci));
             write_u16_le(send_buf_.data() + 4, static_cast<uint16_t>(total_chunks));
-            std::memcpy(send_buf_.data() + kChunkHeaderSize, frame_buf_.data() + offset, chunk_len);
+            std::memcpy(send_buf_.data() + protocol::kChunkHeaderSize, frame_buf_.data() + offset, chunk_len);
 
             on_video_(send_buf_.data(), send_buf_.size());
         }
@@ -236,47 +193,42 @@ void ScreenSender::encode_loop() {
 }
 
 void ScreenSender::on_audio_captured(const float* samples, size_t frames, int channels) {
-    if (!opus_ || !opus_->encoder || !on_audio_) {
+    if (!opus_encoder_ || !on_audio_) {
         return;
     }
 
     size_t consumed = 0;
-    const size_t stereo_frame_size = static_cast<size_t>(OpusState::kFrameSize) * OpusState::kChannels;
+    const size_t stereo_frame_size = static_cast<size_t>(opus::kFrameSize) * kScreenAudioChannels;
 
     while (consumed < frames) {
-        size_t remaining_slots = static_cast<size_t>(OpusState::kFrameSize) - opus_->capture_pos / OpusState::kChannels;
+        size_t remaining_slots = static_cast<size_t>(opus::kFrameSize) - audio_capture_pos_ / kScreenAudioChannels;
         size_t to_copy = std::min(remaining_slots, frames - consumed);
 
         for (size_t i = 0; i < to_copy; ++i) {
             size_t src_idx = (consumed + i) * channels;
-            size_t dst_idx = opus_->capture_pos + i * OpusState::kChannels;
-            opus_->capture_buf[dst_idx] = samples[src_idx];
-            opus_->capture_buf[dst_idx + 1] = (channels >= 2) ? samples[src_idx + 1] : samples[src_idx];
+            size_t dst_idx = audio_capture_pos_ + i * kScreenAudioChannels;
+            audio_capture_buf_[dst_idx] = samples[src_idx];
+            audio_capture_buf_[dst_idx + 1] = (channels >= 2) ? samples[src_idx + 1] : samples[src_idx];
         }
 
-        opus_->capture_pos += to_copy * OpusState::kChannels;
+        audio_capture_pos_ += to_copy * kScreenAudioChannels;
         consumed += to_copy;
 
-        if (opus_->capture_pos >= stereo_frame_size) {
-            uint8_t* opus_start = opus_->encode_buf.data() + OpusState::kHeaderSize;
-            int bytes = opus_encode_float(
-                opus_->encoder,
-                opus_->capture_buf.data(),
-                OpusState::kFrameSize,
-                opus_start,
-                OpusState::kMaxPacket
-            );
+        if (audio_capture_pos_ >= stereo_frame_size) {
+            uint8_t* opus_start = audio_encode_buf_.data() + protocol::kAudioHeaderSize;
+            int bytes =
+                opus_encoder_->encode(audio_capture_buf_.data(), opus::kFrameSize, opus_start, opus::kMaxPacket);
             if (bytes > 0) {
                 uint32_t audio_send_ts = now_ms();
-                write_u16_le(opus_->encode_buf.data(), opus_->send_seq);
-                write_u32_le(opus_->encode_buf.data() + 2, audio_send_ts);
-                if (opus_->send_seq % 50 == 0) {
-                    LOG_INFO() << "[sync-send] screen_audio seq=" << opus_->send_seq << " sender_ts=" << audio_send_ts;
+                write_u16_le(audio_encode_buf_.data(), audio_send_seq_);
+                write_u32_le(audio_encode_buf_.data() + 2, audio_send_ts);
+                if (audio_send_seq_ % 50 == 0) {
+                    LOG_INFO() << "[sync-send] screen_audio seq=" << audio_send_seq_ << " sender_ts=" << audio_send_ts;
                 }
-                ++opus_->send_seq;
-                on_audio_(opus_->encode_buf.data(), OpusState::kHeaderSize + static_cast<size_t>(bytes));
+                ++audio_send_seq_;
+                on_audio_(audio_encode_buf_.data(), protocol::kAudioHeaderSize + static_cast<size_t>(bytes));
             }
-            opus_->capture_pos = 0;
+            audio_capture_pos_ = 0;
         }
     }
 }

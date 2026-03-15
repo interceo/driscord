@@ -1,6 +1,8 @@
 #pragma once
 
 #include "audio_jitter.hpp"
+#include "utils/opus_codec.hpp"
+#include "utils/protocol.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -13,27 +15,11 @@
 
 class ScreenStreamJitter;
 
-struct OpusEncoder;
-struct OpusDecoder;
 struct ma_device;
-
-struct OpusEncoderDeleter {
-    void operator()(OpusEncoder* e) const;
-};
-struct OpusDecoderDeleter {
-    void operator()(OpusDecoder* d) const;
-};
-
-using OpusEncoderPtr = std::unique_ptr<OpusEncoder, OpusEncoderDeleter>;
-using OpusDecoderPtr = std::unique_ptr<OpusDecoder, OpusDecoderDeleter>;
 
 class AudioEngine {
 public:
-    static constexpr int SAMPLE_RATE = 48000;
-    static constexpr int CHANNELS = 1;
-    static constexpr int FRAME_SIZE = 960;  // 20ms @ 48kHz
-    static constexpr int MAX_OPUS_PACKET = 4000;
-    static constexpr size_t AUDIO_HEADER_SIZE = 6;  // seq(2) + timestamp(4)
+    static constexpr int VOICE_CHANNELS = 1;
 
     using PacketCallback = std::function<void(const uint8_t* data, size_t len)>;
 
@@ -88,8 +74,8 @@ private:
 
     PacketCallback on_packet_;
 
-    OpusEncoderPtr encoder_;
-    OpusDecoderPtr decoder_;
+    std::unique_ptr<OpusEncode> encoder_;
+    std::unique_ptr<OpusDecode> decoder_;
 
     std::unique_ptr<ma_device> device_;
 

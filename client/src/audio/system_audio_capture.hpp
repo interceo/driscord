@@ -1,14 +1,14 @@
 #pragma once
 
+#include "utils/opus_codec.hpp"
+
 #include <cstddef>
 #include <functional>
 #include <memory>
 
 class SystemAudioCapture {
 public:
-    static constexpr int SAMPLE_RATE = 48000;
-    static constexpr int CHANNELS = 2;
-
+    static constexpr int kChannels = 2;
     using AudioCallback = std::function<void(const float* samples, size_t frame_count, int channels)>;
 
     static std::unique_ptr<SystemAudioCapture> create();

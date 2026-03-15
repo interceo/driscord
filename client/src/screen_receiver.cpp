@@ -3,55 +3,20 @@
 #include "log.hpp"
 #include "utils/byte_utils.hpp"
 
-#include <opus.h>
-
 #include <cstring>
 
 using namespace drist;
 
 namespace {
-
-constexpr size_t kVideoHeaderSize = 16;
-constexpr size_t kChunkHeaderSize = 6;
-constexpr size_t kMaxChunkPayload = 60000;
 constexpr int kStaleSeconds = 3;
-
 }  // namespace
 
-struct ScreenReceiver::OpusState {
-    static constexpr int kSampleRate = 48000;
-    static constexpr int kChannels = 2;
-    static constexpr int kFrameSize = 960;
-    static constexpr int kMaxPacket = 4000;
-    static constexpr size_t kHeaderSize = 6;
-
-    OpusDecoder* decoder = nullptr;
-    std::vector<float> decode_buf;
-    std::vector<float> mono_buf;
-
-    OpusState() : decode_buf(static_cast<size_t>(kFrameSize) * kChannels), mono_buf(kFrameSize) {}
-
-    ~OpusState() {
-        if (decoder) {
-            opus_decoder_destroy(decoder);
-        }
-    }
-
-    bool init() {
-        int err;
-        decoder = opus_decoder_create(kSampleRate, kChannels, &err);
-        if (err != OPUS_OK) {
-            LOG_ERROR() << "screen opus_decoder_create failed: " << opus_strerror(err);
-            return false;
-        }
-        return true;
-    }
-};
-
 ScreenReceiver::ScreenReceiver(int buffer_ms, int max_sync_gap_ms) : jitter_(buffer_ms, max_sync_gap_ms) {
-    opus_ = std::make_unique<OpusState>();
-    if (!opus_->init()) {
-        opus_.reset();
+    auto dec = std::make_unique<OpusDecode>();
+    if (dec->init(opus::kSampleRate, kScreenAudioChannels)) {
+        opus_decoder_ = std::move(dec);
+        audio_decode_buf_.resize(static_cast<size_t>(opus::kFrameSize) * kScreenAudioChannels);
+        audio_mono_buf_.resize(opus::kFrameSize);
     }
 }
 
@@ -60,7 +25,7 @@ ScreenReceiver::~ScreenReceiver() = default;
 void ScreenReceiver::set_keyframe_callback(std::function<void()> fn) { on_keyframe_needed_ = std::move(fn); }
 
 void ScreenReceiver::push_video_packet(const std::string& peer_id, const uint8_t* data, size_t len) {
-    if (len <= kChunkHeaderSize) {
+    if (len <= protocol::kChunkHeaderSize) {
         return;
     }
 
@@ -72,8 +37,8 @@ void ScreenReceiver::push_video_packet(const std::string& peer_id, const uint8_t
         return;
     }
 
-    const uint8_t* chunk_data = data + kChunkHeaderSize;
-    size_t chunk_len = len - kChunkHeaderSize;
+    const uint8_t* chunk_data = data + protocol::kChunkHeaderSize;
+    size_t chunk_len = len - protocol::kChunkHeaderSize;
 
     std::scoped_lock lk(mutex_);
 
@@ -90,7 +55,7 @@ void ScreenReceiver::push_video_packet(const std::string& peer_id, const uint8_t
         re_buf_.clear();
     }
 
-    size_t offset = static_cast<size_t>(chunk_idx) * kMaxChunkPayload;
+    size_t offset = static_cast<size_t>(chunk_idx) * protocol::kMaxChunkPayload;
     size_t needed = offset + chunk_len;
     if (re_buf_.size() < needed) {
         re_buf_.resize(needed);
@@ -102,7 +67,7 @@ void ScreenReceiver::push_video_packet(const std::string& peer_id, const uint8_t
         return;
     }
 
-    if (re_buf_.size() <= kVideoHeaderSize) {
+    if (re_buf_.size() <= protocol::kVideoHeaderSize) {
         return;
     }
 
@@ -115,43 +80,39 @@ void ScreenReceiver::push_video_packet(const std::string& peer_id, const uint8_t
         return;
     }
 
-    pending_data_.assign(re_buf_.data() + kVideoHeaderSize, re_buf_.data() + re_buf_.size());
+    pending_data_.assign(re_buf_.data() + protocol::kVideoHeaderSize, re_buf_.data() + re_buf_.size());
     pending_kbps_ = sender_kbps;
     pending_ts_ = sender_ts;
     has_pending_ = true;
 }
 
 void ScreenReceiver::push_audio_packet(const uint8_t* data, size_t len) {
-    if (!opus_ || !opus_->decoder) {
+    if (!opus_decoder_) {
         return;
     }
 
-    if (len <= OpusState::kHeaderSize) {
+    if (len <= protocol::kAudioHeaderSize) {
         return;
     }
 
     uint16_t seq = read_u16_le(data);
     uint32_t sender_ts = read_u32_le(data + 2);
-    const uint8_t* opus_data = data + OpusState::kHeaderSize;
-    int opus_len = static_cast<int>(len - OpusState::kHeaderSize);
+    const uint8_t* opus_data = data + protocol::kAudioHeaderSize;
+    int opus_len = static_cast<int>(len - protocol::kAudioHeaderSize);
 
-    int samples =
-        opus_decode_float(opus_->decoder, opus_data, opus_len, opus_->decode_buf.data(), OpusState::kFrameSize, 0);
+    int samples = opus_decoder_->decode(opus_data, opus_len, audio_decode_buf_.data(), opus::kFrameSize);
 
     if (samples <= 0) {
-        if (samples < 0) {
-            LOG_ERROR() << "screen opus_decode_float failed: " << opus_strerror(samples);
-        }
         return;
     }
 
     for (int i = 0; i < samples; ++i) {
-        float l = opus_->decode_buf[static_cast<size_t>(i) * 2];
-        float r = opus_->decode_buf[static_cast<size_t>(i) * 2 + 1];
-        opus_->mono_buf[static_cast<size_t>(i)] = (l + r) * 0.5f;
+        float l = audio_decode_buf_[static_cast<size_t>(i) * 2];
+        float r = audio_decode_buf_[static_cast<size_t>(i) * 2 + 1];
+        audio_mono_buf_[static_cast<size_t>(i)] = (l + r) * 0.5f;
     }
 
-    jitter_.push_audio(opus_->mono_buf.data(), static_cast<size_t>(samples), seq, sender_ts);
+    jitter_.push_audio(audio_mono_buf_.data(), static_cast<size_t>(samples), seq, sender_ts);
 
     if (seq % 50 == 0) {
         LOG_INFO()

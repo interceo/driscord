@@ -98,8 +98,8 @@ public:
             SCStreamConfiguration *config = [[SCStreamConfiguration alloc] init];
             config.capturesAudio = YES;
             config.excludesCurrentProcessAudio = YES;
-            config.sampleRate = SAMPLE_RATE;
-            config.channelCount = CHANNELS;
+            config.sampleRate = opus::kSampleRate;
+            config.channelCount = 2;
 
             config.width = 2;
             config.height = 2;

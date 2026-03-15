@@ -1,7 +1,9 @@
 #pragma once
 
 #include "stream_jitter.hpp"
-#include "video/video_codec.hpp"
+#include "utils/opus_codec.hpp"
+#include "utils/protocol.hpp"
+#include "utils/video_codec.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -41,6 +43,8 @@ public:
     void reset();
 
 private:
+    static constexpr int kScreenAudioChannels = 2;
+
     ScreenStreamJitter jitter_;
 
     mutable std::mutex mutex_;
@@ -65,8 +69,9 @@ private:
     int height_ = 0;
     int measured_kbps_ = 0;
 
-    struct OpusState;
-    std::unique_ptr<OpusState> opus_;
+    std::unique_ptr<OpusDecode> opus_decoder_;
+    std::vector<float> audio_decode_buf_;
+    std::vector<float> audio_mono_buf_;
 
     std::function<void()> on_keyframe_needed_;
 };

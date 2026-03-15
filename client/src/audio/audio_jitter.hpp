@@ -3,6 +3,7 @@
 #include "log.hpp"
 #include "ring_buffer.hpp"
 #include "utils/byte_utils.hpp"
+#include "utils/opus_codec.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -14,7 +15,7 @@ inline constexpr uint32_t kDefaultJitterMs = 80;
 
 class AudioJitter {
 public:
-    explicit AudioJitter(size_t target_delay_ms = kDefaultJitterMs, int sample_rate = 48000)
+    explicit AudioJitter(size_t target_delay_ms = kDefaultJitterMs, int sample_rate = opus::kSampleRate)
         : ring_(sample_rate * kMaxBufferSeconds),
           target_samples_(target_delay_ms * sample_rate / 1000),
           sample_rate_(sample_rate) {}
@@ -37,7 +38,7 @@ public:
         }
 
         auto& slot = slots_[seq % kSlots];
-        size_t n = std::min(frames, kFrameSize);
+        size_t n = std::min(frames, static_cast<size_t>(opus::kFrameSize));
         std::memcpy(slot.pcm, mono_pcm, n * sizeof(float));
         slot.frames = n;
         slot.sender_ts = sender_ts;
@@ -190,7 +191,7 @@ private:
                         ++skipped;
                     }
                     if (skipped > 0) {
-                        fill_silence(kFrameSize * skipped);
+                        fill_silence(opus::kFrameSize * skipped);
                         last_flush_ts_ = now;
                         LOG_INFO() << "[audio-jitter] skipped " << skipped << " empty slots";
                     }
@@ -222,12 +223,11 @@ private:
     }
 
     static constexpr int kMaxBufferSeconds = 1;
-    static constexpr size_t kFrameSize = 48;
     static constexpr size_t kSlots = 32;
     static constexpr uint32_t kMaxWaitMs = 60;
 
     struct Slot {
-        float pcm[kFrameSize]{};
+        float pcm[opus::kFrameSize]{};
         size_t frames = 0;
         uint32_t sender_ts = 0;
         bool filled = false;

@@ -235,8 +235,8 @@ private:
     bool init_client(DWORD extra_flags) {
         WAVEFORMATEX desired{};
         desired.wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
-        desired.nChannels = CHANNELS;
-        desired.nSamplesPerSec = SAMPLE_RATE;
+        desired.nChannels = kChannels;
+        desired.nSamplesPerSec = opus::kSampleRate;
         desired.wBitsPerSample = 32;
         desired.nBlockAlign = desired.nChannels * desired.wBitsPerSample / 8;
         desired.nAvgBytesPerSec = desired.nSamplesPerSec * desired.nBlockAlign;
@@ -293,8 +293,8 @@ private:
 
                 if (callback_ && num_frames > 0) {
                     if (flags & AUDCLNT_BUFFERFLAGS_SILENT) {
-                        silence_buf_.assign(static_cast<size_t>(num_frames) * CHANNELS, 0.0f);
-                        callback_(silence_buf_.data(), static_cast<size_t>(num_frames), CHANNELS);
+                        silence_buf_.assign(static_cast<size_t>(num_frames) * kChannels, 0.0f);
+                        callback_(silence_buf_.data(), static_cast<size_t>(num_frames), kChannels);
                         ++silent_count_;
                     } else {
                         if (first_audio_logged_ == 0) {
@@ -302,7 +302,7 @@ private:
                             LOG_INFO()
                                 << "system audio: first non-silent buffer after " << silent_count_ << " silent buffers";
                         }
-                        callback_(reinterpret_cast<const float*>(data), static_cast<size_t>(num_frames), CHANNELS);
+                        callback_(reinterpret_cast<const float*>(data), static_cast<size_t>(num_frames), kChannels);
                     }
                 }
 
