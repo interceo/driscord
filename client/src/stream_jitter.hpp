@@ -42,7 +42,16 @@ public:
     // --- Video: push and pop from main thread only ---
 
     void push_video(std::vector<uint8_t> rgba, int w, int h, uint32_t sender_ts) {
-        video_queue_.push_back({std::move(rgba), w, h, sender_ts});
+        VideoFrame frame{std::move(rgba), w, h, sender_ts};
+        auto it = video_queue_.end();
+        while (it != video_queue_.begin()) {
+            auto prev = std::prev(it);
+            if (static_cast<int32_t>(sender_ts - prev->sender_ts) >= 0) {
+                break;
+            }
+            it = prev;
+        }
+        video_queue_.insert(it, std::move(frame));
         while (video_queue_.size() > max_queue_) {
             video_queue_.pop_front();
         }
@@ -57,8 +66,14 @@ public:
         bool has_clock = (audio_ts > 0);
 
         if (!video_primed_) {
+            if (!has_clock) {
+                current_ = std::move(video_queue_.back());
+                has_current_ = true;
+                video_queue_.clear();
+                return &current_;
+            }
             uint32_t span = video_queue_.back().sender_ts - video_queue_.front().sender_ts;
-            if (span < buffer_ms_ && has_clock) {
+            if (span < buffer_ms_) {
                 return has_current_ ? &current_ : nullptr;
             }
             video_primed_ = true;

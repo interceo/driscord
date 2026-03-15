@@ -60,6 +60,7 @@ private:
     VideoDecoder decoder_;
     bool decoder_inited_ = false;
     int decode_failures_ = 0;
+    std::chrono::steady_clock::time_point last_keyframe_req_{};
     int width_ = 0;
     int height_ = 0;
     int measured_kbps_ = 0;
