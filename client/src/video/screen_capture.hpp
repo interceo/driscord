@@ -26,7 +26,7 @@ public:
         int height = 0;
     };
 
-    using FrameCallback = std::function<void(const Frame&)>;
+    using FrameCallback = std::function<void(Frame frame)>;
 
     static std::unique_ptr<ScreenCapture> create();
     static std::vector<CaptureTarget> list_targets();

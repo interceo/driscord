@@ -19,24 +19,27 @@ public:
           sample_rate_(sample_rate) {}
 
     void push(const float* mono_pcm, size_t frames, uint16_t seq, uint32_t sender_ts = 0) {
-        if (first_packet_) {
-            first_packet_ = false;
-            last_seq_ = seq;
-        } else {
-            uint16_t expected = last_seq_ + 1;
-            uint16_t gap = seq - expected;
-            if (gap > 0 && gap < kMaxGap) {
-                size_t silence = static_cast<size_t>(gap) * kFrameSize;
-                fill_silence(silence);
-            }
-            last_seq_ = seq;
+        if (!seq_initialized_) {
+            play_seq_ = seq;
+            seq_initialized_ = true;
         }
 
-        if (sender_ts != 0) {
-            latest_sender_ts_.store(sender_ts, std::memory_order_relaxed);
+        int16_t age = static_cast<int16_t>(seq - play_seq_);
+        if (age < 0) {
+            return;
+        }
+        if (static_cast<uint16_t>(age) >= kSlots) {
+            return;
         }
 
-        ring_.write(mono_pcm, frames);
+        auto& slot = slots_[seq % kSlots];
+        size_t n = std::min(frames, kFrameSize);
+        std::memcpy(slot.pcm, mono_pcm, n * sizeof(float));
+        slot.frames = n;
+        slot.sender_ts = sender_ts;
+        slot.filled = true;
+
+        flush_ready();
     }
 
     size_t pop(float* out, size_t frames) {
@@ -98,9 +101,13 @@ public:
 
     void reset() {
         ring_.clear();
+        for (auto& s : slots_) {
+            s.filled = false;
+        }
+        seq_initialized_ = false;
+        play_seq_ = 0;
+        last_flush_ts_ = 0;
         primed_ = false;
-        first_packet_ = true;
-        last_seq_ = 0;
         latest_sender_ts_.store(0, std::memory_order_relaxed);
         playback_base_ts_.store(0, std::memory_order_relaxed);
         playback_samples_.store(0, std::memory_order_relaxed);
@@ -110,6 +117,31 @@ public:
     size_t buffered_ms() const { return ring_.available_read() * 1000 / sample_rate_; }
 
 private:
+    void flush_ready() {
+        uint32_t now = drist::now_ms();
+
+        while (true) {
+            auto& slot = slots_[play_seq_ % kSlots];
+            if (slot.filled) {
+                ring_.write(slot.pcm, slot.frames);
+                if (slot.sender_ts != 0) {
+                    latest_sender_ts_.store(slot.sender_ts, std::memory_order_relaxed);
+                }
+                slot.filled = false;
+                ++play_seq_;
+                last_flush_ts_ = now;
+            } else {
+                if (last_flush_ts_ != 0 && (now - last_flush_ts_) > kMaxWaitMs) {
+                    fill_silence(kFrameSize);
+                    ++play_seq_;
+                    last_flush_ts_ = now;
+                    continue;
+                }
+                break;
+            }
+        }
+    }
+
     void fill_silence(size_t samples) {
         constexpr size_t kChunk = 256;
         float zeros[kChunk]{};
@@ -131,15 +163,26 @@ private:
     }
 
     static constexpr int kMaxBufferSeconds = 1;
-    static constexpr size_t kFrameSize = 960;  // 20ms @ 48kHz
-    static constexpr uint16_t kMaxGap = 10;    // ignore gaps > 10 packets (likely seq wrap)
+    static constexpr size_t kFrameSize = 960;
+    static constexpr size_t kSlots = 32;
+    static constexpr uint32_t kMaxWaitMs = 60;
+
+    struct Slot {
+        float pcm[kFrameSize]{};
+        size_t frames = 0;
+        uint32_t sender_ts = 0;
+        bool filled = false;
+    };
+
+    Slot slots_[kSlots]{};
+    uint16_t play_seq_ = 0;
+    bool seq_initialized_ = false;
+    uint32_t last_flush_ts_ = 0;
 
     RingBuffer<float> ring_;
     size_t target_samples_;
     int sample_rate_;
     bool primed_ = false;
-    bool first_packet_ = true;
-    uint16_t last_seq_ = 0;
 
     std::atomic<uint32_t> latest_sender_ts_{0};
     std::atomic<uint32_t> playback_base_ts_{0};

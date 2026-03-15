@@ -1,7 +1,6 @@
 #pragma once
 
 #include <atomic>
-#include <chrono>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -11,9 +10,9 @@
 #include "audio/audio_engine.hpp"
 #include "audio/system_audio_capture.hpp"
 #include "config.hpp"
-#include "stream_jitter.hpp"
+#include "screen_receiver.hpp"
+#include "screen_sender.hpp"
 #include "video/screen_capture.hpp"
-#include "video/video_codec.hpp"
 #include "video_renderer.hpp"
 #include "voice_transport.hpp"
 
@@ -82,13 +81,13 @@ public:
     void set_peer_volume(const std::string& peer_id, float vol);
     float peer_volume(const std::string& peer_id) const;
 
-    void set_stream_volume(float vol) { stream_jitter_.set_volume(vol); }
-    float stream_volume() const { return stream_jitter_.volume(); }
+    void set_stream_volume(float vol) { receiver_.set_volume(vol); }
+    float stream_volume() const { return receiver_.volume(); }
 
     void start_sharing(const CaptureTarget& target, StreamQuality quality, int fps, bool share_audio = false);
     void stop_sharing();
-    bool sharing() const { return sharing_; }
-    bool sharing_audio() const { return sharing_audio_; }
+    bool sharing() const { return sender_.sharing(); }
+    bool sharing_audio() const { return sender_.sharing_audio(); }
     static bool system_audio_available() { return SystemAudioCapture::available(); }
 
     void update_preview(const CaptureTarget& target);
@@ -113,49 +112,17 @@ public:
     std::vector<PeerView> peers() const;
 
 private:
-    void on_video_packet(const std::string& peer_id, const uint8_t* data, size_t len);
-
     Config config_;
     AppState state_ = AppState::Disconnected;
-    bool sharing_ = false;
-    bool sharing_audio_ = false;
-    std::atomic<bool> encoding_{false};
 
     AudioEngine audio_{config_.voice_jitter_ms};
-    ScreenStreamJitter stream_jitter_{config_.screen_buffer_ms, config_.max_sync_gap_ms};
+    ScreenReceiver receiver_{config_.screen_buffer_ms, config_.max_sync_gap_ms};
+    ScreenSender sender_;
     VoiceTransport transport_;
     VideoRenderer video_renderer_;
 
-    std::unique_ptr<ScreenCapture> screen_capture_;
-    std::unique_ptr<SystemAudioCapture> system_audio_capture_;
-    VideoEncoder video_encoder_;
-
-    struct PeerVideoState {
-        VideoDecoder decoder;
-        int width = 0;
-        int height = 0;
-        std::chrono::steady_clock::time_point last_frame;
-        int measured_kbps = 0;
-
-        std::vector<uint8_t> pending_decode;
-        uint32_t pending_kbps = 0;
-        uint32_t pending_sender_ts = 0;
-        bool has_pending_decode = false;
-        int decode_failures = 0;
-
-        uint16_t reassembly_frame_id = 0;
-        uint16_t reassembly_total = 0;
-        uint16_t reassembly_got = 0;
-        std::vector<uint8_t> reassembly_buf;
-    };
-    mutable std::mutex video_mutex_;
-    std::unordered_map<std::string, std::shared_ptr<PeerVideoState>> peer_video_;
-    std::vector<std::string> pending_removals_;
+    std::string last_rendered_peer_;
 
     mutable std::mutex peer_vol_mutex_;
     std::unordered_map<std::string, float> peer_volumes_;
-
-    uint16_t send_frame_id_ = 0;
-    std::vector<uint8_t> frame_buf_;
-    std::vector<uint8_t> send_buf_;
 };

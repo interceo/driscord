@@ -6,6 +6,9 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 class ScreenStreamJitter;
@@ -32,9 +35,6 @@ public:
     static constexpr int MAX_OPUS_PACKET = 4000;
     static constexpr size_t AUDIO_HEADER_SIZE = 6;  // seq(2) + timestamp(4)
 
-    static constexpr int SCREEN_AUDIO_CHANNELS = 2;
-    static constexpr int SCREEN_AUDIO_BITRATE = 128000;
-
     using PacketCallback = std::function<void(const uint8_t* data, size_t len)>;
 
     explicit AudioEngine(int voice_jitter_ms = 80);
@@ -47,14 +47,11 @@ public:
     void stop();
     bool running() const { return running_; }
 
-    void feed_packet(const uint8_t* data, size_t len, float peer_volume = 1.0f);
-
-    bool init_screen_audio(PacketCallback on_screen_audio_packet);
-    void shutdown_screen_audio();
-    void feed_screen_audio_pcm(const float* samples, size_t frames, int channels);
-    void feed_screen_audio_packet(const uint8_t* data, size_t len);
+    void feed_packet(const std::string& peer_id, const uint8_t* data, size_t len, float peer_volume = 1.0f);
+    void remove_voice_peer(const std::string& peer_id);
 
     void set_screen_stream(ScreenStreamJitter* stream) { screen_stream_ = stream; }
+    void set_sharing_screen_audio(bool v) { sharing_screen_audio_ = v; }
 
     void set_muted(bool m) { muted_ = m; }
     bool muted() const noexcept { return muted_; }
@@ -79,6 +76,8 @@ private:
 
     static void audio_callback(void* device, void* output, const void* input, uint32_t frames);
 
+    int voice_jitter_ms_;
+
     std::atomic<bool> running_{false};
     std::atomic<bool> muted_{false};
     std::atomic<bool> deafened_{false};
@@ -97,7 +96,11 @@ private:
     std::vector<float> capture_buf_;
     size_t capture_pos_ = 0;
 
-    AudioJitter voice_jitter_;
+    std::mutex voice_mutex_;
+    std::unordered_map<std::string, std::shared_ptr<AudioJitter>> voice_jitters_;
+    std::vector<std::shared_ptr<AudioJitter>> voice_snapshot_;
+    std::vector<float> voice_mix_buf_;
+
     ScreenStreamJitter* screen_stream_ = nullptr;
     std::vector<float> screen_mix_buf_;
 
@@ -105,13 +108,4 @@ private:
     std::vector<float> decode_buf_;
 
     uint16_t voice_send_seq_ = 0;
-    uint16_t screen_send_seq_ = 0;
-
-    OpusEncoderPtr screen_encoder_;
-    OpusDecoderPtr screen_decoder_;
-    PacketCallback on_screen_audio_packet_;
-    std::vector<float> screen_capture_buf_;
-    size_t screen_capture_pos_ = 0;
-    std::vector<uint8_t> screen_encode_buf_;
-    std::vector<float> screen_decode_buf_;
 };

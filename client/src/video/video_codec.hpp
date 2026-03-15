@@ -45,7 +45,6 @@ private:
     int64_t pts_ = 0;
 
     std::vector<uint8_t> encode_buf_;
-    std::vector<uint8_t> bgra_copy_;
     std::atomic<bool> force_keyframe_{false};
 
     std::atomic<int> measured_kbps_{0};

@@ -135,7 +135,7 @@ public:
         if (thread_.joinable()) {
             thread_.join();
         }
-        release_cached_ctx();
+        release_cached_cs();
         LOG_INFO() << "screen capture stopped";
     }
 
@@ -167,56 +167,38 @@ private:
         int ow, oh;
         compute_output_size(src_w, src_h, max_w_, max_h_, ow, oh);
 
-        ensure_ctx(ow, oh);
-
-        CGContextDrawImage(cached_ctx_, CGRectMake(0, 0, ow, oh), image);
+        if (!cached_cs_) {
+            cached_cs_ = CGColorSpaceCreateDeviceRGB();
+        }
 
         Frame out;
         out.width = ow;
         out.height = oh;
-        auto nbytes = static_cast<size_t>(ow) * oh * 4;
-        out.data.assign(cached_buf_.data(), cached_buf_.data() + nbytes);
+        out.data.resize(static_cast<size_t>(ow) * oh * 4);
 
-        if (callback_ && running_) {
-            callback_(out);
-        }
-    }
-
-    void ensure_ctx(int w, int h) {
-        if (cached_ctx_ && cached_w_ == w && cached_h_ == h) {
-            return;
-        }
-        release_cached_ctx();
-
-        cached_w_ = w;
-        cached_h_ = h;
-        cached_buf_.resize(static_cast<size_t>(w) * h * 4);
-
-        cached_cs_ = CGColorSpaceCreateDeviceRGB();
-        cached_ctx_ = CGBitmapContextCreate(
-            cached_buf_.data(),
-            w,
-            h,
+        CGContextRef ctx = CGBitmapContextCreate(
+            out.data.data(),
+            ow,
+            oh,
             8,
-            w * 4,
+            ow * 4,
             cached_cs_,
             static_cast<CGBitmapInfo>(kCGBitmapByteOrder32Little) |
                 static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst)
         );
+        CGContextDrawImage(ctx, CGRectMake(0, 0, ow, oh), image);
+        CGContextRelease(ctx);
+
+        if (callback_ && running_) {
+            callback_(std::move(out));
+        }
     }
 
-    void release_cached_ctx() {
-        if (cached_ctx_) {
-            CGContextRelease(cached_ctx_);
-            cached_ctx_ = nullptr;
-        }
+    void release_cached_cs() {
         if (cached_cs_) {
             CGColorSpaceRelease(cached_cs_);
             cached_cs_ = nullptr;
         }
-        cached_buf_.clear();
-        cached_w_ = 0;
-        cached_h_ = 0;
     }
 
     std::atomic<bool> running_{false};
@@ -228,11 +210,7 @@ private:
     CGDirectDisplayID display_id_ = 0;
     int frame_interval_us_ = 33333;
 
-    CGContextRef cached_ctx_ = nullptr;
     CGColorSpaceRef cached_cs_ = nullptr;
-    std::vector<uint8_t> cached_buf_;
-    int cached_w_ = 0;
-    int cached_h_ = 0;
 };
 
 std::unique_ptr<ScreenCapture> ScreenCapture::create() { return std::make_unique<MacScreenCapture>(); }

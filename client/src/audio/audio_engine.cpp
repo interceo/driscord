@@ -18,14 +18,12 @@ void OpusEncoderDeleter::operator()(OpusEncoder* e) const { opus_encoder_destroy
 void OpusDecoderDeleter::operator()(OpusDecoder* d) const { opus_decoder_destroy(d); }
 
 AudioEngine::AudioEngine(int voice_jitter_ms)
-    : capture_buf_(FRAME_SIZE, 0.0f),
-      voice_jitter_(static_cast<size_t>(voice_jitter_ms)),
+    : voice_jitter_ms_(voice_jitter_ms),
+      capture_buf_(FRAME_SIZE, 0.0f),
+      voice_mix_buf_(FRAME_SIZE, 0.0f),
       screen_mix_buf_(FRAME_SIZE, 0.0f),
       encode_buf_(AUDIO_HEADER_SIZE + MAX_OPUS_PACKET),
-      decode_buf_(FRAME_SIZE),
-      screen_capture_buf_(FRAME_SIZE * SCREEN_AUDIO_CHANNELS, 0.0f),
-      screen_encode_buf_(AUDIO_HEADER_SIZE + MAX_OPUS_PACKET),
-      screen_decode_buf_(FRAME_SIZE * SCREEN_AUDIO_CHANNELS) {}
+      decode_buf_(FRAME_SIZE) {}
 
 AudioEngine::~AudioEngine() { stop(); }
 
@@ -89,17 +87,12 @@ bool AudioEngine::start(PacketCallback on_packet) {
     encoder_ = std::move(enc);
     decoder_ = std::move(dec);
     device_ = std::move(dev);
-    voice_jitter_.reset();
-    voice_send_seq_ = 0;
-
-    if (!screen_decoder_) {
-        OpusDecoderPtr sdec(opus_decoder_create(SAMPLE_RATE, SCREEN_AUDIO_CHANNELS, &err));
-        if (err == OPUS_OK) {
-            screen_decoder_ = std::move(sdec);
-        } else {
-            LOG_ERROR() << "screen opus_decoder_create failed: " << opus_strerror(err);
-        }
+    {
+        std::scoped_lock lk(voice_mutex_);
+        voice_jitters_.clear();
+        voice_snapshot_.clear();
     }
+    voice_send_seq_ = 0;
 
     running_ = true;
 
@@ -121,10 +114,11 @@ void AudioEngine::stop() {
 
     encoder_.reset();
     decoder_.reset();
-    screen_encoder_.reset();
-    screen_decoder_.reset();
-    on_screen_audio_packet_ = nullptr;
-    voice_jitter_.reset();
+    {
+        std::scoped_lock lk(voice_mutex_);
+        voice_jitters_.clear();
+        voice_snapshot_.clear();
+    }
 
     LOG_INFO() << "audio engine stopped";
 }
@@ -165,17 +159,28 @@ void AudioEngine::on_capture(const float* input, uint32_t frames) {
 }
 
 void AudioEngine::on_playback(float* output, const uint32_t frames) {
-    if (deafened_) {
-        voice_jitter_.pop(output, frames);
-        if (screen_stream_) {
-            screen_stream_->pop_audio(screen_mix_buf_.data(), frames);
+    {
+        std::unique_lock lk(voice_mutex_, std::try_to_lock);
+        if (lk.owns_lock()) {
+            voice_snapshot_.clear();
+            voice_snapshot_.reserve(voice_jitters_.size());
+            for (auto& [id, j] : voice_jitters_) {
+                voice_snapshot_.push_back(j);
+            }
         }
-        std::memset(output, 0, frames * sizeof(float));
-        output_level_.store(0.0f);
-        return;
     }
 
-    voice_jitter_.pop(output, frames);
+    std::memset(output, 0, frames * sizeof(float));
+
+    if (voice_mix_buf_.size() < frames) {
+        voice_mix_buf_.resize(frames);
+    }
+    for (auto& j : voice_snapshot_) {
+        j->pop(voice_mix_buf_.data(), frames);
+        for (uint32_t i = 0; i < frames; ++i) {
+            output[i] += voice_mix_buf_[i];
+        }
+    }
 
     if (screen_stream_) {
         if (screen_mix_buf_.size() < frames) {
@@ -189,6 +194,12 @@ void AudioEngine::on_playback(float* output, const uint32_t frames) {
         }
     }
 
+    if (deafened_) {
+        std::memset(output, 0, frames * sizeof(float));
+        output_level_.store(0.0f);
+        return;
+    }
+
     const float vol = output_volume_.load();
     float sum = 0.0f;
     for (uint32_t i = 0; i < frames; ++i) {
@@ -199,7 +210,7 @@ void AudioEngine::on_playback(float* output, const uint32_t frames) {
     output_level_.store(std::sqrt(sum / static_cast<float>(frames)));
 }
 
-void AudioEngine::feed_packet(const uint8_t* data, size_t len, float peer_volume) {
+void AudioEngine::feed_packet(const std::string& peer_id, const uint8_t* data, size_t len, float peer_volume) {
     if (!running_ || !decoder_) {
         return;
     }
@@ -220,127 +231,29 @@ void AudioEngine::feed_packet(const uint8_t* data, size_t len, float peer_volume
         return;
     }
 
-    if (samples > 0) {
-        if (peer_volume != 1.0f) {
-            for (int i = 0; i < samples * CHANNELS; ++i) {
-                decode_buf_[static_cast<size_t>(i)] *= peer_volume;
-            }
-        }
-        voice_jitter_.push(decode_buf_.data(), static_cast<size_t>(samples), seq, sender_ts);
-    }
-}
-
-bool AudioEngine::init_screen_audio(PacketCallback on_screen_audio_packet) {
-    int err;
-    OpusEncoderPtr enc(opus_encoder_create(SAMPLE_RATE, SCREEN_AUDIO_CHANNELS, OPUS_APPLICATION_AUDIO, &err));
-    if (err != OPUS_OK) {
-        LOG_ERROR() << "screen opus_encoder_create failed: " << opus_strerror(err);
-        return false;
-    }
-    opus_encoder_ctl(enc.get(), OPUS_SET_BITRATE(SCREEN_AUDIO_BITRATE));
-
-    OpusDecoderPtr dec(opus_decoder_create(SAMPLE_RATE, SCREEN_AUDIO_CHANNELS, &err));
-    if (err != OPUS_OK) {
-        LOG_ERROR() << "screen opus_decoder_create failed: " << opus_strerror(err);
-        return false;
-    }
-
-    screen_encoder_ = std::move(enc);
-    screen_decoder_ = std::move(dec);
-    on_screen_audio_packet_ = std::move(on_screen_audio_packet);
-    screen_capture_pos_ = 0;
-    sharing_screen_audio_ = true;
-
-    LOG_INFO() << "screen audio codec initialized";
-    return true;
-}
-
-void AudioEngine::shutdown_screen_audio() {
-    sharing_screen_audio_ = false;
-    screen_encoder_.reset();
-    on_screen_audio_packet_ = nullptr;
-    screen_capture_pos_ = 0;
-    screen_send_seq_ = 0;
-    screen_stream_ = nullptr;
-    LOG_INFO() << "screen audio codec shut down";
-}
-
-void AudioEngine::feed_screen_audio_pcm(const float* samples, size_t frames, int channels) {
-    if (!screen_encoder_ || !on_screen_audio_packet_) {
-        return;
-    }
-
-    size_t consumed = 0;
-    const size_t stereo_frame_size = static_cast<size_t>(FRAME_SIZE) * SCREEN_AUDIO_CHANNELS;
-
-    while (consumed < frames) {
-        size_t remaining_slots = static_cast<size_t>(FRAME_SIZE) - screen_capture_pos_ / SCREEN_AUDIO_CHANNELS;
-        size_t to_copy = std::min(remaining_slots, frames - consumed);
-
-        for (size_t i = 0; i < to_copy; ++i) {
-            size_t src_idx = (consumed + i) * channels;
-            size_t dst_idx = screen_capture_pos_ + i * SCREEN_AUDIO_CHANNELS;
-            screen_capture_buf_[dst_idx] = samples[src_idx];
-            screen_capture_buf_[dst_idx + 1] = (channels >= 2) ? samples[src_idx + 1] : samples[src_idx];
-        }
-
-        screen_capture_pos_ += to_copy * SCREEN_AUDIO_CHANNELS;
-        consumed += to_copy;
-
-        if (screen_capture_pos_ >= stereo_frame_size) {
-            uint8_t* opus_start = screen_encode_buf_.data() + AUDIO_HEADER_SIZE;
-            int bytes = opus_encode_float(
-                screen_encoder_.get(),
-                screen_capture_buf_.data(),
-                FRAME_SIZE,
-                opus_start,
-                MAX_OPUS_PACKET
-            );
-            if (bytes > 0) {
-                uint32_t audio_send_ts = now_ms();
-                write_u16_le(screen_encode_buf_.data(), screen_send_seq_);
-                write_u32_le(screen_encode_buf_.data() + 2, audio_send_ts);
-                if (screen_send_seq_ % 50 == 0) {
-                    LOG_INFO() << "[sync-send] screen_audio seq=" << screen_send_seq_ << " sender_ts=" << audio_send_ts;
-                }
-                ++screen_send_seq_;
-                on_screen_audio_packet_(screen_encode_buf_.data(), AUDIO_HEADER_SIZE + static_cast<size_t>(bytes));
-            }
-            screen_capture_pos_ = 0;
-        }
-    }
-}
-
-void AudioEngine::feed_screen_audio_packet(const uint8_t* data, size_t len) {
-    if (!screen_decoder_ || !screen_stream_) {
-        return;
-    }
-
-    if (len <= AUDIO_HEADER_SIZE) {
-        return;
-    }
-
-    uint16_t seq = read_u16_le(data);
-    uint32_t sender_ts = read_u32_le(data + 2);
-    const uint8_t* opus_data = data + AUDIO_HEADER_SIZE;
-    int opus_len = static_cast<int>(len - AUDIO_HEADER_SIZE);
-
-    const int samples =
-        opus_decode_float(screen_decoder_.get(), opus_data, opus_len, screen_decode_buf_.data(), FRAME_SIZE, 0);
-
-    if (samples < 0) {
-        LOG_ERROR() << "screen opus_decode_float failed: " << opus_strerror(samples);
-        return;
-    }
-
     if (samples <= 0) {
         return;
     }
 
-    for (int i = 0; i < samples; ++i) {
-        float l = screen_decode_buf_[static_cast<size_t>(i) * 2];
-        float r = screen_decode_buf_[static_cast<size_t>(i) * 2 + 1];
-        decode_buf_[static_cast<size_t>(i)] = (l + r) * 0.5f;
+    if (peer_volume != 1.0f) {
+        for (int i = 0; i < samples * CHANNELS; ++i) {
+            decode_buf_[static_cast<size_t>(i)] *= peer_volume;
+        }
     }
-    screen_stream_->push_audio(decode_buf_.data(), static_cast<size_t>(samples), seq, sender_ts);
+
+    std::shared_ptr<AudioJitter> jitter;
+    {
+        std::scoped_lock lk(voice_mutex_);
+        auto& slot = voice_jitters_[peer_id];
+        if (!slot) {
+            slot = std::make_shared<AudioJitter>(static_cast<size_t>(voice_jitter_ms_));
+        }
+        jitter = slot;
+    }
+    jitter->push(decode_buf_.data(), static_cast<size_t>(samples), seq, sender_ts);
+}
+
+void AudioEngine::remove_voice_peer(const std::string& peer_id) {
+    std::scoped_lock lk(voice_mutex_);
+    voice_jitters_.erase(peer_id);
 }

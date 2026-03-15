@@ -156,6 +156,8 @@ endif()
 add_executable(driscord_client
     src/main.cpp
     src/app.cpp
+    src/screen_sender.cpp
+    src/screen_receiver.cpp
     src/audio/audio_engine.cpp
     src/voice_transport.cpp
     src/ui.cpp
