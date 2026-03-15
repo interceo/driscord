@@ -3,7 +3,7 @@
 #include "log.hpp"
 
 AudioReceiver::AudioReceiver(int jitter_ms, int channels, int sample_rate)
-    : jitter_(static_cast<size_t>(jitter_ms), sample_rate), channels_(channels) {
+    : jitter_(static_cast<size_t>(jitter_ms)), channels_(channels) {
     if (!decoder_.init(sample_rate, channels)) {
         LOG_ERROR() << "AudioReceiver: failed to init Opus decoder (ch=" << channels << ")";
     }

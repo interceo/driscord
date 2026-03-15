@@ -3,7 +3,6 @@
 #include "log.hpp"
 #include "time.hpp"
 
-#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <map>
@@ -15,9 +14,10 @@
 // Initial delay: pop() returns nullopt until target_delay_ms have elapsed since
 // the first push.  After that packets are returned in sequence order.
 //
-// Rate-limited mode (rate_limit_pop = true): pop() paces output so that at most
-// one packet is returned per packet_duration interval.  Use for video where the
-// consumer runs faster than the frame rate.
+// Sender-timestamp pacing (pace_by_sender_ts = true): after priming, pop()
+// returns a packet only when enough local time has elapsed to match the
+// sender's capture timeline.  This avoids drift from fixed-rate timers and
+// handles variable frame rates naturally.
 //
 // Thread safety: push() and pop() may be called from different threads.
 // T must be default-constructible and move-constructible.
@@ -26,7 +26,6 @@ template <typename T>
 class JitterBuffer {
 public:
     using Clock = std::chrono::steady_clock;
-    using Duration = std::chrono::microseconds;
 
     struct Packet {
         T data{};
@@ -41,16 +40,16 @@ public:
         uint64_t miss_count = 0;
     };
 
-    explicit JitterBuffer(int target_delay_ms, bool rate_limit_pop = false)
-        : target_delay_ms_(std::max(1, target_delay_ms)), rate_limit_pop_(rate_limit_pop) {}
+    explicit JitterBuffer(int target_delay_ms, bool pace_by_sender_ts = false)
+        : target_delay_ms_(std::max(1, target_delay_ms)), pace_by_sender_ts_(pace_by_sender_ts) {}
 
-    void set_packet_duration(Duration d) { packet_duration_.store(d); }
-
-    void push(uint64_t seq, T data, utils::WallTimestamp sender_ts = {}) {
-        auto expected = Clock::time_point::max();
-        first_push_time_.compare_exchange_strong(expected, Clock::now());
-
+    void push(uint64_t seq, T data, utils::WallTimestamp sender_ts) {
         std::scoped_lock lk(mutex_);
+
+        if (!first_push_time_) {
+            first_push_time_ = Clock::now();
+        }
+
         if (map_.size() >= kMaxQueue) {
             const auto diff = map_.size() - kMaxQueue;
             map_.erase(map_.begin(), std::next(map_.begin(), diff));
@@ -60,47 +59,62 @@ public:
         map_.emplace(seq, Packet{std::move(data), sender_ts});
     }
 
-    // Returns nullopt while buffering or rate-limited.
     std::optional<Packet> pop() {
+        std::scoped_lock lk(mutex_);
         const auto now = Clock::now();
 
-        const auto first = first_push_time_.load();
-        if (first == Clock::time_point::max()) {
+        if (!first_push_time_) {
             return std::nullopt;
         }
 
-        if (!primed_.load()) {
-            if (now - first < std::chrono::milliseconds(target_delay_ms_)) {
+        if (!primed_) {
+            if (now - *first_push_time_ < std::chrono::milliseconds(target_delay_ms_)) {
                 return std::nullopt;
             }
-            primed_.store(true);
+            primed_ = true;
         }
 
-        if (rate_limit_pop_) {
-            const auto dur = packet_duration_.load();
-            if (dur.count() > 0) {
-                const auto last = last_pop_time_.load();
-                if (last != Clock::time_point{} && (now - last) < dur) {
-                    return std::nullopt;
+        auto it = map_.begin();
+        if (it == map_.end()) {
+            ++miss_count_;
+            return std::nullopt;
+        }
+
+        if (pace_by_sender_ts_) {
+            const auto pkt_ts = it->second.sender_ts;
+            if (pkt_ts.time_since_epoch().count() != 0) {
+                if (!anchor_sender_ts_) {
+                    anchor_sender_ts_ = pkt_ts;
+                    playback_origin_ = now;
+                } else {
+                    const auto sender_delta = pkt_ts - *anchor_sender_ts_;
+                    const auto local_delta = now - playback_origin_;
+                    if (local_delta < std::chrono::duration_cast<Clock::duration>(sender_delta)) {
+                        return std::nullopt;
+                    }
                 }
             }
         }
 
-        std::scoped_lock lk(mutex_);
-        if (auto it = map_.begin(); it != map_.end()) {
-            auto pkt = std::move(it->second);
-            map_.erase(it);
-            if (rate_limit_pop_) {
-                last_pop_time_.store(now);
-            }
-            return pkt;
+        auto pkt = std::move(it->second);
+        map_.erase(it);
+        ++played_count_;
+
+        if (played_count_ % 300 == 0) {
+            const int64_t sender_ms = utils::WallToMs(pkt.sender_ts);
+            const int64_t age_ms = sender_ms ? utils::WallElapsedMs(pkt.sender_ts) : -1;
+            LOG_INFO()
+                << "[jitter-pop] played=" << played_count_ << " queue=" << map_.size() << " drops=" << drop_count_
+                << " misses=" << miss_count_ << " sender_ts=" << sender_ms << " age_ms=" << age_ms;
         }
 
-        ++miss_count_;
-        return std::nullopt;
+        return pkt;
     }
 
-    bool primed() const { return primed_.load(); }
+    bool primed() const {
+        std::scoped_lock lk(mutex_);
+        return primed_;
+    }
 
     size_t queue_size() const {
         std::scoped_lock lk(mutex_);
@@ -109,58 +123,64 @@ public:
 
     size_t buffered_ms() const {
         std::scoped_lock lk(mutex_);
-
-        const auto d = packet_duration_.load();
-        if (d.count() <= 0) {
+        if (map_.size() < 2) {
             return 0;
         }
-        return map_.size() * static_cast<size_t>(d.count()) / 1000u;
+        const auto first_ts = map_.begin()->second.sender_ts;
+        const auto last_ts = map_.rbegin()->second.sender_ts;
+        const auto delta = std::chrono::duration_cast<std::chrono::milliseconds>(last_ts - first_ts);
+        return static_cast<size_t>(std::max(int64_t{0}, delta.count()));
     }
 
     void reset() {
         std::scoped_lock lk(mutex_);
 
         map_.clear();
-        primed_.store(false);
-        first_push_time_.store(Clock::time_point::max());
-        packet_duration_.store(Duration::zero());
-        last_pop_time_.store(Clock::time_point{});
+        primed_ = false;
+        first_push_time_.reset();
+        anchor_sender_ts_.reset();
+        playback_origin_ = {};
+        played_count_ = 0;
         drop_count_ = 0;
         miss_count_ = 0;
     }
 
     Stats stats() const {
         std::scoped_lock lk(mutex_);
-
-        size_t buf_ms = 0;
-        const auto d = packet_duration_.load();
-        if (d.count() > 0) {
-            buf_ms = map_.size() * static_cast<size_t>(d.count()) / 1000;
-        }
         return {
-            primed_.load(),
+            primed_,
             map_.size(),
-            buf_ms,
+            buffered_ms_locked(),
             drop_count_,
             miss_count_,
         };
     }
 
 private:
-    static constexpr size_t kMaxQueue = 640;
+    size_t buffered_ms_locked() const {
+        if (map_.size() < 2) {
+            return 0;
+        }
+        const auto first_ts = map_.begin()->second.sender_ts;
+        const auto last_ts = map_.rbegin()->second.sender_ts;
+        const auto delta = std::chrono::duration_cast<std::chrono::milliseconds>(last_ts - first_ts);
+        return static_cast<size_t>(std::max(int64_t{0}, delta.count()));
+    }
+
+    static constexpr size_t kMaxQueue = 64;
 
     mutable std::mutex mutex_;
     std::map<uint64_t, Packet> map_;
 
-    std::atomic<bool> primed_ = false;
-
+    bool primed_ = false;
     int target_delay_ms_;
-    bool rate_limit_pop_;
-    std::atomic<Duration> packet_duration_{Duration::zero()};
+    bool pace_by_sender_ts_;
 
-    std::atomic<Clock::time_point> first_push_time_{Clock::time_point::max()};
-    std::atomic<Clock::time_point> last_pop_time_{Clock::time_point{}};
+    std::optional<Clock::time_point> first_push_time_;
+    std::optional<utils::WallTimestamp> anchor_sender_ts_;
+    Clock::time_point playback_origin_{};
 
+    uint64_t played_count_ = 0;
     uint64_t drop_count_ = 0;
     uint64_t miss_count_ = 0;
 };

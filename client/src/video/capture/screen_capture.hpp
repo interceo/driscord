@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -24,6 +25,7 @@ public:
         std::vector<uint8_t> data;  // BGRA pixel data
         int width = 0;
         int height = 0;
+        std::chrono::system_clock::time_point capture_ts{};
     };
 
     using FrameCallback = std::function<void(Frame frame)>;

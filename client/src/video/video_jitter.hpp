@@ -16,23 +16,12 @@ public:
         int height = 0;
     };
 
-    explicit VideoJitter(int buffer_ms) : buf_(buffer_ms, true /* rate_limit_pop */) {}
+    explicit VideoJitter(int buffer_ms) : buf_(buffer_ms, true /* pace_by_sender_ts */) {}
 
-    // frame_duration_us: real frame interval from the sender (1_000_000 / fps).
-    void push(
-        std::vector<uint8_t> rgba,
-        int w,
-        int h,
-        uint32_t frame_duration_us,
-        utils::WallTimestamp sender_ts = {}
-    ) {
-        if (frame_duration_us > 0) {
-            buf_.set_packet_duration(std::chrono::microseconds(frame_duration_us));
-        }
+    void push(std::vector<uint8_t> rgba, int w, int h, utils::WallTimestamp sender_ts) {
         buf_.push(seq_++, Frame{std::move(rgba), w, h}, sender_ts);
     }
 
-    // Returns a new frame, or nullptr if nothing new is ready.
     const Frame* pop() {
         auto pkt = buf_.pop();
         if (!pkt) {
