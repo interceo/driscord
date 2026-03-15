@@ -479,7 +479,7 @@ void UIRenderer::render_video_panel(App& app) {
     };
 
     std::vector<Tile> tiles;
-    auto streaming_peers = app.video_renderer().active_peers();
+    auto streaming_peers = app.streaming_peers();
 
     auto is_streaming = [&](const std::string& pid) {
         return std::find(streaming_peers.begin(), streaming_peers.end(), pid) != streaming_peers.end();
@@ -582,6 +582,19 @@ void UIRenderer::render_video_panel(App& app) {
 
                     render_stream_osd(app, t.peer_id, draw, img_pos, fw);
 
+                    if (!app.watching_stream()) {
+                        const char* mute_tag = "MUTE";
+                        ImVec2 msz = ImGui::CalcTextSize(mute_tag);
+                        ImVec2 mpos = {img_pos.x + 8, img_pos.y + 5};
+                        draw->AddRectFilled(
+                            {mpos.x - 3, mpos.y - 1},
+                            {mpos.x + msz.x + 3, mpos.y + msz.y + 1},
+                            IM_COL32(60, 60, 60, 200),
+                            3.0f
+                        );
+                        draw->AddText(mpos, IM_COL32(180, 180, 180, 255), mute_tag);
+                    }
+
                     char fs_label[128];
                     std::snprintf(fs_label, sizeof(fs_label), "%s  LIVE", t.label.c_str());
                     ImGui::TextDisabled("%s", fs_label);
@@ -668,7 +681,7 @@ void UIRenderer::render_video_panel(App& app) {
                 }
                 if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
                     stream_popup_peer_ = t.peer_id;
-                    stream_popup_vol_ = app.peer_volume(t.peer_id);
+                    stream_popup_vol_ = app.stream_volume();
                     ImGui::OpenPopup("##StreamVolPopup");
                 }
 
@@ -685,9 +698,51 @@ void UIRenderer::render_video_panel(App& app) {
                 );
                 draw->AddText(lpos, IM_COL32(255, 255, 255, 255), live);
 
+                if (!app.watching_stream()) {
+                    const char* mute_tag = "MUTE";
+                    ImVec2 msz = ImGui::CalcTextSize(mute_tag);
+                    ImVec2 mpos = {img_pos.x + 8, img_pos.y + 5};
+                    draw->AddRectFilled(
+                        {mpos.x - 3, mpos.y - 1},
+                        {mpos.x + msz.x + 3, mpos.y + msz.y + 1},
+                        IM_COL32(60, 60, 60, 200),
+                        3.0f
+                    );
+                    draw->AddText(mpos, IM_COL32(180, 180, 180, 255), mute_tag);
+                }
+
                 char slabel[128];
                 std::snprintf(slabel, sizeof(slabel), "%s", t.label.c_str());
                 ImGui::TextDisabled("%s", slabel);
+            } else {
+                // No texture yet — stream is live but we're not watching.
+                ImVec2 pos = ImGui::GetCursorScreenPos();
+                float ph = tile_w * (9.0f / 16.0f);
+                ImGui::InvisibleButton("##stream_ph", {tile_w, ph});
+                if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                    stream_popup_peer_ = t.peer_id;
+                    stream_popup_vol_ = app.stream_volume();
+                    ImGui::OpenPopup("##StreamVolPopup");
+                }
+                draw->AddRectFilled(pos, {pos.x + tile_w, pos.y + ph}, IM_COL32(18, 19, 22, 255), 6.0f);
+
+                const char* live = "LIVE";
+                ImVec2 lsz = ImGui::CalcTextSize(live);
+                ImVec2 lpos = {pos.x + tile_w - lsz.x - 8, pos.y + 5};
+                draw->AddRectFilled(
+                    {lpos.x - 3, lpos.y - 1},
+                    {lpos.x + lsz.x + 3, lpos.y + lsz.y + 1},
+                    IM_COL32(220, 50, 50, 220),
+                    3.0f
+                );
+                draw->AddText(lpos, IM_COL32(255, 255, 255, 255), live);
+
+                const char* hint = "Right-click to watch";
+                ImVec2 hsz = ImGui::CalcTextSize(hint);
+                ImVec2 hpos = {pos.x + (tile_w - hsz.x) * 0.5f, pos.y + (ph - hsz.y) * 0.5f};
+                draw->AddText(hpos, IM_COL32(130, 130, 135, 255), hint);
+
+                ImGui::TextDisabled("%s", t.label.c_str());
             }
         } else {
             ImVec2 pos = ImGui::GetCursorScreenPos();
@@ -739,10 +794,37 @@ void UIRenderer::render_stream_volume_popup(App& app) {
         ImGui::Separator();
         ImGui::Spacing();
 
-        ImGui::Text("Stream Volume");
-        ImGui::SetNextItemWidth(150);
-        if (ImGui::SliderFloat("##stream_vol", &stream_popup_vol_, 0.0f, 2.0f, "%.1f")) {
-            app.set_stream_volume(stream_popup_vol_);
+        const bool watching = app.watching_stream();
+
+        if (watching) {
+            ImGui::Text("Stream Volume");
+            ImGui::SetNextItemWidth(160);
+            if (ImGui::SliderFloat("##stream_vol", &stream_popup_vol_, 0.0f, 2.0f, "%.1f")) {
+                app.set_stream_volume(stream_popup_vol_);
+            }
+            ImGui::Spacing();
+
+            ImGui::PushStyleColor(ImGuiCol_Button, {0.85f, 0.25f, 0.25f, 1.0f});
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.95f, 0.35f, 0.35f, 1.0f});
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.75f, 0.20f, 0.20f, 1.0f});
+            if (ImGui::Button("Leave Stream", {-1, 28})) {
+                app.leave_stream();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::PopStyleColor(3);
+        } else {
+            ImGui::TextDisabled("Not watching");
+            ImGui::Spacing();
+
+            ImGui::PushStyleColor(ImGuiCol_Button, {0.20f, 0.70f, 0.30f, 1.0f});
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.25f, 0.80f, 0.35f, 1.0f});
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.15f, 0.60f, 0.25f, 1.0f});
+            if (ImGui::Button("Watch Stream", {-1, 28})) {
+                app.join_stream();
+                stream_popup_vol_ = app.stream_volume();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::PopStyleColor(3);
         }
 
         ImGui::EndPopup();
