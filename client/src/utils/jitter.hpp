@@ -3,6 +3,7 @@
 #include "log.hpp"
 #include "time.hpp"
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <map>
