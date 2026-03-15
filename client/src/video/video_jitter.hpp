@@ -16,7 +16,7 @@ public:
         int height = 0;
     };
 
-    explicit VideoJitter(int buffer_ms) : buf_(buffer_ms) {}
+    explicit VideoJitter(int buffer_ms) : buf_(buffer_ms, true /* rate_limit_pop */) {}
 
     // frame_duration_us: real frame interval from the sender (1_000_000 / fps).
     void push(

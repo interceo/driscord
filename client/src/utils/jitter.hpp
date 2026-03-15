@@ -40,14 +40,14 @@ public:
         uint64_t miss_count = 0;
     };
 
-    explicit JitterBuffer(int target_delay_ms) : target_delay_ms_(std::max(1, target_delay_ms)) {}
+    explicit JitterBuffer(int target_delay_ms, bool rate_limit_pop = false)
+        : target_delay_ms_(std::max(1, target_delay_ms)), rate_limit_pop_(rate_limit_pop) {}
 
     void set_packet_duration(Duration d) { packet_duration_.store(d); }
 
     void push(uint64_t seq, T data, utils::WallTimestamp sender_ts = {}) {
-        if (!primed_.load()) {
-            first_push_time_.store(Clock::now());
-        }
+        auto expected = Clock::time_point::max();
+        first_push_time_.compare_exchange_strong(expected, Clock::now());
 
         std::scoped_lock lk(mutex_);
         if (map_.size() >= kMaxQueue) {
@@ -60,27 +60,43 @@ public:
     }
 
     // Returns nullopt while buffering or rate-limited.
-    // Returns a default Packet on a sequence miss.
     std::optional<Packet> pop() {
         const auto now = Clock::now();
 
+        const auto first = first_push_time_.load();
+        if (first == Clock::time_point::max()) {
+            return std::nullopt;
+        }
+
         if (!primed_.load()) {
-            const auto first_push_time = first_push_time_.load();
-            if (const auto diff = now - first_push_time; diff < std::chrono::milliseconds(target_delay_ms_)) {
+            if (now - first < std::chrono::milliseconds(target_delay_ms_)) {
                 return std::nullopt;
             }
             primed_.store(true);
+        }
+
+        if (rate_limit_pop_) {
+            const auto dur = packet_duration_.load();
+            if (dur.count() > 0) {
+                const auto last = last_pop_time_.load();
+                if (last != Clock::time_point{} && (now - last) < dur) {
+                    return std::nullopt;
+                }
+            }
         }
 
         std::scoped_lock lk(mutex_);
         if (auto it = map_.begin(); it != map_.end()) {
             auto pkt = std::move(it->second);
             map_.erase(it);
+            if (rate_limit_pop_) {
+                last_pop_time_.store(now);
+            }
             return pkt;
         }
 
         ++miss_count_;
-        return Packet{};
+        return std::nullopt;
     }
 
     bool primed() const { return primed_.load(); }
@@ -93,11 +109,11 @@ public:
     size_t buffered_ms() const {
         std::scoped_lock lk(mutex_);
 
-        const auto packet_duration = packet_duration_.load();
-        if (packet_duration.count() <= 0) {
+        const auto d = packet_duration_.load();
+        if (d.count() <= 0) {
             return 0;
         }
-        return map_.size() * static_cast<size_t>(packet_duration.count()) / 1000u;
+        return map_.size() * static_cast<size_t>(d.count()) / 1000u;
     }
 
     void reset() {
@@ -107,7 +123,7 @@ public:
         primed_.store(false);
         first_push_time_.store(Clock::time_point::max());
         packet_duration_.store(Duration::zero());
-        played_count_ = 0;
+        last_pop_time_.store(Clock::time_point{});
         drop_count_ = 0;
         miss_count_ = 0;
     }
@@ -116,9 +132,9 @@ public:
         std::scoped_lock lk(mutex_);
 
         size_t buf_ms = 0;
-        const auto packet_duration = packet_duration_.load();
-        if (packet_duration.count() > 0) {
-            buf_ms = map_.size() * static_cast<size_t>(packet_duration.count()) / 1000;
+        const auto d = packet_duration_.load();
+        if (d.count() > 0) {
+            buf_ms = map_.size() * static_cast<size_t>(d.count()) / 1000;
         }
         return {
             primed_.load(),
@@ -138,11 +154,12 @@ private:
     std::atomic<bool> primed_ = false;
 
     int target_delay_ms_;
+    bool rate_limit_pop_;
     std::atomic<Duration> packet_duration_{Duration::zero()};
 
     std::atomic<Clock::time_point> first_push_time_{Clock::time_point::max()};
+    std::atomic<Clock::time_point> last_pop_time_{Clock::time_point{}};
 
-    uint64_t played_count_ = 0;
     uint64_t drop_count_ = 0;
     uint64_t miss_count_ = 0;
 };
