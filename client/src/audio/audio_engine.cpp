@@ -18,7 +18,7 @@ AudioEngine::AudioEngine(int voice_jitter_ms)
       capture_buf_(opus::kFrameSize, 0.0f),
       voice_mix_buf_(opus::kFrameSize, 0.0f),
       screen_mix_buf_(opus::kFrameSize, 0.0f),
-      encode_buf_(protocol::kAudioHeaderSize + opus::kMaxPacket),
+      encode_buf_(protocol::AudioHeader::kWireSize + opus::kMaxPacket),
       decode_buf_(opus::kFrameSize) {}
 
 AudioEngine::~AudioEngine() { stop(); }
@@ -137,12 +137,12 @@ void AudioEngine::on_capture(const float* input, uint32_t frames) {
         consumed += to_copy;
 
         if (capture_pos_ == static_cast<size_t>(opus::kFrameSize)) {
-            uint8_t* opus_start = encode_buf_.data() + protocol::kAudioHeaderSize;
+            uint8_t* opus_start = encode_buf_.data() + protocol::AudioHeader::kWireSize;
             int bytes = encoder_->encode(capture_buf_.data(), opus::kFrameSize, opus_start, opus::kMaxPacket);
             if (bytes > 0) {
-                write_u16_le(encode_buf_.data(), voice_send_seq_++);
-                write_u32_le(encode_buf_.data() + 2, now_ms());
-                on_packet_(encode_buf_.data(), protocol::kAudioHeaderSize + static_cast<size_t>(bytes));
+                const protocol::AudioHeader ah{.seq = voice_send_seq_++, .sender_ts = WallNow()};
+                ah.serialize(encode_buf_.data());
+                on_packet_(encode_buf_.data(), protocol::AudioHeader::kWireSize + static_cast<size_t>(bytes));
             }
             capture_pos_ = 0;
         }
@@ -209,14 +209,13 @@ void AudioEngine::feed_packet(const std::string& peer_id, const uint8_t* data, s
         return;
     }
 
-    if (len <= protocol::kAudioHeaderSize) {
+    if (len <= protocol::AudioHeader::kWireSize) {
         return;
     }
 
-    uint16_t seq = read_u16_le(data);
-    uint32_t sender_ts = read_u32_le(data + 2);
-    const uint8_t* opus_data = data + protocol::kAudioHeaderSize;
-    int opus_len = static_cast<int>(len - protocol::kAudioHeaderSize);
+    const auto ah = protocol::AudioHeader::deserialize(data);
+    const uint8_t* opus_data = data + protocol::AudioHeader::kWireSize;
+    int opus_len = static_cast<int>(len - protocol::AudioHeader::kWireSize);
 
     const int samples = decoder_->decode(opus_data, opus_len, decode_buf_.data(), opus::kFrameSize);
 
@@ -239,7 +238,7 @@ void AudioEngine::feed_packet(const std::string& peer_id, const uint8_t* data, s
         }
         jitter = slot;
     }
-    jitter->push(decode_buf_.data(), static_cast<size_t>(samples), seq, sender_ts);
+    jitter->push(decode_buf_.data(), static_cast<size_t>(samples), ah.seq, ah.sender_ts);
 }
 
 void AudioEngine::remove_voice_peer(const std::string& peer_id) {

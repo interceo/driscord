@@ -82,7 +82,7 @@ bool ScreenSender::start(
                 opus_encoder_ = std::move(enc);
                 audio_capture_buf_.resize(static_cast<size_t>(opus::kFrameSize) * kScreenAudioChannels, 0.0f);
                 audio_capture_pos_ = 0;
-                audio_encode_buf_.resize(protocol::kAudioHeaderSize + opus::kMaxPacket);
+                audio_encode_buf_.resize(protocol::AudioHeader::kWireSize + opus::kMaxPacket);
                 audio_send_seq_ = 0;
                 sharing_audio_ = true;
                 LOG_INFO() << "system audio capture started";
@@ -145,11 +145,8 @@ void ScreenSender::encode_loop() {
             continue;
         }
 
-        if (frame.width != video_encoder_.width() || frame.height != video_encoder_.height()) {
-            if (!video_encoder_.reinit(frame.width, frame.height, fps_, base_bitrate_kbps_)) {
-                continue;
-            }
-            LOG_INFO() << "reinit video encoder: " << frame.width << "x" << frame.height;
+        if (!video_encoder_.init(frame.width, frame.height, fps_, base_bitrate_kbps_)) {
+            continue;
         }
 
         const auto& encoded = video_encoder_.encode(frame.data.data(), frame.width, frame.height);
@@ -157,14 +154,15 @@ void ScreenSender::encode_loop() {
             continue;
         }
 
-        size_t full_size = protocol::kVideoHeaderSize + encoded.size();
-        frame_buf_.resize(full_size);
-        uint32_t video_send_ts = now_ms();
-        write_u32_le(frame_buf_.data() + 0, static_cast<uint32_t>(frame.width));
-        write_u32_le(frame_buf_.data() + 4, static_cast<uint32_t>(frame.height));
-        write_u32_le(frame_buf_.data() + 8, video_send_ts);
-        write_u32_le(frame_buf_.data() + 12, static_cast<uint32_t>(video_encoder_.measured_kbps()));
-        std::memcpy(frame_buf_.data() + protocol::kVideoHeaderSize, encoded.data(), encoded.size());
+        const protocol::VideoHeader vh{
+            .width = static_cast<uint32_t>(frame.width),
+            .height = static_cast<uint32_t>(frame.height),
+            .sender_ts = WallNow(),
+            .bitrate_kbps = static_cast<uint32_t>(video_encoder_.measured_kbps()),
+        };
+        frame_buf_.resize(protocol::VideoHeader::kWireSize + encoded.size());
+        vh.serialize(frame_buf_.data());
+        std::memcpy(frame_buf_.data() + protocol::VideoHeader::kWireSize, encoded.data(), encoded.size());
 
         uint16_t fid = send_frame_id_++;
         size_t total_chunks = (frame_buf_.size() + protocol::kMaxChunkPayload - 1) / protocol::kMaxChunkPayload;
@@ -174,18 +172,22 @@ void ScreenSender::encode_loop() {
 
         if (fid % 30 == 0) {
             LOG_INFO()
-                << "[sync-send] video frame_id=" << fid << " sender_ts=" << video_send_ts << " size=" << encoded.size();
+                << "[sync-send] video frame_id=" << fid << " sender_ts=" << WallToMs(vh.sender_ts)
+                << " size=" << encoded.size();
         }
 
         for (size_t ci = 0; ci < total_chunks; ++ci) {
-            size_t offset = ci * protocol::kMaxChunkPayload;
-            size_t chunk_len = std::min(protocol::kMaxChunkPayload, frame_buf_.size() - offset);
+            const size_t offset = ci * protocol::kMaxChunkPayload;
+            const size_t chunk_len = std::min(protocol::kMaxChunkPayload, frame_buf_.size() - offset);
 
-            send_buf_.resize(protocol::kChunkHeaderSize + chunk_len);
-            write_u16_le(send_buf_.data() + 0, fid);
-            write_u16_le(send_buf_.data() + 2, static_cast<uint16_t>(ci));
-            write_u16_le(send_buf_.data() + 4, static_cast<uint16_t>(total_chunks));
-            std::memcpy(send_buf_.data() + protocol::kChunkHeaderSize, frame_buf_.data() + offset, chunk_len);
+            const protocol::ChunkHeader ch{
+                .frame_id = fid,
+                .chunk_idx = static_cast<uint16_t>(ci),
+                .total_chunks = static_cast<uint16_t>(total_chunks),
+            };
+            send_buf_.resize(protocol::ChunkHeader::kWireSize + chunk_len);
+            ch.serialize(send_buf_.data());
+            std::memcpy(send_buf_.data() + protocol::ChunkHeader::kWireSize, frame_buf_.data() + offset, chunk_len);
 
             on_video_(send_buf_.data(), send_buf_.size());
         }
@@ -215,18 +217,16 @@ void ScreenSender::on_audio_captured(const float* samples, size_t frames, int ch
         consumed += to_copy;
 
         if (audio_capture_pos_ >= stereo_frame_size) {
-            uint8_t* opus_start = audio_encode_buf_.data() + protocol::kAudioHeaderSize;
+            uint8_t* opus_start = audio_encode_buf_.data() + protocol::AudioHeader::kWireSize;
             int bytes =
                 opus_encoder_->encode(audio_capture_buf_.data(), opus::kFrameSize, opus_start, opus::kMaxPacket);
             if (bytes > 0) {
-                uint32_t audio_send_ts = now_ms();
-                write_u16_le(audio_encode_buf_.data(), audio_send_seq_);
-                write_u32_le(audio_encode_buf_.data() + 2, audio_send_ts);
-                if (audio_send_seq_ % 50 == 0) {
-                    LOG_INFO() << "[sync-send] screen_audio seq=" << audio_send_seq_ << " sender_ts=" << audio_send_ts;
+                const protocol::AudioHeader ah{.seq = audio_send_seq_++, .sender_ts = WallNow()};
+                ah.serialize(audio_encode_buf_.data());
+                if (ah.seq % 50 == 0) {
+                    LOG_INFO() << "[sync-send] screen_audio seq=" << ah.seq << " sender_ts=" << WallToMs(ah.sender_ts);
                 }
-                ++audio_send_seq_;
-                on_audio_(audio_encode_buf_.data(), protocol::kAudioHeaderSize + static_cast<size_t>(bytes));
+                on_audio_(audio_encode_buf_.data(), protocol::AudioHeader::kWireSize + static_cast<size_t>(bytes));
             }
             audio_capture_pos_ = 0;
         }
