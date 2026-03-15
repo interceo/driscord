@@ -92,16 +92,33 @@ public:
             std::memset(out + got, 0, (frames - got) * sizeof(float));
         }
 
-        if (got > 0 && playback_base_ts_.load(std::memory_order_relaxed) != 0) {
-            playback_samples_.fetch_add(got, std::memory_order_relaxed);
+        if (got > 0) {
+            if (underrun_) {
+                underrun_ = false;
+                LOG_INFO()
+                    << "[audio-jitter] underrun ended, ring=" << ring_.available_read() << " push=" << push_count_;
+            }
+            if (playback_base_ts_.load(std::memory_order_relaxed) != 0) {
+                playback_samples_.fetch_add(got, std::memory_order_relaxed);
+                playback_local_ts_.store(drist::now_ms(), std::memory_order_relaxed);
+            }
+        } else if (primed_) {
+            // Freeze the clock during underrun — don't let interpolation
+            // advance playback_ts when no actual audio is being played.
             playback_local_ts_.store(drist::now_ms(), std::memory_order_relaxed);
+            if (!underrun_) {
+                underrun_ = true;
+                LOG_INFO()
+                    << "[audio-jitter] UNDERRUN: ring=0"
+                    << " push=" << push_count_ << " cur_ts=" << current_playback_ts();
+            }
         }
 
         if (pop_count_ % 500 == 0 && primed_) {
             LOG_INFO()
                 << "[audio-jitter] pop#" << pop_count_ << " got=" << got << "/" << frames << " ring="
                 << ring_.available_read() << " base_ts=" << playback_base_ts_.load(std::memory_order_relaxed)
-                << " cur_ts=" << current_playback_ts();
+                << " cur_ts=" << current_playback_ts() << " underrun=" << underrun_;
         }
 
         return got;
@@ -135,6 +152,7 @@ public:
         play_seq_ = 0;
         last_flush_ts_ = 0;
         primed_ = false;
+        underrun_ = false;
         latest_sender_ts_.store(0, std::memory_order_relaxed);
         playback_base_ts_.store(0, std::memory_order_relaxed);
         playback_samples_.store(0, std::memory_order_relaxed);
@@ -159,9 +177,23 @@ private:
                 last_flush_ts_ = now;
             } else {
                 if (last_flush_ts_ != 0 && (now - last_flush_ts_) > kMaxWaitMs) {
-                    fill_silence(kFrameSize);
-                    ++play_seq_;
-                    last_flush_ts_ = now;
+                    // Skip all contiguous empty slots up to the next filled one
+                    // (or kSlots limit). Avoids O(N) push calls to catch up
+                    // after a long gap.
+                    uint16_t skipped = 0;
+                    while (skipped < kSlots) {
+                        auto& s = slots_[play_seq_ % kSlots];
+                        if (s.filled) {
+                            break;
+                        }
+                        ++play_seq_;
+                        ++skipped;
+                    }
+                    if (skipped > 0) {
+                        fill_silence(kFrameSize * skipped);
+                        last_flush_ts_ = now;
+                        LOG_INFO() << "[audio-jitter] skipped " << skipped << " empty slots";
+                    }
                     continue;
                 }
                 break;
@@ -190,7 +222,7 @@ private:
     }
 
     static constexpr int kMaxBufferSeconds = 1;
-    static constexpr size_t kFrameSize = 960;
+    static constexpr size_t kFrameSize = 48;
     static constexpr size_t kSlots = 32;
     static constexpr uint32_t kMaxWaitMs = 60;
 
@@ -210,6 +242,7 @@ private:
     size_t target_samples_;
     int sample_rate_;
     bool primed_ = false;
+    bool underrun_ = false;
 
     uint64_t push_count_ = 0;
     uint64_t push_drop_old_ = 0;
