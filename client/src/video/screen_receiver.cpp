@@ -12,6 +12,10 @@ constexpr int kStaleSeconds = 3;
 }  // namespace
 
 ScreenReceiver::ScreenReceiver(int buffer_ms, int max_sync_gap_ms) : jitter_(buffer_ms, max_sync_gap_ms) {
+    if (!decoder_.init()) {
+        LOG_ERROR() << "failed to init video decoder";
+    }
+
     auto dec = std::make_unique<OpusDecode>();
     if (dec->init(opus::kSampleRate, kScreenAudioChannels)) {
         opus_decoder_ = std::move(dec);
@@ -43,42 +47,45 @@ void ScreenReceiver::push_video_packet(const std::string& peer_id, const uint8_t
     current_peer_ = peer_id;
     last_packet_ = utils::Now();
 
-    if (ch.frame_id != re_frame_id_ || ch.total_chunks != re_total_) {
-        if (re_total_ > 0 && re_got_ < re_total_ && on_keyframe_needed_) {
+    if (ch.frame_id != reassembler_.frame_id || ch.total_chunks != reassembler_.total) {
+        if (reassembler_.total > 0 && reassembler_.got < reassembler_.total && on_keyframe_needed_) {
             on_keyframe_needed_();
         }
-        re_frame_id_ = ch.frame_id;
-        re_total_ = ch.total_chunks;
-        re_got_ = 0;
-        re_buf_.clear();
+        reassembler_ = ChunkReassembler{};
+        reassembler_.frame_id = ch.frame_id;
+        reassembler_.total = ch.total_chunks;
     }
 
     const size_t offset = static_cast<size_t>(ch.chunk_idx) * protocol::kMaxChunkPayload;
     size_t needed = offset + chunk_len;
-    if (re_buf_.size() < needed) {
-        re_buf_.resize(needed);
+    if (reassembler_.buf.size() < needed) {
+        reassembler_.buf.resize(needed);
     }
-    std::memcpy(re_buf_.data() + offset, chunk_data, chunk_len);
-    ++re_got_;
+    std::memcpy(reassembler_.buf.data() + offset, chunk_data, chunk_len);
+    ++reassembler_.got;
 
-    if (re_got_ < ch.total_chunks) {
+    if (reassembler_.got < ch.total_chunks) {
         return;
     }
 
-    if (re_buf_.size() <= protocol::VideoHeader::kWireSize) {
+    if (reassembler_.buf.size() <= protocol::VideoHeader::kWireSize) {
         return;
     }
 
-    const auto vh = protocol::VideoHeader::deserialize(re_buf_.data());
+    const auto vh = protocol::VideoHeader::deserialize(reassembler_.buf.data());
 
     if (vh.width == 0 || vh.height == 0 || vh.width > 7680 || vh.height > 4320) {
         return;
     }
 
-    pending_data_.assign(re_buf_.data() + protocol::VideoHeader::kWireSize, re_buf_.data() + re_buf_.size());
-    pending_kbps_ = vh.bitrate_kbps;
-    pending_ts_ = vh.sender_ts;
-    has_pending_ = true;
+    pending_ = PendingFrame{
+        std::vector<uint8_t>(
+            reassembler_.buf.data() + protocol::VideoHeader::kWireSize,
+            reassembler_.buf.data() + reassembler_.buf.size()
+        ),
+        vh.bitrate_kbps,
+        vh.sender_ts,
+    };
 }
 
 void ScreenReceiver::push_audio_packet(const uint8_t* data, size_t len) {
@@ -116,47 +123,26 @@ void ScreenReceiver::push_audio_packet(const uint8_t* data, size_t len) {
 }
 
 const ScreenStreamJitter::VideoFrame* ScreenReceiver::update() {
-    std::vector<uint8_t> data;
-    uint32_t kbps = 0;
-    utils::WallTimestamp ts{};
-    bool has_data = false;
-
+    std::optional<PendingFrame> frame;
     {
         std::scoped_lock lk(mutex_);
-        if (has_pending_) {
-            data.swap(pending_data_);
-            kbps = pending_kbps_;
-            ts = pending_ts_;
-            has_pending_ = false;
-            has_data = true;
-        }
+        frame = std::move(pending_);
+        pending_.reset();
     }
 
-    if (has_data) {
-        if (!decoder_inited_) {
-            decoder_inited_ = decoder_.init();
-            if (!decoder_inited_) {
-                LOG_ERROR() << "failed to init video decoder";
-            }
-        }
-
-        if (decoder_inited_) {
-            std::vector<uint8_t> rgba;
-            int w = 0, h = 0;
-            if (decoder_.decode(data.data(), data.size(), rgba, w, h)) {
-                decode_failures_ = 0;
-                width_ = w;
-                height_ = h;
-                measured_kbps_ = static_cast<int>(kbps);
-                jitter_.push_video(std::move(rgba), w, h, ts);
-            } else {
-                ++decode_failures_;
-                const auto now = utils::Now();
-                if (on_keyframe_needed_ && (decode_failures_ == 1 || utils::ElapsedMs(last_keyframe_req_, now) >= 500))
-                {
-                    on_keyframe_needed_();
-                    last_keyframe_req_ = now;
-                }
+    if (frame && decoder_.ready()) {
+        std::vector<uint8_t> rgba;
+        int w = 0, h = 0;
+        if (decoder_.decode(frame->data.data(), frame->data.size(), rgba, w, h)) {
+            decode_failures_ = 0;
+            measured_kbps_ = static_cast<int>(frame->kbps);
+            jitter_.push_video(std::move(rgba), w, h, frame->ts);
+        } else {
+            ++decode_failures_;
+            const auto now = utils::Now();
+            if (on_keyframe_needed_ && (decode_failures_ == 1 || utils::ElapsedMs(last_keyframe_req_, now) >= 500)) {
+                on_keyframe_needed_();
+                last_keyframe_req_ = now;
             }
         }
     }
@@ -181,16 +167,10 @@ void ScreenReceiver::reset() {
     {
         std::scoped_lock lk(mutex_);
         current_peer_.clear();
-        re_frame_id_ = 0;
-        re_total_ = 0;
-        re_got_ = 0;
-        re_buf_.clear();
-        pending_data_.clear();
-        has_pending_ = false;
+        reassembler_ = ChunkReassembler{};
+        pending_.reset();
     }
     jitter_.reset();
     decode_failures_ = 0;
-    width_ = 0;
-    height_ = 0;
     measured_kbps_ = 0;
 }

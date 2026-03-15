@@ -63,6 +63,7 @@ public:
 
     bool init();
     void shutdown();
+    bool ready() const { return ctx_ != nullptr; }
 
     bool decode(const uint8_t* data, size_t len, std::vector<uint8_t>& rgba_out, int& out_w, int& out_h);
 
