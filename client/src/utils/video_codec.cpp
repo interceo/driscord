@@ -123,7 +123,7 @@ int VideoEncoder::compute_bitrate(int w, int h, int base_kbps) {
 }
 
 bool VideoEncoder::init(int width, int height, int fps, int base_bitrate_kbps) {
-    if (width == width_ && height == height_ && fps == fps_ && base_bitrate_kbps == base_bitrate_kbps_) {
+    if (width == width_ && height == height_ && fps == fps_) {
         return true;
     }
 
