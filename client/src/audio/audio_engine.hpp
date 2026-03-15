@@ -93,6 +93,6 @@ private:
     std::vector<uint8_t> encode_buf_;
     std::vector<float> decode_buf_;
 
-    uint16_t voice_send_seq_ = 0;
+    uint64_t voice_send_seq_ = 0;
     uint64_t playback_count_ = 0;
 };

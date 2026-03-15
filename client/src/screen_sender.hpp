@@ -76,7 +76,7 @@ private:
     std::vector<float> audio_capture_buf_;
     size_t audio_capture_pos_ = 0;
     std::vector<uint8_t> audio_encode_buf_;
-    uint16_t audio_send_seq_ = 0;
+    uint64_t audio_send_seq_ = 0;
 
     SendCb on_video_;
     SendCb on_audio_;

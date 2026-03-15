@@ -1,10 +1,11 @@
 #pragma once
 
 #include <atomic>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
+
+#include "time.hpp"
 
 struct AVCodecContext;
 struct SwsContext;
@@ -20,7 +21,6 @@ public:
     VideoEncoder& operator=(const VideoEncoder&) = delete;
 
     bool init(int width, int height, int fps, int base_bitrate_kbps);
-    bool reinit(int width, int height, int fps, int base_bitrate_kbps);
     void shutdown();
 
     const std::vector<uint8_t>& encode(const uint8_t* bgra, int width, int height);
@@ -42,6 +42,7 @@ private:
     int width_ = 0;
     int height_ = 0;
     int fps_ = 30;
+    int base_bitrate_kbps_ = 0;
     int64_t pts_ = 0;
 
     std::vector<uint8_t> encode_buf_;
@@ -49,7 +50,7 @@ private:
 
     std::atomic<int> measured_kbps_{0};
     size_t bytes_since_calc_ = 0;
-    std::chrono::steady_clock::time_point last_calc_ = std::chrono::steady_clock::now();
+    drist::Timestamp last_calc_ = drist::Now();
 };
 
 class VideoDecoder {

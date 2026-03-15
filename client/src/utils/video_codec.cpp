@@ -123,6 +123,10 @@ int VideoEncoder::compute_bitrate(int w, int h, int base_kbps) {
 }
 
 bool VideoEncoder::init(int width, int height, int fps, int base_bitrate_kbps) {
+    if (width == width_ && height == height_ && fps == fps_ && base_bitrate_kbps == base_bitrate_kbps_) {
+        return true;
+    }
+
     shutdown();
 
     if (width % 2 != 0 || height % 2 != 0) {
@@ -213,21 +217,13 @@ bool VideoEncoder::init(int width, int height, int fps, int base_bitrate_kbps) {
     pts_ = 0;
     bytes_since_calc_ = 0;
     measured_kbps_ = 0;
-    last_calc_ = std::chrono::steady_clock::now();
+    last_calc_ = drist::Now();
 
     LOG_INFO()
         << "video encoder: " << width << "x" << height << " @ " << fps << " fps"
         << " H.264 (" << enc_name << ") bitrate=" << bitrate_kbps << " kbps"
         << " time_base=1/" << fps;
     return true;
-}
-
-bool VideoEncoder::reinit(int width, int height, int fps, int base_bitrate_kbps) {
-    if (width == width_ && height == height_ && fps == fps_) {
-        return true;
-    }
-    shutdown();
-    return init(width, height, fps, base_bitrate_kbps);
 }
 
 void VideoEncoder::shutdown() {
@@ -282,8 +278,8 @@ const std::vector<uint8_t>& VideoEncoder::encode(const uint8_t* bgra, int width,
 
     if (!encode_buf_.empty()) {
         bytes_since_calc_ += encode_buf_.size();
-        auto now = std::chrono::steady_clock::now();
-        auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_calc_).count();
+        auto now = drist::Now();
+        auto elapsed_ms = drist::ElapsedMs(last_calc_, now);
         if (elapsed_ms >= 1000) {
             measured_kbps_ = static_cast<int>(bytes_since_calc_ * 8 / elapsed_ms);
             bytes_since_calc_ = 0;

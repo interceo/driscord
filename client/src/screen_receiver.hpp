@@ -5,7 +5,6 @@
 #include "utils/protocol.hpp"
 #include "utils/video_codec.hpp"
 
-#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -57,14 +56,14 @@ private:
 
     std::vector<uint8_t> pending_data_;
     uint32_t pending_kbps_ = 0;
-    uint32_t pending_ts_ = 0;
+    drist::WallTimestamp pending_ts_{};
     bool has_pending_ = false;
-    std::chrono::steady_clock::time_point last_packet_{};
+    drist::Timestamp last_packet_{};
 
     VideoDecoder decoder_;
     bool decoder_inited_ = false;
     int decode_failures_ = 0;
-    std::chrono::steady_clock::time_point last_keyframe_req_{};
+    drist::Timestamp last_keyframe_req_{};
     int width_ = 0;
     int height_ = 0;
     int measured_kbps_ = 0;

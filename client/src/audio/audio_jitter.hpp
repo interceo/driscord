@@ -2,8 +2,8 @@
 
 #include "log.hpp"
 #include "ring_buffer.hpp"
-#include "utils/byte_utils.hpp"
 #include "utils/opus_codec.hpp"
+#include "utils/time.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -20,19 +20,19 @@ public:
           target_samples_(target_delay_ms * sample_rate / 1000),
           sample_rate_(sample_rate) {}
 
-    void push(const float* mono_pcm, size_t frames, uint16_t seq, uint32_t sender_ts = 0) {
+    void push(const float* mono_pcm, size_t frames, uint64_t seq, drist::WallTimestamp sender_ts = {}) {
         if (!seq_initialized_) {
             play_seq_ = seq;
             seq_initialized_ = true;
-            LOG_INFO() << "[audio-jitter] init play_seq=" << seq << " sender_ts=" << sender_ts;
+            LOG_INFO() << "[audio-jitter] init play_seq=" << seq << " sender_ts=" << drist::WallToMs(sender_ts);
         }
 
-        int16_t age = static_cast<int16_t>(seq - play_seq_);
+        int64_t age = static_cast<int64_t>(seq - play_seq_);
         if (age < 0) {
             ++push_drop_old_;
             return;
         }
-        if (static_cast<uint16_t>(age) >= kSlots) {
+        if (static_cast<uint64_t>(age) >= kSlots) {
             ++push_drop_far_;
             return;
         }
@@ -66,15 +66,15 @@ public:
                 << "[audio-jitter] PRIMED: avail=" << avail << " target=" << target_samples_
                 << " push_count=" << push_count_;
 
-            uint32_t latest = latest_sender_ts_.load(std::memory_order_relaxed);
-            if (latest != 0) {
+            const uint64_t latest_ms = latest_sender_ts_.load(std::memory_order_relaxed);
+            if (latest_ms != 0) {
                 uint64_t buf_samples = ring_.available_read();
-                uint32_t buf_ms = static_cast<uint32_t>(buf_samples * 1000 / sample_rate_);
-                playback_base_ts_.store(latest - buf_ms, std::memory_order_relaxed);
+                uint64_t buf_ms = buf_samples * 1000 / sample_rate_;
+                playback_base_ts_.store(latest_ms - buf_ms, std::memory_order_relaxed);
                 playback_samples_.store(0, std::memory_order_relaxed);
-                playback_local_ts_.store(drist::now_ms(), std::memory_order_relaxed);
+                playback_local_ts_.store(drist::SinceEpochMs(), std::memory_order_relaxed);
                 LOG_INFO()
-                    << "[audio-jitter] anchor base_ts=" << (latest - buf_ms) << " latest_sender=" << latest
+                    << "[audio-jitter] anchor base_ts=" << (latest_ms - buf_ms) << " latest_sender=" << latest_ms
                     << " buf_ms=" << buf_ms;
             } else {
                 LOG_INFO() << "[audio-jitter] PRIMED but latest_sender_ts=0!";
@@ -101,17 +101,17 @@ public:
             }
             if (playback_base_ts_.load(std::memory_order_relaxed) != 0) {
                 playback_samples_.fetch_add(got, std::memory_order_relaxed);
-                playback_local_ts_.store(drist::now_ms(), std::memory_order_relaxed);
+                playback_local_ts_.store(drist::SinceEpochMs(), std::memory_order_relaxed);
             }
         } else if (primed_) {
             // Freeze the clock during underrun — don't let interpolation
             // advance playback_ts when no actual audio is being played.
-            playback_local_ts_.store(drist::now_ms(), std::memory_order_relaxed);
+            playback_local_ts_.store(drist::SinceEpochMs(), std::memory_order_relaxed);
             if (!underrun_) {
                 underrun_ = true;
                 LOG_INFO()
                     << "[audio-jitter] UNDERRUN: ring=0"
-                    << " push=" << push_count_ << " cur_ts=" << current_playback_ts();
+                    << " push=" << push_count_ << " cur_ts=" << drist::WallToMs(current_playback_ts());
             }
         }
 
@@ -119,29 +119,31 @@ public:
             LOG_INFO()
                 << "[audio-jitter] pop#" << pop_count_ << " got=" << got << "/" << frames << " ring="
                 << ring_.available_read() << " base_ts=" << playback_base_ts_.load(std::memory_order_relaxed)
-                << " cur_ts=" << current_playback_ts() << " underrun=" << underrun_;
+                << " cur_ts=" << drist::WallToMs(current_playback_ts()) << " underrun=" << underrun_;
         }
 
         return got;
     }
 
-    uint32_t current_playback_ts() const {
-        uint32_t base = playback_base_ts_.load(std::memory_order_relaxed);
+    // Returns estimated wall-clock position of the current playback head.
+    // Returns WallTimestamp{} (epoch) when playback clock is not yet anchored.
+    drist::WallTimestamp current_playback_ts() const {
+        const uint64_t base = playback_base_ts_.load(std::memory_order_relaxed);
         if (base == 0) {
-            return 0;
+            return {};
         }
-        uint64_t samples = playback_samples_.load(std::memory_order_relaxed);
-        uint32_t samples_ms = static_cast<uint32_t>(samples * 1000 / sample_rate_);
-        uint32_t interp = drist::now_ms() - playback_local_ts_.load(std::memory_order_relaxed);
-        return base + samples_ms + interp;
+        const uint64_t samples = playback_samples_.load(std::memory_order_relaxed);
+        const uint64_t samples_ms = samples * 1000 / sample_rate_;
+        const uint64_t interp = drist::SinceEpochMs() - playback_local_ts_.load(std::memory_order_relaxed);
+        return drist::WallFromMs(base + samples_ms + interp);
     }
 
-    void re_anchor(uint32_t target_ts) {
-        uint64_t buf_samples = ring_.available_read();
-        uint32_t buf_ms = static_cast<uint32_t>(buf_samples * 1000 / sample_rate_);
-        playback_base_ts_.store(target_ts - buf_ms, std::memory_order_relaxed);
+    void re_anchor(drist::WallTimestamp target_ts) {
+        const uint64_t buf_samples = ring_.available_read();
+        const uint64_t buf_ms = buf_samples * 1000 / sample_rate_;
+        playback_base_ts_.store(drist::WallToMs(target_ts) - buf_ms, std::memory_order_relaxed);
         playback_samples_.store(0, std::memory_order_relaxed);
-        playback_local_ts_.store(drist::now_ms(), std::memory_order_relaxed);
+        playback_local_ts_.store(drist::SinceEpochMs(), std::memory_order_relaxed);
     }
 
     void reset() {
@@ -151,7 +153,7 @@ public:
         }
         seq_initialized_ = false;
         play_seq_ = 0;
-        last_flush_ts_ = 0;
+        last_flush_ms_ = 0;
         primed_ = false;
         underrun_ = false;
         latest_sender_ts_.store(0, std::memory_order_relaxed);
@@ -164,24 +166,24 @@ public:
 
 private:
     void flush_ready() {
-        uint32_t now = drist::now_ms();
+        const uint64_t now = drist::SinceEpochMs();
 
         while (true) {
             auto& slot = slots_[play_seq_ % kSlots];
             if (slot.filled) {
                 ring_.write(slot.pcm, slot.frames);
-                if (slot.sender_ts != 0) {
-                    latest_sender_ts_.store(slot.sender_ts, std::memory_order_relaxed);
+                if (slot.sender_ts != drist::WallTimestamp{}) {
+                    latest_sender_ts_.store(drist::WallToMs(slot.sender_ts), std::memory_order_relaxed);
                 }
                 slot.filled = false;
                 ++play_seq_;
-                last_flush_ts_ = now;
+                last_flush_ms_ = now;
             } else {
-                if (last_flush_ts_ != 0 && (now - last_flush_ts_) > kMaxWaitMs) {
+                if (last_flush_ms_ != 0 && (now - last_flush_ms_) > kMaxWaitMs) {
                     // Skip all contiguous empty slots up to the next filled one
                     // (or kSlots limit). Avoids O(N) push calls to catch up
                     // after a long gap.
-                    uint16_t skipped = 0;
+                    uint64_t skipped = 0;
                     while (skipped < kSlots) {
                         auto& s = slots_[play_seq_ % kSlots];
                         if (s.filled) {
@@ -192,7 +194,7 @@ private:
                     }
                     if (skipped > 0) {
                         fill_silence(opus::kFrameSize * skipped);
-                        last_flush_ts_ = now;
+                        last_flush_ms_ = now;
                         LOG_INFO() << "[audio-jitter] skipped " << skipped << " empty slots";
                     }
                     continue;
@@ -224,19 +226,19 @@ private:
 
     static constexpr int kMaxBufferSeconds = 1;
     static constexpr size_t kSlots = 32;
-    static constexpr uint32_t kMaxWaitMs = 60;
+    static constexpr uint64_t kMaxWaitMs = 60;
 
     struct Slot {
         float pcm[opus::kFrameSize]{};
         size_t frames = 0;
-        uint32_t sender_ts = 0;
+        drist::WallTimestamp sender_ts{};
         bool filled = false;
     };
 
     Slot slots_[kSlots]{};
-    uint16_t play_seq_ = 0;
+    uint64_t play_seq_ = 0;
     bool seq_initialized_ = false;
-    uint32_t last_flush_ts_ = 0;
+    uint64_t last_flush_ms_ = 0;
 
     RingBuffer<float> ring_;
     size_t target_samples_;
@@ -249,8 +251,10 @@ private:
     uint64_t push_drop_far_ = 0;
     uint64_t pop_count_ = 0;
 
-    std::atomic<uint32_t> latest_sender_ts_{0};
-    std::atomic<uint32_t> playback_base_ts_{0};
+    // Internal atomic storage for timestamps uses uint64_t ms (WallTimestamp
+    // is not lock-free atomically). Convert at boundaries via WallToMs/WallFromMs.
+    std::atomic<uint64_t> latest_sender_ts_{0};
+    std::atomic<uint64_t> playback_base_ts_{0};
     std::atomic<uint64_t> playback_samples_{0};
-    std::atomic<uint32_t> playback_local_ts_{0};
+    std::atomic<uint64_t> playback_local_ts_{0};
 };
