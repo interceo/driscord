@@ -12,7 +12,7 @@
 #include <unordered_map>
 #include <vector>
 
-class ScreenStreamJitter;
+class ScreenJitter;
 struct ma_device;
 
 class AudioReceiver {
@@ -28,11 +28,10 @@ public:
     void stop();
     bool running() const { return running_; }
 
-    void feed_packet(const std::string& peer_id, const uint8_t* data, size_t len,
-                     float peer_volume = 1.0f);
+    void feed_packet(const std::string& peer_id, const uint8_t* data, size_t len, float peer_volume = 1.0f);
     void remove_voice_peer(const std::string& peer_id);
 
-    void set_screen_stream(ScreenStreamJitter* stream) { screen_stream_ = stream; }
+    void set_screen_stream(ScreenJitter* stream) { screen_stream_ = stream; }
     void set_sharing_screen_audio(bool v) { sharing_screen_audio_ = v; }
 
     void set_deafened(bool d) { deafened_ = d; }
@@ -62,7 +61,7 @@ private:
     std::vector<std::shared_ptr<AudioJitter>> voice_snapshot_;
     std::vector<float> voice_mix_buf_;
 
-    ScreenStreamJitter* screen_stream_ = nullptr;
+    ScreenJitter* screen_stream_ = nullptr;
     std::vector<float> screen_mix_buf_;
 
     std::vector<float> decode_buf_;

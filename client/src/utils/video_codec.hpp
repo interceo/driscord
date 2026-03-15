@@ -42,7 +42,6 @@ private:
     int width_ = 0;
     int height_ = 0;
     int fps_ = 30;
-    int base_bitrate_kbps_ = 0;
     int64_t pts_ = 0;
 
     std::vector<uint8_t> encode_buf_;

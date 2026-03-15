@@ -65,6 +65,20 @@ struct StreamStats {
     int width = 0;
     int height = 0;
     int measured_kbps = 0;
+
+    struct JitterStats {
+        bool video_primed = false;
+        int video_queue = 0;
+        int video_buf_ms = 0;
+        uint64_t video_drops = 0;
+        uint64_t video_misses = 0;
+
+        bool audio_primed = false;
+        int audio_queue = 0;
+        int audio_buf_ms = 0;
+        uint64_t audio_drops = 0;
+        uint64_t audio_misses = 0;
+    } jitter;
 };
 
 class App {
@@ -124,6 +138,8 @@ private:
     VideoRenderer video_renderer_;
 
     std::string last_rendered_peer_;
+    int last_frame_w_ = 0;
+    int last_frame_h_ = 0;
 
     mutable std::mutex peer_vol_mutex_;
     std::unordered_map<std::string, float> peer_volumes_;
