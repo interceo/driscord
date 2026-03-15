@@ -167,7 +167,7 @@ private:
         return static_cast<size_t>(std::max(int64_t{0}, delta.count()));
     }
 
-    static constexpr size_t kMaxQueue = 64;
+    static constexpr size_t kMaxQueue = 6400;
 
     mutable std::mutex mutex_;
     std::map<uint64_t, Packet> map_;
