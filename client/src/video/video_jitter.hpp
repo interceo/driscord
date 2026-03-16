@@ -16,7 +16,17 @@ public:
         int height = 0;
     };
 
-    explicit VideoJitter(int buffer_ms) : buf_(buffer_ms, true /* pace_by_sender_ts */) {}
+    // max_excess_ms: reset pace anchor if sender clock is more than this many ms
+    //   ahead of local clock (prevents latency growth from inter-machine clock skew).
+    // max_queue_size: drop oldest decoded frames when the ring exceeds this depth
+    //   (prevents unbounded growth when the consumer is slower than the sender).
+    static constexpr int    kDefaultMaxExcessMs  = 200;
+    static constexpr size_t kDefaultMaxQueueSize = 8;   // ~267ms at 30fps
+
+    explicit VideoJitter(int buffer_ms,
+                         int    max_excess_ms  = kDefaultMaxExcessMs,
+                         size_t max_queue_size = kDefaultMaxQueueSize)
+        : buf_(buffer_ms, /*pace_by_sender_ts=*/true, max_excess_ms, max_queue_size) {}
 
     void push(std::vector<uint8_t> rgba, int w, int h, utils::WallTimestamp sender_ts) {
         buf_.push(seq_++, Frame{std::move(rgba), w, h}, sender_ts);

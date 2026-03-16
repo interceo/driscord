@@ -162,6 +162,10 @@ add_library(driscord_core STATIC
     src/audio/audio_sender.cpp
     src/audio/audio_receiver.cpp
     src/audio/audio_mixer.cpp
+    src/transport.cpp
+    src/audio_transport.cpp
+    src/video_transport.cpp
+    # Legacy ImGui client — voice_transport.cpp is kept for driscord_client only
     src/voice_transport.cpp
     src/utils/video_codec.cpp
     src/utils/opus_codec.cpp
@@ -185,8 +189,8 @@ target_link_libraries(driscord_core PRIVATE
 )
 # PUBLIC: these headers are included by driscord_core's public .hpp files,
 # so consumers (driscord_jni) need their include paths too.
-#   config.hpp         → fmt/compile.h, fmt/format.h
-#   voice_transport.hpp → rtc/rtc.hpp, nlohmann/json.hpp
+#   config.hpp       → fmt/compile.h, fmt/format.h
+#   transport.hpp    → rtc/rtc.hpp, nlohmann/json.hpp
 target_link_libraries(driscord_core PUBLIC
     datachannel-static
     fmt::fmt

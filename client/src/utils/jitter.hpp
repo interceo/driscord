@@ -20,6 +20,15 @@
 // Sender-timestamp pacing (pace_by_sender_ts = true): after priming, pop()
 // returns a packet only when enough local time has elapsed to match the
 // sender's capture timeline.
+//
+// max_excess_ms (pace_by_sender_ts only): if sender_delta exceeds local
+// elapsed time by more than this threshold the anchor is reset and the frame
+// is released immediately.  Prevents unbounded latency growth from clock skew
+// between sender and receiver.  0 = disabled.
+//
+// max_queue_size: hard cap on in-flight packets.  When the ring exceeds this
+// depth the oldest packets are dropped before pacing, so slow consumers never
+// cause unbounded memory growth.  0 = disabled.
 
 template <typename T>
 class JitterBuffer {
@@ -32,15 +41,19 @@ public:
     };
 
     struct Stats {
-        bool primed = false;
-        size_t queue_size = 0;
-        size_t buffered_ms = 0;
-        uint64_t drop_count = 0;
-        uint64_t miss_count = 0;
+        bool     primed      = false;
+        size_t   queue_size  = 0;
+        size_t   buffered_ms = 0;
+        uint64_t drop_count  = 0;
+        uint64_t miss_count  = 0;
     };
 
-    explicit JitterBuffer(int target_delay_ms, bool pace_by_sender_ts = false)
-        : target_delay_ms_(std::max(1, target_delay_ms)), pace_by_sender_ts_(pace_by_sender_ts) {}
+    explicit JitterBuffer(int target_delay_ms, bool pace_by_sender_ts = false,
+                          int max_excess_ms = 0, size_t max_queue_size = 0)
+        : target_delay_ms_(std::max(1, target_delay_ms))
+        , pace_by_sender_ts_(pace_by_sender_ts)
+        , max_excess_ms_(max_excess_ms)
+        , max_queue_size_(max_queue_size) {}
 
     // ── push (network thread) ────────────────────────────────────────
 
@@ -79,6 +92,20 @@ public:
             primed_ = true;
         }
 
+        // Hard queue cap: drop oldest packets until within limit.
+        if (max_queue_size_ > 0) {
+            while (ring_.size() > max_queue_size_) {
+                if (auto discarded = ring_.pop()) {
+                    ++drop_count_;
+                    // Reset anchor so playback resumes from the newest frame
+                    // rather than trying to replay the skipped timeline.
+                    anchor_sender_ts_.reset();
+                } else {
+                    break;
+                }
+            }
+        }
+
         if (ring_.empty()) {
             ++miss_count_;
             return std::nullopt;
@@ -103,11 +130,25 @@ public:
             if (pkt_ts.time_since_epoch().count() != 0) {
                 if (!anchor_sender_ts_) {
                     anchor_sender_ts_ = pkt_ts;
-                    playback_origin_ = now;
+                    playback_origin_  = now;
                 } else {
                     const auto sender_delta = pkt_ts - *anchor_sender_ts_;
-                    const auto local_delta = now - playback_origin_;
-                    if (local_delta < std::chrono::duration_cast<Clock::duration>(sender_delta)) {
+                    const auto local_delta  = now - playback_origin_;
+
+                    // Clock-skew guard: if sender is more than max_excess_ms ahead
+                    // of our local clock, reset the anchor and release the frame now.
+                    const int64_t sender_ms =
+                        std::chrono::duration_cast<std::chrono::milliseconds>(sender_delta).count();
+                    const int64_t local_ms =
+                        std::chrono::duration_cast<std::chrono::milliseconds>(local_delta).count();
+                    if (max_excess_ms_ > 0 && (sender_ms - local_ms) > max_excess_ms_) {
+                        LOG_WARNING()
+                            << "[jitter] clock skew " << (sender_ms - local_ms)
+                            << "ms > " << max_excess_ms_ << "ms — resetting anchor";
+                        anchor_sender_ts_ = pkt_ts;
+                        playback_origin_  = now;
+                        // Fall through and release the frame immediately.
+                    } else if (local_delta < std::chrono::duration_cast<Clock::duration>(sender_delta)) {
                         return std::nullopt;
                     }
                 }
@@ -119,16 +160,17 @@ public:
 
         if (played_count_ % 300 == 0) {
             const int64_t sender_ms = utils::WallToMs(result.data.sender_ts);
-            const int64_t age_ms = sender_ms ? utils::WallElapsedMs(result.data.sender_ts) : -1;
+            const int64_t age_ms    = sender_ms ? utils::WallElapsedMs(result.data.sender_ts) : -1;
             LOG_INFO()
-                << "[jitter-pop] played=" << played_count_ << " queue=" << ring_.size() << " drops=" << drop_count_
-                << " misses=" << miss_count_ << " sender_ts=" << sender_ms << " age_ms=" << age_ms;
+                << "[jitter-pop] played=" << played_count_ << " queue=" << ring_.size()
+                << " drops=" << drop_count_ << " misses=" << miss_count_
+                << " sender_ts=" << sender_ms << " age_ms=" << age_ms;
         }
 
         return std::move(result.data);
     }
 
-    // ── queries (all lock-free via try_lock) ─────────────────────────
+    // ── queries ──────────────────────────────────────────────────────
 
     bool primed() const {
         std::scoped_lock lk(mutex_);
@@ -148,13 +190,13 @@ public:
     void reset() {
         std::scoped_lock lk(mutex_);
         ring_.reset();
-        primed_ = false;
+        primed_           = false;
         first_push_time_.reset();
         anchor_sender_ts_.reset();
-        playback_origin_ = {};
-        played_count_ = 0;
-        drop_count_ = 0;
-        miss_count_ = 0;
+        playback_origin_  = {};
+        played_count_     = 0;
+        drop_count_       = 0;
+        miss_count_       = 0;
     }
 
     Stats stats() const {
@@ -176,12 +218,8 @@ private:
         ring_.for_each_occupied([&](const auto& slot) {
             const auto& ts = slot.data.sender_ts;
             if (ts.time_since_epoch().count() != 0) {
-                if (ts < min_ts) {
-                    min_ts = ts;
-                }
-                if (ts > max_ts) {
-                    max_ts = ts;
-                }
+                if (ts < min_ts) min_ts = ts;
+                if (ts > max_ts) max_ts = ts;
                 found = true;
             }
         });
@@ -193,17 +231,19 @@ private:
     }
 
     mutable std::mutex mutex_;
-    SlotRing<Packet> ring_;
+    SlotRing<Packet>   ring_;
 
-    bool primed_ = false;
-    int target_delay_ms_;
-    bool pace_by_sender_ts_;
+    bool   primed_           = false;
+    int    target_delay_ms_;
+    bool   pace_by_sender_ts_;
+    int    max_excess_ms_;
+    size_t max_queue_size_;
 
-    std::optional<Clock::time_point> first_push_time_;
-    std::optional<utils::WallTimestamp> anchor_sender_ts_;
-    Clock::time_point playback_origin_{};
+    std::optional<Clock::time_point>     first_push_time_;
+    std::optional<utils::WallTimestamp>  anchor_sender_ts_;
+    Clock::time_point                    playback_origin_{};
 
     uint64_t played_count_ = 0;
-    uint64_t drop_count_ = 0;
-    uint64_t miss_count_ = 0;
+    uint64_t drop_count_   = 0;
+    uint64_t miss_count_   = 0;
 };
