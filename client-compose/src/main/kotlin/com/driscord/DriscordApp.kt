@@ -139,6 +139,12 @@ class DriscordApp(val config: AppConfig = AppConfig.loadDefault()) {
                 }
             }
         }
+        NativeVideoTransport.setOnStreamingPeerRemoved(videoTransportH) { peerId ->
+            scope.launch(Dispatchers.Main) {
+                _streamingPeers.value = _streamingPeers.value - peerId
+                _frames.value = _frames.value - peerId
+            }
+        }
 
         // Screen session frame callbacks
         NativeScreenSession.setOnFrame(screenSessionH) { peerId, rgba, w, h ->
@@ -307,11 +313,8 @@ class DriscordApp(val config: AppConfig = AppConfig.loadDefault()) {
             NativeAudioMixer.removeSource(audioMixerH, recv)
             NativeAudioReceiver.destroy(recv)
         }
-        NativeVideoTransport.removeStreamingPeer(videoTransportH, peerId)
-        scope.launch(Dispatchers.Main) {
-            _streamingPeers.value = _streamingPeers.value - peerId
-            refreshPeers()
-        }
+        NativeVideoTransport.removeStreamingPeer(videoTransportH, peerId) // fires setOnStreamingPeerRemoved
+        scope.launch(Dispatchers.Main) { refreshPeers() }
     }
 
     // ---------------------------------------------------------------------------
