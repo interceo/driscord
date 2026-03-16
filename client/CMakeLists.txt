@@ -170,23 +170,9 @@ add_library(driscord_core STATIC
     ${SYSTEM_AUDIO_SOURCES}
 )
 
-add_executable(driscord_client
-    src/main.cpp
-    src/ui.cpp
-    src/video_renderer.cpp
-    src/app.cpp
-)
-
 set_target_properties(driscord_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 target_include_directories(driscord_core PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/audio
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/video
-    ${CMAKE_SOURCE_DIR}/common
-)
-
-target_include_directories(driscord_client PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/audio
     ${CMAKE_CURRENT_SOURCE_DIR}/src/video
@@ -199,18 +185,13 @@ target_link_libraries(driscord_core PRIVATE
     PkgConfig::FFMPEG
 )
 # PUBLIC: these headers are included by driscord_core's public .hpp files,
-# so consumers (driscord_client, driscord_jni) need their include paths too.
+# so consumers (driscord_jni) need their include paths too.
 #   config.hpp         → fmt/compile.h, fmt/format.h
 #   voice_transport.hpp → rtc/rtc.hpp, nlohmann/json.hpp
 target_link_libraries(driscord_core PUBLIC
     datachannel-static
     fmt::fmt
     nlohmann_json::nlohmann_json
-)
-
-target_link_libraries(driscord_client PRIVATE 
-    driscord_core
-    imgui_lib
 )
 
 if(APPLE)
@@ -257,16 +238,8 @@ if(MSVC)
         _CRT_SECURE_NO_WARNINGS
         NOMINMAX
     )
-
-    target_compile_options(driscord_client PRIVATE /W4)
-    target_compile_definitions(driscord_client PRIVATE
-        _WIN32_WINNT=0x0A00
-        _CRT_SECURE_NO_WARNINGS
-        NOMINMAX
-    )
 else()
     target_compile_options(driscord_core PRIVATE -Wall -Wextra -Wpedantic)
-    target_compile_options(driscord_client PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
 # ---------------------------------------------------------------------------

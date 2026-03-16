@@ -18,5 +18,7 @@ dist/
 .vscode/
 .cache/
 .idea/
+client-compose/.kotlin/
+client-compose/.gradle/
 
 *.log
