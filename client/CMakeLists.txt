@@ -159,6 +159,7 @@ endif()
 add_library(driscord_core STATIC
     src/video/video_sender.cpp
     src/video/video_receiver.cpp
+    src/video/screen_session.cpp
     src/audio/audio_sender.cpp
     src/audio/audio_receiver.cpp
     src/audio/audio_mixer.cpp

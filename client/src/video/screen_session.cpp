@@ -1,12 +1,9 @@
-#pragma once
-
 #include "screen_session.hpp"
 
-#include <cstdint>
-#include <functional>
-#include <memory>
-#include <string>
-#include <vector>
+#include "log.hpp"
+
+#include <algorithm>
+#include <cstring>
 
 ScreenSession::~ScreenSession() { stop_sharing(); }
 
