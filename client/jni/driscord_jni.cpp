@@ -179,7 +179,8 @@ struct VideoTransportJni {
     std::atomic<bool> watching{false};
 
     std::mutex  cb_mutex;
-    JniCallback on_streaming_peer; // fires once per new streaming peer id
+    JniCallback on_streaming_peer;         // fires once per new streaming peer id
+    JniCallback on_streaming_peer_removed; // fires when a streaming peer is removed
 
     std::mutex           streaming_mutex;
     std::set<std::string> seen_streaming;
@@ -208,8 +209,14 @@ struct VideoTransportJni {
     }
 
     void remove_streaming_peer(const std::string& peer_id) {
-        std::scoped_lock lk(streaming_mutex);
-        seen_streaming.erase(peer_id);
+        bool was_present;
+        {
+            std::scoped_lock lk(streaming_mutex);
+            was_present = seen_streaming.erase(peer_id) > 0;
+        }
+        if (was_present) {
+            fire_string(on_streaming_peer_removed, cb_mutex, peer_id);
+        }
     }
 };
 
@@ -467,6 +474,13 @@ Java_com_driscord_NativeVideoTransport_setOnNewStreamingPeer(JNIEnv* env, jclass
     auto* vt = VIDEO_TRANSPORT(h);
     std::scoped_lock lk(vt->cb_mutex);
     set_callback(env, vt->on_streaming_peer, cb, "invoke", "(Ljava/lang/String;)V");
+}
+
+JNIEXPORT void JNICALL
+Java_com_driscord_NativeVideoTransport_setOnStreamingPeerRemoved(JNIEnv* env, jclass, jlong h, jobject cb) {
+    auto* vt = VIDEO_TRANSPORT(h);
+    std::scoped_lock lk(vt->cb_mutex);
+    set_callback(env, vt->on_streaming_peer_removed, cb, "invoke", "(Ljava/lang/String;)V");
 }
 
 // ---------------------------------------------------------------------------

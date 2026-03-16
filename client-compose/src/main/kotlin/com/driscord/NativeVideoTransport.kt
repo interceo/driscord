@@ -17,4 +17,7 @@ object NativeVideoTransport {
 
     /** Fires once per newly-seen streaming peer id. */
     @JvmStatic external fun setOnNewStreamingPeer(h: Long, cb: StringCallback)
+
+    /** Fires when a streaming peer is removed via removeStreamingPeer(). */
+    @JvmStatic external fun setOnStreamingPeerRemoved(h: Long, cb: StringCallback)
 }
