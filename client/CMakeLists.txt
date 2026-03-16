@@ -163,7 +163,6 @@ add_library(driscord_core STATIC
     src/audio/audio_receiver.cpp
     src/audio/audio_mixer.cpp
     src/voice_transport.cpp
-    src/config.cpp
     src/utils/video_codec.cpp
     src/utils/opus_codec.cpp
     ${CAPTURE_SOURCES}

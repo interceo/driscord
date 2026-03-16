@@ -24,11 +24,4 @@ struct Config {
     int max_sync_gap_ms = 2000;
 
     std::vector<TurnServer> turn_servers;
-
-    std::string server_url() const { return fmt::format(FMT_COMPILE("ws://{}:{}"), server_host, server_port); }
-
-    // Tries ./driscord.json, then ~/.config/driscord/config.json.
-    // Missing file or missing keys silently use defaults.
-    static Config load(const std::string& path);
-    static Config load_default();
 };
