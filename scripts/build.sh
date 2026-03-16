@@ -48,10 +48,18 @@ if [ ! -f "$COMPOSE_DIR/gradlew" ]; then
 fi
 
 if [ -f "$COMPOSE_DIR/gradlew" ]; then
-    # Pass native lib dir so the jar knows where to find libdriscord_jni
+    # Pass native lib dir so the app image knows where to find libdriscord_jni
     export DRISCORD_NATIVE_LIB_DIR="$BUILD/client"
-    (cd "$COMPOSE_DIR" && ./gradlew build --quiet)
-    echo "    Compose client: $COMPOSE_DIR/build/compose/jars/"
+
+    # All Kotlin build outputs and Gradle caches go into <repo>/builds/
+    BUILDS_DIR="$ROOT/builds"
+    export GRADLE_USER_HOME="$BUILDS_DIR/gradle-home"
+
+    # packageDeb / packageRpm — self-contained native packages with bundled JRE
+    # Output lands in $BUILDS_DIR/dist/linux/
+    (cd "$COMPOSE_DIR" && ./gradlew packageDeb packageRpm --quiet -PbuildsDir="$BUILDS_DIR" 2>/dev/null \
+        || ./gradlew packageDeb --quiet -PbuildsDir="$BUILDS_DIR")
+    echo "    Compose packages: $BUILDS_DIR/dist/linux/"
 fi
 
 echo ""

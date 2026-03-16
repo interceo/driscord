@@ -142,11 +142,19 @@ if not exist "%COMPOSE_DIR%\gradlew.bat" (
 )
 
 set "DRISCORD_NATIVE_LIB_DIR=%BUILD%\client"
+
+:: All Kotlin build outputs and Gradle dependency/plugin caches go to Z:\
+set "DRISCORD_BUILDS_DIR=Z:\builds"
+set "GRADLE_USER_HOME=Z:\gradle-home"
+
 pushd "%COMPOSE_DIR%"
-call gradlew.bat build --quiet
+:: packageExe  — self-contained Windows installer (.exe) with bundled JRE
+:: packageMsi  — MSI package
+:: Both outputs land in %DRISCORD_BUILDS_DIR%\dist\
+call gradlew.bat packageExe packageMsi --quiet -PbuildsDir="%DRISCORD_BUILDS_DIR%"
 if errorlevel 1 ( echo Kotlin build failed. & popd & exit /b 1 )
 popd
-echo     Compose client: %COMPOSE_DIR%\build\compose\jars\
+echo     Compose installer: %DRISCORD_BUILDS_DIR%\dist\windows\
 
 :: ---------------------------------------------------------------------------
 :: Package into zip archives on Z:\
@@ -163,17 +171,15 @@ copy /Y "%ROOT%\driscord.json" "%STAGING%\client\" >nul
 if exist "%CLIENT_DIR%\*.dll" copy /Y "%CLIENT_DIR%\*.dll" "%STAGING%\client\" >nul
 powershell -NoProfile -Command "Compress-Archive -Path '%STAGING%\client\*' -DestinationPath 'Z:\driscord_client.zip' -Force" 2>nul
 
-:: Compose client
-if exist "%STAGING%\compose" rd /s /q "%STAGING%\compose"
-mkdir "%STAGING%\compose"
-if exist "%COMPOSE_DIR%\build\compose\jars" (
-    xcopy /E /Y "%COMPOSE_DIR%\build\compose\jars\*" "%STAGING%\compose\" >nul
+:: Compose client — copy the ready-made installer directly to Z:\
+for /f "delims=" %%F in ('dir /b /s "%DRISCORD_BUILDS_DIR%\dist\windows\*.exe" 2^>nul') do (
+    copy /Y "%%F" "Z:\driscord_compose_setup.exe" >nul
+    echo     Installer copied: Z:\driscord_compose_setup.exe
 )
-if exist "%BUILD%\client\driscord_jni.dll" copy /Y "%BUILD%\client\driscord_jni.dll" "%STAGING%\compose\" >nul
-if exist "%CLIENT_DIR%\*.dll" copy /Y "%CLIENT_DIR%\*.dll" "%STAGING%\compose\" >nul
-copy /Y "%ROOT%\scripts\run.bat" "%STAGING%\compose\" >nul
-copy /Y "%ROOT%\driscord.json" "%STAGING%\compose\" >nul
-powershell -NoProfile -Command "Compress-Archive -Path '%STAGING%\compose\*' -DestinationPath 'Z:\driscord_compose.zip' -Force" 2>nul
+for /f "delims=" %%F in ('dir /b /s "%DRISCORD_BUILDS_DIR%\dist\windows\*.msi" 2^>nul') do (
+    copy /Y "%%F" "Z:\driscord_compose.msi" >nul
+    echo     MSI copied:       Z:\driscord_compose.msi
+)
 
 :: Server
 if exist "%STAGING%\server" rd /s /q "%STAGING%\server"
