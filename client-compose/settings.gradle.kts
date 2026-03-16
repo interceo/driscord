@@ -12,17 +12,6 @@ val buildsRoot: String =
             .resolve("builds")
             .absolutePath
 
-buildscript {
-    // nothing extra needed here
-}
-
-// Gradle 7.4+ local build cache
-buildCache {
-    local {
-        directory = file("$buildsRoot/gradle-build-cache")
-    }
-}
-
 pluginManagement {
     repositories {
         gradlePluginPortal()
@@ -39,5 +28,12 @@ dependencyResolutionManagement {
         mavenCentral()
         google()
         maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
+    }
+}
+
+// Gradle 7.4+ local build cache
+buildCache {
+    local {
+        directory = file("$buildsRoot/gradle-build-cache")
     }
 }
