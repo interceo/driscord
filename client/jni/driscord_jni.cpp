@@ -400,6 +400,25 @@ Java_com_driscord_NativeSession_create(JNIEnv* env, jclass,
     return reinterpret_cast<jlong>(new Session(cfg));
 }
 
+// Accepts a JSON array: [{"url":"...","user":"...","pass":"..."},...]
+JNIEXPORT void JNICALL
+Java_com_driscord_NativeSession_setTurnServers(JNIEnv* env, jclass, jlong handle, jstring jJson) {
+    const char* raw = env->GetStringUTFChars(jJson, nullptr);
+    try {
+        auto arr = json::parse(raw);
+        auto* s = to_session(handle);
+        for (auto& entry : arr) {
+            std::string url  = entry.value("url",  "");
+            std::string user = entry.value("user", "");
+            std::string pass = entry.value("pass", "");
+            if (!url.empty()) {
+                s->transport.add_turn_server(url, user, pass);
+            }
+        }
+    } catch (...) {}
+    env->ReleaseStringUTFChars(jJson, raw);
+}
+
 JNIEXPORT void JNICALL
 Java_com_driscord_NativeSession_destroy(JNIEnv*, jclass, jlong handle) {
     delete to_session(handle);

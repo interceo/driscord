@@ -7,7 +7,8 @@ import androidx.compose.ui.window.rememberWindowState
 import com.driscord.ui.MainScreen
 
 fun main() = application {
-    val app = DriscordApp() // reads host/port from env or defaults
+    val config = AppConfig.loadDefault()
+    val app = DriscordApp(config)
 
     Window(
         onCloseRequest = {

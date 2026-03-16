@@ -54,18 +54,28 @@ data class StreamStats(
 // DriscordApp — the new App, written in Kotlin
 // ---------------------------------------------------------------------------
 
-class DriscordApp(
-    host: String = "localhost",
-    port: Int = 8080,
-    screenFps: Int = 60,
-    bitrateKbps: Int = 8000,
-    voiceJitterMs: Int = 80,
-    screenBufMs: Int = 120,
-    maxSyncGapMs: Int = 2000,
-) {
+class DriscordApp(val config: AppConfig = AppConfig.loadDefault()) {
     private val handle: Long = NativeSession.create(
-        host, port, screenFps, bitrateKbps, voiceJitterMs, screenBufMs, maxSyncGapMs
-    )
+        config.serverHost,
+        config.serverPort,
+        config.screenFps,
+        config.videoBitrateKbps,
+        config.voiceJitterMs,
+        config.screenBufferMs,
+        config.maxSyncGapMs,
+    ).also { h ->
+        if (config.turnServers.isNotEmpty()) {
+            val turnsJson = buildString {
+                append('[')
+                config.turnServers.forEachIndexed { i, ts ->
+                    if (i > 0) append(',')
+                    append("""{"url":"${ts.url}","user":"${ts.user}","pass":"${ts.pass}"}""")
+                }
+                append(']')
+            }
+            NativeSession.setTurnServers(h, turnsJson)
+        }
+    }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val json = Json { ignoreUnknownKeys = true }
