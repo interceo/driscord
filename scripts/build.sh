@@ -55,11 +55,9 @@ if [ -f "$COMPOSE_DIR/gradlew" ]; then
     BUILDS_DIR="$ROOT/builds"
     export GRADLE_USER_HOME="$BUILDS_DIR/gradle-home"
 
-    # packageDeb / packageRpm — self-contained native packages with bundled JRE
-    # Output lands in $BUILDS_DIR/dist/linux/
-    (cd "$COMPOSE_DIR" && ./gradlew packageDeb packageRpm --quiet -PbuildsDir="$BUILDS_DIR" 2>/dev/null \
-        || ./gradlew packageDeb --quiet -PbuildsDir="$BUILDS_DIR")
-    echo "    Compose packages: $BUILDS_DIR/dist/linux/"
+    # createDistributable — portable папка с бинарником и bundled JRE
+    (cd "$COMPOSE_DIR" && ./gradlew createDistributable --quiet -PbuildsDir="$BUILDS_DIR")
+    echo "    Compose app: $BUILDS_DIR/dist/linux/driscord/"
 fi
 
 echo ""

@@ -148,13 +148,12 @@ set "DRISCORD_BUILDS_DIR=Z:\builds"
 set "GRADLE_USER_HOME=Z:\gradle-home"
 
 pushd "%COMPOSE_DIR%"
-:: packageExe  — self-contained Windows installer (.exe) with bundled JRE
-:: packageMsi  — MSI package
-:: Both outputs land in %DRISCORD_BUILDS_DIR%\dist\
-call gradlew.bat packageExe packageMsi --quiet -PbuildsDir="%DRISCORD_BUILDS_DIR%"
+:: createDistributable — папка с driscord.exe + bundled JRE, без установщика
+:: Результат: %DRISCORD_BUILDS_DIR%\dist\windows\driscord\
+call gradlew.bat createDistributable --quiet -PbuildsDir="%DRISCORD_BUILDS_DIR%"
 if errorlevel 1 ( echo Kotlin build failed. & popd & exit /b 1 )
 popd
-echo     Compose installer: %DRISCORD_BUILDS_DIR%\dist\windows\
+echo     Compose app: %DRISCORD_BUILDS_DIR%\dist\windows\driscord\
 
 :: ---------------------------------------------------------------------------
 :: Package into zip archives on Z:\
@@ -171,14 +170,13 @@ copy /Y "%ROOT%\driscord.json" "%STAGING%\client\" >nul
 if exist "%CLIENT_DIR%\*.dll" copy /Y "%CLIENT_DIR%\*.dll" "%STAGING%\client\" >nul
 powershell -NoProfile -Command "Compress-Archive -Path '%STAGING%\client\*' -DestinationPath 'Z:\driscord_client.zip' -Force" 2>nul
 
-:: Compose client — copy the ready-made installer directly to Z:\
-for /f "delims=" %%F in ('dir /b /s "%DRISCORD_BUILDS_DIR%\dist\windows\*.exe" 2^>nul') do (
-    copy /Y "%%F" "Z:\driscord_compose_setup.exe" >nul
-    echo     Installer copied: Z:\driscord_compose_setup.exe
-)
-for /f "delims=" %%F in ('dir /b /s "%DRISCORD_BUILDS_DIR%\dist\windows\*.msi" 2^>nul') do (
-    copy /Y "%%F" "Z:\driscord_compose.msi" >nul
-    echo     MSI copied:       Z:\driscord_compose.msi
+:: Compose client — zip готовую папку с exe и скопировать на Z:\
+set "COMPOSE_APP_DIR=%DRISCORD_BUILDS_DIR%\dist\windows\driscord"
+if exist "%COMPOSE_APP_DIR%" (
+    if exist "%BUILD%\client\driscord_jni.dll" copy /Y "%BUILD%\client\driscord_jni.dll" "%COMPOSE_APP_DIR%\app\" >nul 2>&1
+    if exist "%CLIENT_DIR%\*.dll" copy /Y "%CLIENT_DIR%\*.dll" "%COMPOSE_APP_DIR%\app\" >nul 2>&1
+    powershell -NoProfile -Command "Compress-Archive -Path '%COMPOSE_APP_DIR%\*' -DestinationPath 'Z:\driscord_compose.zip' -Force" 2>nul
+    echo     Compose zip: Z:\driscord_compose.zip
 )
 
 :: Server
