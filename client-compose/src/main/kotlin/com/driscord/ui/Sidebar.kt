@@ -31,6 +31,7 @@ fun Sidebar(
     volume: Float,
     inputLevel: Float,
     outputLevel: Float,
+    initialServerUrl: String = "ws://localhost:8080",
     onConnect: (String) -> Unit,
     onDisconnect: () -> Unit,
     onToggleMute: () -> Unit,
@@ -39,7 +40,7 @@ fun Sidebar(
     onSetPeerVolume: (String, Float) -> Unit,
     onGetPeerVolume: (String) -> Float,
 ) {
-    var serverUrl by remember { mutableStateOf("ws://localhost:8080") }
+    var serverUrl by remember { mutableStateOf(initialServerUrl) }
     var selectedPeer by remember { mutableStateOf<String?>(null) }
 
     Column(

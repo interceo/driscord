@@ -17,6 +17,9 @@ object NativeSession {
         voiceJitterMs: Int, screenBufMs: Int, maxSyncGapMs: Int
     ): Long
 
+    /** JSON array of {"url","user","pass"} — call right after create(), before connect() */
+    @JvmStatic external fun setTurnServers(handle: Long, json: String)
+
     @JvmStatic external fun destroy(handle: Long)
 
     // --- connection ---

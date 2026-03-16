@@ -45,6 +45,7 @@ fun MainScreen(app: DriscordApp) {
                 volume = volume,
                 inputLevel = inputLevel,
                 outputLevel = outputLevel,
+                initialServerUrl = app.config.serverUrl,
                 onConnect = { url -> app.connect(url) },
                 onDisconnect = { app.disconnect() },
                 onToggleMute = { app.toggleMute() },
