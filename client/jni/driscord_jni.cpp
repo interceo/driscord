@@ -22,7 +22,9 @@
 #include "video/capture/screen_capture.hpp"
 #include "video/screen_session.hpp"
 #include "video/video_sender.hpp"
-#include "voice_transport.hpp"
+#include "audio_transport.hpp"
+#include "transport.hpp"
+#include "video_transport.hpp"
 
 using json = nlohmann::json;
 
@@ -57,8 +59,10 @@ struct JniCallback {
 
 struct Session {
     explicit Session(const Config& cfg)
-        : config(cfg),
-          screen_session(cfg.screen_buffer_ms, cfg.max_sync_gap_ms) {
+        : config(cfg)
+        , audio(transport)
+        , video(transport)
+        , screen_session(cfg.screen_buffer_ms, cfg.max_sync_gap_ms) {
         for (auto& ts : cfg.turn_servers) {
             transport.add_turn_server(ts.url, ts.user, ts.pass);
         }
@@ -71,8 +75,11 @@ struct Session {
     Config config;
 
     // --- core components ---
-    VoiceTransport transport;
-    AudioSender audio_sender;
+    // Declaration order matches initialization order: transport must come first.
+    Transport      transport;
+    AudioTransport audio;
+    VideoTransport video;
+    AudioSender    audio_sender;
     AudioMixer audio_mixer;
     ScreenSession screen_session;
     VideoSender video_sender;
@@ -106,12 +113,12 @@ struct Session {
     // ---------------------------------------------------------------------------
 
     void setup_transport_callbacks() {
-        transport.on_audio_received([this](const std::string& peer_id, const uint8_t* data, size_t len) {
+        audio.on_audio_received([this](const std::string& peer_id, const uint8_t* data, size_t len) {
             AudioReceiver* recv = get_or_create_voice(peer_id);
             recv->push_packet(data, len);
         });
 
-        transport.on_video_received([this](const std::string& peer_id, const uint8_t* data, size_t len) {
+        video.on_video_received([this](const std::string& peer_id, const uint8_t* data, size_t len) {
             {
                 std::scoped_lock lk(streaming_mutex);
                 streaming_peers.insert(peer_id);
@@ -121,7 +128,7 @@ struct Session {
             }
         });
 
-        transport.on_screen_audio_received([this](const std::string&, const uint8_t* data, size_t len) {
+        audio.on_screen_audio_received([this](const std::string&, const uint8_t* data, size_t len) {
             if (watching_stream.load(std::memory_order_relaxed)) {
                 screen_session.push_audio_packet(data, len);
             }
@@ -156,15 +163,15 @@ struct Session {
             fire_peer_left(peer_id);
         });
 
-        transport.on_video_channel_opened([this]() {
+        video.on_video_channel_opened([this]() {
             if (video_sender.sharing()) video_sender.force_keyframe();
         });
 
-        transport.on_keyframe_requested([this]() {
+        video.on_keyframe_requested([this]() {
             if (video_sender.sharing()) video_sender.force_keyframe();
         });
 
-        screen_session.set_keyframe_callback([this]() { transport.send_keyframe_request(); });
+        screen_session.set_keyframe_callback([this]() { video.send_keyframe_request(); });
     }
 
     // Called from Kotlin update loop
@@ -218,7 +225,7 @@ struct Session {
 
     bool start_audio() {
         bool s = audio_sender.start([this](const uint8_t* data, size_t len) {
-            transport.send_audio(data, len);
+            audio.send_audio(data, len);
         });
         bool m = audio_mixer.start();
         return s && m;
@@ -254,8 +261,8 @@ struct Session {
         }
         return video_sender.start(
             target, max_w, max_h, fps, config.video_bitrate_kbps, share_audio,
-            [this](const uint8_t* d, size_t l) { transport.send_video(d, l); },
-            [this](const uint8_t* d, size_t l) { transport.send_screen_audio(d, l); }
+            [this](const uint8_t* d, size_t l) { video.send_video(d, l); },
+            [this](const uint8_t* d, size_t l) { audio.send_screen_audio(d, l); }
         );
     }
 
@@ -288,7 +295,7 @@ struct Session {
         if (it != voice_receivers.end()) it->second->set_volume(vol);
     }
 
-    std::vector<VoiceTransport::PeerInfo> peers() const { return transport.peers(); }
+    std::vector<Transport::PeerInfo> peers() const { return transport.peers(); }
 
     std::vector<std::string> get_streaming_peers() const {
         std::scoped_lock lk(streaming_mutex);
@@ -583,7 +590,7 @@ JNIEXPORT jstring JNICALL
 Java_com_driscord_NativeSession_peers(JNIEnv* env, jclass, jlong handle) {
     auto ps = to_session(handle)->peers();
     json arr = json::array();
-    for (auto& p : ps) arr.push_back({{"id", p.id}, {"connected", p.dc_open}});
+    for (auto& p : ps) arr.push_back(json{{"id", p.id}, {"connected", p.primary_open}});
     return env->NewStringUTF(arr.dump().c_str());
 }
 
