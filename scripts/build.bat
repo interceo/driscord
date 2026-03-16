@@ -90,6 +90,38 @@ if exist "%BUILD%\client\driscord_jni.dll" (
 )
 
 :: ---------------------------------------------------------------------------
+:: Auto-detect JAVA_HOME for Gradle if not set
+:: ---------------------------------------------------------------------------
+if not defined JAVA_HOME (
+    for /f "tokens=2*" %%a in (
+        'reg query "HKLM\SOFTWARE\JavaSoft\JDK" /v CurrentVersion 2^>nul'
+    ) do set "_JDK_VER=%%b"
+    if defined _JDK_VER (
+        for /f "tokens=2*" %%a in (
+            'reg query "HKLM\SOFTWARE\JavaSoft\JDK\!_JDK_VER!" /v JavaHome 2^>nul'
+        ) do set "JAVA_HOME=%%b"
+    )
+)
+if not defined JAVA_HOME (
+    for %%D in (
+        "C:\Program Files\Eclipse Adoptium"
+        "C:\Program Files\Java"
+        "C:\Program Files\Microsoft"
+        "C:\Program Files\Amazon Corretto"
+    ) do (
+        if exist "%%~D" (
+            for /d %%J in ("%%~D\jdk-2*" "%%~D\jdk21*") do (
+                if exist "%%~J\bin\java.exe" ( set "JAVA_HOME=%%~J" )
+            )
+        )
+    )
+)
+if defined JAVA_HOME (
+    set "PATH=%JAVA_HOME%\bin;%PATH%"
+    echo     JAVA_HOME: %JAVA_HOME%
+)
+
+:: ---------------------------------------------------------------------------
 :: 2. Kotlin/Compose Desktop client
 :: ---------------------------------------------------------------------------
 echo.

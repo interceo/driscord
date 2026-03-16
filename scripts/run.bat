@@ -1,12 +1,77 @@
 @echo off
 :: Launch the Kotlin/Compose Desktop client.
-:: Builds the native JNI library first if driscord_jni.dll is not found.
 setlocal EnableDelayedExpansion
 
 set "ROOT=%~dp0.."
 set "BUILD=%ROOT%\build"
 set "COMPOSE_DIR=%ROOT%\client-compose"
 set "NATIVE_DIR=%BUILD%\client"
+
+:: ---------------------------------------------------------------------------
+:: Auto-detect JAVA_HOME if not set
+:: ---------------------------------------------------------------------------
+if defined JAVA_HOME goto java_ok
+if defined JDK_HOME ( set "JAVA_HOME=%JDK_HOME%" & goto java_ok )
+
+echo =^> JAVA_HOME not set, searching for JDK...
+
+:: Try registry (works for Oracle, Adoptium, Microsoft, Amazon Corretto)
+for /f "tokens=2*" %%a in (
+    'reg query "HKLM\SOFTWARE\JavaSoft\JDK" /v CurrentVersion 2^>nul'
+) do set "_JDK_VER=%%b"
+if defined _JDK_VER (
+    for /f "tokens=2*" %%a in (
+        'reg query "HKLM\SOFTWARE\JavaSoft\JDK\%_JDK_VER%" /v JavaHome 2^>nul'
+    ) do set "JAVA_HOME=%%b"
+)
+if defined JAVA_HOME goto java_ok
+
+:: Scan common install directories for any JDK >= 21
+for %%D in (
+    "C:\Program Files\Eclipse Adoptium"
+    "C:\Program Files\Java"
+    "C:\Program Files\Microsoft"
+    "C:\Program Files\Amazon Corretto"
+    "C:\Program Files\BellSoft"
+    "C:\Program Files\Azul Systems\Zulu"
+    "C:\Program Files\SapMachine\JDK"
+) do (
+    if exist "%%~D" (
+        for /d %%J in ("%%~D\jdk-2*") do (
+            if exist "%%~J\bin\java.exe" (
+                set "JAVA_HOME=%%~J"
+                goto java_ok
+            )
+        )
+        for /d %%J in ("%%~D\jdk21*" "%%~D\jdk-21*") do (
+            if exist "%%~J\bin\java.exe" (
+                set "JAVA_HOME=%%~J"
+                goto java_ok
+            )
+        )
+    )
+)
+
+:: Last resort: find java.exe in PATH
+where java.exe >nul 2>&1
+if not errorlevel 1 (
+    for /f "tokens=*" %%p in ('where java.exe') do (
+        set "_JAVA_BIN=%%~dpp"
+        :: strip trailing backslash from bin dir, then go up one level
+        set "JAVA_HOME=!_JAVA_BIN:~0,-1!"
+        for %%x in ("!JAVA_HOME!") do set "JAVA_HOME=%%~dpx"
+        set "JAVA_HOME=!JAVA_HOME:~0,-1!"
+        goto java_ok
+    )
+)
+
+echo ERROR: JDK not found.
+echo   Install JDK 21 from https://adoptium.net and set JAVA_HOME, or add java to PATH.
+exit /b 1
+
+:java_ok
+set "PATH=%JAVA_HOME%\bin;%PATH%"
+echo     JAVA_HOME: %JAVA_HOME%
 
 :: ---------------------------------------------------------------------------
 :: Check for the JNI DLL; build if missing
@@ -19,7 +84,6 @@ if not exist "%NATIVE_DIR%\driscord_jni.dll" (
 
 if not exist "%NATIVE_DIR%\driscord_jni.dll" (
     echo ERROR: driscord_jni.dll not found even after build.
-    echo   Make sure JNI is available ^(install a JDK and set JAVA_HOME^).
     exit /b 1
 )
 
@@ -27,11 +91,10 @@ if not exist "%NATIVE_DIR%\driscord_jni.dll" (
 :: Bootstrap Gradle wrapper if needed
 :: ---------------------------------------------------------------------------
 if not exist "%COMPOSE_DIR%\gradlew.bat" (
-    echo =^> gradlew.bat not found ^— bootstrapping Gradle wrapper...
+    echo =^> Bootstrapping Gradle wrapper...
     where gradle >nul 2>&1
     if errorlevel 1 (
-        echo ERROR: Gradle is not installed.
-        echo   Run:  cd %COMPOSE_DIR% ^&^& gradle wrapper
+        echo ERROR: Gradle not installed. Run:  cd %COMPOSE_DIR% ^&^& gradle wrapper
         exit /b 1
     )
     pushd "%COMPOSE_DIR%"
