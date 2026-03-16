@@ -41,16 +41,9 @@ compose.desktop {
         mainClass = "com.driscord.MainKt"
 
         nativeDistributions {
-            // Exe  — Windows self-contained installer (bundled JRE, no Java required)
-            // Msi  — Windows MSI package
-            // Deb  — Debian/Ubuntu package
-            // Rpm  — Fedora/RHEL package
+            // createDistributable — просто папка с exe + bundled JRE, без установщика
             targetFormats(
-                TargetFormat.Exe,
-                TargetFormat.Msi,
-                TargetFormat.Deb,
-                TargetFormat.Rpm,
-                TargetFormat.Dmg,
+                TargetFormat.AppImage, // Linux: portable папка
             )
 
             packageName = "driscord"
@@ -58,17 +51,9 @@ compose.desktop {
             description = "Driscord desktop client"
             copyright = "© 2026 driscord"
 
-            // Put the finished installers into builds/dist/  (same root as build outputs)
             outputBaseDir.set(file("$buildsRoot/dist"))
 
             windows {
-                // Show a proper name in Add/Remove Programs
-                menuGroup = "Driscord"
-                // Create a desktop shortcut
-                shortcut = true
-                // Unique upgrade GUID — change only when you want to break the upgrade chain
-                upgradeUuid = "8F3A2D1C-4B5E-4F6A-9C7D-2E0F1A3B5C7D"
-                // Bundle the native JNI DLL into the app image
                 val jniDir = System.getenv("DRISCORD_NATIVE_LIB_DIR") ?: ""
                 if (jniDir.isNotEmpty()) {
                     appResourcesRootDir.set(file(jniDir))
