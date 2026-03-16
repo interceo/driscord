@@ -143,9 +143,10 @@ if not exist "%COMPOSE_DIR%\gradlew.bat" (
 
 set "DRISCORD_NATIVE_LIB_DIR=%BUILD%\client"
 
-:: All Kotlin build outputs and Gradle dependency/plugin caches go to Z:\
-set "DRISCORD_BUILDS_DIR=Z:\builds"
+:: Kotlin build outputs go to builds\ inside the project folder
+set "DRISCORD_BUILDS_DIR=%ROOT%\builds"
 set "GRADLE_USER_HOME=Z:\gradle-home"
+if not exist "%DRISCORD_BUILDS_DIR%" mkdir "%DRISCORD_BUILDS_DIR%"
 
 pushd "%COMPOSE_DIR%"
 :: fatJar — один uber-JAR, никакого bundled JRE, ~30-50 MB
@@ -167,7 +168,8 @@ mkdir "%STAGING%\client"
 copy /Y "%BUILD%\client\driscord_client.exe" "%STAGING%\client\" >nul
 copy /Y "%ROOT%\driscord.json" "%STAGING%\client\" >nul
 if exist "%CLIENT_DIR%\*.dll" copy /Y "%CLIENT_DIR%\*.dll" "%STAGING%\client\" >nul
-powershell -NoProfile -Command "Compress-Archive -Path '%STAGING%\client\*' -DestinationPath 'Z:\driscord_client.zip' -Force" 2>nul
+powershell -NoProfile -Command "Compress-Archive -Path '%STAGING%\client\*' -DestinationPath '%ROOT%\builds\driscord_client.zip' -Force" 2>nul
+if exist "%ROOT%\builds\driscord_client.zip" move /Y "%ROOT%\builds\driscord_client.zip" "Z:\" >nul
 
 :: Compose client — driscord.jar + нативные DLL + лаунчер в один zip
 if exist "%STAGING%\compose" rd /s /q "%STAGING%\compose"
@@ -192,7 +194,8 @@ copy /Y "%ROOT%\driscord.json" "%STAGING%\compose\" >nul
     echo java -Djava.library.path=. -jar driscord.jar %%*
 ) > "%STAGING%\compose\driscord.bat"
 
-powershell -NoProfile -Command "Compress-Archive -Path '%STAGING%\compose\*' -DestinationPath 'Z:\driscord_compose.zip' -Force" 2>nul
+powershell -NoProfile -Command "Compress-Archive -Path '%STAGING%\compose\*' -DestinationPath '%ROOT%\builds\driscord_compose.zip' -Force" 2>nul
+if exist "%ROOT%\builds\driscord_compose.zip" move /Y "%ROOT%\builds\driscord_compose.zip" "Z:\" >nul
 echo     Compose zip: Z:\driscord_compose.zip
 
 :: Server
@@ -200,7 +203,8 @@ if exist "%STAGING%\server" rd /s /q "%STAGING%\server"
 mkdir "%STAGING%\server"
 copy /Y "%BUILD%\server\driscord_server.exe" "%STAGING%\server\" >nul
 copy /Y "%ROOT%\driscord.json" "%STAGING%\server\" >nul
-powershell -NoProfile -Command "Compress-Archive -Path '%STAGING%\server\*' -DestinationPath 'Z:\driscord_server.zip' -Force" 2>nul
+powershell -NoProfile -Command "Compress-Archive -Path '%STAGING%\server\*' -DestinationPath '%ROOT%\builds\driscord_server.zip' -Force" 2>nul
+if exist "%ROOT%\builds\driscord_server.zip" move /Y "%ROOT%\builds\driscord_server.zip" "Z:\" >nul
 
 rd /s /q "%STAGING%" >nul 2>&1
 
