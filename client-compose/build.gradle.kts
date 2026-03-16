@@ -1,4 +1,3 @@
-import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import java.nio.file.Paths
 
 plugins {
@@ -39,37 +38,37 @@ dependencies {
 compose.desktop {
     application {
         mainClass = "com.driscord.MainKt"
-
-        nativeDistributions {
-            // createDistributable — просто папка с exe + bundled JRE, без установщика
-            targetFormats(
-                TargetFormat.AppImage, // Linux: portable папка
-            )
-
-            packageName = "driscord"
-            packageVersion = "1.0.0"
-            description = "Driscord desktop client"
-            copyright = "© 2026 driscord"
-
-            outputBaseDir.set(file("$buildsRoot/dist"))
-
-            windows {
-                val jniDir = System.getenv("DRISCORD_NATIVE_LIB_DIR") ?: ""
-                if (jniDir.isNotEmpty()) {
-                    appResourcesRootDir.set(file(jniDir))
-                }
-            }
-
-            linux {
-                packageName = "driscord"
-                val jniDir = System.getenv("DRISCORD_NATIVE_LIB_DIR") ?: ""
-                if (jniDir.isNotEmpty()) {
-                    appResourcesRootDir.set(file(jniDir))
-                }
-            }
-        }
-
-        // Directory containing libdriscord_jni.so/.dll — set via DRISCORD_NATIVE_LIB_DIR env var
+        // nativeDistributions убраны — используем fatJar + нативные DLL из C++ билда
         jvmArgs("-Djava.library.path=${System.getenv("DRISCORD_NATIVE_LIB_DIR") ?: "."}")
     }
+}
+
+// ---------------------------------------------------------------------------
+// fatJar — один uber-JAR со всеми Kotlin/Compose зависимостями внутри.
+// Запускается: java -jar driscord.jar  (JRE должна быть на машине пользователя,
+// но это тот же JDK, что нужен для сборки — никакого 500MB runtime bundle)
+// ---------------------------------------------------------------------------
+tasks.register<Jar>("fatJar") {
+    group = "build"
+    description = "Assembles a self-contained uber-JAR with all runtime dependencies"
+
+    archiveFileName.set("driscord.jar")
+    destinationDirectory.set(file("$buildsRoot/dist"))
+
+    manifest {
+        attributes(
+            "Main-Class" to "com.driscord.MainKt",
+            "Implementation-Title" to "driscord",
+            "Implementation-Version" to project.version,
+        )
+    }
+
+    // Merge all runtime deps into one jar, skip duplicate META-INF signatures
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) })
+    from(sourceSets.main.get().output)
+
+    exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
+
+    dependsOn(tasks.named("compileKotlin"))
 }
