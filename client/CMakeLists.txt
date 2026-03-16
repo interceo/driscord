@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(driscord_client LANGUAGES C CXX)
+project(driscord_core LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -152,23 +152,33 @@ elseif(UNIX)
     set(SYSTEM_AUDIO_SOURCES src/audio/capture/system_audio_capture_linux.cpp)
 endif()
 
-# --- driscord_client executable ---
-add_executable(driscord_client
-    src/main.cpp
-    src/app.cpp
+# --- driscord_core executable ---
+add_library(driscord_core STATIC
     src/video/video_sender.cpp
     src/video/video_receiver.cpp
     src/audio/audio_sender.cpp
     src/audio/audio_receiver.cpp
     src/audio/audio_mixer.cpp
     src/voice_transport.cpp
-    src/ui.cpp
     src/config.cpp
     src/utils/video_codec.cpp
     src/utils/opus_codec.cpp
     ${CAPTURE_SOURCES}
     ${SYSTEM_AUDIO_SOURCES}
+)
+
+add_executable(driscord_client
+    src/main.cpp
+    src/ui.cpp
     src/video_renderer.cpp
+    src/app.cpp
+)
+
+target_include_directories(driscord_core PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/audio
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/video
+    ${CMAKE_SOURCE_DIR}/common
 )
 
 target_include_directories(driscord_client PRIVATE
@@ -178,14 +188,18 @@ target_include_directories(driscord_client PRIVATE
     ${CMAKE_SOURCE_DIR}/common
 )
 
-target_link_libraries(driscord_client PRIVATE
-    imgui_lib
+target_link_libraries(driscord_core PRIVATE
     datachannel-static
     Opus::opus
     nlohmann_json::nlohmann_json
     miniaudio_lib
     PkgConfig::FFMPEG
     fmt::fmt
+)
+
+target_link_libraries(driscord_client PRIVATE 
+    driscord_core
+    imgui_lib
 )
 
 if(APPLE)
@@ -195,7 +209,7 @@ if(APPLE)
     find_library(COREGRAPHICS_FRAMEWORK CoreGraphics REQUIRED)
     find_library(SCREENCAPTUREKIT_FRAMEWORK ScreenCaptureKit)
     find_library(COREMEDIA_FRAMEWORK CoreMedia REQUIRED)
-    target_link_libraries(driscord_client PRIVATE
+    target_link_libraries(driscord_core PRIVATE
         ${AUDIOTOOLBOX_FRAMEWORK}
         ${COREAUDIO_FRAMEWORK}
         ${COREFOUNDATION_FRAMEWORK}
@@ -203,10 +217,10 @@ if(APPLE)
         ${COREMEDIA_FRAMEWORK}
     )
     if(SCREENCAPTUREKIT_FRAMEWORK)
-        target_link_libraries(driscord_client PRIVATE ${SCREENCAPTUREKIT_FRAMEWORK})
+        target_link_libraries(driscord_core PRIVATE ${SCREENCAPTUREKIT_FRAMEWORK})
     endif()
 elseif(WIN32)
-    target_link_libraries(driscord_client PRIVATE
+    target_link_libraries(driscord_core PRIVATE
         d3d11 dxgi gdi32 mfuuid mfplat mf strmiids
         ole32 wmcodecdspuuid ksuser mmdevapi
     )
@@ -215,17 +229,24 @@ elseif(UNIX)
     if(NOT X11_Xrandr_FOUND)
         message(FATAL_ERROR "Xrandr not found. Install libxrandr-dev.")
     endif()
-    target_link_libraries(driscord_client PRIVATE X11::X11 X11::Xrandr)
+    target_link_libraries(driscord_core PRIVATE X11::X11 X11::Xrandr)
     find_library(PULSE_SIMPLE pulse-simple)
     find_library(PULSE pulse)
     if(PULSE_SIMPLE AND PULSE)
-        target_link_libraries(driscord_client PRIVATE ${PULSE_SIMPLE} ${PULSE})
+        target_link_libraries(driscord_core PRIVATE ${PULSE_SIMPLE} ${PULSE})
     else()
         message(WARNING "PulseAudio not found. System audio capture will be unavailable on Linux.")
     endif()
 endif()
 
 if(MSVC)
+    target_compile_options(driscord_core PRIVATE /W4)
+    target_compile_definitions(driscord_core PRIVATE
+        _WIN32_WINNT=0x0A00
+        _CRT_SECURE_NO_WARNINGS
+        NOMINMAX
+    )
+
     target_compile_options(driscord_client PRIVATE /W4)
     target_compile_definitions(driscord_client PRIVATE
         _WIN32_WINNT=0x0A00
@@ -233,5 +254,6 @@ if(MSVC)
         NOMINMAX
     )
 else()
+    target_compile_options(driscord_core PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(driscord_client PRIVATE -Wall -Wextra -Wpedantic)
 endif()
