@@ -27,7 +27,14 @@ struct ScreenSessionJni {
         session.set_keyframe_callback([this]() {
             video_transport->channel.send_keyframe_request();
         });
-        video_transport->screen_session = &session;
+        video_transport->set_video_sink(
+            [this](const std::string& peer_id, const uint8_t* data, size_t len) {
+                session.push_video_packet(peer_id, data, len);
+            },
+            [this]() {
+                if (session.sharing()) session.force_keyframe();
+            }
+        );
     }
 
     bool start_sharing(const CaptureTarget& target, int max_w, int max_h,
