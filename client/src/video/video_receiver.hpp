@@ -34,19 +34,11 @@ public:
     void reset();
 
 private:
-    struct ChunkReassembler {
-        uint16_t frame_id = 0;
-        uint16_t total = 0;
-        uint16_t got = 0;
-        std::vector<uint8_t> buf;
-    };
-
     VideoJitter video_;
 
     mutable std::mutex mutex_;
     std::string current_peer_;
     utils::Timestamp last_packet_{};
-    ChunkReassembler reassembler_;
 
     VideoDecoder decoder_;
     int decode_failures_ = 0;

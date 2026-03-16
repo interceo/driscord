@@ -83,6 +83,7 @@ struct Session {
     AudioMixer audio_mixer;
     ScreenSession screen_session;
     VideoSender video_sender;
+    std::unique_ptr<ScreenCapture> screen_capture;
 
     // --- voice receivers keyed by peer id ---
     mutable std::mutex voice_mutex;
@@ -203,6 +204,10 @@ struct Session {
     }
 
     void disconnect() {
+        if (screen_capture) {
+            screen_capture->stop();
+            screen_capture.reset();
+        }
         video_sender.stop();
         audio_sender.stop();
         audio_mixer.stop();
@@ -251,7 +256,7 @@ struct Session {
         }
     }
 
-    bool start_sharing(const CaptureTarget& target, StreamQuality quality, int fps, bool share_audio) {
+    bool start_sharing(const CaptureTarget& target, StreamQuality quality, int fps, bool /*share_audio*/) {
         int max_w, max_h;
         if (quality == StreamQuality::Source) {
             max_w = 7680; max_h = 4320;
@@ -259,11 +264,21 @@ struct Session {
             max_w = kStreamPresets[static_cast<int>(quality)].width;
             max_h = kStreamPresets[static_cast<int>(quality)].height;
         }
-        return video_sender.start(
-            target, max_w, max_h, fps, config.video_bitrate_kbps, share_audio,
-            [this](const uint8_t* d, size_t l) { video.send_video(d, l); },
-            [this](const uint8_t* d, size_t l) { audio.send_screen_audio(d, l); }
-        );
+
+        if (!video_sender.start(fps, config.video_bitrate_kbps,
+                [this](const uint8_t* d, size_t l) { video.send_video(d, l); }))
+            return false;
+
+        screen_capture = ScreenCapture::create();
+        if (!screen_capture->start(fps, target, max_w, max_h,
+                [this](ScreenCapture::Frame frame) { video_sender.push_frame(std::move(frame)); }))
+        {
+            video_sender.stop();
+            screen_capture.reset();
+            return false;
+        }
+
+        return true;
     }
 
     AudioReceiver* get_or_create_voice(const std::string& peer_id) {
@@ -567,7 +582,12 @@ Java_com_driscord_NativeSession_startSharing(JNIEnv* env, jclass, jlong handle,
 
 JNIEXPORT void JNICALL
 Java_com_driscord_NativeSession_stopSharing(JNIEnv*, jclass, jlong handle) {
-    to_session(handle)->video_sender.stop();
+    auto* s = to_session(handle);
+    if (s->screen_capture) {
+        s->screen_capture->stop();
+        s->screen_capture.reset();
+    }
+    s->video_sender.stop();
 }
 
 JNIEXPORT jboolean JNICALL
