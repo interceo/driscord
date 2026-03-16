@@ -196,10 +196,13 @@ target_include_directories(driscord_client PRIVATE
 target_link_libraries(driscord_core PRIVATE
     datachannel-static
     Opus::opus
-    nlohmann_json::nlohmann_json
     miniaudio_lib
     PkgConfig::FFMPEG
+)
+# PUBLIC: config.hpp and voice_transport.hpp are public headers that include fmt/json
+target_link_libraries(driscord_core PUBLIC
     fmt::fmt
+    nlohmann_json::nlohmann_json
 )
 
 target_link_libraries(driscord_client PRIVATE 
