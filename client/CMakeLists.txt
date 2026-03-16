@@ -250,10 +250,18 @@ endif()
 find_package(JNI QUIET)
 if(JNI_FOUND)
     add_library(driscord_jni SHARED
-        jni/driscord_jni.cpp
+        jni/transport_jni.cpp
+        jni/audio_receiver_jni.cpp
+        jni/audio_transport_jni.cpp
+        jni/audio_sender_jni.cpp
+        jni/audio_mixer_jni.cpp
+        jni/video_transport_jni.cpp
+        jni/screen_session_jni.cpp
+        jni/screen_capture_jni.cpp
     )
 
     target_include_directories(driscord_jni PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/jni
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/src/audio
         ${CMAKE_CURRENT_SOURCE_DIR}/src/video
