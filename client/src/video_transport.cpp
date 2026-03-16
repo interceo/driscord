@@ -7,8 +7,8 @@ constexpr uint8_t kKeyframeRequestTag = 0x01;
 VideoTransport::VideoTransport(Transport& transport) : transport_(transport) {
     transport.register_channel({
         .label          = "video",
-        .unordered      = true,
-        .max_retransmits = 2,
+        .unordered       = true,
+        .max_retransmits = -1,  // reliable + unordered: SCTP retransmits until delivered
         .on_data = [this](const std::string& peer_id, const uint8_t* data, size_t len) {
             if (len == 1 && data[0] == kKeyframeRequestTag) {
                 if (on_kf_req_) {
