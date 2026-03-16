@@ -387,9 +387,7 @@ bool VideoDecoder::decode(const uint8_t* data, size_t len, std::vector<uint8_t>&
     out_w = w;
     out_h = h;
     size_t needed = static_cast<size_t>(w) * h * 4;
-    if (rgba_out.size() != needed) {
-        rgba_out.resize(needed);
-    }
+    rgba_out.resize(needed);
 
     uint8_t* dst_slices[1] = {rgba_out.data()};
     int dst_stride[1] = {w * 4};
