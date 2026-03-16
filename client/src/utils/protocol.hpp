@@ -58,11 +58,38 @@ struct VideoHeader {
     }
 };
 
+// Video chunk envelope: splits an encoded frame into fixed-size SCTP messages to avoid
+// SCTP-level fragmentation of large keyframes and the head-of-line blocking it causes.
+// Wire layout: [frame_id:2][chunk_idx:2][total_chunks:2]
+struct ChunkHeader {
+    uint16_t frame_id     = 0;
+    uint16_t chunk_idx    = 0;
+    uint16_t total_chunks = 0;
+
+    static constexpr size_t kWireSize = 6;
+
+    static ChunkHeader deserialize(const uint8_t* src) {
+        ChunkHeader h;
+        h.frame_id     = utils::read_u16_le(src);
+        h.chunk_idx    = utils::read_u16_le(src + 2);
+        h.total_chunks = utils::read_u16_le(src + 4);
+        return h;
+    }
+
+    void serialize(uint8_t* dst) const {
+        utils::write_u16_le(dst,     frame_id);
+        utils::write_u16_le(dst + 2, chunk_idx);
+        utils::write_u16_le(dst + 4, total_chunks);
+    }
+};
+
 // Wire size sanity checks: verify kWireSize matches the sum of serialized field sizes.
 static_assert(AudioHeader::kWireSize == 2 * sizeof(uint64_t), "AudioHeader wire layout: seq(8) + sender_ts(8)");
 static_assert(
     VideoHeader::kWireSize == 2 * sizeof(uint32_t) + sizeof(uint64_t) + 2 * sizeof(uint32_t),
     "VideoHeader wire layout: width(4) + height(4) + sender_ts(8) + bitrate_kbps(4) + frame_duration_us(4)"
 );
+static_assert(ChunkHeader::kWireSize == 3 * sizeof(uint16_t),
+    "ChunkHeader wire layout: frame_id(2) + chunk_idx(2) + total_chunks(2)");
 
 }  // namespace protocol
