@@ -145,7 +145,7 @@ set "DRISCORD_NATIVE_LIB_DIR=%BUILD%\client"
 
 :: Kotlin build outputs go to builds\ inside the project folder
 set "DRISCORD_BUILDS_DIR=%ROOT%\builds"
-set "GRADLE_USER_HOME=Z:\gradle-home"
+set "GRADLE_USER_HOME=%ROOT%\builds\gradle-home"
 if not exist "%DRISCORD_BUILDS_DIR%" mkdir "%DRISCORD_BUILDS_DIR%"
 
 pushd "%COMPOSE_DIR%"
