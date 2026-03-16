@@ -222,7 +222,8 @@ private fun StreamTile(
             .clip(RoundedCornerShape(6.dp))
             .background(Color(0xFF18191C))
             .combinedClickable(
-                onClick = onClick,
+                // одиночный клик: если уже смотрим — развернуть; если нет — открыть попап Watch
+                onClick = { if (watching) onClick() else showVolPopup = true },
                 onLongClick = { showVolPopup = true },
             ),
         contentAlignment = Alignment.Center,
@@ -234,27 +235,45 @@ private fun StreamTile(
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Fit,
             )
-            // Stats overlay
             if (stats.width > 0) {
                 StatsOverlay(stats)
             }
         } else {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // Трансляция есть, но мы её не смотрим — показываем приглашение
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxSize(),
+            ) {
                 Text(
-                    if (watching) "Buffering…" else "Right-click to watch",
+                    if (watching) "Buffering…" else "📺",
                     color = TextMuted,
-                    fontSize = 12.sp,
+                    fontSize = if (watching) 12.sp else 28.sp,
                 )
+                if (!watching) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Click to watch",
+                        color = TextMuted,
+                        fontSize = 12.sp,
+                    )
+                }
             }
         }
         LiveBadge(modifier = Modifier.align(Alignment.TopEnd).padding(6.dp))
-        if (!watching) {
-            Text(
-                "MUTE",
-                color = Color(0xFFB0B0B0),
-                fontSize = 10.sp,
-                modifier = Modifier.align(Alignment.TopStart).padding(6.dp),
-            )
+        if (watching) {
+            // Кнопка «Leave» прямо на тайле когда смотрим
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(6.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(Color(0x99000000))
+                    .clickable { onLeave() }
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+            ) {
+                Text("LEAVE", color = Color(0xFFED4245), fontSize = 10.sp)
+            }
         }
     }
 
@@ -262,36 +281,56 @@ private fun StreamTile(
         var vol by remember { mutableStateOf(streamVolume) }
         AlertDialog(
             onDismissRequest = { showVolPopup = false },
-            title = { Text(peerId.take(14), color = Blurple, fontSize = 14.sp) },
+            title = {
+                Text(
+                    text = if (peerId.length > 14) peerId.take(14) + "…" else peerId,
+                    color = Blurple,
+                    fontSize = 14.sp,
+                )
+            },
             text = {
                 Column {
-                    if (watching) {
+                    if (!watching) {
+                        // Главный сценарий — предложить подключиться
+                        Text(
+                            "Хочешь посмотреть трансляцию?",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Button(
+                            onClick = { onJoin(); showVolPopup = false },
+                            colors = ButtonDefaults.buttonColors(backgroundColor = Green),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(4.dp),
+                        ) { Text("▶  Watch Stream", color = Color.White) }
+                    } else {
+                        // Смотрим — показываем регулятор громкости и кнопку выхода
                         Text("Stream Volume", color = Color.White, fontSize = 13.sp)
                         Slider(
                             value = vol,
                             onValueChange = { vol = it; onSetStreamVolume(it) },
                             valueRange = 0f..2f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = Blurple,
+                                activeTrackColor = Blurple,
+                            ),
                         )
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    if (watching) {
+                        Spacer(Modifier.height(4.dp))
                         Button(
                             onClick = { onLeave(); showVolPopup = false },
                             colors = ButtonDefaults.buttonColors(backgroundColor = Red),
                             modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(4.dp),
                         ) { Text("Leave Stream", color = Color.White) }
-                    } else {
-                        Button(
-                            onClick = { onJoin(); showVolPopup = false },
-                            colors = ButtonDefaults.buttonColors(backgroundColor = Green),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) { Text("Watch Stream", color = Color.White) }
                     }
                 }
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { showVolPopup = false }) { Text("Close") }
+                TextButton(onClick = { showVolPopup = false }) {
+                    Text("Cancel", color = TextMuted)
+                }
             },
             backgroundColor = Color(0xFF2C2F33),
         )
