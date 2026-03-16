@@ -24,7 +24,7 @@ Java_com_driscord_NativeScreenSession_create(JNIEnv*, jclass,
 JNIEXPORT void JNICALL
 Java_com_driscord_NativeScreenSession_destroy(JNIEnv*, jclass, jlong h) {
     auto* s = SCREEN_SESSION(h);
-    s->video_transport->screen_session = nullptr;
+    s->video_transport->clear_video_sink();
     delete s;
 }
 
