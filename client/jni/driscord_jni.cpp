@@ -16,12 +16,10 @@
 #include "audio/audio_mixer.hpp"
 #include "audio/audio_receiver.hpp"
 #include "audio/audio_sender.hpp"
-#include "audio/capture/system_audio_capture.hpp"
 #include "config.hpp"
 #include "stream_defs.hpp"
 #include "video/capture/screen_capture.hpp"
 #include "video/screen_session.hpp"
-#include "video/video_sender.hpp"
 #include "audio_transport.hpp"
 #include "transport.hpp"
 #include "video_transport.hpp"
@@ -82,8 +80,6 @@ struct Session {
     AudioSender    audio_sender;
     AudioMixer audio_mixer;
     ScreenSession screen_session;
-    VideoSender video_sender;
-    std::unique_ptr<ScreenCapture> screen_capture;
 
     // --- voice receivers keyed by peer id ---
     mutable std::mutex voice_mutex;
@@ -165,11 +161,11 @@ struct Session {
         });
 
         video.on_video_channel_opened([this]() {
-            if (video_sender.sharing()) video_sender.force_keyframe();
+            if (screen_session.sharing()) screen_session.force_keyframe();
         });
 
         video.on_keyframe_requested([this]() {
-            if (video_sender.sharing()) video_sender.force_keyframe();
+            if (screen_session.sharing()) screen_session.force_keyframe();
         });
 
         screen_session.set_keyframe_callback([this]() { video.send_keyframe_request(); });
@@ -204,11 +200,7 @@ struct Session {
     }
 
     void disconnect() {
-        if (screen_capture) {
-            screen_capture->stop();
-            screen_capture.reset();
-        }
-        video_sender.stop();
+        screen_session.stop_sharing();
         audio_sender.stop();
         audio_mixer.stop();
         watching_stream.store(false);
@@ -256,7 +248,7 @@ struct Session {
         }
     }
 
-    bool start_sharing(const CaptureTarget& target, StreamQuality quality, int fps, bool /*share_audio*/) {
+    bool start_sharing(const CaptureTarget& target, StreamQuality quality, int fps, bool share_audio) {
         int max_w, max_h;
         if (quality == StreamQuality::Source) {
             max_w = 7680; max_h = 4320;
@@ -264,21 +256,11 @@ struct Session {
             max_w = kStreamPresets[static_cast<int>(quality)].width;
             max_h = kStreamPresets[static_cast<int>(quality)].height;
         }
-
-        if (!video_sender.start(fps, config.video_bitrate_kbps,
-                [this](const uint8_t* d, size_t l) { video.send_video(d, l); }))
-            return false;
-
-        screen_capture = ScreenCapture::create();
-        if (!screen_capture->start(fps, target, max_w, max_h,
-                [this](ScreenCapture::Frame frame) { video_sender.push_frame(std::move(frame)); }))
-        {
-            video_sender.stop();
-            screen_capture.reset();
-            return false;
-        }
-
-        return true;
+        return screen_session.start_sharing(
+            target, max_w, max_h, fps, config.video_bitrate_kbps, share_audio,
+            [this](const uint8_t* d, size_t l) { video.send_video(d, l); },
+            [this](const uint8_t* d, size_t l) { audio.send_screen_audio(d, l); }
+        );
     }
 
     AudioReceiver* get_or_create_voice(const std::string& peer_id) {
@@ -582,22 +564,17 @@ Java_com_driscord_NativeSession_startSharing(JNIEnv* env, jclass, jlong handle,
 
 JNIEXPORT void JNICALL
 Java_com_driscord_NativeSession_stopSharing(JNIEnv*, jclass, jlong handle) {
-    auto* s = to_session(handle);
-    if (s->screen_capture) {
-        s->screen_capture->stop();
-        s->screen_capture.reset();
-    }
-    s->video_sender.stop();
+    to_session(handle)->screen_session.stop_sharing();
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_driscord_NativeSession_sharing(JNIEnv*, jclass, jlong handle) {
-    return to_session(handle)->video_sender.sharing() ? JNI_TRUE : JNI_FALSE;
+    return to_session(handle)->screen_session.sharing() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_driscord_NativeSession_sharingAudio(JNIEnv*, jclass, jlong handle) {
-    return to_session(handle)->video_sender.sharing_audio() ? JNI_TRUE : JNI_FALSE;
+    return to_session(handle)->screen_session.sharing_audio() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL
