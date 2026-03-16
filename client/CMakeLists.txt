@@ -166,8 +166,6 @@ add_library(driscord_core STATIC
     src/transport.cpp
     src/audio_transport.cpp
     src/video_transport.cpp
-    # Legacy ImGui client — voice_transport.cpp is kept for driscord_client only
-    src/voice_transport.cpp
     src/utils/video_codec.cpp
     src/utils/opus_codec.cpp
     ${CAPTURE_SOURCES}
