@@ -48,16 +48,35 @@ if [ ! -f "$COMPOSE_DIR/gradlew" ]; then
 fi
 
 if [ -f "$COMPOSE_DIR/gradlew" ]; then
-    # Pass native lib dir so the app image knows where to find libdriscord_jni
     export DRISCORD_NATIVE_LIB_DIR="$BUILD/client"
 
-    # All Kotlin build outputs and Gradle caches go into <repo>/builds/
     BUILDS_DIR="$ROOT/builds"
     export GRADLE_USER_HOME="$BUILDS_DIR/gradle-home"
 
-    # createDistributable — portable папка с бинарником и bundled JRE
-    (cd "$COMPOSE_DIR" && ./gradlew createDistributable --quiet -PbuildsDir="$BUILDS_DIR")
-    echo "    Compose app: $BUILDS_DIR/dist/linux/driscord/"
+    # fatJar — один uber-JAR без bundled JRE
+    (cd "$COMPOSE_DIR" && ./gradlew fatJar --quiet -PbuildsDir="$BUILDS_DIR")
+
+    # Пакуем: jar + нативные .so + лаунчер
+    DIST="$BUILDS_DIR/dist"
+    STAGING="$DIST/compose-staging"
+    rm -rf "$STAGING" && mkdir -p "$STAGING"
+
+    cp "$DIST/driscord.jar" "$STAGING/"
+    [ -f "$BUILD/client/libdriscord_jni.so" ] && cp "$BUILD/client/libdriscord_jni.so" "$STAGING/"
+    cp "$BUILD/client"/lib*.so* "$STAGING/" 2>/dev/null || true
+    cp "$ROOT/driscord.json" "$STAGING/"
+
+    # Лаунчер
+    cat > "$STAGING/driscord.sh" << 'EOF'
+#!/usr/bin/env sh
+DIR="$(cd "$(dirname "$0")" && pwd)"
+exec java -Djava.library.path="$DIR" -jar "$DIR/driscord.jar" "$@"
+EOF
+    chmod +x "$STAGING/driscord.sh"
+
+    (cd "$STAGING" && zip -qr "$DIST/driscord_compose.zip" .)
+    rm -rf "$STAGING"
+    echo "    Compose zip: $DIST/driscord_compose.zip"
 fi
 
 echo ""
