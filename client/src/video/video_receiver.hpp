@@ -47,6 +47,9 @@ private:
 
     std::function<void()> on_keyframe_needed_;
 
+    size_t bytes_since_calc_ = 0;
+    utils::Timestamp last_calc_{};
+
     uint64_t push_count_ = 0;
     uint64_t pop_count_ = 0;
 };

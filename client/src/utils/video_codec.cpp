@@ -62,7 +62,7 @@ static const AVCodec* pick_h264_encoder() {
 static void setup_rate_control(AVCodecContext* ctx, int64_t bitrate_bps, const std::string& enc_name) {
     ctx->bit_rate = bitrate_bps;
     ctx->rc_max_rate = bitrate_bps;
-    ctx->rc_buffer_size = static_cast<int>(bitrate_bps);
+    ctx->rc_buffer_size = static_cast<int>(bitrate_bps * 2);
 
     if (enc_name.find("videotoolbox") != std::string::npos) {
         av_opt_set(ctx->priv_data, "allow_sw", "true", 0);
@@ -76,7 +76,7 @@ static void setup_rate_control(AVCodecContext* ctx, int64_t bitrate_bps, const s
         av_opt_set(ctx->priv_data, "rc-lookahead", "0", 0);
         av_opt_set(ctx->priv_data, "repeat-headers", "1", 0);
         av_opt_set(ctx->priv_data, "vbv-maxrate", std::to_string(bitrate_bps / 1000).c_str(), 0);
-        av_opt_set(ctx->priv_data, "vbv-bufsize", std::to_string(bitrate_bps / 1000).c_str(), 0);
+        av_opt_set(ctx->priv_data, "vbv-bufsize", std::to_string(bitrate_bps / 500).c_str(), 0); // 2x bitrate
     } else if (enc_name.find("h264_mf") != std::string::npos) {
         av_opt_set(ctx->priv_data, "rate_control", "cbr", 0);
         ctx->profile = AV_PROFILE_H264_HIGH;
