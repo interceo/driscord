@@ -46,9 +46,21 @@ void VideoReceiver::push_video_packet(const std::string& peer_id, const uint8_t*
 
     std::vector<uint8_t> rgba;
     int w = 0, h = 0;
+    // Measure actual receive throughput (regardless of decode success).
+    bytes_since_calc_ += len;
+    {
+        auto now = utils::Now();
+        auto elapsed_ms = utils::ElapsedMs(last_calc_, now);
+        if (elapsed_ms >= 1000) {
+            measured_kbps_.store(static_cast<int>(bytes_since_calc_ * 8 / elapsed_ms),
+                                 std::memory_order_relaxed);
+            bytes_since_calc_ = 0;
+            last_calc_ = now;
+        }
+    }
+
     if (decoder_.decode(encoded, encoded_len, rgba, w, h)) {
         decode_failures_ = 0;
-        measured_kbps_.store(static_cast<int>(vh.bitrate_kbps), std::memory_order_relaxed);
         ++push_count_;
         if (push_count_ % 30 == 0) {
             LOG_INFO()
@@ -98,4 +110,6 @@ void VideoReceiver::reset() {
     video_.reset();
     decode_failures_ = 0;
     measured_kbps_.store(0, std::memory_order_relaxed);
+    bytes_since_calc_ = 0;
+    last_calc_ = utils::Now();
 }

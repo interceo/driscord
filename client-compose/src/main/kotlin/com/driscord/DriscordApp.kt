@@ -252,11 +252,18 @@ class DriscordApp(val config: AppConfig = AppConfig.loadDefault()) {
     fun streamVolume(): Float = NativeScreenSession.streamVolume(screenSessionH)
 
     fun startSharing(target: CaptureTarget, quality: Int, fps: Int, shareAudio: Boolean) {
+        // quality is an index: 0=Source, 1=720p, 2=1080p, 3=1440p
+        val (maxW, maxH) = when (quality) {
+            0 -> 0 to 0
+            1 -> 1280 to 720
+            2 -> 1920 to 1080
+            3 -> 2560 to 1440
+            else -> 1920 to 1080
+        }
         val targetJson = json.encodeToString(CaptureTarget.serializer(), target)
         val ok = NativeScreenSession.startSharing(
             screenSessionH, targetJson,
-            config.captureWidth, config.captureHeight,
-            fps, quality, shareAudio
+            maxW, maxH, fps, config.videoBitrateKbps, shareAudio
         )
         if (ok) _sharing.value = true
     }
