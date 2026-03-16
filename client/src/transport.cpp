@@ -9,8 +9,9 @@ Transport::Transport() {
     rtc_config_.iceServers.push_back(rtc::IceServer("stun:stun1.l.google.com:19302"));
     rtc_config_.iceServers.push_back(rtc::IceServer("stun:stun2.l.google.com:19302"));
     rtc_config_.iceServers.push_back(rtc::IceServer("stun:stun.cloudflare.com:3478"));
-    // Allow large video frames (keyframes can be several MB) without SCTP throwing.
-    rtc_config_.maxMessageSize = 16 * 1024 * 1024; // 16 MB
+    // Each video frame is chunked to 60 KB at the application level (VideoTransport),
+    // so SCTP never sees messages larger than ~61 KB. 128 KB gives enough headroom.
+    rtc_config_.maxMessageSize = 128 * 1024; // 128 KB
 }
 
 Transport::~Transport() { disconnect(); }
