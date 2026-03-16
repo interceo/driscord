@@ -51,31 +51,24 @@ data class StreamStats(
 }
 
 // ---------------------------------------------------------------------------
-// DriscordApp — the new App, written in Kotlin
+// DriscordApp — orchestrates all native components
 // ---------------------------------------------------------------------------
 
 class DriscordApp(val config: AppConfig = AppConfig.loadDefault()) {
-    private val handle: Long = NativeSession.create(
-        config.serverHost,
-        config.serverPort,
-        config.screenFps,
-        config.videoBitrateKbps,
-        config.voiceJitterMs,
-        config.screenBufferMs,
-        config.maxSyncGapMs,
-    ).also { h ->
-        if (config.turnServers.isNotEmpty()) {
-            val turnsJson = buildString {
-                append('[')
-                config.turnServers.forEachIndexed { i, ts ->
-                    if (i > 0) append(',')
-                    append("""{"url":"${ts.url}","user":"${ts.user}","pass":"${ts.pass}"}""")
-                }
-                append(']')
-            }
-            NativeSession.setTurnServers(h, turnsJson)
-        }
-    }
+
+    // --- native component handles ---
+    private val transportH: Long = NativeTransport.create()
+    private val audioTransportH: Long = NativeAudioTransport.create(transportH)
+    private val videoTransportH: Long = NativeVideoTransport.create(transportH)
+    private val audioSenderH: Long = NativeAudioSender.create(audioTransportH)
+    private val audioMixerH: Long = NativeAudioMixer.create()
+    private val screenSessionH: Long = NativeScreenSession.create(
+        config.screenBufferMs, config.maxSyncGapMs,
+        videoTransportH, audioTransportH
+    )
+
+    // Per-peer voice receivers: peerId -> NativeAudioReceiver handle
+    private val voiceReceivers = HashMap<String, Long>()
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val json = Json { ignoreUnknownKeys = true }
@@ -114,7 +107,6 @@ class DriscordApp(val config: AppConfig = AppConfig.loadDefault()) {
     private val _sharing = MutableStateFlow(false)
     val sharing: StateFlow<Boolean> = _sharing.asStateFlow()
 
-    /** RGBA bitmaps keyed by peer id */
     private val _frames = MutableStateFlow<Map<String, ImageBitmap>>(emptyMap())
     val frames: StateFlow<Map<String, ImageBitmap>> = _frames.asStateFlow()
 
@@ -126,28 +118,44 @@ class DriscordApp(val config: AppConfig = AppConfig.loadDefault()) {
     // ---------------------------------------------------------------------------
 
     init {
-        NativeSession.setOnFrame(handle) { peerId, rgba, w, h ->
+        // Apply TURN servers before any connection
+        config.turnServers.forEach { ts ->
+            NativeTransport.addTurnServer(transportH, ts.url, ts.user, ts.pass)
+        }
+
+        // Transport peer lifecycle
+        NativeTransport.setOnPeerJoined(transportH) { peerId ->
+            onPeerJoined(peerId)
+        }
+        NativeTransport.setOnPeerLeft(transportH) { peerId ->
+            onPeerLeft(peerId)
+        }
+
+        // New streaming peer notification
+        NativeVideoTransport.setOnNewStreamingPeer(videoTransportH) { peerId ->
             scope.launch(Dispatchers.Main) {
-                val bitmap = rgbaToImageBitmap(rgba, w, h)
-                _frames.value = _frames.value + (peerId to bitmap)
+                if (peerId !in _streamingPeers.value) {
+                    _streamingPeers.value = _streamingPeers.value + peerId
+                }
             }
         }
-        NativeSession.setOnFrameRemoved(handle) { peerId ->
+
+        // Screen session frame callbacks
+        NativeScreenSession.setOnFrame(screenSessionH) { peerId, rgba, w, h ->
+            scope.launch(Dispatchers.Main) {
+                _frames.value = _frames.value + (peerId to rgbaToImageBitmap(rgba, w, h))
+            }
+        }
+        NativeScreenSession.setOnFrameRemoved(screenSessionH) { peerId ->
             scope.launch(Dispatchers.Main) {
                 _frames.value = _frames.value - peerId
             }
         }
-        NativeSession.setOnPeerJoined(handle) { _ ->
-            scope.launch(Dispatchers.Main) { refreshPeers() }
-        }
-        NativeSession.setOnPeerLeft(handle) { _ ->
-            scope.launch(Dispatchers.Main) { refreshPeers() }
-        }
 
-        // Update loop: polls C++ session and refreshes Kotlin state
+        // Update loop
         scope.launch {
             while (isActive) {
-                NativeSession.update(handle)
+                NativeScreenSession.update(screenSessionH)
                 refreshVolatileState()
                 delay(16)
             }
@@ -161,22 +169,31 @@ class DriscordApp(val config: AppConfig = AppConfig.loadDefault()) {
     fun connect(serverUrl: String) {
         if (_state.value != AppState.Disconnected) return
         _state.value = AppState.Connecting
-        NativeSession.connect(handle, serverUrl)
+        NativeTransport.connect(transportH, serverUrl)
         scope.launch {
-            // Poll until connected
-            while (isActive && !NativeSession.connected(handle)) delay(100)
-            if (NativeSession.connected(handle)) {
-                NativeSession.startAudio(handle)
+            while (isActive && !NativeTransport.connected(transportH)) delay(100)
+            if (NativeTransport.connected(transportH)) {
+                NativeAudioMixer.start(audioMixerH)
+                NativeAudioSender.start(audioSenderH)
                 withContext(Dispatchers.Main) {
                     _state.value = AppState.Connected
-                    _localId.value = NativeSession.localId(handle)
+                    _localId.value = NativeTransport.localId(transportH)
                 }
             }
         }
     }
 
     fun disconnect() {
-        NativeSession.disconnect(handle)
+        NativeTransport.disconnect(transportH)
+        NativeAudioSender.stop(audioSenderH)
+        NativeAudioMixer.stop(audioMixerH)
+        synchronized(voiceReceivers) {
+            voiceReceivers.values.forEach { recv ->
+                NativeAudioMixer.removeSource(audioMixerH, recv)
+                NativeAudioReceiver.destroy(recv)
+            }
+            voiceReceivers.clear()
+        }
         _state.value = AppState.Disconnected
         _peers.value = emptyList()
         _streamingPeers.value = emptyList()
@@ -187,60 +204,76 @@ class DriscordApp(val config: AppConfig = AppConfig.loadDefault()) {
     }
 
     fun toggleMute() {
-        NativeSession.toggleMute(handle)
-        _muted.value = NativeSession.muted(handle)
+        val next = !NativeAudioSender.muted(audioSenderH)
+        NativeAudioSender.setMuted(audioSenderH, next)
+        _muted.value = next
     }
 
     fun toggleDeafen() {
-        NativeSession.toggleDeafen(handle)
-        _deafened.value = NativeSession.deafened(handle)
-        _muted.value = NativeSession.muted(handle)
+        val next = !NativeAudioMixer.deafened(audioMixerH)
+        NativeAudioMixer.setDeafened(audioMixerH, next)
+        _deafened.value = next
+        // Muting mic when deafened matches typical voice-chat UX
+        NativeAudioSender.setMuted(audioSenderH, next)
+        _muted.value = NativeAudioSender.muted(audioSenderH)
     }
 
     fun setVolume(vol: Float) {
-        NativeSession.setVolume(handle, vol)
+        NativeAudioMixer.setOutputVolume(audioMixerH, vol)
         _volume.value = vol
     }
 
-    fun setPeerVolume(peerId: String, vol: Float) = NativeSession.setPeerVolume(handle, peerId, vol)
-    fun peerVolume(peerId: String): Float = NativeSession.peerVolume(handle, peerId)
+    fun setPeerVolume(peerId: String, vol: Float) {
+        val recv = synchronized(voiceReceivers) { voiceReceivers[peerId] } ?: return
+        NativeAudioReceiver.setVolume(recv, vol)
+    }
+
+    fun peerVolume(peerId: String): Float {
+        val recv = synchronized(voiceReceivers) { voiceReceivers[peerId] } ?: return 1f
+        return NativeAudioReceiver.volume(recv)
+    }
 
     fun joinStream() {
-        NativeSession.joinStream(handle)
+        NativeVideoTransport.setWatching(videoTransportH, true)
+        NativeAudioTransport.setScreenAudioReceiver(audioTransportH, screenSessionH)
+        NativeScreenSession.addAudioReceiverToMixer(screenSessionH, audioMixerH)
         _watching.value = true
     }
 
     fun leaveStream() {
-        NativeSession.leaveStream(handle)
+        NativeVideoTransport.setWatching(videoTransportH, false)
+        NativeScreenSession.removeAudioReceiverFromMixer(screenSessionH, audioMixerH)
+        NativeAudioTransport.setScreenAudioReceiver(audioTransportH, 0L)
+        NativeScreenSession.reset(screenSessionH)
         _watching.value = false
     }
 
-    fun setStreamVolume(vol: Float) = NativeSession.setStreamVolume(handle, vol)
-    fun streamVolume(): Float = NativeSession.streamVolume(handle)
+    fun setStreamVolume(vol: Float) = NativeScreenSession.setStreamVolume(screenSessionH, vol)
+    fun streamVolume(): Float = NativeScreenSession.streamVolume(screenSessionH)
 
     fun startSharing(target: CaptureTarget, quality: Int, fps: Int, shareAudio: Boolean) {
         val targetJson = json.encodeToString(CaptureTarget.serializer(), target)
-        NativeSession.startSharing(handle, targetJson, quality, fps, shareAudio)
-        _sharing.value = NativeSession.sharing(handle)
+        val ok = NativeScreenSession.startSharing(
+            screenSessionH, targetJson,
+            config.captureWidth, config.captureHeight,
+            fps, quality, shareAudio
+        )
+        if (ok) _sharing.value = true
     }
 
     fun stopSharing() {
-        NativeSession.stopSharing(handle)
+        NativeScreenSession.stopSharing(screenSessionH)
         _sharing.value = false
     }
 
-    val systemAudioAvailable: Boolean get() = NativeSession.systemAudioAvailable()
+    val systemAudioAvailable: Boolean get() = NativeScreenCapture.systemAudioAvailable()
 
-    fun listCaptureTargets(): List<CaptureTarget> {
-        val raw = NativeSession.listCaptureTargets()
-        return json.decodeFromString(raw)
-    }
+    fun listCaptureTargets(): List<CaptureTarget> =
+        json.decodeFromString(NativeScreenCapture.listTargets())
 
     fun grabThumbnail(target: CaptureTarget, maxW: Int = 320, maxH: Int = 180): ImageBitmap? {
         val targetJson = json.encodeToString(CaptureTarget.serializer(), target)
-        val rgba = NativeSession.grabThumbnail(targetJson, maxW, maxH) ?: return null
-        // Width/height come back embedded in the capture; we use maxW/maxH as a hint.
-        // The actual decoded size may differ — compute from byte count.
+        val rgba = NativeScreenCapture.grabThumbnail(targetJson, maxW, maxH) ?: return null
         val pixels = rgba.size / 4
         val w = maxW.coerceAtMost(pixels)
         val h = if (w > 0) pixels / w else 0
@@ -249,24 +282,48 @@ class DriscordApp(val config: AppConfig = AppConfig.loadDefault()) {
     }
 
     // ---------------------------------------------------------------------------
-    // Internal refresh helpers
+    // Peer lifecycle (called from C++ callbacks, may be on any thread)
+    // ---------------------------------------------------------------------------
+
+    private fun onPeerJoined(peerId: String) {
+        val recv = NativeAudioReceiver.create(config.voiceJitterMs)
+        synchronized(voiceReceivers) { voiceReceivers[peerId] = recv }
+        NativeAudioTransport.registerVoiceReceiver(audioTransportH, peerId, recv)
+        NativeAudioMixer.addSource(audioMixerH, recv)
+        scope.launch(Dispatchers.Main) { refreshPeers() }
+    }
+
+    private fun onPeerLeft(peerId: String) {
+        val recv = synchronized(voiceReceivers) { voiceReceivers.remove(peerId) }
+        if (recv != null) {
+            NativeAudioTransport.unregisterVoiceReceiver(audioTransportH, peerId)
+            NativeAudioMixer.removeSource(audioMixerH, recv)
+            NativeAudioReceiver.destroy(recv)
+        }
+        NativeVideoTransport.removeStreamingPeer(videoTransportH, peerId)
+        scope.launch(Dispatchers.Main) {
+            _streamingPeers.value = _streamingPeers.value - peerId
+            refreshPeers()
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Internal helpers
     // ---------------------------------------------------------------------------
 
     private fun refreshPeers() {
-        _peers.value = json.decodeFromString(_peers.let { NativeSession.peers(handle) })
-        _streamingPeers.value = json.decodeFromString(NativeSession.streamingPeers(handle))
+        _peers.value = json.decodeFromString(NativeTransport.peers(transportH))
     }
 
     private suspend fun refreshVolatileState() = withContext(Dispatchers.Main) {
         if (_state.value == AppState.Connected) {
-            _muted.value = NativeSession.muted(handle)
-            _deafened.value = NativeSession.deafened(handle)
-            _inputLevel.value = NativeSession.inputLevel(handle)
-            _outputLevel.value = NativeSession.outputLevel(handle)
-            _sharing.value = NativeSession.sharing(handle)
-            _watching.value = NativeSession.watchingStream(handle)
-            _streamStats.value = json.decodeFromString(NativeSession.streamStats(handle))
-            // Refresh peer list periodically
+            _muted.value = NativeAudioSender.muted(audioSenderH)
+            _deafened.value = NativeAudioMixer.deafened(audioMixerH)
+            _inputLevel.value = NativeAudioSender.inputLevel(audioSenderH)
+            _outputLevel.value = NativeAudioMixer.outputLevel(audioMixerH)
+            _sharing.value = NativeScreenSession.sharing(screenSessionH)
+            _watching.value = NativeVideoTransport.watching(videoTransportH)
+            _streamStats.value = json.decodeFromString(NativeScreenSession.stats(screenSessionH))
             refreshPeers()
         }
     }
@@ -277,16 +334,21 @@ class DriscordApp(val config: AppConfig = AppConfig.loadDefault()) {
 
     fun close() {
         scope.cancel()
-        NativeSession.disconnect(handle)
-        NativeSession.destroy(handle)
+        disconnect()
+        NativeScreenSession.destroy(screenSessionH)
+        NativeAudioSender.destroy(audioSenderH)
+        NativeAudioMixer.destroy(audioMixerH)
+        NativeVideoTransport.destroy(videoTransportH)
+        NativeAudioTransport.destroy(audioTransportH)
+        NativeTransport.destroy(transportH)
     }
 
     // ---------------------------------------------------------------------------
-    // Companion helpers
+    // Companion
     // ---------------------------------------------------------------------------
 
     companion object {
-        private fun rgbaToImageBitmap(rgba: ByteArray, w: Int, h: Int): ImageBitmap {
+        fun rgbaToImageBitmap(rgba: ByteArray, w: Int, h: Int): ImageBitmap {
             val bitmap = Bitmap()
             bitmap.allocPixels(ImageInfo(w, h, ColorType.RGBA_8888, ColorAlphaType.UNPREMUL))
             bitmap.installPixels(rgba)
