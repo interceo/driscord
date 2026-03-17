@@ -5,12 +5,13 @@
 #include "utils/video_codec.hpp"
 #include "video_jitter.hpp"
 
+#include <array>
 #include <atomic>
-#include <condition_variable>
 #include <cstdint>
-#include <deque>
 #include <functional>
 #include <mutex>
+#include <condition_variable>
+#include <semaphore>
 #include <thread>
 #include <vector>
 
@@ -27,7 +28,6 @@ public:
     bool start(int fps, int base_bitrate_kbps, SendCb on_video);
     void stop();
 
-    // Called by external screen capture to deliver frames.
     void push_frame(ScreenCapture::Frame&& frame);
 
     bool sharing() const { return sharing_; }
@@ -82,37 +82,43 @@ public:
     void reset();
 
 private:
-    struct DecodeJob {
-        std::vector<uint8_t> encoded;
-        protocol::VideoHeader vh;
-    };
-
     void decode_loop();
 
-    VideoJitter video_;
+    // Lock-free SPSC queue between the DataChannel receive thread (producer)
+    // and the decode thread (consumer). Producer only writes head_, consumer
+    // only writes tail_ — no contention, no mutex on the hot path.
+    struct FrameSlot {
+        std::string           peer_id;
+        std::vector<uint8_t>  encoded;  // raw H.264 payload (VideoHeader stripped)
+        protocol::VideoHeader vh;
+    };
+    static constexpr size_t kQueueCapacity = 4;
+    std::array<FrameSlot, kQueueCapacity> ring_;
+    alignas(64) std::atomic<size_t> head_{0};  // written only by producer
+    alignas(64) std::atomic<size_t> tail_{0};  // written only by consumer
+    std::counting_semaphore<kQueueCapacity> sem_{0};
 
-    mutable std::mutex mutex_;
-    std::string current_peer_;
-    utils::Timestamp last_packet_{};
+    std::thread       decode_thread_;
+    std::atomic<bool> decode_running_{false};
 
-    VideoDecoder decoder_;
-    int decode_failures_ = 0;
+    // Decode-thread-only state (no locking needed):
+    VideoDecoder     decoder_;
+    int              decode_failures_ = 0;
     utils::Timestamp last_keyframe_req_{};
-    std::atomic<int> measured_kbps_{0};
 
     std::function<void()> on_keyframe_needed_;
 
-    size_t bytes_since_calc_ = 0;
-    utils::Timestamp last_calc_{};
+    // Jitter buffer: pushed from decode thread, popped from main thread.
+    // Thread-safety is handled inside JitterBuffer.
+    VideoJitter video_;
 
-    uint64_t push_count_ = 0;
-    uint64_t pop_count_ = 0;
+    // mutex_ guards current_peer_ and last_packet_, read from main thread.
+    mutable std::mutex mutex_;
+    std::string      current_peer_;
+    utils::Timestamp last_packet_{};
 
-    std::deque<DecodeJob> decode_queue_;
-    std::mutex decode_queue_mutex_;
-    std::condition_variable decode_cv_;
-    std::thread decode_thread_;
-    std::atomic<bool> decode_running_{false};
-
-    static constexpr size_t kMaxDecodeQueue = 4;
+    // Bitrate measurement — producer thread only.
+    std::atomic<int>  measured_kbps_{0};
+    size_t            bytes_since_calc_ = 0;
+    utils::Timestamp  last_calc_{};
 };
