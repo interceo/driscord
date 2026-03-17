@@ -1,4 +1,4 @@
-package com.driscord
+package com.driscord.jni
 
 object NativeScreenSession {
     init { NativeLoader.load() }

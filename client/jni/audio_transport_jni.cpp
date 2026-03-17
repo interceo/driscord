@@ -39,18 +39,18 @@ void AudioTransportJni::set_screen_audio_recv(std::shared_ptr<AudioReceiver> rec
 extern "C" {
 
 JNIEXPORT jlong JNICALL
-Java_com_driscord_NativeAudioTransport_create(JNIEnv*, jclass, jlong transportHandle) {
+Java_com_driscord_jni_NativeAudioTransport_create(JNIEnv*, jclass, jlong transportHandle) {
     return reinterpret_cast<jlong>(
         new AudioTransportJni(*reinterpret_cast<TransportJni*>(transportHandle)));
 }
 
 JNIEXPORT void JNICALL
-Java_com_driscord_NativeAudioTransport_destroy(JNIEnv*, jclass, jlong h) {
+Java_com_driscord_jni_NativeAudioTransport_destroy(JNIEnv*, jclass, jlong h) {
     delete AUDIO_TRANSPORT(h);
 }
 
 JNIEXPORT void JNICALL
-Java_com_driscord_NativeAudioTransport_sendAudio(JNIEnv* env, jclass, jlong h,
+Java_com_driscord_jni_NativeAudioTransport_sendAudio(JNIEnv* env, jclass, jlong h,
         jbyteArray jdata, jint len) {
     auto* buf = env->GetByteArrayElements(jdata, nullptr);
     AUDIO_TRANSPORT(h)->channel.send_audio(reinterpret_cast<const uint8_t*>(buf), len);
@@ -58,7 +58,7 @@ Java_com_driscord_NativeAudioTransport_sendAudio(JNIEnv* env, jclass, jlong h,
 }
 
 JNIEXPORT void JNICALL
-Java_com_driscord_NativeAudioTransport_registerVoiceReceiver(JNIEnv* env, jclass, jlong h,
+Java_com_driscord_jni_NativeAudioTransport_registerVoiceReceiver(JNIEnv* env, jclass, jlong h,
         jstring jPeer, jlong receiverHandle) {
     auto peer = env->GetStringUTFChars(jPeer, nullptr);
     AUDIO_TRANSPORT(h)->register_voice(peer, AUDIO_RECEIVER(receiverHandle)->receiver);
@@ -66,7 +66,7 @@ Java_com_driscord_NativeAudioTransport_registerVoiceReceiver(JNIEnv* env, jclass
 }
 
 JNIEXPORT void JNICALL
-Java_com_driscord_NativeAudioTransport_unregisterVoiceReceiver(JNIEnv* env, jclass, jlong h,
+Java_com_driscord_jni_NativeAudioTransport_unregisterVoiceReceiver(JNIEnv* env, jclass, jlong h,
         jstring jPeer) {
     auto peer = env->GetStringUTFChars(jPeer, nullptr);
     AUDIO_TRANSPORT(h)->unregister_voice(peer);
@@ -74,7 +74,7 @@ Java_com_driscord_NativeAudioTransport_unregisterVoiceReceiver(JNIEnv* env, jcla
 }
 
 JNIEXPORT void JNICALL
-Java_com_driscord_NativeAudioTransport_setScreenAudioReceiver(JNIEnv*, jclass,
+Java_com_driscord_jni_NativeAudioTransport_setScreenAudioReceiver(JNIEnv*, jclass,
         jlong audioHandle, jlong screenHandle) {
     std::shared_ptr<AudioReceiver> recv;
     if (screenHandle != 0) {

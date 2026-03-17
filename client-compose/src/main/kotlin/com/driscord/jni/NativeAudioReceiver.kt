@@ -1,4 +1,4 @@
-package com.driscord
+package com.driscord.jni
 
 object NativeAudioReceiver {
     init { NativeLoader.load() }

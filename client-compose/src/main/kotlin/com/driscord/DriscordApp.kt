@@ -2,53 +2,16 @@ package com.driscord
 
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asComposeImageBitmap
+import com.driscord.jni.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.jetbrains.skia.Bitmap
 import org.jetbrains.skia.ColorAlphaType
 import org.jetbrains.skia.ColorType
 import org.jetbrains.skia.ImageInfo
-
-// ---------------------------------------------------------------------------
-// Data models
-// ---------------------------------------------------------------------------
-
-enum class AppState { Disconnected, Connecting, Connected }
-
-@Serializable
-data class PeerInfo(val id: String, val connected: Boolean)
-
-@Serializable
-data class CaptureTarget(
-    val type: Int,   // 0 = Monitor, 1 = Window
-    val id: String,
-    val name: String,
-    val width: Int,
-    val height: Int,
-    val x: Int,
-    val y: Int,
-)
-
-@Serializable
-data class StreamStats(
-    val width: Int = 0,
-    val height: Int = 0,
-    val measuredKbps: Int = 0,
-    val video: JitterStats = JitterStats(),
-    val audio: JitterStats = JitterStats(),
-) {
-    @Serializable
-    data class JitterStats(
-        val queue: Int = 0,
-        val bufMs: Int = 0,
-        val drops: Long = 0,
-        val misses: Long = 0,
-    )
-}
 
 // ---------------------------------------------------------------------------
 // DriscordApp — orchestrates all native components

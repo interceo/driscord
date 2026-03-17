@@ -15,12 +15,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.driscord.AppConfig
 
-private val BgDialog    = Color(0xFF23272A)
-private val BgField     = Color(0xFF40444B)
-private val AccentBlue  = Color(0xFF5865F2)
-private val TextW       = Color(0xFFDCDDDE)
-private val TextGray    = Color(0xFF72767D)
-private val GreenColor  = Color(0xFF3BA55C)
+private val BgDialog   = Color(0xFF23272A)
+private val BgField    = Color(0xFF40444B)
+private val AccentBlue = Color(0xFF5865F2)
+private val TextGray   = Color(0xFF72767D)
+private val GreenColor = Color(0xFF3BA55C)
 
 @Composable
 fun SettingsDialog(
