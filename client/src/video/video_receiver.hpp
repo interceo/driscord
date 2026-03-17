@@ -5,10 +5,13 @@
 #include "video_jitter.hpp"
 
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 class VideoReceiver {
@@ -39,6 +42,13 @@ public:
     void reset();
 
 private:
+    struct DecodeJob {
+        std::vector<uint8_t> encoded;
+        protocol::VideoHeader vh;
+    };
+
+    void decode_loop();
+
     VideoJitter video_;
 
     mutable std::mutex mutex_;
@@ -57,4 +67,12 @@ private:
 
     uint64_t push_count_ = 0;
     uint64_t pop_count_ = 0;
+
+    std::deque<DecodeJob> decode_queue_;
+    std::mutex decode_queue_mutex_;
+    std::condition_variable decode_cv_;
+    std::thread decode_thread_;
+    std::atomic<bool> decode_running_{false};
+
+    static constexpr size_t kMaxDecodeQueue = 4;
 };
