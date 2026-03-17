@@ -42,6 +42,9 @@ internal fun StreamTile(
     var isMuted  by remember { mutableStateOf(false) }
     var savedVol by remember { mutableStateOf(1f) }
 
+    // Avoid stale closure in pointerInput(Unit)
+    val currentStreamVolume by rememberUpdatedState(streamVolume)
+
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
@@ -54,7 +57,7 @@ internal fun StreamTile(
                         if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
                             val pos = event.changes.first().position
                             cursorPx = IntOffset(pos.x.toInt(), pos.y.toInt())
-                            vol = streamVolume
+                            vol = currentStreamVolume
                             showMenu = true
                         }
                     }
