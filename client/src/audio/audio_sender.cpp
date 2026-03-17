@@ -1,14 +1,13 @@
 #define MINIAUDIO_IMPLEMENTATION
 #include "audio_sender.hpp"
 
-#include <miniaudio.h>
+#include "log.hpp"
+#include "utils/ma_device.hpp"
+#include "utils/time.hpp"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-
-#include "log.hpp"
-#include "utils/byte_utils.hpp"
 
 using namespace utils;
 
@@ -26,7 +25,6 @@ bool AudioSender::start(PacketCallback on_packet) {
         return false;
     }
 
-    auto dev = std::make_unique<ma_device>();
     ma_device_config config = ma_device_config_init(ma_device_type_capture);
     config.capture.format = ma_format_f32;
     config.capture.channels = kChannels;
@@ -46,13 +44,9 @@ bool AudioSender::start(PacketCallback on_packet) {
     config.pUserData = this;
     config.periodSizeInFrames = opus::kFrameSize;
 
-    if (ma_device_init(nullptr, &config, dev.get()) != MA_SUCCESS) {
-        LOG_ERROR() << "AudioSender: ma_device_init failed";
-        return false;
-    }
-    if (ma_device_start(dev.get()) != MA_SUCCESS) {
-        LOG_ERROR() << "AudioSender: ma_device_start failed";
-        ma_device_uninit(dev.get());
+    auto dev = std::make_unique<MaDevice>();
+    if (!dev->start(config)) {
+        LOG_ERROR() << "AudioSender: failed to start audio device";
         return false;
     }
 
@@ -74,11 +68,7 @@ void AudioSender::stop() {
         return;
     }
     running_ = false;
-    if (device_) {
-        ma_device_stop(device_.get());
-        ma_device_uninit(device_.get());
-        device_.reset();
-    }
+    device_.reset();  // MaDevice destructor calls ma_device_stop + ma_device_uninit
     encoder_.reset();
     LOG_INFO() << "AudioSender: stopped";
 }

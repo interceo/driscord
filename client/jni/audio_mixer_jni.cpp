@@ -53,12 +53,12 @@ Java_com_driscord_NativeAudioMixer_outputLevel(JNIEnv*, jclass, jlong h) {
 
 JNIEXPORT void JNICALL
 Java_com_driscord_NativeAudioMixer_addSource(JNIEnv*, jclass, jlong h, jlong receiverHandle) {
-    AUDIO_MIXER(h)->add_source(&AUDIO_RECEIVER(receiverHandle)->receiver);
+    AUDIO_MIXER(h)->add_source(AUDIO_RECEIVER(receiverHandle)->receiver);
 }
 
 JNIEXPORT void JNICALL
 Java_com_driscord_NativeAudioMixer_removeSource(JNIEnv*, jclass, jlong h, jlong receiverHandle) {
-    AUDIO_MIXER(h)->remove_source(&AUDIO_RECEIVER(receiverHandle)->receiver);
+    AUDIO_MIXER(h)->remove_source(AUDIO_RECEIVER(receiverHandle)->receiver);
 }
 
 } // extern "C"

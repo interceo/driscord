@@ -16,17 +16,17 @@ Java_com_driscord_NativeAudioReceiver_destroy(JNIEnv*, jclass, jlong h) {
 
 JNIEXPORT void JNICALL
 Java_com_driscord_NativeAudioReceiver_reset(JNIEnv*, jclass, jlong h) {
-    AUDIO_RECEIVER(h)->receiver.reset();
+    AUDIO_RECEIVER(h)->receiver->reset();
 }
 
 JNIEXPORT void JNICALL
 Java_com_driscord_NativeAudioReceiver_setVolume(JNIEnv*, jclass, jlong h, jfloat vol) {
-    AUDIO_RECEIVER(h)->receiver.set_volume(static_cast<float>(vol));
+    AUDIO_RECEIVER(h)->receiver->set_volume(static_cast<float>(vol));
 }
 
 JNIEXPORT jfloat JNICALL
 Java_com_driscord_NativeAudioReceiver_volume(JNIEnv*, jclass, jlong h) {
-    return AUDIO_RECEIVER(h)->receiver.volume();
+    return AUDIO_RECEIVER(h)->receiver->volume();
 }
 
 } // extern "C"

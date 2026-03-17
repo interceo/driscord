@@ -77,7 +77,7 @@ void ScreenSession::stop_sharing() {
 
 void ScreenSession::reset() {
     video_recv_.reset();
-    audio_recv_.reset();
+    audio_recv_->reset();
 }
 
 void ScreenSession::on_audio_captured_(const float* samples, size_t frames, int channels) {
