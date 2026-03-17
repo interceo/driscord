@@ -5,17 +5,15 @@
 
 using json = nlohmann::json;
 
-ScreenSessionJni::ScreenSessionJni(int buf_ms, int max_sync_ms,
-                                   VideoTransportJni* vt, AudioTransportJni* at)
+ScreenSessionJni::ScreenSessionJni(int buf_ms, int max_sync_ms, VideoTransportJni* vt, AudioTransportJni* at)
     : session(
-        buf_ms,
-        max_sync_ms,
-        [vt](const uint8_t* d, size_t l) { vt->channel.send_video(d, l); },
-        [vt]()                            { vt->channel.send_keyframe_request(); },
-        [at](const uint8_t* d, size_t l) { at->channel.send_screen_audio(d, l); }
-    )
-    , video_transport(vt)
-{
+          buf_ms,
+          max_sync_ms,
+          [vt](const uint8_t* d, size_t l) { vt->channel.send_video(d, l); },
+          [vt]() { vt->channel.send_keyframe_request(); },
+          [at](const uint8_t* d, size_t l) { at->channel.send_screen_audio(d, l); }
+      )
+    , video_transport(vt) {
     vt->set_video_sink(
         [this](const std::string& peer_id, const uint8_t* data, size_t len) {
             session.push_video_packet(peer_id, data, len);
@@ -30,9 +28,7 @@ ScreenSessionJni::ScreenSessionJni(int buf_ms, int max_sync_ms,
     session.set_on_frame([this](const std::string& peer_id, const uint8_t* rgba, int w, int h) {
         fire_frame(peer_id, rgba, w, h);
     });
-    session.set_on_frame_removed([this](const std::string& peer_id) {
-        fire_remove_frame(peer_id);
-    });
+    session.set_on_frame_removed([this](const std::string& peer_id) { fire_remove_frame(peer_id); });
 }
 
 void ScreenSessionJni::fire_frame(const std::string& peer_id, const uint8_t* rgba, int w, int h) {
@@ -44,8 +40,8 @@ void ScreenSessionJni::fire_frame(const std::string& peer_id, const uint8_t* rgb
     if (!env) {
         return;
     }
-    jstring    jpeer  = env->NewStringUTF(peer_id.c_str());
-    jbyteArray jdata  = env->NewByteArray(w * h * 4);
+    jstring jpeer    = env->NewStringUTF(peer_id.c_str());
+    jbyteArray jdata = env->NewByteArray(w * h * 4);
     env->SetByteArrayRegion(jdata, 0, w * h * 4, reinterpret_cast<const jbyte*>(rgba));
     env->CallVoidMethod(on_frame_cb.obj, on_frame_cb.mid, jpeer, jdata, (jint)w, (jint)h);
     env->DeleteLocalRef(jdata);
@@ -80,9 +76,12 @@ void ScreenSessionJni::fire_remove_frame(const std::string& peer_id) {
 extern "C" {
 
 JNIEXPORT jlong JNICALL Java_com_driscord_NativeScreenSession_create(
-    JNIEnv*, jclass,
-    jint bufMs, jint maxSyncMs,
-    jlong videoTransportHandle, jlong audioTransportHandle
+    JNIEnv*,
+    jclass,
+    jint bufMs,
+    jint maxSyncMs,
+    jlong videoTransportHandle,
+    jlong audioTransportHandle
 ) {
     return reinterpret_cast<jlong>(new ScreenSessionJni(
         static_cast<int>(bufMs),
@@ -99,14 +98,18 @@ JNIEXPORT void JNICALL Java_com_driscord_NativeScreenSession_destroy(JNIEnv*, jc
 }
 
 JNIEXPORT jboolean JNICALL Java_com_driscord_NativeScreenSession_startSharing(
-    JNIEnv* env, jclass, jlong h,
+    JNIEnv* env,
+    jclass,
+    jlong h,
     jstring jTargetJson,
-    jint maxW, jint maxH,
-    jint fps, jint bitrateKbps,
+    jint maxW,
+    jint maxH,
+    jint fps,
+    jint bitrateKbps,
     jint gopSize,
     jboolean shareAudio
 ) {
-    const char* raw = env->GetStringUTFChars(jTargetJson, nullptr);
+    const char* raw      = env->GetStringUTFChars(jTargetJson, nullptr);
     CaptureTarget target = target_from_json(json::parse(raw));
     env->ReleaseStringUTFChars(jTargetJson, raw);
 
@@ -156,14 +159,16 @@ JNIEXPORT void JNICALL Java_com_driscord_NativeScreenSession_reset(JNIEnv*, jcla
     SS(h)->session.reset();
 }
 
-JNIEXPORT void JNICALL Java_com_driscord_NativeScreenSession_addAudioReceiverToMixer(
-    JNIEnv*, jclass, jlong screenHandle, jlong mixerHandle
-) {
+JNIEXPORT void JNICALL
+Java_com_driscord_NativeScreenSession_addAudioReceiverToMixer(JNIEnv*, jclass, jlong screenHandle, jlong mixerHandle) {
     MIXER(mixerHandle)->add_source(SS(screenHandle)->session.audio_receiver());
 }
 
 JNIEXPORT void JNICALL Java_com_driscord_NativeScreenSession_removeAudioReceiverFromMixer(
-    JNIEnv*, jclass, jlong screenHandle, jlong mixerHandle
+    JNIEnv*,
+    jclass,
+    jlong screenHandle,
+    jlong mixerHandle
 ) {
     MIXER(mixerHandle)->remove_source(SS(screenHandle)->session.audio_receiver());
 }
@@ -172,9 +177,7 @@ JNIEXPORT void JNICALL Java_com_driscord_NativeScreenSession_resetAudioReceiver(
     SS(h)->session.reset_audio();
 }
 
-JNIEXPORT void JNICALL Java_com_driscord_NativeScreenSession_setStreamVolume(
-    JNIEnv*, jclass, jlong h, jfloat vol
-) {
+JNIEXPORT void JNICALL Java_com_driscord_NativeScreenSession_setStreamVolume(JNIEnv*, jclass, jlong h, jfloat vol) {
     SS(h)->session.audio_receiver()->set_volume(static_cast<float>(vol));
 }
 
@@ -183,35 +186,32 @@ JNIEXPORT jfloat JNICALL Java_com_driscord_NativeScreenSession_streamVolume(JNIE
 }
 
 JNIEXPORT jstring JNICALL Java_com_driscord_NativeScreenSession_stats(JNIEnv* env, jclass, jlong h) {
-    auto* s  = SS(h);
-    auto  vs = s->session.video_stats();
-    auto  as = s->session.audio_stats();
-    json j = {
-        {"width",        s->session.last_width()},
-        {"height",       s->session.last_height()},
+    auto* s = SS(h);
+    auto vs = s->session.video_stats();
+    auto as = s->session.audio_stats();
+    json j  = {
+        {"width", s->session.last_width()},
+        {"height", s->session.last_height()},
         {"measuredKbps", s->session.measured_kbps()},
-        {"video",  {{"queue", vs.queue_size}, {"bufMs", vs.buffered_ms},
-                    {"drops", vs.drop_count},  {"misses", vs.miss_count}}},
-        {"audio",  {{"queue", as.queue_size}, {"bufMs", as.buffered_ms},
-                    {"drops", as.drop_count},  {"misses", as.miss_count}}}
+        {"video",
+          {{"queue", vs.queue_size}, {"bufMs", vs.buffered_ms}, {"drops", vs.drop_count}, {"misses", vs.miss_count}}},
+        {"audio",
+          {{"queue", as.queue_size}, {"bufMs", as.buffered_ms}, {"drops", as.drop_count}, {"misses", as.miss_count}}}
     };
     return env->NewStringUTF(j.dump().c_str());
 }
 
-JNIEXPORT void JNICALL Java_com_driscord_NativeScreenSession_setOnFrame(
-    JNIEnv* env, jclass, jlong h, jobject cb
-) {
+JNIEXPORT void JNICALL Java_com_driscord_NativeScreenSession_setOnFrame(JNIEnv* env, jclass, jlong h, jobject cb) {
     auto* s = SS(h);
     std::scoped_lock lk(s->cb_mutex);
     set_callback(env, s->on_frame_cb, cb, "invoke", "(Ljava/lang/String;[BII)V");
 }
 
-JNIEXPORT void JNICALL Java_com_driscord_NativeScreenSession_setOnFrameRemoved(
-    JNIEnv* env, jclass, jlong h, jobject cb
-) {
+JNIEXPORT void JNICALL
+Java_com_driscord_NativeScreenSession_setOnFrameRemoved(JNIEnv* env, jclass, jlong h, jobject cb) {
     auto* s = SS(h);
     std::scoped_lock lk(s->cb_mutex);
     set_callback(env, s->on_frame_removed_cb, cb, "invoke", "(Ljava/lang/String;)V");
 }
 
-}  // extern "C"
+} // extern "C"
