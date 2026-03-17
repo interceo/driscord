@@ -84,7 +84,6 @@ if exist "C:\ffmpeg\bin\avutil*.dll" (
 )
 
 echo     Server:         %BUILD%\server\driscord_server.exe
-echo     Legacy client:  %BUILD%\client\driscord_client.exe
 if exist "%BUILD%\client\driscord_jni.dll" (
     echo     JNI library:    %BUILD%\client\driscord_jni.dll
 )
@@ -165,11 +164,8 @@ set "STAGING=%BUILD%\staging"
 :: Legacy client
 if exist "%STAGING%\client" rd /s /q "%STAGING%\client"
 mkdir "%STAGING%\client"
-copy /Y "%BUILD%\client\driscord_client.exe" "%STAGING%\client\" >nul
 copy /Y "%ROOT%\driscord.json" "%STAGING%\client\" >nul
 if exist "%CLIENT_DIR%\*.dll" copy /Y "%CLIENT_DIR%\*.dll" "%STAGING%\client\" >nul
-powershell -NoProfile -Command "Compress-Archive -Path '%STAGING%\client\*' -DestinationPath '%ROOT%\builds\driscord_client.zip' -Force" 2>nul
-if exist "%ROOT%\builds\driscord_client.zip" move /Y "%ROOT%\builds\driscord_client.zip" "Z:\" >nul
 
 :: Compose client — driscord.jar + нативные DLL + лаунчер в один zip
 if exist "%STAGING%\compose" rd /s /q "%STAGING%\compose"

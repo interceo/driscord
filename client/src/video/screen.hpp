@@ -66,10 +66,6 @@ private:
 //     audio frames are discarded so catch-up happens quickly.
 class ScreenReceiver {
 public:
-    // A/V sync thresholds (milliseconds).
-    static constexpr int64_t kHoldThresholdMs = 50;
-    static constexpr int64_t kDrainThresholdMs = 50;
-
     ScreenReceiver(int buffer_ms, int max_sync_gap_ms);
     ~ScreenReceiver() = default;
 
@@ -100,7 +96,4 @@ public:
 private:
     VideoReceiver video_recv_;
     std::shared_ptr<AudioReceiver> audio_recv_;
-
-    // A/V sync: true while we're freezing video waiting for audio to catch up.
-    bool waiting_for_audio_ = false;
 };
