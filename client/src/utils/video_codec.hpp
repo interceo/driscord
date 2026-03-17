@@ -20,7 +20,8 @@ public:
     VideoEncoder(const VideoEncoder&) = delete;
     VideoEncoder& operator=(const VideoEncoder&) = delete;
 
-    bool init(int width, int height, int fps, int base_bitrate_kbps);
+    // gop_size: keyframe interval in frames. 0 = let encoder choose (defaults to fps).
+    bool init(int width, int height, int fps, int base_bitrate_kbps, int gop_size = 0);
     void shutdown();
 
     const std::vector<uint8_t>& encode(const uint8_t* bgra, int width, int height);
@@ -42,6 +43,7 @@ private:
     int width_ = 0;
     int height_ = 0;
     int fps_ = 30;
+    int gop_size_ = 0;
     int64_t pts_ = 0;
 
     std::vector<uint8_t> encode_buf_;

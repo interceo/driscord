@@ -119,14 +119,14 @@ static int optimal_thread_count() {
     return static_cast<int>(std::min(hw, 4u));
 }
 
-static void setup_common_ctx(AVCodecContext* ctx, int width, int height, int fps) {
+static void setup_common_ctx(AVCodecContext* ctx, int width, int height, int fps, int gop_size) {
     ctx->width = width;
     ctx->height = height;
     ctx->time_base = {1, fps};
     ctx->framerate = {fps, 1};
     ctx->pix_fmt = AV_PIX_FMT_YUV420P;
     ctx->color_range = AVCOL_RANGE_MPEG;
-    ctx->gop_size = fps;
+    ctx->gop_size = (gop_size > 0) ? gop_size : fps;
     ctx->max_b_frames = 0;
     ctx->thread_count = optimal_thread_count();
     ctx->thread_type = FF_THREAD_SLICE;
@@ -144,8 +144,8 @@ int VideoEncoder::compute_bitrate(int w, int h, int base_kbps) {
     return std::max(kbps, 500);
 }
 
-bool VideoEncoder::init(int width, int height, int fps, int base_bitrate_kbps) {
-    if (width == width_ && height == height_ && fps == fps_) {
+bool VideoEncoder::init(int width, int height, int fps, int base_bitrate_kbps, int gop_size) {
+    if (width == width_ && height == height_ && fps == fps_ && gop_size == gop_size_) {
         return true;
     }
 
@@ -170,7 +170,7 @@ bool VideoEncoder::init(int width, int height, int fps, int base_bitrate_kbps) {
     int64_t bitrate_bps = static_cast<int64_t>(bitrate_kbps) * 1000;
 
     ctx_ = avcodec_alloc_context3(codec);
-    setup_common_ctx(ctx_, width, height, fps);
+    setup_common_ctx(ctx_, width, height, fps, gop_size);
 
     std::string enc_name(codec->name);
     bool is_hw = (enc_name.find("libx264") == std::string::npos);
@@ -193,7 +193,7 @@ bool VideoEncoder::init(int width, int height, int fps, int base_bitrate_kbps) {
             }
 
             ctx_ = avcodec_alloc_context3(codec);
-            setup_common_ctx(ctx_, width, height, fps);
+            setup_common_ctx(ctx_, width, height, fps, gop_size);
 
             enc_name = codec->name;
             setup_rate_control(ctx_, bitrate_bps, enc_name);
@@ -238,6 +238,7 @@ bool VideoEncoder::init(int width, int height, int fps, int base_bitrate_kbps) {
     width_ = width;
     height_ = height;
     fps_ = fps;
+    gop_size_ = gop_size;
     pts_ = 0;
     bytes_since_calc_ = 0;
     measured_kbps_ = 0;
@@ -246,7 +247,7 @@ bool VideoEncoder::init(int width, int height, int fps, int base_bitrate_kbps) {
     LOG_INFO()
         << "video encoder: " << width << "x" << height << " @ " << fps << " fps"
         << " H.264 (" << enc_name << ") bitrate=" << bitrate_kbps << " kbps"
-        << " time_base=1/" << fps;
+        << " gop=" << ctx_->gop_size;
     return true;
 }
 

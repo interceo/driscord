@@ -19,6 +19,7 @@ struct Config {
     int capture_width = 1920;
     int capture_height = 1080;
     int video_bitrate_kbps = 8000;
+    int gop_size = 30;
     int voice_jitter_ms = 80;
     int screen_buffer_ms = 120;
     int max_sync_gap_ms = 2000;

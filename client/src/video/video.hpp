@@ -25,7 +25,7 @@ public:
     VideoSender(const VideoSender&) = delete;
     VideoSender& operator=(const VideoSender&) = delete;
 
-    bool start(int fps, int base_bitrate_kbps, SendCb on_video);
+    bool start(int fps, int base_bitrate_kbps, int gop_size, SendCb on_video);
     void stop();
 
     void push_frame(ScreenCapture::Frame&& frame);
@@ -52,6 +52,7 @@ private:
 
     int fps_ = 0;
     int base_bitrate_kbps_ = 0;
+    int gop_size = 0;
 
     std::vector<uint8_t> frame_buf_;
 

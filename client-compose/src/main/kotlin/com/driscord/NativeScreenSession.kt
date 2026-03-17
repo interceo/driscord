@@ -19,7 +19,7 @@ object NativeScreenSession {
 
     @JvmStatic external fun startSharing(
         h: Long, targetJson: String,
-        maxW: Int, maxH: Int, fps: Int, bitrateKbps: Int, shareAudio: Boolean
+        maxW: Int, maxH: Int, fps: Int, bitrateKbps: Int, gopSize: Int, shareAudio: Boolean
     ): Boolean
     @JvmStatic external fun stopSharing(h: Long)
     @JvmStatic external fun sharing(h: Long): Boolean
