@@ -25,10 +25,12 @@ public:
 
     void send_video(const uint8_t* data, size_t len);
     void send_keyframe_request();
+    void send_stop_stream();
 
-    void on_video_received(PacketCb cb)       { on_video_  = std::move(cb); }
-    void on_video_channel_opened(Callback cb) { on_opened_ = std::move(cb); }
-    void on_keyframe_requested(Callback cb)   { on_kf_req_ = std::move(cb); }
+    void on_video_received(PacketCb cb)                              { on_video_       = std::move(cb); }
+    void on_video_channel_opened(Callback cb)                        { on_opened_      = std::move(cb); }
+    void on_keyframe_requested(Callback cb)                          { on_kf_req_      = std::move(cb); }
+    void on_stream_stopped(std::function<void(const std::string&)> cb) { on_stop_stream_ = std::move(cb); }
 
 private:
     void on_chunk(const std::string& peer_id, const uint8_t* data, size_t len);
@@ -37,6 +39,7 @@ private:
     PacketCb   on_video_;
     Callback   on_opened_;
     Callback   on_kf_req_;
+    std::function<void(const std::string&)> on_stop_stream_;
 
     // Send side
     uint64_t             next_frame_id_ = 0;

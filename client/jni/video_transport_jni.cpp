@@ -21,6 +21,9 @@ VideoTransportJni::VideoTransportJni(TransportJni& t) : channel(t.transport) {
             on_keyframe_needed();
         }
     });
+    channel.on_stream_stopped([this](const std::string& peer_id) {
+        remove_streaming_peer(peer_id);
+    });
     channel.on_video_channel_opened([this]() {
         std::scoped_lock lk(sink_mutex);
         if (on_keyframe_needed) {

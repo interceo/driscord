@@ -53,6 +53,10 @@ void ScreenSessionJni::fire_frame(const std::string& peer_id, const uint8_t* rgb
 }
 
 void ScreenSessionJni::fire_remove_frame(const std::string& peer_id) {
+    // Keep seen_streaming in sync: if the stream went stale the sender didn't
+    // send kStopStreamTag (e.g. crash), so clean up here as a fallback.
+    video_transport->remove_streaming_peer(peer_id);
+
     std::scoped_lock lk(cb_mutex);
     if (!on_frame_removed_cb.obj) {
         return;
@@ -119,7 +123,9 @@ JNIEXPORT jboolean JNICALL Java_com_driscord_NativeScreenSession_startSharing(
 }
 
 JNIEXPORT void JNICALL Java_com_driscord_NativeScreenSession_stopSharing(JNIEnv*, jclass, jlong h) {
-    SS(h)->session.stop_sharing();
+    auto* s = SS(h);
+    s->session.stop_sharing();
+    s->video_transport->channel.send_stop_stream();
 }
 
 JNIEXPORT jboolean JNICALL Java_com_driscord_NativeScreenSession_sharing(JNIEnv*, jclass, jlong h) {
