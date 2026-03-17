@@ -32,6 +32,7 @@ fun SettingsDialog(
     var serverPort       by remember { mutableStateOf(config.serverPort.toString()) }
     var screenFps        by remember { mutableStateOf(config.screenFps.toString()) }
     var videoBitrate     by remember { mutableStateOf(config.videoBitrateKbps.toString()) }
+    var gopSize          by remember { mutableStateOf(config.gopSize.toString()) }
     var voiceJitter      by remember { mutableStateOf(config.voiceJitterMs.toString()) }
     var screenBuffer     by remember { mutableStateOf(config.screenBufferMs.toString()) }
     var maxSyncGap       by remember { mutableStateOf(config.maxSyncGapMs.toString()) }
@@ -62,6 +63,7 @@ fun SettingsDialog(
                 SettingsGroup("Video") {
                     SettingsField("Capture FPS", screenFps) { screenFps = it }
                     SettingsField("Bitrate (kbps)", videoBitrate) { videoBitrate = it }
+                    SettingsField("Gop size (frames)", gopSize) { gopSize = it }
                 }
 
                 SettingsGroup("Audio") {

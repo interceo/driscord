@@ -29,8 +29,9 @@ bool VideoSender::start(int fps, int base_bitrate_kbps, int gop_size, SendCb on_
     encode_thread_ = std::thread(&VideoSender::encode_loop, this);
     sharing_ = true;
 
-    LOG_INFO() << "video sender started fps=" << fps << " bitrate=" << base_bitrate_kbps << " kbps"
-               << " gop=" << gop_size << " frames";
+    LOG_INFO()
+        << "video sender started fps=" << fps << " bitrate=" << base_bitrate_kbps << " kbps"
+        << " gop=" << gop_size << " frames";
     return true;
 }
 
@@ -88,7 +89,7 @@ void VideoSender::encode_loop() {
             }
         }
 
-        const auto& encoded = video_encoder_.encode(frame.data.data(), frame.width, frame.height);
+        const auto& encoded = video_encoder_.encode(frame.data, frame.width, frame.height);
         if (encoded.empty()) {
             continue;
         }
@@ -116,7 +117,7 @@ VideoReceiver::VideoReceiver(int buffer_ms, int /*max_sync_gap_ms*/) : video_(bu
         LOG_ERROR() << "failed to init video decoder";
     }
     decode_running_ = true;
-    decode_thread_  = std::thread(&VideoReceiver::decode_loop, this);
+    decode_thread_ = std::thread(&VideoReceiver::decode_loop, this);
 }
 
 VideoReceiver::~VideoReceiver() {
@@ -160,16 +161,16 @@ void VideoReceiver::push_video_packet(const std::string& peer_id, const uint8_t*
 
     // SPSC push — never blocks. If the queue is full the decode thread is
     // lagging; drop the frame (decoder will request a keyframe on next failure).
-    const size_t h    = head_.load(std::memory_order_relaxed);
+    const size_t h = head_.load(std::memory_order_relaxed);
     const size_t next = (h + 1) % kQueueCapacity;
     if (next == tail_.load(std::memory_order_acquire)) {
         LOG_WARNING() << "[video-recv] decode queue full, dropping frame";
         return;
     }
 
-    auto& slot    = ring_[h];
-    slot.peer_id  = peer_id;
-    slot.vh       = vh;
+    auto& slot = ring_[h];
+    slot.peer_id = peer_id;
+    slot.vh = vh;
     slot.encoded.assign(data + protocol::VideoHeader::kWireSize, data + len);
 
     head_.store(next, std::memory_order_release);
@@ -188,14 +189,13 @@ void VideoReceiver::decode_loop() {
 
         std::vector<uint8_t> rgba;
         int w = 0, h = 0;
-        if (decoder_.decode(slot.encoded.data(), slot.encoded.size(), rgba, w, h)) {
+        if (decoder_.decode(slot.encoded, rgba, w, h)) {
             decode_failures_ = 0;
             video_.push(std::move(rgba), w, h, slot.vh.sender_ts);
         } else {
             ++decode_failures_;
             const auto kf_now = utils::Now();
-            if (on_keyframe_needed_ &&
-                (decode_failures_ == 1 || utils::ElapsedMs(last_keyframe_req_, kf_now) >= 500)) {
+            if (on_keyframe_needed_ && (decode_failures_ == 1 || utils::ElapsedMs(last_keyframe_req_, kf_now) >= 500)) {
                 on_keyframe_needed_();
                 last_keyframe_req_ = kf_now;
             }
@@ -205,9 +205,7 @@ void VideoReceiver::decode_loop() {
     }
 }
 
-const VideoJitter::Frame* VideoReceiver::update() {
-    return video_.pop();
-}
+const VideoJitter::Frame* VideoReceiver::update() { return video_.pop(); }
 
 const VideoJitter::Frame* VideoReceiver::current_frame() const { return video_.current(); }
 

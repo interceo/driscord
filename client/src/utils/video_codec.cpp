@@ -270,7 +270,7 @@ void VideoEncoder::shutdown() {
     pts_ = 0;
 }
 
-const std::vector<uint8_t>& VideoEncoder::encode(const uint8_t* bgra, int width, int height) {
+const std::vector<uint8_t>& VideoEncoder::encode(const std::vector<uint8_t>& bgra, int width, int height) {
     encode_buf_.clear();
 
     if (!ctx_ || width != width_ || height != height_) {
@@ -279,7 +279,7 @@ const std::vector<uint8_t>& VideoEncoder::encode(const uint8_t* bgra, int width,
 
     av_frame_make_writable(frame_);
 
-    const uint8_t* src_slices[1] = {bgra};
+    const uint8_t* src_slices[1] = {bgra.data()};
     int src_stride[1] = {width * 4};
     sws_scale(sws_, src_slices, src_stride, 0, height, frame_->data, frame_->linesize);
 
@@ -363,13 +363,13 @@ void VideoDecoder::shutdown() {
     last_h_ = 0;
 }
 
-bool VideoDecoder::decode(const uint8_t* data, size_t len, std::vector<uint8_t>& rgba_out, int& out_w, int& out_h) {
+bool VideoDecoder::decode(const std::vector<uint8_t>& data, std::vector<uint8_t>& rgba_out, int& out_w, int& out_h) {
     if (!ctx_) {
         return false;
     }
 
-    pkt_->data = const_cast<uint8_t*>(data);
-    pkt_->size = static_cast<int>(len);
+    pkt_->data = const_cast<uint8_t*>(data.data());
+    pkt_->size = static_cast<int>(data.size());
 
     int ret = avcodec_send_packet(ctx_, pkt_);
     pkt_->data = nullptr;
