@@ -10,6 +10,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -17,18 +21,6 @@ import androidx.compose.ui.unit.sp
 import com.driscord.AppConfig
 import com.driscord.AppState
 import com.driscord.PeerInfo
-
-// ---------------------------------------------------------------------------
-// Palette
-// ---------------------------------------------------------------------------
-private val SidebarBg   = Color(0xFF2B2D31)
-private val VoiceBg     = Color(0xFF232428)
-private val BottomBg    = Color(0xFF1E1F22)
-private val Green       = Color(0xFF3BA55C)
-private val Red         = Color(0xFFED4245)
-private val Blurple     = Color(0xFF5865F2)
-private val TextPrimary = Color(0xFFDCDDDE)
-private val TextMuted   = Color(0xFF72767D)
 
 
 @Composable
@@ -103,20 +95,27 @@ fun Sidebar(
 
             if (state == AppState.Connected) {
                 MemberRow(
-                    id = localId,
-                    label = "${if (localId.length > 14) localId.take(14) + "…" else localId} (you)",
-                    online = true,
-                    expanded = expandedPeer == localId,
-                    onClick = { expandedPeer = if (expandedPeer == localId) null else localId },
+                    id             = localId,
+                    label          = "${if (localId.length > 14) localId.take(14) + "…" else localId} (you)",
+                    online         = true,
+                    expanded       = expandedPeer == localId,
+                    onClick        = { expandedPeer = if (expandedPeer == localId) null else localId },
+                    isYou          = true,
+                    muted          = muted,
+                    deafened       = deafened,
+                    onGetVolume    = { volume },
+                    onSetVolume    = onSetVolume,
+                    onToggleMute   = onToggleMute,
+                    onToggleDeafen = onToggleDeafen,
                 )
                 if (expandedPeer == localId) {
                     MemberExpanded(
-                        label = "Mic Volume",
-                        value = volume,
-                        level = inputLevel,
+                        label      = "Mic Volume",
+                        value      = volume,
+                        level      = inputLevel,
                         levelLabel = "Mic",
-                        active = muted,
-                        onChange = onSetVolume,
+                        active     = muted,
+                        onChange   = onSetVolume,
                     )
                 }
             }
@@ -124,21 +123,23 @@ fun Sidebar(
             peers.forEach { peer ->
                 val label = if (peer.id.length > 14) peer.id.take(14) + "…" else peer.id
                 MemberRow(
-                    id = peer.id,
-                    label = label,
-                    online = peer.connected,
-                    expanded = expandedPeer == peer.id,
-                    onClick = { expandedPeer = if (expandedPeer == peer.id) null else peer.id },
+                    id           = peer.id,
+                    label        = label,
+                    online       = peer.connected,
+                    expanded     = expandedPeer == peer.id,
+                    onClick      = { expandedPeer = if (expandedPeer == peer.id) null else peer.id },
+                    onGetVolume  = { onGetPeerVolume(peer.id) },
+                    onSetVolume  = { v -> onSetPeerVolume(peer.id, v) },
                 )
                 if (expandedPeer == peer.id) {
                     var pVol by remember(peer.id) { mutableStateOf(onGetPeerVolume(peer.id)) }
                     MemberExpanded(
-                        label = "Volume",
-                        value = pVol,
-                        level = null,
+                        label      = "Volume",
+                        value      = pVol,
+                        level      = null,
                         levelLabel = null,
-                        active = false,
-                        onChange = { v -> pVol = v; onSetPeerVolume(peer.id, v) },
+                        active     = false,
+                        onChange   = { v -> pVol = v; onSetPeerVolume(peer.id, v) },
                     )
                 }
             }
@@ -299,46 +300,162 @@ fun Sidebar(
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun MemberRow(id: String, label: String, online: Boolean, expanded: Boolean, onClick: () -> Unit) {
+private fun MemberRow(
+    id: String,
+    label: String,
+    online: Boolean,
+    expanded: Boolean,
+    onClick: () -> Unit,
+    isYou: Boolean = false,
+    muted: Boolean = false,
+    deafened: Boolean = false,
+    onGetVolume: (() -> Float)? = null,
+    onSetVolume: ((Float) -> Unit)? = null,
+    onToggleMute: (() -> Unit)? = null,
+    onToggleDeafen: (() -> Unit)? = null,
+) {
     val bg = if (expanded) Color(0xFF35373C) else Color.Transparent
-    Row(
+
+    var showMenu by remember { mutableStateOf(false) }
+    var cursorPx by remember { mutableStateOf(IntOffset.Zero) }
+    var vol      by remember { mutableStateOf(1f) }
+    var peerMuted by remember { mutableStateOf(false) }
+    var savedVol by remember { mutableStateOf(1f) }
+
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .background(bg)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .then(
+                if (onGetVolume != null) Modifier.pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
+                                val pos = event.changes.first().position
+                                cursorPx = IntOffset(pos.x.toInt(), pos.y.toInt())
+                                vol = onGetVolume()
+                                showMenu = true
+                            }
+                        }
+                    }
+                } else Modifier
+            ),
     ) {
-        // Avatar circle
-        val avatarLetter = id.firstOrNull()?.uppercaseChar() ?: 'D'
-        val avatarColor = remember(id) {
-            val h = id.fold(0x811c9dc5.toInt()) { acc, c -> (acc xor c.code) * 0x01000193.toInt() }
-            Color(
-                red   = (80 + (h and 0x7F)) / 255f,
-                green = (80 + ((h shr 8) and 0x7F)) / 255f,
-                blue  = (80 + ((h shr 16) and 0x7F)) / 255f,
+        Row(
+            modifier          = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(horizontal = 8.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val avatarLetter = id.firstOrNull()?.uppercaseChar() ?: 'D'
+            val avatarColor = remember(id) {
+                val h = id.fold(0x811c9dc5.toInt()) { acc, c -> (acc xor c.code) * 0x01000193.toInt() }
+                Color(
+                    red   = (80 + (h and 0x7F)) / 255f,
+                    green = (80 + ((h shr 8) and 0x7F)) / 255f,
+                    blue  = (80 + ((h shr 16) and 0x7F)) / 255f,
+                )
+            }
+            Box(
+                modifier         = Modifier.size(28.dp).clip(CircleShape).background(avatarColor),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(avatarLetter.toString(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(label, color = if (online) TextPrimary else TextMuted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(if (online) Green else Color(0xFF737F8D)),
             )
         }
-        Box(
-            modifier = Modifier
-                .size(28.dp)
-                .clip(CircleShape)
-                .background(avatarColor),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(avatarLetter.toString(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+
+        if (onGetVolume != null && onSetVolume != null) {
+            // Zero-size anchor at cursor position for the context menu
+            Box(modifier = Modifier.align(Alignment.TopStart).offset { cursorPx }.size(0.dp)) {
+                DropdownMenu(
+                    expanded         = showMenu,
+                    onDismissRequest = { showMenu = false },
+                    modifier         = Modifier.background(Color(0xFF2B2D31)).width(200.dp),
+                ) {
+                    Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+                        Text(
+                            if (id.length > 20) id.take(20) + "…" else id,
+                            color = Blurple, fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                    Divider(color = Color(0xFF1E1F22))
+                    if (isYou) {
+                        Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+                            Column {
+                                Text("Громкость микрофона", color = TextMuted, fontSize = 10.sp)
+                                Slider(
+                                    value         = vol,
+                                    onValueChange = { v -> vol = v; onSetVolume(v) },
+                                    valueRange    = 0f..2f,
+                                    colors        = SliderDefaults.colors(thumbColor = Blurple, activeTrackColor = Blurple),
+                                    modifier      = Modifier.requiredWidth(176.dp).height(28.dp),
+                                )
+                            }
+                        }
+                        if (onToggleMute != null) {
+                            DropdownMenuItem(onClick = { onToggleMute() }) {
+                                Text("Заглушить", color = TextPrimary, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                                Checkbox(
+                                    checked         = muted,
+                                    onCheckedChange = null,
+                                    colors          = CheckboxDefaults.colors(checkedColor = Blurple, uncheckedColor = TextMuted),
+                                )
+                            }
+                        }
+                        if (onToggleDeafen != null) {
+                            DropdownMenuItem(onClick = { onToggleDeafen() }) {
+                                Text("Откл. звук", color = TextPrimary, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                                Checkbox(
+                                    checked         = deafened,
+                                    onCheckedChange = null,
+                                    colors          = CheckboxDefaults.colors(checkedColor = Blurple, uncheckedColor = TextMuted),
+                                )
+                            }
+                        }
+                    } else {
+                        Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+                            Column {
+                                Text("Громкость", color = TextMuted, fontSize = 10.sp)
+                                Slider(
+                                    value         = vol,
+                                    onValueChange = { v -> vol = v; peerMuted = false; onSetVolume(v) },
+                                    valueRange    = 0f..2f,
+                                    colors        = SliderDefaults.colors(thumbColor = Blurple, activeTrackColor = Blurple),
+                                    modifier      = Modifier.requiredWidth(176.dp).height(28.dp),
+                                )
+                            }
+                        }
+                        DropdownMenuItem(onClick = {
+                            if (peerMuted) {
+                                vol = savedVol; onSetVolume(savedVol)
+                            } else {
+                                savedVol = vol.takeIf { it > 0f } ?: 1f; vol = 0f; onSetVolume(0f)
+                            }
+                            peerMuted = !peerMuted
+                        }) {
+                            Text("Заглушить", color = TextPrimary, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                            Checkbox(
+                                checked         = peerMuted,
+                                onCheckedChange = null,
+                                colors          = CheckboxDefaults.colors(checkedColor = Blurple, uncheckedColor = TextMuted),
+                            )
+                        }
+                    }
+                }
+            }
         }
-        Spacer(Modifier.width(8.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(label, color = if (online) TextPrimary else TextMuted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        // Status dot
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .clip(CircleShape)
-                .background(if (online) Green else Color(0xFF737F8D)),
-        )
     }
 }
 
