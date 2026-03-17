@@ -64,6 +64,7 @@ class DriscordApp(val config: AppConfig = AppConfig.loadDefault()) {
     private val audioMixerH: Long = NativeAudioMixer.create()
     private val screenSessionH: Long = NativeScreenSession.create(
         config.screenBufferMs, config.maxSyncGapMs,
+        config.holdThresholdMs, config.drainThresholdMs,
         videoTransportH, audioTransportH
     )
 
@@ -112,6 +113,12 @@ class DriscordApp(val config: AppConfig = AppConfig.loadDefault()) {
 
     private val _streamStats = MutableStateFlow(StreamStats())
     val streamStats: StateFlow<StreamStats> = _streamStats.asStateFlow()
+
+    private val _config = MutableStateFlow(config)
+    val currentConfig: StateFlow<AppConfig> = _config.asStateFlow()
+
+    private val _shareTargetName = MutableStateFlow("")
+    val shareTargetName: StateFlow<String> = _shareTargetName.asStateFlow()
 
     // ---------------------------------------------------------------------------
     // Init
@@ -257,6 +264,18 @@ class DriscordApp(val config: AppConfig = AppConfig.loadDefault()) {
     fun setStreamVolume(vol: Float) = NativeScreenSession.setStreamVolume(screenSessionH, vol)
     fun streamVolume(): Float = NativeScreenSession.streamVolume(screenSessionH)
 
+    fun saveConfig(newConfig: AppConfig) {
+        val validated = newConfig.validated()
+        _config.value = validated
+        val path = AppConfig.defaultConfigPath()
+        try {
+            AppConfig.save(validated, path)
+            println("[config] saved to $path")
+        } catch (e: Exception) {
+            println("[config] save failed: ${e.message}")
+        }
+    }
+
     fun startSharing(target: CaptureTarget, quality: Int, fps: Int, shareAudio: Boolean) {
         // quality is an index: 0=Source, 1=720p, 2=1080p, 3=1440p
         val (maxW, maxH) = when (quality) {
@@ -271,12 +290,16 @@ class DriscordApp(val config: AppConfig = AppConfig.loadDefault()) {
             screenSessionH, targetJson,
             maxW, maxH, fps, config.videoBitrateKbps, shareAudio
         )
-        if (ok) _sharing.value = true
+        if (ok) {
+            _sharing.value = true
+            _shareTargetName.value = target.name
+        }
     }
 
     fun stopSharing() {
         NativeScreenSession.stopSharing(screenSessionH)
         _sharing.value = false
+        _shareTargetName.value = ""
     }
 
     val systemAudioAvailable: Boolean get() = NativeScreenCapture.systemAudioAvailable()

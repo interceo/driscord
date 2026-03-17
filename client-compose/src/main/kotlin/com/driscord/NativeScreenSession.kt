@@ -12,7 +12,7 @@ object NativeScreenSession {
     }
 
     @JvmStatic external fun create(
-        bufMs: Int, maxSyncMs: Int,
+        bufMs: Int, maxSyncMs: Int, holdMs: Int, drainMs: Int,
         videoTransportHandle: Long, audioTransportHandle: Long
     ): Long
     @JvmStatic external fun destroy(h: Long)

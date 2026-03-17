@@ -21,7 +21,8 @@ struct ScreenSessionJni {
     std::string last_peer;
     int last_w = 0, last_h = 0;
 
-    ScreenSessionJni(int buf_ms, int max_sync_ms, VideoTransportJni* vt, AudioTransportJni* at);
+    ScreenSessionJni(int buf_ms, int max_sync_ms, int hold_ms, int drain_ms,
+                     VideoTransportJni* vt, AudioTransportJni* at);
 
     bool start_sharing(const CaptureTarget& target, int max_w, int max_h, int fps, int bitrate_kbps, bool share_audio);
 
