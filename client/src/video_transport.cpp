@@ -13,7 +13,7 @@ VideoTransport::VideoTransport(Transport& transport) : transport_(transport) {
     transport.register_channel({
         .label           = "video",
         .unordered       = true,
-        .max_retransmits = -1, // reliable + unordered: no HOL blocking between messages
+        .max_retransmits = 0, // unreliable: lost chunks drop the frame, decoder recovers at next IDR
         .on_data = [this](const std::string& peer_id, const uint8_t* data, size_t len) {
             if (len == 1 && data[0] == kKeyframeRequestTag) {
                 if (on_kf_req_) {
@@ -82,11 +82,18 @@ void VideoTransport::on_chunk(const std::string& peer_id, const uint8_t* data, s
 
         auto& fa = assembly_[ch.frame_id];
 
-        // First chunk seen for this frame_id — initialise slot.
+        // First chunk seen for this frame_id — evict stale entries first.
         if (fa.total == 0) {
-            // Evict oldest incomplete frames to keep memory bounded.
-            if (assembly_.size() > kMaxAssemblyFrames) {
-                assembly_.erase(assembly_.begin());
+            // With unreliable transport frames may arrive incomplete forever.
+            // Evict anything whose frame_id is more than kMaxAssemblyFrames behind
+            // the current frame_id (modular uint16 arithmetic).
+            for (auto it = assembly_.begin(); it != assembly_.end(); ) {
+                const uint16_t age = static_cast<uint16_t>(ch.frame_id - it->first);
+                if (age > kMaxAssemblyFrames && age < 0x8000u) {
+                    it = assembly_.erase(it);
+                } else {
+                    ++it;
+                }
             }
             fa.total  = ch.total_chunks;
             fa.chunks.resize(ch.total_chunks);
