@@ -7,6 +7,7 @@
 
 namespace {
 constexpr uint8_t kKeyframeRequestTag = 0x01;
+constexpr uint8_t kStopStreamTag      = 0x02;
 }  // namespace
 
 VideoTransport::VideoTransport(Transport& transport) : transport_(transport) {
@@ -15,11 +16,15 @@ VideoTransport::VideoTransport(Transport& transport) : transport_(transport) {
         .unordered       = true,
         .max_retransmits = 0,  // unreliable: lost chunks drop the frame, decoder recovers at next IDR
         .on_data = [this](const std::string& peer_id, const uint8_t* data, size_t len) {
-            if (len == 1 && data[0] == kKeyframeRequestTag) {
-                if (on_kf_req_) {
-                    on_kf_req_();
+            if (len == 1) {
+                if (data[0] == kKeyframeRequestTag) {
+                    if (on_kf_req_) { on_kf_req_(); }
+                    return;
                 }
-                return;
+                if (data[0] == kStopStreamTag) {
+                    if (on_stop_stream_) { on_stop_stream_(peer_id); }
+                    return;
+                }
             }
             on_chunk(peer_id, data, len);
         },
@@ -60,6 +65,10 @@ void VideoTransport::send_video(const uint8_t* data, size_t len) {
 
 void VideoTransport::send_keyframe_request() {
     transport_.send_on_channel("video", &kKeyframeRequestTag, 1);
+}
+
+void VideoTransport::send_stop_stream() {
+    transport_.send_on_channel("video", &kStopStreamTag, 1);
 }
 
 void VideoTransport::on_chunk(const std::string& peer_id, const uint8_t* data, size_t len) {

@@ -29,8 +29,7 @@ private val Red         = Color(0xFFED4245)
 private val Blurple     = Color(0xFF5865F2)
 private val TextPrimary = Color(0xFFDCDDDE)
 private val TextMuted   = Color(0xFF72767D)
-private val ButtonBg    = Color(0xFF383A40)
-private val ActiveGreen = Color(0xFF248046)
+
 
 @Composable
 fun Sidebar(
@@ -87,7 +86,69 @@ fun Sidebar(
         }
         Divider(color = Color(0xFF1E1F22), thickness = 1.dp)
 
-        // ── Voice / connect section ──────────────────────────────────────
+        // ── Members list ────────────────────────────────────────────────
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+                .padding(top = 8.dp),
+        ) {
+            Text(
+                "MEMBERS — ${peers.size + if (state == AppState.Connected) 1 else 0}",
+                color = TextMuted,
+                fontSize = 10.sp,
+                letterSpacing = 0.5.sp,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+
+            if (state == AppState.Connected) {
+                MemberRow(
+                    id = localId,
+                    label = "${if (localId.length > 14) localId.take(14) + "…" else localId} (you)",
+                    online = true,
+                    expanded = expandedPeer == localId,
+                    onClick = { expandedPeer = if (expandedPeer == localId) null else localId },
+                )
+                if (expandedPeer == localId) {
+                    MemberExpanded(
+                        label = "Mic Volume",
+                        value = volume,
+                        level = inputLevel,
+                        levelLabel = "Mic",
+                        active = muted,
+                        onChange = onSetVolume,
+                    )
+                }
+            }
+
+            peers.forEach { peer ->
+                val label = if (peer.id.length > 14) peer.id.take(14) + "…" else peer.id
+                MemberRow(
+                    id = peer.id,
+                    label = label,
+                    online = peer.connected,
+                    expanded = expandedPeer == peer.id,
+                    onClick = { expandedPeer = if (expandedPeer == peer.id) null else peer.id },
+                )
+                if (expandedPeer == peer.id) {
+                    var pVol by remember(peer.id) { mutableStateOf(onGetPeerVolume(peer.id)) }
+                    MemberExpanded(
+                        label = "Volume",
+                        value = pVol,
+                        level = null,
+                        levelLabel = null,
+                        active = false,
+                        onChange = { v -> pVol = v; onSetPeerVolume(peer.id, v) },
+                    )
+                }
+            }
+
+            if (state != AppState.Connected && peers.isEmpty()) {
+                Text("  —", color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp))
+            }
+        }
+
+                // ── Voice / connect section ──────────────────────────────────────
         when (state) {
             AppState.Disconnected -> {
                 Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
@@ -203,113 +264,23 @@ fun Sidebar(
                         }
                     }
                 }
-
-                // ── Quick-action buttons ─────────────────────────────────
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(VoiceBg)
-                        .padding(start = 8.dp, end = 8.dp, bottom = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    QuickBtn(
-                        label = if (muted) "MIC OFF" else "MIC",
-                        on = muted,
-                        onColor = Red,
-                        modifier = Modifier.weight(1f),
-                        onClick = onToggleMute,
-                    )
-                    QuickBtn(
-                        label = if (sharing) "SHARING" else "SHARE",
-                        on = sharing,
-                        onColor = Green,
-                        modifier = Modifier.weight(1f),
-                        onClick = { if (sharing) onStopShare() else onStartShare() },
-                    )
-                    QuickBtn(
-                        label = if (deafened) "SND OFF" else "SND",
-                        on = deafened,
-                        onColor = Red,
-                        modifier = Modifier.weight(1f),
-                        onClick = onToggleDeafen,
-                    )
-                }
             }
         }
 
         Divider(color = Color(0xFF1E1F22), thickness = 1.dp)
 
-        // ── Members list ────────────────────────────────────────────────
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .verticalScroll(rememberScrollState())
-                .padding(top = 8.dp),
-        ) {
-            Text(
-                "MEMBERS — ${peers.size + if (state == AppState.Connected) 1 else 0}",
-                color = TextMuted,
-                fontSize = 10.sp,
-                letterSpacing = 0.5.sp,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            )
-
-            if (state == AppState.Connected) {
-                MemberRow(
-                    id = localId,
-                    label = "${if (localId.length > 14) localId.take(14) + "…" else localId} (you)",
-                    online = true,
-                    expanded = expandedPeer == localId,
-                    onClick = { expandedPeer = if (expandedPeer == localId) null else localId },
-                )
-                if (expandedPeer == localId) {
-                    MemberExpanded(
-                        label = "Mic Volume",
-                        value = volume,
-                        level = inputLevel,
-                        levelLabel = "Mic",
-                        active = muted,
-                        onChange = onSetVolume,
-                    )
-                }
-            }
-
-            peers.forEach { peer ->
-                val label = if (peer.id.length > 14) peer.id.take(14) + "…" else peer.id
-                MemberRow(
-                    id = peer.id,
-                    label = label,
-                    online = peer.connected,
-                    expanded = expandedPeer == peer.id,
-                    onClick = { expandedPeer = if (expandedPeer == peer.id) null else peer.id },
-                )
-                if (expandedPeer == peer.id) {
-                    var pVol by remember(peer.id) { mutableStateOf(onGetPeerVolume(peer.id)) }
-                    MemberExpanded(
-                        label = "Volume",
-                        value = pVol,
-                        level = null,
-                        levelLabel = null,
-                        active = false,
-                        onChange = { v -> pVol = v; onSetPeerVolume(peer.id, v) },
-                    )
-                }
-            }
-
-            if (state != AppState.Connected && peers.isEmpty()) {
-                Text("  —", color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp))
-            }
-        }
 
         // ── Bottom user bar ──────────────────────────────────────────────
         Divider(color = Color(0xFF1E1F22), thickness = 1.dp)
         UserBar(
-            localId  = localId.ifEmpty { "—" },
-            muted    = muted,
-            deafened = deafened,
+            localId   = localId.ifEmpty { "—" },
+            muted     = muted,
+            deafened  = deafened,
+            sharing   = sharing,
             connected = state == AppState.Connected,
             onToggleMute   = onToggleMute,
             onToggleDeafen = onToggleDeafen,
+            onToggleShare  = { if (sharing) onStopShare() else onStartShare() },
             onSettings     = { showSettings = true },
         )
     }
@@ -404,32 +375,6 @@ private fun MemberExpanded(
 }
 
 // ---------------------------------------------------------------------------
-// Quick action buttons
-// ---------------------------------------------------------------------------
-
-@Composable
-private fun QuickBtn(label: String, on: Boolean, onColor: Color, modifier: Modifier, onClick: () -> Unit) {
-    Button(
-        onClick = onClick,
-        modifier = modifier.height(32.dp),
-        shape = RoundedCornerShape(4.dp),
-        colors = ButtonDefaults.buttonColors(
-            backgroundColor = if (on) onColor.copy(alpha = 0.25f) else ButtonBg,
-        ),
-        contentPadding = PaddingValues(horizontal = 4.dp),
-        elevation = ButtonDefaults.elevation(0.dp, 0.dp, 0.dp),
-    ) {
-        Text(
-            label,
-            color = if (on) onColor else TextMuted,
-            fontSize = 10.sp,
-            fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
-            maxLines = 1,
-        )
-    }
-}
-
-// ---------------------------------------------------------------------------
 // User bar (bottom)
 // ---------------------------------------------------------------------------
 
@@ -438,9 +383,11 @@ private fun UserBar(
     localId: String,
     muted: Boolean,
     deafened: Boolean,
+    sharing: Boolean,
     connected: Boolean,
     onToggleMute: () -> Unit,
     onToggleDeafen: () -> Unit,
+    onToggleShare: () -> Unit,
     onSettings: () -> Unit,
 ) {
     val short = if (localId.length > 12) localId.take(12) + "…" else localId
@@ -453,7 +400,6 @@ private fun UserBar(
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Avatar
         val avatarColor = remember(localId) {
             val h = localId.fold(0x811c9dc5.toInt()) { acc, c -> (acc xor c.code) * 0x01000193.toInt() }
             Color(
@@ -473,14 +419,15 @@ private fun UserBar(
             Text(short, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(if (connected) "Connected" else "Offline", color = TextMuted, fontSize = 10.sp)
         }
-        // Mic / Deafen / Settings icons
         if (connected) {
-            BottomIconBtn(label = if (muted) "M!" else "M",  active = muted,    activeColor = Red,  onClick = onToggleMute)
+            BottomIconBtn(label = if (muted) "M!" else "M",       active = muted,    activeColor = Red,   onClick = onToggleMute)
             Spacer(Modifier.width(2.dp))
-            BottomIconBtn(label = if (deafened) "H!" else "H", active = deafened, activeColor = Red, onClick = onToggleDeafen)
+            BottomIconBtn(label = if (deafened) "H!" else "H",    active = deafened, activeColor = Red,   onClick = onToggleDeafen)
+            Spacer(Modifier.width(2.dp))
+            BottomIconBtn(label = if (sharing) "◼" else "◻",      active = sharing,  activeColor = Green, onClick = onToggleShare)
             Spacer(Modifier.width(2.dp))
         }
-        BottomIconBtn(label = "S", active = false, activeColor = Red, onClick = onSettings)
+        BottomIconBtn(label = "⚙", active = false, activeColor = Red, onClick = onSettings)
     }
 }
 
