@@ -13,11 +13,12 @@ bool ScreenSender::start_sharing(
     int max_h,
     int fps,
     int bitrate_kbps,
+    int gop_size,
     bool share_audio,
     SendCb on_video,
     SendCb on_screen_audio
 ) {
-    if (!video_sender_.start(fps, bitrate_kbps, std::move(on_video))) {
+    if (!video_sender_.start(fps, bitrate_kbps, gop_size, std::move(on_video))) {
         return false;
     }
 

@@ -29,6 +29,7 @@ public:
         int max_h,
         int fps,
         int bitrate_kbps,
+        int gop_size,
         bool share_audio,
         SendCb on_video,
         SendCb on_screen_audio

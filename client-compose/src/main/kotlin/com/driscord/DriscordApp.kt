@@ -287,7 +287,7 @@ class DriscordApp(val config: AppConfig = AppConfig.loadDefault()) {
         val targetJson = json.encodeToString(CaptureTarget.serializer(), target)
         val ok = NativeScreenSession.startSharing(
             screenSessionH, targetJson,
-            maxW, maxH, fps, config.videoBitrateKbps, shareAudio
+            maxW, maxH, fps, config.videoBitrateKbps, config.gopSize, shareAudio
         )
         if (ok) {
             _sharing.value = true

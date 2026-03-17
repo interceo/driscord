@@ -15,20 +15,22 @@ constexpr int kStaleSeconds = 3;
 VideoSender::VideoSender() = default;
 VideoSender::~VideoSender() { stop(); }
 
-bool VideoSender::start(int fps, int base_bitrate_kbps, SendCb on_video) {
+bool VideoSender::start(int fps, int base_bitrate_kbps, int gop_size, SendCb on_video) {
     if (sharing_) {
         return false;
     }
 
     fps_ = fps;
     base_bitrate_kbps_ = base_bitrate_kbps;
+    this->gop_size = gop_size > 0 ? gop_size : fps;
     on_video_ = std::move(on_video);
 
     encode_running_ = true;
     encode_thread_ = std::thread(&VideoSender::encode_loop, this);
     sharing_ = true;
 
-    LOG_INFO() << "video sender started fps=" << fps << " bitrate=" << base_bitrate_kbps << " kbps";
+    LOG_INFO() << "video sender started fps=" << fps << " bitrate=" << base_bitrate_kbps << " kbps"
+               << " gop=" << gop_size << " frames";
     return true;
 }
 
@@ -81,7 +83,7 @@ void VideoSender::encode_loop() {
         }
 
         if (frame.width != video_encoder_.width() || frame.height != video_encoder_.height()) {
-            if (!video_encoder_.init(frame.width, frame.height, fps_, base_bitrate_kbps_)) {
+            if (!video_encoder_.init(frame.width, frame.height, fps_, base_bitrate_kbps_, gop_size)) {
                 continue;
             }
         }
@@ -99,6 +101,7 @@ void VideoSender::encode_loop() {
             .sender_ts = capture_ts,
             .bitrate_kbps = static_cast<uint32_t>(video_encoder_.measured_kbps()),
             .frame_duration_us = static_cast<uint32_t>(1'000'000 / fps_),
+            .gop_size = static_cast<uint32_t>(gop_size),
         };
         frame_buf_.resize(protocol::VideoHeader::kWireSize + encoded.size());
         vh.serialize(frame_buf_.data());

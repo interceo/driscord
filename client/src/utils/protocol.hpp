@@ -29,15 +29,17 @@ struct AudioHeader {
 };
 
 // Video frame envelope wire layout:
-//   [width:4][height:4][sender_ts:8][bitrate_kbps:4][frame_duration_us:4]
+//   [width:4][height:4][sender_ts:8][bitrate_kbps:4][frame_duration_us:4][gop_size:4]
+// gop_size — encoder GOP in frames (0 = unknown / legacy sender).
 struct VideoHeader {
     uint32_t width = 0;
     uint32_t height = 0;
     utils::WallTimestamp sender_ts{};
     uint32_t bitrate_kbps = 0;
     uint32_t frame_duration_us = 0;
+    uint32_t gop_size = 0;
 
-    static constexpr size_t kWireSize = 24;
+    static constexpr size_t kWireSize = 28;
 
     static VideoHeader deserialize(const uint8_t* src) {
         VideoHeader h;
@@ -46,6 +48,7 @@ struct VideoHeader {
         h.sender_ts = utils::WallFromMs(utils::read_u64_le(src + 8));
         h.bitrate_kbps = utils::read_u32_le(src + 16);
         h.frame_duration_us = utils::read_u32_le(src + 20);
+        h.gop_size = utils::read_u32_le(src + 24);
         return h;
     }
 
@@ -55,6 +58,7 @@ struct VideoHeader {
         utils::write_u64_le(dst + 8, utils::WallToMs(sender_ts));
         utils::write_u32_le(dst + 16, bitrate_kbps);
         utils::write_u32_le(dst + 20, frame_duration_us);
+        utils::write_u32_le(dst + 24, gop_size);
     }
 };
 
@@ -86,8 +90,8 @@ struct ChunkHeader {
 // Wire size sanity checks: verify kWireSize matches the sum of serialized field sizes.
 static_assert(AudioHeader::kWireSize == 2 * sizeof(uint64_t), "AudioHeader wire layout: seq(8) + sender_ts(8)");
 static_assert(
-    VideoHeader::kWireSize == 2 * sizeof(uint32_t) + sizeof(uint64_t) + 2 * sizeof(uint32_t),
-    "VideoHeader wire layout: width(4) + height(4) + sender_ts(8) + bitrate_kbps(4) + frame_duration_us(4)"
+    VideoHeader::kWireSize == 2 * sizeof(uint32_t) + sizeof(uint64_t) + 3 * sizeof(uint32_t),
+    "VideoHeader wire layout: width(4) + height(4) + sender_ts(8) + bitrate_kbps(4) + frame_duration_us(4) + video_version(4)"
 );
 static_assert(ChunkHeader::kWireSize == sizeof(uint64_t) + 2 * sizeof(uint16_t),
     "ChunkHeader wire layout: frame_id(8) + chunk_idx(2) + total_chunks(2)");
