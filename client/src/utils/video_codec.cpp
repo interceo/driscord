@@ -164,6 +164,8 @@ bool VideoEncoder::init(int width, int height, int fps, int base_bitrate_kbps) {
         return false;
     }
 
+    LOG_INFO() << "selected video encoder: " << codec->name;
+
     int bitrate_kbps = compute_bitrate(width, height, base_bitrate_kbps);
     int64_t bitrate_bps = static_cast<int64_t>(bitrate_kbps) * 1000;
 

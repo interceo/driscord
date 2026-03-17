@@ -8,15 +8,19 @@
 #include <vector>
 
 // Handles the video data channel: video frames + keyframe negotiation.
-// Frames are split into kChunkPayloadSize chunks to avoid SCTP-level
-// fragmentation of large keyframes (head-of-line blocking at 2K/60fps).
+// The DataChannel runs unreliable+unordered (max_retransmits=0): lost chunks
+// drop the whole frame; the receiver requests a keyframe and the decoder
+// recovers from the next IDR. Frames are split into kChunkPayloadSize-byte
+// chunks so each DataChannel message fits in one IP packet with no SCTP-level
+// fragmentation (which would reintroduce HoL blocking even in unreliable mode).
 // Must be constructed before Transport::connect() is called.
 class VideoTransport {
 public:
     using PacketCb = Transport::PacketCb;
     using Callback = std::function<void()>;
 
-    static constexpr size_t kChunkPayloadSize = 60 * 1024; // 60 KB per SCTP message
+    // Keep well under PMTU (~1400 bytes after DTLS/SCTP/UDP/IP headers).
+    static constexpr size_t kChunkPayloadSize = 1100;
 
     explicit VideoTransport(Transport& transport);
 

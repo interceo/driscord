@@ -11,5 +11,7 @@
     ],
     "voice_jitter_ms": 200,
     "screen_buffer_ms": 500,
-    "max_sync_gap_ms": 2000
+    "max_sync_gap_ms": 2000,
+    "hold_threshold_ms": 50,
+    "drain_threshold_ms": 50
 }

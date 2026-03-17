@@ -5,7 +5,8 @@
 
 using json = nlohmann::json;
 
-ScreenSessionJni::ScreenSessionJni(int buf_ms, int max_sync_ms, VideoTransportJni* vt, AudioTransportJni* at)
+ScreenSessionJni::ScreenSessionJni(int buf_ms, int max_sync_ms,
+                                   VideoTransportJni* vt, AudioTransportJni* at)
     : receiver(buf_ms, max_sync_ms), video_transport(vt), audio_transport(at) {
     receiver.set_keyframe_callback([this]() { video_transport->channel.send_keyframe_request(); });
     video_transport->set_video_sink(
