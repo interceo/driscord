@@ -5,11 +5,14 @@ import kotlinx.serialization.Serializable
 enum class AppState { Disconnected, Connecting, Connected }
 
 @Serializable
-data class PeerInfo(val id: String, val connected: Boolean)
+data class PeerInfo(
+    val id: String,
+    val connected: Boolean,
+)
 
 @Serializable
 data class CaptureTarget(
-    val type: Int,   // 0 = Monitor, 1 = Window
+    val type: Int, // 0 = Monitor, 1 = Window
     val id: String,
     val name: String,
     val width: Int,
