@@ -2,6 +2,7 @@ package com.driscord
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 
@@ -27,6 +28,8 @@ data class AppConfig(
     @SerialName("voice_jitter_ms")   val voiceJitterMs: Int         = 80,
     @SerialName("screen_buffer_ms")  val screenBufferMs: Int        = 120,
     @SerialName("max_sync_gap_ms")   val maxSyncGapMs: Int          = 2000,
+    @SerialName("hold_threshold_ms") val holdThresholdMs: Int        = 50,
+    @SerialName("drain_threshold_ms") val drainThresholdMs: Int      = 50,
     @SerialName("turn_servers")      val turnServers: List<TurnServerConfig> = emptyList(),
 ) {
     val serverUrl: String get() = "ws://$serverHost:$serverPort"
@@ -40,12 +43,15 @@ data class AppConfig(
         voiceJitterMs    = voiceJitterMs.coerceIn(0, 500),
         screenBufferMs   = screenBufferMs.coerceIn(0, 500),
         maxSyncGapMs     = maxSyncGapMs.coerceIn(100, 10_000),
+        holdThresholdMs  = holdThresholdMs.coerceIn(0, 1000),
+        drainThresholdMs = drainThresholdMs.coerceIn(0, 1000),
     )
 
     companion object {
         private val json = Json {
             ignoreUnknownKeys = true
             isLenient = true
+            prettyPrint = true
         }
 
         /**
@@ -62,7 +68,7 @@ data class AppConfig(
          *
          * Windows:
          *   1. <exe dir>\driscord.json
-         *   2. %APPDATA%\driscord\config.json
+         *   2. %LOCALAPPDATA%\driscord\config.json
          *
          * Linux / macOS:
          *   1. ./driscord.json
@@ -72,12 +78,10 @@ data class AppConfig(
             val isWindows = System.getProperty("os.name").lowercase().contains("win")
 
             val candidates: List<File> = buildList {
-                // 1. Next to the JAR / working directory
                 add(File("driscord.json"))
 
                 if (isWindows) {
-                    // 2. %APPDATA%\driscord\config.json
-                    val appData = System.getenv("APPDATA")
+                    val appData = System.getenv("LOCALAPPDATA")
                     if (!appData.isNullOrBlank()) {
                         add(File(appData, "driscord/config.json"))
                     }
@@ -102,6 +106,34 @@ data class AppConfig(
 
             println("[config] no config file found, using defaults")
             return AppConfig()
+        }
+
+        /**
+         * Returns the path that loadDefault() would use (the first candidate
+         * that exists, or the primary candidate for saving if none exist yet).
+         */
+        fun defaultConfigPath(): String {
+            val isWindows = System.getProperty("os.name").lowercase().contains("win")
+            val candidates: List<File> = buildList {
+                add(File("driscord.json"))
+                if (isWindows) {
+                    val appData = System.getenv("LOCALAPPDATA")
+                    if (!appData.isNullOrBlank()) add(File(appData, "driscord/config.json"))
+                } else {
+                    val xdgConfig = System.getenv("XDG_CONFIG_HOME")
+                    val configDir = if (!xdgConfig.isNullOrBlank()) File(xdgConfig)
+                                    else File(System.getProperty("user.home"), ".config")
+                    add(File(configDir, "driscord/config.json"))
+                }
+            }
+            return (candidates.firstOrNull { it.exists() } ?: candidates.first()).absolutePath
+        }
+
+        /** Writes config as JSON to the given path, creating parent dirs as needed. */
+        fun save(config: AppConfig, path: String) {
+            val file = File(path)
+            file.parentFile?.mkdirs()
+            file.writeText(json.encodeToString(config.validated()))
         }
     }
 }

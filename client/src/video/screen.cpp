@@ -106,8 +106,12 @@ void ScreenSender::on_audio_captured_(const float* samples, size_t frames, int c
     }
 }
 
-ScreenReceiver::ScreenReceiver(int buffer_ms, int /*max_sync_gap_ms*/)
-    : video_recv_(buffer_ms, 0), audio_recv_(std::make_shared<AudioReceiver>(buffer_ms, /*channels=*/2)) {}
+ScreenReceiver::ScreenReceiver(int buffer_ms, int /*max_sync_gap_ms*/,
+                               int hold_threshold_ms, int drain_threshold_ms)
+    : video_recv_(buffer_ms, 0),
+      audio_recv_(std::make_shared<AudioReceiver>(buffer_ms, /*channels=*/2)),
+      hold_threshold_ms_(hold_threshold_ms),
+      drain_threshold_ms_(drain_threshold_ms) {}
 
 void ScreenReceiver::push_video_packet(const std::string& peer_id, const uint8_t* data, size_t len) {
     video_recv_.push_video_packet(peer_id, data, len);
@@ -127,7 +131,7 @@ const VideoJitter::Frame* ScreenReceiver::update() {
             return nullptr;
         }
         const int64_t video_ts = static_cast<int64_t>(utils::WallToMs(held->sender_ts));
-        if (audio_ts == 0 || (video_ts - static_cast<int64_t>(audio_ts)) <= kHoldThresholdMs) {
+        if (audio_ts == 0 || (video_ts - static_cast<int64_t>(audio_ts)) <= hold_threshold_ms_) {
             waiting_for_audio_ = false;
             // Fall through to pop a fresh frame now that audio caught up.
         } else {
@@ -149,20 +153,20 @@ const VideoJitter::Frame* ScreenReceiver::update() {
     const int64_t video_ts = static_cast<int64_t>(utils::WallToMs(frame->sender_ts));
     const int64_t diff = video_ts - static_cast<int64_t>(audio_ts);
 
-    if (diff > kDrainThresholdMs) {
+    if (diff > drain_threshold_ms_) {
         // Audio is severely lagging — drain stale frames so it catches up faster.
-        const size_t drained = audio_recv_->drain_before(static_cast<uint64_t>(video_ts - kHoldThresholdMs));
+        const size_t drained = audio_recv_->drain_before(static_cast<uint64_t>(video_ts - hold_threshold_ms_));
         if (drained > 0) {
             LOG_INFO() << "[av-sync] drained " << drained << " stale audio frames (video +" << diff << "ms ahead)";
         }
         // Re-read audio_ts after drain.
         const int64_t audio_ts2 = static_cast<int64_t>(audio_recv_->last_ts_ms());
-        if (audio_ts2 > 0 && (video_ts - audio_ts2) > kHoldThresholdMs) {
+        if (audio_ts2 > 0 && (video_ts - audio_ts2) > hold_threshold_ms_) {
             waiting_for_audio_ = true;
             LOG_INFO() << "[av-sync] holding video " << (video_ts - audio_ts2) << "ms ahead of audio";
             return frame;  // display current frame frozen until audio catches up
         }
-    } else if (diff > kHoldThresholdMs) {
+    } else if (diff > hold_threshold_ms_) {
         // Video moderately ahead — freeze without draining.
         waiting_for_audio_ = true;
         LOG_INFO() << "[av-sync] holding video " << diff << "ms ahead of audio";

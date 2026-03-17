@@ -5,8 +5,9 @@
 
 using json = nlohmann::json;
 
-ScreenSessionJni::ScreenSessionJni(int buf_ms, int max_sync_ms, VideoTransportJni* vt, AudioTransportJni* at)
-    : receiver(buf_ms, max_sync_ms), video_transport(vt), audio_transport(at) {
+ScreenSessionJni::ScreenSessionJni(int buf_ms, int max_sync_ms, int hold_ms, int drain_ms,
+                                   VideoTransportJni* vt, AudioTransportJni* at)
+    : receiver(buf_ms, max_sync_ms, hold_ms, drain_ms), video_transport(vt), audio_transport(at) {
     receiver.set_keyframe_callback([this]() { video_transport->channel.send_keyframe_request(); });
     video_transport->set_video_sink(
         [this](const std::string& peer_id, const uint8_t* data, size_t len) {
@@ -100,12 +101,16 @@ JNIEXPORT jlong JNICALL Java_com_driscord_NativeScreenSession_create(
     jclass,
     jint bufMs,
     jint maxSyncMs,
+    jint holdMs,
+    jint drainMs,
     jlong videoTransportHandle,
     jlong audioTransportHandle
 ) {
     return reinterpret_cast<jlong>(new ScreenSessionJni(
         static_cast<int>(bufMs),
         static_cast<int>(maxSyncMs),
+        static_cast<int>(holdMs),
+        static_cast<int>(drainMs),
         reinterpret_cast<VideoTransportJni*>(videoTransportHandle),
         reinterpret_cast<AudioTransportJni*>(audioTransportHandle)
     ));

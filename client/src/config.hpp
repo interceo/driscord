@@ -22,6 +22,8 @@ struct Config {
     int voice_jitter_ms = 80;
     int screen_buffer_ms = 120;
     int max_sync_gap_ms = 2000;
+    int hold_threshold_ms = 50;
+    int drain_threshold_ms = 50;
 
     std::vector<TurnServer> turn_servers;
 };
