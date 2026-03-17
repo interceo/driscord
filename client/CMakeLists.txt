@@ -21,14 +21,6 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 
-# --- Dear ImGui ---
-FetchContent_Declare(
-    imgui
-    GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG        v1.91.8
-    GIT_SHALLOW    TRUE
-)
-
 # --- libdatachannel (WebRTC + WebSocket) ---
 set(NO_MEDIA ON CACHE BOOL "" FORCE)
 set(NO_EXAMPLES ON CACHE BOOL "" FORCE)
@@ -69,41 +61,7 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 
-FetchContent_MakeAvailable(glfw imgui libdatachannel opus json miniaudio)
-
-# Build Dear ImGui as a library (it has no CMakeLists.txt)
-add_library(imgui_lib STATIC
-    ${imgui_SOURCE_DIR}/imgui.cpp
-    ${imgui_SOURCE_DIR}/imgui_draw.cpp
-    ${imgui_SOURCE_DIR}/imgui_tables.cpp
-    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
-)
-target_include_directories(imgui_lib PUBLIC
-    ${imgui_SOURCE_DIR}
-    ${imgui_SOURCE_DIR}/backends
-)
-target_link_libraries(imgui_lib PUBLIC glfw)
-
-if(APPLE)
-    target_compile_definitions(imgui_lib PUBLIC GL_SILENCE_DEPRECATION)
-    find_library(OPENGL_FRAMEWORK OpenGL REQUIRED)
-    find_library(COCOA_FRAMEWORK Cocoa REQUIRED)
-    find_library(IOKIT_FRAMEWORK IOKit REQUIRED)
-    find_library(COREVIDEO_FRAMEWORK CoreVideo REQUIRED)
-    target_link_libraries(imgui_lib PUBLIC
-        ${OPENGL_FRAMEWORK}
-        ${COCOA_FRAMEWORK}
-        ${IOKIT_FRAMEWORK}
-        ${COREVIDEO_FRAMEWORK}
-    )
-elseif(WIN32)
-    target_link_libraries(imgui_lib PUBLIC opengl32)
-elseif(UNIX)
-    find_package(OpenGL REQUIRED)
-    target_link_libraries(imgui_lib PUBLIC OpenGL::GL)
-endif()
+FetchContent_MakeAvailable(glfw libdatachannel opus json miniaudio)
 
 # miniaudio interface library
 add_library(miniaudio_lib INTERFACE)

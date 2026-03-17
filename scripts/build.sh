@@ -6,8 +6,8 @@ BUILD="$ROOT/build"
 COMPOSE_DIR="$ROOT/client-compose"
 
 # ---------------------------------------------------------------------------
-# 1. C++ — CMake (server + legacy ImGui client + driscord_jni)
-# ---------------------------------------------------------------------------
+# 1. C++ — CMake (server + driscord_jni)
+# ----------------------------
 if [ ! -f "$BUILD/Makefile" ] && [ ! -f "$BUILD/build.ninja" ]; then
     echo "==> Configuring CMake..."
     if command -v ninja &>/dev/null; then
@@ -23,7 +23,6 @@ cmake --build "$BUILD" -j"$JOBS"
 
 echo ""
 echo "    Server:         $BUILD/server/driscord_server"
-echo "    Legacy client:  $BUILD/client/driscord_client"
 if ls "$BUILD/client/libdriscord_jni."* &>/dev/null 2>&1; then
     echo "    JNI library:    $(ls "$BUILD/client/libdriscord_jni."* | head -1)"
 fi

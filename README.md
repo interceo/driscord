@@ -43,11 +43,6 @@ cmake --build build -j$(nproc)
 ./build/server/driscord_server 8080
 ```
 
-Терминал 2+ — клиенты:
-```bash
-./build/client/driscord_client
-```
-
 В GUI указать `ws://localhost:8080` и нажать «Подключиться».
 
 ## Стек
