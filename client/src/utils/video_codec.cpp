@@ -43,13 +43,23 @@ static const AVCodec* pick_h264_encoder() {
         return c;
     }
 #elif defined(_WIN32)
-    if (auto* c = try_encoder("h264_mf")) {
-        return c;
-    }
     if (auto* c = try_encoder("h264_amf")) {
         return c;
     }
+    if (auto* c = try_encoder("h264_nvenc")) {
+        return c;
+    }
+    if (auto* c = try_encoder("h264_mf")) {
+        return c;
+    }
     if (auto* c = try_encoder("h264_qsv")) {
+        return c;
+    }
+#elif defined(__linux__)
+    if (auto* c = try_encoder("h264_nvenc")) {
+        return c;
+    }
+    if (auto* c = try_encoder("h264_vaapi")) {
         return c;
     }
 #endif
@@ -66,17 +76,26 @@ static void setup_rate_control(AVCodecContext* ctx, int64_t bitrate_bps, const s
 
     if (enc_name.find("videotoolbox") != std::string::npos) {
         av_opt_set(ctx->priv_data, "allow_sw", "true", 0);
-        av_opt_set_int(ctx->priv_data, "profile", AV_PROFILE_H264_BASELINE, 0);
-        av_opt_set(ctx->priv_data, "constant_bit_rate", "true", AV_OPT_SEARCH_CHILDREN);
+        ctx->profile = AV_PROFILE_H264_HIGH;
+        av_opt_set(ctx->priv_data, "constant_bit_rate", "true", 0);
     } else if (enc_name.find("libx264") != std::string::npos) {
-        av_opt_set(ctx->priv_data, "preset", "fast", 0);
+        av_opt_set(ctx->priv_data, "preset", "veryfast", 0);
         av_opt_set(ctx->priv_data, "tune", "zerolatency", 0);
         ctx->profile = AV_PROFILE_H264_HIGH;
+        ctx->rc_min_rate = bitrate_bps;  // required for nal-hrd=cbr
         av_opt_set(ctx->priv_data, "nal-hrd", "cbr", 0);
         av_opt_set(ctx->priv_data, "rc-lookahead", "0", 0);
         av_opt_set(ctx->priv_data, "repeat-headers", "1", 0);
         av_opt_set(ctx->priv_data, "vbv-maxrate", std::to_string(bitrate_bps / 1000).c_str(), 0);
-        av_opt_set(ctx->priv_data, "vbv-bufsize", std::to_string(bitrate_bps / 500).c_str(), 0); // 2x bitrate
+        av_opt_set(ctx->priv_data, "vbv-bufsize", std::to_string(bitrate_bps / 500).c_str(), 0);  // 2x bitrate in kbits
+    } else if (enc_name.find("nvenc") != std::string::npos) {
+        av_opt_set(ctx->priv_data, "preset", "p4", 0);
+        av_opt_set(ctx->priv_data, "tune", "ll", 0);
+        av_opt_set(ctx->priv_data, "rc", "cbr", 0);
+        ctx->profile = AV_PROFILE_H264_HIGH;
+    } else if (enc_name.find("vaapi") != std::string::npos) {
+        av_opt_set(ctx->priv_data, "rc_mode", "CBR", 0);
+        ctx->profile = AV_PROFILE_H264_HIGH;
     } else if (enc_name.find("h264_mf") != std::string::npos) {
         av_opt_set(ctx->priv_data, "rate_control", "cbr", 0);
         ctx->profile = AV_PROFILE_H264_HIGH;
@@ -86,6 +105,8 @@ static void setup_rate_control(AVCodecContext* ctx, int64_t bitrate_bps, const s
         ctx->profile = AV_PROFILE_H264_HIGH;
     } else if (enc_name.find("h264_qsv") != std::string::npos) {
         av_opt_set(ctx->priv_data, "preset", "veryfast", 0);
+        av_opt_set(ctx->priv_data, "scenario", "displayremoting", 0);
+        ctx->rc_min_rate = bitrate_bps;
         ctx->profile = AV_PROFILE_H264_HIGH;
     }
 }
@@ -108,6 +129,7 @@ static void setup_common_ctx(AVCodecContext* ctx, int width, int height, int fps
     ctx->gop_size = fps;
     ctx->max_b_frames = 0;
     ctx->thread_count = optimal_thread_count();
+    ctx->thread_type = FF_THREAD_SLICE;
     ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
 }
 
