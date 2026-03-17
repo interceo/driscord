@@ -20,7 +20,8 @@ public:
     using SendCb = std::function<void(const uint8_t* data, size_t len)>;
 
     ScreenSession(int buffer_ms, int max_sync_gap_ms)
-        : video_recv_(buffer_ms, max_sync_gap_ms), audio_recv_(buffer_ms, /*channels=*/2) {}
+        : video_recv_(buffer_ms, max_sync_gap_ms),
+          audio_recv_(std::make_shared<AudioReceiver>(buffer_ms, /*channels=*/2)) {}
 
     ~ScreenSession();
 
@@ -55,12 +56,12 @@ public:
         video_recv_.push_video_packet(peer_id, data, len);
     }
 
-    void push_audio_packet(const uint8_t* data, size_t len) { audio_recv_.push_packet(data, len); }
+    void push_audio_packet(const uint8_t* data, size_t len) { audio_recv_->push_packet(data, len); }
 
     const VideoJitter::Frame* update() { return video_recv_.update(); }
 
-    AudioReceiver* audio_receiver() { return &audio_recv_; }
-    const AudioReceiver* audio_receiver() const { return &audio_recv_; }
+    std::shared_ptr<AudioReceiver> audio_receiver() { return audio_recv_; }
+    std::shared_ptr<const AudioReceiver> audio_receiver() const { return audio_recv_; }
 
     void set_keyframe_callback(std::function<void()> fn) { video_recv_.set_keyframe_callback(std::move(fn)); }
 
@@ -69,7 +70,7 @@ public:
     int measured_kbps() const { return video_recv_.measured_kbps(); }
 
     VideoJitter::Stats video_stats() const { return video_recv_.video_stats(); }
-    AudioReceiver::Stats audio_stats() const { return audio_recv_.stats(); }
+    AudioReceiver::Stats audio_stats() const { return audio_recv_->stats(); }
 
     void reset();
 
@@ -89,5 +90,5 @@ private:
 
     // receiver
     VideoReceiver video_recv_;
-    AudioReceiver audio_recv_;
+    std::shared_ptr<AudioReceiver> audio_recv_;
 };

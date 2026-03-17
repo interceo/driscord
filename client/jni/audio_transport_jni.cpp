@@ -17,17 +17,19 @@ AudioTransportJni::AudioTransportJni(TransportJni& t) : channel(t.transport) {
     });
 }
 
-void AudioTransportJni::register_voice(const std::string& peer_id, AudioReceiver* recv) {
+void AudioTransportJni::register_voice(const std::string& peer_id, std::shared_ptr<AudioReceiver> recv) {
     std::scoped_lock lk(recv_mutex);
-    voice_recv[peer_id] = recv;
+    voice_recv[peer_id] = std::move(recv);
 }
+
 void AudioTransportJni::unregister_voice(const std::string& peer_id) {
     std::scoped_lock lk(recv_mutex);
     voice_recv.erase(peer_id);
 }
-void AudioTransportJni::set_screen_audio_recv(AudioReceiver* recv) {
+
+void AudioTransportJni::set_screen_audio_recv(std::shared_ptr<AudioReceiver> recv) {
     std::scoped_lock lk(recv_mutex);
-    screen_audio_recv = recv;
+    screen_audio_recv = std::move(recv);
 }
 
 #define AUDIO_TRANSPORT(h) reinterpret_cast<AudioTransportJni*>(h)
@@ -59,7 +61,7 @@ JNIEXPORT void JNICALL
 Java_com_driscord_NativeAudioTransport_registerVoiceReceiver(JNIEnv* env, jclass, jlong h,
         jstring jPeer, jlong receiverHandle) {
     auto peer = env->GetStringUTFChars(jPeer, nullptr);
-    AUDIO_TRANSPORT(h)->register_voice(peer, &AUDIO_RECEIVER(receiverHandle)->receiver);
+    AUDIO_TRANSPORT(h)->register_voice(peer, AUDIO_RECEIVER(receiverHandle)->receiver);
     env->ReleaseStringUTFChars(jPeer, peer);
 }
 
@@ -74,10 +76,11 @@ Java_com_driscord_NativeAudioTransport_unregisterVoiceReceiver(JNIEnv* env, jcla
 JNIEXPORT void JNICALL
 Java_com_driscord_NativeAudioTransport_setScreenAudioReceiver(JNIEnv*, jclass,
         jlong audioHandle, jlong screenHandle) {
-    AudioReceiver* recv = nullptr;
-    if (screenHandle != 0)
+    std::shared_ptr<AudioReceiver> recv;
+    if (screenHandle != 0) {
         recv = SCREEN_SESSION(screenHandle)->session.audio_receiver();
-    AUDIO_TRANSPORT(audioHandle)->set_screen_audio_recv(recv);
+    }
+    AUDIO_TRANSPORT(audioHandle)->set_screen_audio_recv(std::move(recv));
 }
 
 } // extern "C"

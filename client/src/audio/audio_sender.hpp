@@ -9,7 +9,7 @@
 #include <memory>
 #include <vector>
 
-struct ma_device;
+class MaDevice;
 
 class AudioSender {
 public:
@@ -42,7 +42,7 @@ private:
     PacketCallback on_packet_;
 
     std::unique_ptr<OpusEncode> encoder_;
-    std::unique_ptr<ma_device> device_;
+    std::unique_ptr<MaDevice> device_;
 
     std::vector<float> capture_buf_;
     size_t capture_pos_ = 0;

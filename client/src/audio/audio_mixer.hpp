@@ -6,7 +6,7 @@
 #include <vector>
 
 class AudioReceiver;
-struct ma_device;
+class MaDevice;
 
 class AudioMixer {
 public:
@@ -20,8 +20,8 @@ public:
     void stop();
     bool running() const { return running_; }
 
-    void add_source(AudioReceiver* src);
-    void remove_source(AudioReceiver* src);
+    void add_source(std::shared_ptr<AudioReceiver> src);
+    void remove_source(const std::shared_ptr<AudioReceiver>& src);
 
     void set_output_volume(float v) { output_volume_.store(v); }
     float output_volume() const { return output_volume_.load(); }
@@ -35,13 +35,13 @@ private:
     void on_playback(float* output, uint32_t frames);
 
     std::mutex sources_mutex_;
-    std::vector<AudioReceiver*> sources_;
-    std::vector<AudioReceiver*> snapshot_;
+    std::vector<std::shared_ptr<AudioReceiver>> sources_;
+    std::vector<std::shared_ptr<AudioReceiver>> snapshot_;
 
-    std::unique_ptr<ma_device> device_;
-    std::atomic<bool> running_{false};
+    std::unique_ptr<MaDevice> device_;
+    std::atomic<bool>  running_{false};
     std::atomic<float> output_volume_{1.0f};
-    std::atomic<bool> deafened_{false};
+    std::atomic<bool>  deafened_{false};
     std::atomic<float> output_level_{0.0f};
     uint64_t playback_count_ = 0;
 };

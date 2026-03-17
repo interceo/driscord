@@ -2,9 +2,8 @@
 
 #include "audio_receiver.hpp"
 #include "log.hpp"
+#include "utils/ma_device.hpp"
 #include "utils/opus_codec.hpp"
-
-#include <miniaudio.h>
 
 #include <algorithm>
 #include <cmath>
@@ -18,11 +17,11 @@ bool AudioMixer::start() {
         return true;
     }
 
-    auto dev = std::make_unique<ma_device>();
     ma_device_config config = ma_device_config_init(ma_device_type_playback);
     config.playback.format = ma_format_f32;
     config.playback.channels = 1;
     config.sampleRate = opus::kSampleRate;
+
     config.dataCallback = [](ma_device* d, void* out, const void* /*in*/, ma_uint32 fc) {
         static_cast<AudioMixer*>(d->pUserData)->on_playback(static_cast<float*>(out), fc);
     };
@@ -35,16 +34,13 @@ bool AudioMixer::start() {
             LOG_INFO() << "AudioMixer: playback device rerouted";
         }
     };
+
     config.pUserData = this;
     config.periodSizeInFrames = opus::kFrameSize;
 
-    if (ma_device_init(nullptr, &config, dev.get()) != MA_SUCCESS) {
-        LOG_ERROR() << "AudioMixer: ma_device_init failed";
-        return false;
-    }
-    if (ma_device_start(dev.get()) != MA_SUCCESS) {
-        LOG_ERROR() << "AudioMixer: ma_device_start failed";
-        ma_device_uninit(dev.get());
+    auto dev = std::make_unique<MaDevice>();
+    if (!dev->start(config)) {
+        LOG_ERROR() << "AudioMixer: failed to start audio device";
         return false;
     }
 
@@ -59,11 +55,7 @@ void AudioMixer::stop() {
         return;
     }
     running_ = false;
-    if (device_) {
-        ma_device_stop(device_.get());
-        ma_device_uninit(device_.get());
-        device_.reset();
-    }
+    device_.reset();  // MaDevice destructor calls ma_device_stop + ma_device_uninit
     {
         std::scoped_lock lk(sources_mutex_);
         sources_.clear();
@@ -72,17 +64,17 @@ void AudioMixer::stop() {
     LOG_INFO() << "AudioMixer: stopped";
 }
 
-void AudioMixer::add_source(AudioReceiver* src) {
+void AudioMixer::add_source(std::shared_ptr<AudioReceiver> src) {
     if (!src) {
         return;
     }
     std::scoped_lock lk(sources_mutex_);
     if (std::find(sources_.begin(), sources_.end(), src) == sources_.end()) {
-        sources_.push_back(src);
+        sources_.push_back(std::move(src));
     }
 }
 
-void AudioMixer::remove_source(AudioReceiver* src) {
+void AudioMixer::remove_source(const std::shared_ptr<AudioReceiver>& src) {
     std::scoped_lock lk(sources_mutex_);
     sources_.erase(std::remove(sources_.begin(), sources_.end(), src), sources_.end());
 }
@@ -98,7 +90,7 @@ void AudioMixer::on_playback(float* output, const uint32_t frames) {
     std::memset(output, 0, frames * sizeof(float));
 
     size_t active_sources = 0;
-    for (auto* src : snapshot_) {
+    for (const auto& src : snapshot_) {
         auto samples = src->pop();
         if (!samples.empty()) {
             ++active_sources;
