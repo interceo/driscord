@@ -316,11 +316,14 @@ private fun MemberRow(
 ) {
     val bg = if (expanded) Color(0xFF35373C) else Color.Transparent
 
-    var showMenu by remember { mutableStateOf(false) }
-    var cursorPx by remember { mutableStateOf(IntOffset.Zero) }
-    var vol      by remember { mutableStateOf(1f) }
+    var showMenu  by remember { mutableStateOf(false) }
+    var cursorPx  by remember { mutableStateOf(IntOffset.Zero) }
+    var vol       by remember { mutableStateOf(1f) }
     var peerMuted by remember { mutableStateOf(false) }
-    var savedVol by remember { mutableStateOf(1f) }
+    var savedVol  by remember { mutableStateOf(1f) }
+
+    // Avoid stale closure in pointerInput(Unit)
+    val currentOnGetVolume by rememberUpdatedState(onGetVolume)
 
     Box(
         modifier = Modifier
@@ -334,7 +337,7 @@ private fun MemberRow(
                             if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
                                 val pos = event.changes.first().position
                                 cursorPx = IntOffset(pos.x.toInt(), pos.y.toInt())
-                                vol = onGetVolume()
+                                vol = currentOnGetVolume?.invoke() ?: 1f
                                 showMenu = true
                             }
                         }

@@ -1,6 +1,7 @@
 package com.driscord.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,6 +33,10 @@ internal fun UserTile(
     onSetVolume: (Float) -> Unit = {},
     onToggleMute: (() -> Unit)? = null,
     onToggleDeafen: (() -> Unit)? = null,
+    onClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
+        .fillMaxWidth()
+        .aspectRatio(16f / 9f),
 ) {
     val avatarColor = remember(peerId) {
         val h = peerId.fold(0x811c9dc5.toInt()) { acc, c -> (acc xor c.code) * 0x01000193.toInt() }
@@ -48,12 +53,14 @@ internal fun UserTile(
     var peerMuted by remember { mutableStateOf(false) }
     var savedVol  by remember { mutableStateOf(1f) }
 
+    // Avoid stale closure in pointerInput(Unit)
+    val currentOnGetVolume by rememberUpdatedState(onGetVolume)
+
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(16f / 9f)
+        modifier = modifier
             .clip(RoundedCornerShape(8.dp))
             .background(TileBg)
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
             .pointerInput(Unit) {
                 awaitPointerEventScope {
                     while (true) {
@@ -61,7 +68,7 @@ internal fun UserTile(
                         if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
                             val pos = event.changes.first().position
                             cursorPx = IntOffset(pos.x.toInt(), pos.y.toInt())
-                            vol = onGetVolume()
+                            vol = currentOnGetVolume()
                             showMenu = true
                         }
                     }
