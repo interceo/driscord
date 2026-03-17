@@ -35,8 +35,6 @@ fun SettingsDialog(
     var voiceJitter      by remember { mutableStateOf(config.voiceJitterMs.toString()) }
     var screenBuffer     by remember { mutableStateOf(config.screenBufferMs.toString()) }
     var maxSyncGap       by remember { mutableStateOf(config.maxSyncGapMs.toString()) }
-    var holdThreshold    by remember { mutableStateOf(config.holdThresholdMs.toString()) }
-    var drainThreshold   by remember { mutableStateOf(config.drainThresholdMs.toString()) }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -73,8 +71,6 @@ fun SettingsDialog(
                 SettingsGroup("A/V Sync") {
                     SettingsField("Screen Buffer (ms)", screenBuffer) { screenBuffer = it }
                     SettingsField("Max Sync Gap (ms)", maxSyncGap) { maxSyncGap = it }
-                    SettingsField("Hold Threshold (ms)", holdThreshold) { holdThreshold = it }
-                    SettingsField("Drain Threshold (ms)", drainThreshold) { drainThreshold = it }
                 }
 
                 Spacer(Modifier.height(2.dp))
@@ -100,8 +96,6 @@ fun SettingsDialog(
                                     voiceJitterMs    = voiceJitter.toIntOrNull() ?: config.voiceJitterMs,
                                     screenBufferMs   = screenBuffer.toIntOrNull() ?: config.screenBufferMs,
                                     maxSyncGapMs     = maxSyncGap.toIntOrNull() ?: config.maxSyncGapMs,
-                                    holdThresholdMs  = holdThreshold.toIntOrNull() ?: config.holdThresholdMs,
-                                    drainThresholdMs = drainThreshold.toIntOrNull() ?: config.drainThresholdMs,
                                 )
                             )
                             onDismiss()
