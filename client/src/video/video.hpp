@@ -7,10 +7,10 @@
 
 #include <array>
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <functional>
 #include <mutex>
-#include <condition_variable>
 #include <semaphore>
 #include <thread>
 #include <vector>
@@ -22,7 +22,7 @@ public:
     VideoSender();
     ~VideoSender();
 
-    VideoSender(const VideoSender&) = delete;
+    VideoSender(const VideoSender&)            = delete;
     VideoSender& operator=(const VideoSender&) = delete;
 
     bool start(int fps, int base_bitrate_kbps, int gop_size, SendCb on_video);
@@ -50,9 +50,9 @@ private:
     ScreenCapture::Frame pending_frame_;
     bool frame_ready_ = false;
 
-    int fps_ = 0;
+    int fps_               = 0;
     int base_bitrate_kbps_ = 0;
-    int gop_size = 0;
+    int gop_size           = 0;
 
     std::vector<uint8_t> frame_buf_;
 
@@ -64,7 +64,7 @@ public:
     VideoReceiver(int buffer_ms, int max_sync_gap_ms);
     ~VideoReceiver();
 
-    VideoReceiver(const VideoReceiver&) = delete;
+    VideoReceiver(const VideoReceiver&)            = delete;
     VideoReceiver& operator=(const VideoReceiver&) = delete;
 
     void push_video_packet(const std::string& peer_id, const uint8_t* data, size_t len);
@@ -85,41 +85,35 @@ public:
 private:
     void decode_loop();
 
-    // Lock-free SPSC queue between the DataChannel receive thread (producer)
-    // and the decode thread (consumer). Producer only writes head_, consumer
-    // only writes tail_ — no contention, no mutex on the hot path.
     struct FrameSlot {
-        std::string           peer_id;
-        std::vector<uint8_t>  encoded;  // raw H.264 payload (VideoHeader stripped)
+        std::string peer_id;
+        std::vector<uint8_t> encoded;
         protocol::VideoHeader vh;
     };
+
     static constexpr size_t kQueueCapacity = 4;
     std::array<FrameSlot, kQueueCapacity> ring_;
-    alignas(64) std::atomic<size_t> head_{0};  // written only by producer
-    alignas(64) std::atomic<size_t> tail_{0};  // written only by consumer
+    alignas(64) std::atomic<size_t> head_{0};
+    alignas(64) std::atomic<size_t> tail_{0};
     std::counting_semaphore<kQueueCapacity> sem_{0};
 
-    std::thread       decode_thread_;
+    std::thread decode_thread_;
     std::atomic<bool> decode_running_{false};
 
-    // Decode-thread-only state (no locking needed):
-    VideoDecoder     decoder_;
-    int              decode_failures_ = 0;
+    VideoDecoder decoder_;
+    int decode_failures_ = 0;
     utils::Timestamp last_keyframe_req_{};
 
     std::function<void()> on_keyframe_needed_;
 
-    // Jitter buffer: pushed from decode thread, popped from main thread.
-    // Thread-safety is handled inside JitterBuffer.
     VideoJitter video_;
 
-    // mutex_ guards current_peer_ and last_packet_, read from main thread.
     mutable std::mutex mutex_;
-    std::string      current_peer_;
+    std::string current_peer_;
     utils::Timestamp last_packet_{};
 
     // Bitrate measurement — producer thread only.
-    std::atomic<int>  measured_kbps_{0};
-    size_t            bytes_since_calc_ = 0;
-    utils::Timestamp  last_calc_{};
+    std::atomic<int> measured_kbps_{0};
+    size_t bytes_since_calc_ = 0;
+    utils::Timestamp last_calc_{};
 };
