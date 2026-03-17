@@ -200,7 +200,7 @@ bool VideoEncoder::init(int width, int height, int fps, int base_bitrate_kbps) {
         width,
         height,
         AV_PIX_FMT_YUV420P,
-        SWS_BILINEAR,
+        SWS_FAST_BILINEAR,
         nullptr,
         nullptr,
         nullptr
@@ -305,6 +305,7 @@ bool VideoDecoder::init() {
 
     ctx_ = avcodec_alloc_context3(codec);
     ctx_->thread_count = optimal_thread_count();
+    ctx_->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
 
     int ret = avcodec_open2(ctx_, codec, nullptr);
     if (ret < 0) {
@@ -371,7 +372,7 @@ bool VideoDecoder::decode(const uint8_t* data, size_t len, std::vector<uint8_t>&
             w,
             h,
             AV_PIX_FMT_RGBA,
-            SWS_BILINEAR,
+            SWS_FAST_BILINEAR,
             nullptr,
             nullptr,
             nullptr

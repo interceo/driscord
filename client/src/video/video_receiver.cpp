@@ -15,9 +15,17 @@ VideoReceiver::VideoReceiver(int buffer_ms, int /*max_sync_gap_ms*/) : video_(bu
     if (!decoder_.init()) {
         LOG_ERROR() << "failed to init video decoder";
     }
+    decode_running_ = true;
+    decode_thread_ = std::thread(&VideoReceiver::decode_loop, this);
 }
 
-VideoReceiver::~VideoReceiver() = default;
+VideoReceiver::~VideoReceiver() {
+    decode_running_ = false;
+    decode_cv_.notify_all();
+    if (decode_thread_.joinable()) {
+        decode_thread_.join();
+    }
+}
 
 void VideoReceiver::set_keyframe_callback(std::function<void()> fn) { on_keyframe_needed_ = std::move(fn); }
 
@@ -41,12 +49,6 @@ void VideoReceiver::push_video_packet(const std::string& peer_id, const uint8_t*
         return;
     }
 
-    const uint8_t* encoded = data + protocol::VideoHeader::kWireSize;
-    const size_t encoded_len = len - protocol::VideoHeader::kWireSize;
-
-    std::vector<uint8_t> rgba;
-    int w = 0, h = 0;
-    // Measure actual receive throughput (regardless of decode success).
     bytes_since_calc_ += len;
     {
         auto now = utils::Now();
@@ -59,21 +61,54 @@ void VideoReceiver::push_video_packet(const std::string& peer_id, const uint8_t*
         }
     }
 
-    if (decoder_.decode(encoded, encoded_len, rgba, w, h)) {
-        decode_failures_ = 0;
-        ++push_count_;
-        if (push_count_ % 30 == 0) {
-            LOG_INFO()
-                << "[video-recv] push#" << push_count_ << " sender_ts=" << utils::WallToMs(vh.sender_ts)
-                << " age_ms=" << utils::WallElapsedMs(vh.sender_ts) << " queue=" << video_.queue_size();
+    const uint8_t* encoded = data + protocol::VideoHeader::kWireSize;
+    const size_t encoded_len = len - protocol::VideoHeader::kWireSize;
+
+    {
+        std::unique_lock lk(decode_queue_mutex_);
+        if (decode_queue_.size() >= kMaxDecodeQueue) {
+            decode_queue_.pop_front();
+            LOG_WARNING() << "[video-recv] decode queue full, dropping frame";
         }
-        video_.push(std::move(rgba), w, h, vh.sender_ts);
-    } else {
-        ++decode_failures_;
-        const auto now = utils::Now();
-        if (on_keyframe_needed_ && (decode_failures_ == 1 || utils::ElapsedMs(last_keyframe_req_, now) >= 500)) {
-            on_keyframe_needed_();
-            last_keyframe_req_ = now;
+        DecodeJob job;
+        job.encoded.assign(encoded, encoded + encoded_len);
+        job.vh = vh;
+        decode_queue_.push_back(std::move(job));
+    }
+    decode_cv_.notify_one();
+}
+
+void VideoReceiver::decode_loop() {
+    while (true) {
+        DecodeJob job;
+        {
+            std::unique_lock lk(decode_queue_mutex_);
+            decode_cv_.wait(lk, [this] { return !decode_queue_.empty() || !decode_running_; });
+            if (!decode_running_ && decode_queue_.empty()) {
+                break;
+            }
+            job = std::move(decode_queue_.front());
+            decode_queue_.pop_front();
+        }
+
+        std::vector<uint8_t> rgba;
+        int w = 0, h = 0;
+        if (decoder_.decode(job.encoded.data(), job.encoded.size(), rgba, w, h)) {
+            decode_failures_ = 0;
+            ++push_count_;
+            if (push_count_ % 30 == 0) {
+                LOG_INFO()
+                    << "[video-recv] push#" << push_count_ << " sender_ts=" << utils::WallToMs(job.vh.sender_ts)
+                    << " age_ms=" << utils::WallElapsedMs(job.vh.sender_ts) << " queue=" << video_.queue_size();
+            }
+            video_.push(std::move(rgba), w, h, job.vh.sender_ts);
+        } else {
+            ++decode_failures_;
+            const auto now = utils::Now();
+            if (on_keyframe_needed_ && (decode_failures_ == 1 || utils::ElapsedMs(last_keyframe_req_, now) >= 500)) {
+                on_keyframe_needed_();
+                last_keyframe_req_ = now;
+            }
         }
     }
 }
@@ -110,6 +145,10 @@ void VideoReceiver::reset() {
     {
         std::scoped_lock lk(mutex_);
         current_peer_.clear();
+    }
+    {
+        std::scoped_lock lk(decode_queue_mutex_);
+        decode_queue_.clear();
     }
     video_.reset();
     decode_failures_ = 0;
