@@ -24,7 +24,7 @@ public:
     bool init(int width, int height, int fps, int base_bitrate_kbps, int gop_size = 0);
     void shutdown();
 
-    const std::vector<uint8_t>& encode(const uint8_t* bgra, int width, int height);
+    const std::vector<uint8_t>& encode(const std::vector<uint8_t>& bgra, int width, int height);
 
     void force_keyframe() { force_keyframe_ = true; }
 
@@ -66,7 +66,7 @@ public:
     void shutdown();
     bool ready() const { return ctx_ != nullptr; }
 
-    bool decode(const uint8_t* data, size_t len, std::vector<uint8_t>& rgba_out, int& out_w, int& out_h);
+    bool decode(const std::vector<uint8_t>& data, std::vector<uint8_t>& rgba_out, int& out_w, int& out_h);
 
 private:
     AVCodecContext* ctx_ = nullptr;
