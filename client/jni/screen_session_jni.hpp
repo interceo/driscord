@@ -2,15 +2,14 @@
 
 #include "audio_transport_jni.hpp"
 #include "jni_common.hpp"
-#include "video/screen_receiver.hpp"
-#include "video/screen_sender.hpp"
+#include "video/screen.hpp"
 #include "video_transport_jni.hpp"
 
 #include <mutex>
 #include <string>
 
 struct ScreenSessionJni {
-    ScreenSender   sender;
+    ScreenSender sender;
     ScreenReceiver receiver;
     VideoTransportJni* video_transport;  // non-owning
     AudioTransportJni* audio_transport;  // non-owning

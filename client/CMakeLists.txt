@@ -157,12 +157,9 @@ endif()
 
 # --- driscord_core executable ---
 add_library(driscord_core STATIC
-    src/video/video_sender.cpp
-    src/video/video_receiver.cpp
-    src/video/screen_sender.cpp
-    src/video/screen_receiver.cpp
-    src/audio/audio_sender.cpp
-    src/audio/audio_receiver.cpp
+    src/video/video.cpp
+    src/video/screen.cpp
+    src/audio/audio.cpp
     src/audio/audio_mixer.cpp
     src/transport.cpp
     src/audio_transport.cpp
@@ -253,9 +250,8 @@ find_package(JNI QUIET)
 if(JNI_FOUND)
     add_library(driscord_jni SHARED
         jni/transport_jni.cpp
-        jni/audio_receiver_jni.cpp
+        jni/audio_jni.cpp
         jni/audio_transport_jni.cpp
-        jni/audio_sender_jni.cpp
         jni/audio_mixer_jni.cpp
         jni/video_transport_jni.cpp
         jni/screen_session_jni.cpp

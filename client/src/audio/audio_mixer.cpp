@@ -1,6 +1,6 @@
 #include "audio_mixer.hpp"
 
-#include "audio_receiver.hpp"
+#include "audio.hpp"
 #include "log.hpp"
 #include "utils/ma_device.hpp"
 #include "utils/opus_codec.hpp"

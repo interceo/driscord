@@ -1,13 +1,9 @@
 #pragma once
 
-#include "audio/audio_receiver.hpp"
+#include "audio/audio.hpp"
 #include "audio/capture/system_audio_capture.hpp"
-#include "utils/opus_codec.hpp"
-#include "utils/protocol.hpp"
-#include "utils/time.hpp"
 #include "video/capture/screen_capture.hpp"
-#include "video/video_receiver.hpp"
-#include "video/video_sender.hpp"
+#include "video/video.hpp"
 
 #include <cstdint>
 #include <functional>

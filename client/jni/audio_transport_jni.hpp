@@ -6,8 +6,8 @@
 #include <string>
 #include <unordered_map>
 
+#include "audio/audio.hpp"
 #include "audio_transport.hpp"
-#include "audio/audio_receiver.hpp"
 #include "transport_jni.hpp"
 
 struct AudioTransportJni {
