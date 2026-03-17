@@ -1,6 +1,10 @@
 package com.driscord.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -12,6 +16,7 @@ import androidx.compose.material.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.text.font.FontWeight
@@ -243,95 +248,146 @@ private fun FocusedLayout(
     onFocus: (String) -> Unit,
     onUnfocus: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+    val focusedIsStream = streamingPeers.contains(focusedPeer)
+    // If big tile shows a StreamTile, keep ALL user tiles in strip.
+    // If big tile shows a UserTile, hide that peer from strip (but always keep localId).
+    val otherPeers  = if (focusedIsStream) allPeers
+                      else allPeers.filter { it == localId || it != focusedPeer }
+    val otherStreams = streamingPeers.filter { it != focusedPeer }
+    val hasOthers   = otherPeers.isNotEmpty() || otherStreams.isNotEmpty()
+
+    var stripVisible by remember { mutableStateOf(true) }
+
+    // Hover detection for the whole panel (to show toggle button)
+    val areaInteraction = remember { MutableInteractionSource() }
+    val areaHovered     by areaInteraction.collectIsHoveredAsState()
+
+    // Hover detection for the toggle button (to show label)
+    val btnInteraction = remember { MutableInteractionSource() }
+    val btnHovered     by btnInteraction.collectIsHoveredAsState()
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(12.dp)
+            .hoverable(areaInteraction),
     ) {
-        // ── Big tile ──────────────────────────────────────────────────────
-        Box(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentAlignment = Alignment.Center,
+        // ── Content column ────────────────────────────────────────────────
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (streamingPeers.contains(focusedPeer)) {
-                StreamTile(
-                    peerId            = focusedPeer,
-                    bitmap            = frames[focusedPeer],
-                    watching          = watching,
-                    stats             = streamStats,
-                    streamVolume      = onStreamVolume(),
-                    onSetStreamVolume = onSetStreamVolume,
-                    onClick           = onUnfocus,
-                    onJoin            = onJoinStream,
-                    onLeave           = onLeaveStream,
-                    modifier          = Modifier.fillMaxSize(),
-                )
-            } else {
-                val isYou = focusedPeer == localId
-                val peer  = peers.find { it.id == focusedPeer }
-                UserTile(
-                    peerId         = focusedPeer,
-                    label          = peerLabel(focusedPeer, localId),
-                    online         = isYou || (peer?.connected == true),
-                    isStreaming    = false,
-                    isYou          = isYou,
-                    muted          = if (isYou) muted else false,
-                    deafened       = if (isYou) deafened else false,
-                    onGetVolume    = if (isYou) ({ selfVolume }) else ({ onGetPeerVolume(focusedPeer) }),
-                    onSetVolume    = if (isYou) onSetSelfVolume else ({ v -> onSetPeerVolume(focusedPeer, v) }),
-                    onToggleMute   = if (isYou) onToggleMute else null,
-                    onToggleDeafen = if (isYou) onToggleDeafen else null,
-                    onClick        = onUnfocus,
-                    modifier       = Modifier.fillMaxSize(),
-                )
-            }
-        }
-
-        // ── Bottom strip ─────────────────────────────────────────────────
-        val otherPeers   = allPeers.filter { it != focusedPeer }
-        val otherStreams  = streamingPeers.filter { it != focusedPeer }
-
-        if (otherPeers.isNotEmpty() || otherStreams.isNotEmpty()) {
-            LazyRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(110.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(otherPeers, key = { it }) { peerId ->
-                    val isYou = peerId == localId
-                    val peer  = peers.find { it.id == peerId }
-                    Box(modifier = Modifier.fillMaxHeight().aspectRatio(16f / 9f)) {
-                        UserTile(
-                            peerId         = peerId,
-                            label          = peerLabel(peerId, localId),
-                            online         = isYou || (peer?.connected == true),
-                            isStreaming    = streamingPeers.contains(peerId),
-                            isYou          = isYou,
-                            muted          = if (isYou) muted else false,
-                            deafened       = if (isYou) deafened else false,
-                            onGetVolume    = if (isYou) ({ selfVolume }) else ({ onGetPeerVolume(peerId) }),
-                            onSetVolume    = if (isYou) onSetSelfVolume else ({ v -> onSetPeerVolume(peerId, v) }),
-                            onToggleMute   = if (isYou) onToggleMute else null,
-                            onToggleDeafen = if (isYou) onToggleDeafen else null,
-                            onClick        = { onFocus(peerId) },
-                            modifier       = Modifier.fillMaxSize(),
-                        )
-                    }
+            // Big tile
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                if (streamingPeers.contains(focusedPeer)) {
+                    StreamTile(
+                        peerId            = focusedPeer,
+                        bitmap            = frames[focusedPeer],
+                        watching          = watching,
+                        stats             = streamStats,
+                        streamVolume      = onStreamVolume(),
+                        onSetStreamVolume = onSetStreamVolume,
+                        onClick           = onUnfocus,
+                        onJoin            = onJoinStream,
+                        onLeave           = onLeaveStream,
+                        modifier          = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    val isYou = focusedPeer == localId
+                    val peer  = peers.find { it.id == focusedPeer }
+                    UserTile(
+                        peerId         = focusedPeer,
+                        label          = peerLabel(focusedPeer, localId),
+                        online         = isYou || (peer?.connected == true),
+                        isStreaming    = false,
+                        isYou          = isYou,
+                        muted          = if (isYou) muted else false,
+                        deafened       = if (isYou) deafened else false,
+                        onGetVolume    = if (isYou) ({ selfVolume }) else ({ onGetPeerVolume(focusedPeer) }),
+                        onSetVolume    = if (isYou) onSetSelfVolume else ({ v -> onSetPeerVolume(focusedPeer, v) }),
+                        onToggleMute   = if (isYou) onToggleMute else null,
+                        onToggleDeafen = if (isYou) onToggleDeafen else null,
+                        onClick        = onUnfocus,
+                        modifier       = Modifier.fillMaxSize(),
+                    )
                 }
-                items(otherStreams, key = { "stream_$it" }) { peerId ->
-                    Box(modifier = Modifier.fillMaxHeight().aspectRatio(16f / 9f)) {
-                        StreamTile(
-                            peerId            = peerId,
-                            bitmap            = frames[peerId],
-                            watching          = watching,
-                            stats             = streamStats,
-                            streamVolume      = onStreamVolume(),
-                            onSetStreamVolume = onSetStreamVolume,
-                            onClick           = { onFocus(peerId) },
-                            onJoin            = onJoinStream,
-                            onLeave           = onLeaveStream,
-                            modifier          = Modifier.fillMaxSize(),
-                        )
+            }
+
+            // Bottom strip: Box so button can overlay it
+            if (hasOthers) {
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    if (stripVisible) {
+                        LazyRow(
+                            modifier              = Modifier.fillMaxWidth().height(110.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                        ) {
+                            items(otherPeers, key = { it }) { peerId ->
+                                val isYou = peerId == localId
+                                val peer  = peers.find { it.id == peerId }
+                                Box(modifier = Modifier.height(110.dp).aspectRatio(16f / 9f)) {
+                                    UserTile(
+                                        peerId         = peerId,
+                                        label          = peerLabel(peerId, localId),
+                                        online         = isYou || (peer?.connected == true),
+                                        isStreaming    = streamingPeers.contains(peerId),
+                                        isYou          = isYou,
+                                        muted          = if (isYou) muted else false,
+                                        deafened       = if (isYou) deafened else false,
+                                        onGetVolume    = if (isYou) ({ selfVolume }) else ({ onGetPeerVolume(peerId) }),
+                                        onSetVolume    = if (isYou) onSetSelfVolume else ({ v -> onSetPeerVolume(peerId, v) }),
+                                        onToggleMute   = if (isYou) onToggleMute else null,
+                                        onToggleDeafen = if (isYou) onToggleDeafen else null,
+                                        onClick        = { onFocus(peerId) },
+                                        modifier       = Modifier.fillMaxSize(),
+                                    )
+                                }
+                            }
+                            items(otherStreams, key = { "stream_$it" }) { peerId ->
+                                Box(modifier = Modifier.height(110.dp).aspectRatio(16f / 9f)) {
+                                    StreamTile(
+                                        peerId            = peerId,
+                                        bitmap            = frames[peerId],
+                                        watching          = watching,
+                                        stats             = streamStats,
+                                        streamVolume      = onStreamVolume(),
+                                        onSetStreamVolume = onSetStreamVolume,
+                                        onClick           = { onFocus(peerId) },
+                                        onJoin            = onJoinStream,
+                                        onLeave           = onLeaveStream,
+                                        modifier          = Modifier.fillMaxSize(),
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Toggle button — overlays bottom of strip, visible on area hover
+                    if (areaHovered) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(bottom = 6.dp)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(Color(0xCC2B2D31))
+                                .hoverable(btnInteraction)
+                                .clickable { stripVisible = !stripVisible }
+                                .padding(horizontal = 14.dp, vertical = 6.dp),
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text(if (stripVisible) "∨" else "∧", color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text("👥", fontSize = 12.sp)
+                                if (btnHovered) {
+                                    Text(
+                                        if (stripVisible) "Скрыть участников" else "Показать участников",
+                                        color    = TextMuted,
+                                        fontSize = 11.sp,
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
