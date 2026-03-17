@@ -11,8 +11,6 @@
 #include <memory>
 #include <vector>
 
-// Sender half of a screen-share session: captures screen + optional system
-// audio, encodes, and fires callbacks for the transport to send.
 class ScreenSender {
 public:
     using SendCb = std::function<void(const uint8_t* data, size_t len)>;
@@ -20,7 +18,7 @@ public:
     ScreenSender() = default;
     ~ScreenSender();
 
-    ScreenSender(const ScreenSender&) = delete;
+    ScreenSender(const ScreenSender&)            = delete;
     ScreenSender& operator=(const ScreenSender&) = delete;
 
     bool start_sharing(
@@ -53,24 +51,21 @@ private:
     SendCb on_screen_audio_;
     std::vector<float> screen_audio_buf_;
     std::vector<uint8_t> screen_audio_encode_buf_;
-    size_t screen_audio_pos_ = 0;
+    size_t screen_audio_pos_   = 0;
     uint64_t screen_audio_seq_ = 0;
 };
-
 
 class ScreenReceiver {
 public:
     ScreenReceiver(int buffer_ms, int max_sync_gap_ms);
     ~ScreenReceiver() = default;
 
-    ScreenReceiver(const ScreenReceiver&) = delete;
+    ScreenReceiver(const ScreenReceiver&)            = delete;
     ScreenReceiver& operator=(const ScreenReceiver&) = delete;
 
     void push_video_packet(const std::string& peer_id, const uint8_t* data, size_t len);
     void push_audio_packet(const uint8_t* data, size_t len);
 
-    // Advance playback by one video frame. Returns nullptr when nothing is ready.
-    // Implements A/V sync: may hold the current frame if video is ahead of audio.
     const VideoJitter::Frame* update();
 
     std::shared_ptr<AudioReceiver> audio_receiver() { return audio_recv_; }

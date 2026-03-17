@@ -10,13 +10,10 @@ struct PcmFrame {
     std::vector<float> samples;
 };
 
-// Audio jitter buffer.
-//
-// push() — network/decode thread.
-// pop()  — audio callback thread.
 class AudioJitter {
 public:
-    explicit AudioJitter(size_t target_delay_ms) : buf_(static_cast<int>(target_delay_ms), false) {}
+    explicit AudioJitter(size_t target_delay_ms)
+        : buf_(static_cast<int>(target_delay_ms), false) {}
 
     void push(std::vector<float> samples, uint64_t seq, utils::WallTimestamp sender_ts) {
         if (samples.empty()) {
@@ -55,5 +52,5 @@ public:
 
 private:
     JitterBuffer<PcmFrame> buf_;
-    std::atomic<uint64_t>  last_ts_ms_{0};
+    std::atomic<uint64_t> last_ts_ms_{0};
 };

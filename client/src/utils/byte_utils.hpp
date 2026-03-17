@@ -45,4 +45,4 @@ inline uint64_t read_u64_le(const uint8_t* src) {
            (static_cast<uint64_t>(src[6]) << 48) | (static_cast<uint64_t>(src[7]) << 56);
 }
 
-}  // namespace utils
+} // namespace utils

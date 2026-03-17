@@ -30,8 +30,7 @@
 // depth the oldest packets are dropped before pacing, so slow consumers never
 // cause unbounded memory growth.  0 = disabled.
 
-template <typename T>
-class JitterBuffer {
+template <typename T> class JitterBuffer {
 public:
     using Clock = std::chrono::steady_clock;
 
@@ -41,15 +40,19 @@ public:
     };
 
     struct Stats {
-        bool     primed      = false;
-        size_t   queue_size  = 0;
-        size_t   buffered_ms = 0;
-        uint64_t drop_count  = 0;
-        uint64_t miss_count  = 0;
+        bool primed         = false;
+        size_t queue_size   = 0;
+        size_t buffered_ms  = 0;
+        uint64_t drop_count = 0;
+        uint64_t miss_count = 0;
     };
 
-    explicit JitterBuffer(int target_delay_ms, bool pace_by_sender_ts = false,
-                          int max_excess_ms = 0, size_t max_queue_size = 0)
+    explicit JitterBuffer(
+        int target_delay_ms,
+        bool pace_by_sender_ts = false,
+        int max_excess_ms      = 0,
+        size_t max_queue_size  = 0
+    )
         : target_delay_ms_(std::max(1, target_delay_ms))
         , pace_by_sender_ts_(pace_by_sender_ts)
         , max_excess_ms_(max_excess_ms)
@@ -137,14 +140,13 @@ public:
 
                     // Clock-skew guard: if sender is more than max_excess_ms ahead
                     // of our local clock, reset the anchor and release the frame now.
-                    const int64_t sender_ms =
-                        std::chrono::duration_cast<std::chrono::milliseconds>(sender_delta).count();
-                    const int64_t local_ms =
-                        std::chrono::duration_cast<std::chrono::milliseconds>(local_delta).count();
+                    const int64_t
+                        sender_ms = std::chrono::duration_cast<std::chrono::milliseconds>(sender_delta).count();
+                    const int64_t local_ms = std::chrono::duration_cast<std::chrono::milliseconds>(local_delta).count();
                     if (max_excess_ms_ > 0 && (sender_ms - local_ms) > max_excess_ms_) {
                         LOG_WARNING()
-                            << "[jitter] clock skew " << (sender_ms - local_ms)
-                            << "ms > " << max_excess_ms_ << "ms — resetting anchor";
+                            << "[jitter] clock skew " << (sender_ms - local_ms) << "ms > " << max_excess_ms_
+                            << "ms — resetting anchor";
                         anchor_sender_ts_ = pkt_ts;
                         playback_origin_  = now;
                         // Fall through and release the frame immediately.
@@ -162,9 +164,8 @@ public:
             const int64_t sender_ms = utils::WallToMs(result.data.sender_ts);
             const int64_t age_ms    = sender_ms ? utils::WallElapsedMs(result.data.sender_ts) : -1;
             LOG_INFO()
-                << "[jitter-pop] played=" << played_count_ << " queue=" << ring_.size()
-                << " drops=" << drop_count_ << " misses=" << miss_count_
-                << " sender_ts=" << sender_ms << " age_ms=" << age_ms;
+                << "[jitter-pop] played=" << played_count_ << " queue=" << ring_.size() << " drops=" << drop_count_
+                << " misses=" << miss_count_ << " sender_ts=" << sender_ms << " age_ms=" << age_ms;
         }
 
         return std::move(result.data);
@@ -214,13 +215,13 @@ public:
     void reset() {
         std::scoped_lock lk(mutex_);
         ring_.reset();
-        primed_           = false;
+        primed_ = false;
         first_push_time_.reset();
         anchor_sender_ts_.reset();
-        playback_origin_  = {};
-        played_count_     = 0;
-        drop_count_       = 0;
-        miss_count_       = 0;
+        playback_origin_ = {};
+        played_count_    = 0;
+        drop_count_      = 0;
+        miss_count_      = 0;
     }
 
     Stats stats() const {
@@ -238,12 +239,16 @@ private:
     size_t buffered_ms_locked() const {
         utils::WallTimestamp min_ts = utils::WallTimestamp::max();
         utils::WallTimestamp max_ts = utils::WallTimestamp::min();
-        bool found = false;
+        bool found                  = false;
         ring_.for_each_occupied([&](const auto& slot) {
             const auto& ts = slot.data.sender_ts;
             if (ts.time_since_epoch().count() != 0) {
-                if (ts < min_ts) min_ts = ts;
-                if (ts > max_ts) max_ts = ts;
+                if (ts < min_ts) {
+                    min_ts = ts;
+                }
+                if (ts > max_ts) {
+                    max_ts = ts;
+                }
                 found = true;
             }
         });
@@ -255,17 +260,17 @@ private:
     }
 
     mutable std::mutex mutex_;
-    SlotRing<Packet>   ring_;
+    SlotRing<Packet> ring_;
 
-    bool   primed_           = false;
-    int    target_delay_ms_;
-    bool   pace_by_sender_ts_;
-    int    max_excess_ms_;
+    bool primed_ = false;
+    int target_delay_ms_;
+    bool pace_by_sender_ts_;
+    int max_excess_ms_;
     size_t max_queue_size_;
 
-    std::optional<Clock::time_point>     first_push_time_;
-    std::optional<utils::WallTimestamp>  anchor_sender_ts_;
-    Clock::time_point                    playback_origin_{};
+    std::optional<Clock::time_point> first_push_time_;
+    std::optional<utils::WallTimestamp> anchor_sender_ts_;
+    Clock::time_point playback_origin_{};
 
     uint64_t played_count_ = 0;
     uint64_t drop_count_   = 0;
