@@ -19,7 +19,7 @@ struct FFmpegLogInit {
     FFmpegLogInit() { av_log_set_level(AV_LOG_WARNING); }
 };
 static FFmpegLogInit ff_log_init;
-}  // namespace
+} // namespace
 
 static std::string ff_err(int errnum) {
     char buf[AV_ERROR_MAX_STRING_SIZE]{};
@@ -70,8 +70,8 @@ static const AVCodec* pick_h264_encoder() {
 }
 
 static void setup_rate_control(AVCodecContext* ctx, int64_t bitrate_bps, const std::string& enc_name) {
-    ctx->bit_rate = bitrate_bps;
-    ctx->rc_max_rate = bitrate_bps;
+    ctx->bit_rate       = bitrate_bps;
+    ctx->rc_max_rate    = bitrate_bps;
     ctx->rc_buffer_size = static_cast<int>(bitrate_bps * 2);
 
     if (enc_name.find("videotoolbox") != std::string::npos) {
@@ -81,13 +81,13 @@ static void setup_rate_control(AVCodecContext* ctx, int64_t bitrate_bps, const s
     } else if (enc_name.find("libx264") != std::string::npos) {
         av_opt_set(ctx->priv_data, "preset", "veryfast", 0);
         av_opt_set(ctx->priv_data, "tune", "zerolatency", 0);
-        ctx->profile = AV_PROFILE_H264_HIGH;
-        ctx->rc_min_rate = bitrate_bps;  // required for nal-hrd=cbr
+        ctx->profile     = AV_PROFILE_H264_HIGH;
+        ctx->rc_min_rate = bitrate_bps; // required for nal-hrd=cbr
         av_opt_set(ctx->priv_data, "nal-hrd", "cbr", 0);
         av_opt_set(ctx->priv_data, "rc-lookahead", "0", 0);
         av_opt_set(ctx->priv_data, "repeat-headers", "1", 0);
         av_opt_set(ctx->priv_data, "vbv-maxrate", std::to_string(bitrate_bps / 1000).c_str(), 0);
-        av_opt_set(ctx->priv_data, "vbv-bufsize", std::to_string(bitrate_bps / 500).c_str(), 0);  // 2x bitrate in kbits
+        av_opt_set(ctx->priv_data, "vbv-bufsize", std::to_string(bitrate_bps / 500).c_str(), 0); // 2x bitrate in kbits
     } else if (enc_name.find("nvenc") != std::string::npos) {
         av_opt_set(ctx->priv_data, "preset", "p4", 0);
         av_opt_set(ctx->priv_data, "tune", "ll", 0);
@@ -107,7 +107,7 @@ static void setup_rate_control(AVCodecContext* ctx, int64_t bitrate_bps, const s
         av_opt_set(ctx->priv_data, "preset", "veryfast", 0);
         av_opt_set(ctx->priv_data, "scenario", "displayremoting", 0);
         ctx->rc_min_rate = bitrate_bps;
-        ctx->profile = AV_PROFILE_H264_HIGH;
+        ctx->profile     = AV_PROFILE_H264_HIGH;
     }
 }
 
@@ -120,27 +120,29 @@ static int optimal_thread_count() {
 }
 
 static void setup_common_ctx(AVCodecContext* ctx, int width, int height, int fps, int gop_size) {
-    ctx->width = width;
-    ctx->height = height;
-    ctx->time_base = {1, fps};
-    ctx->framerate = {fps, 1};
-    ctx->pix_fmt = AV_PIX_FMT_YUV420P;
-    ctx->color_range = AVCOL_RANGE_MPEG;
-    ctx->gop_size = (gop_size > 0) ? gop_size : fps;
+    ctx->width        = width;
+    ctx->height       = height;
+    ctx->time_base    = {1, fps};
+    ctx->framerate    = {fps, 1};
+    ctx->pix_fmt      = AV_PIX_FMT_YUV420P;
+    ctx->color_range  = AVCOL_RANGE_MPEG;
+    ctx->gop_size     = (gop_size > 0) ? gop_size : fps;
     ctx->max_b_frames = 0;
     ctx->thread_count = optimal_thread_count();
-    ctx->thread_type = FF_THREAD_SLICE;
+    ctx->thread_type  = FF_THREAD_SLICE;
     ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
 }
 
 // --- VideoEncoder -----------------------------------------------------------
 
-VideoEncoder::~VideoEncoder() { shutdown(); }
+VideoEncoder::~VideoEncoder() {
+    shutdown();
+}
 
 int VideoEncoder::compute_bitrate(int w, int h, int base_kbps) {
     constexpr double kRefPixels = 1920.0 * 1080.0;
-    double pixels = static_cast<double>(w) * h;
-    int kbps = static_cast<int>(base_kbps * (pixels / kRefPixels));
+    double pixels               = static_cast<double>(w) * h;
+    int kbps                    = static_cast<int>(base_kbps * (pixels / kRefPixels));
     return std::max(kbps, 500);
 }
 
@@ -166,7 +168,7 @@ bool VideoEncoder::init(int width, int height, int fps, int base_bitrate_kbps, i
 
     LOG_INFO() << "selected video encoder: " << codec->name;
 
-    int bitrate_kbps = compute_bitrate(width, height, base_bitrate_kbps);
+    int bitrate_kbps    = compute_bitrate(width, height, base_bitrate_kbps);
     int64_t bitrate_bps = static_cast<int64_t>(bitrate_kbps) * 1000;
 
     ctx_ = avcodec_alloc_context3(codec);
@@ -209,9 +211,9 @@ bool VideoEncoder::init(int width, int height, int fps, int base_bitrate_kbps, i
         }
     }
 
-    frame_ = av_frame_alloc();
+    frame_         = av_frame_alloc();
     frame_->format = AV_PIX_FMT_YUV420P;
-    frame_->width = width;
+    frame_->width  = width;
     frame_->height = height;
     av_frame_get_buffer(frame_, 0);
 
@@ -235,14 +237,14 @@ bool VideoEncoder::init(int width, int height, int fps, int base_bitrate_kbps, i
         return false;
     }
 
-    width_ = width;
-    height_ = height;
-    fps_ = fps;
-    gop_size_ = gop_size;
-    pts_ = 0;
+    width_            = width;
+    height_           = height;
+    fps_              = fps;
+    gop_size_         = gop_size;
+    pts_              = 0;
     bytes_since_calc_ = 0;
-    measured_kbps_ = 0;
-    last_calc_ = utils::Now();
+    measured_kbps_    = 0;
+    last_calc_        = utils::Now();
 
     LOG_INFO()
         << "video encoder: " << width << "x" << height << " @ " << fps << " fps"
@@ -265,9 +267,9 @@ void VideoEncoder::shutdown() {
     if (ctx_) {
         avcodec_free_context(&ctx_);
     }
-    width_ = 0;
+    width_  = 0;
     height_ = 0;
-    pts_ = 0;
+    pts_    = 0;
 }
 
 const std::vector<uint8_t>& VideoEncoder::encode(const std::vector<uint8_t>& bgra, int width, int height) {
@@ -280,10 +282,10 @@ const std::vector<uint8_t>& VideoEncoder::encode(const std::vector<uint8_t>& bgr
     av_frame_make_writable(frame_);
 
     const uint8_t* src_slices[1] = {bgra.data()};
-    int src_stride[1] = {width * 4};
+    int src_stride[1]            = {width * 4};
     sws_scale(sws_, src_slices, src_stride, 0, height, frame_->data, frame_->linesize);
 
-    frame_->pts = pts_++;
+    frame_->pts       = pts_++;
     frame_->pict_type = AV_PICTURE_TYPE_NONE;
     frame_->flags &= ~AV_FRAME_FLAG_KEY;
     if (force_keyframe_.exchange(false)) {
@@ -303,12 +305,12 @@ const std::vector<uint8_t>& VideoEncoder::encode(const std::vector<uint8_t>& bgr
 
     if (!encode_buf_.empty()) {
         bytes_since_calc_ += encode_buf_.size();
-        auto now = utils::Now();
+        auto now        = utils::Now();
         auto elapsed_ms = utils::ElapsedMs(last_calc_, now);
         if (elapsed_ms >= 1000) {
-            measured_kbps_ = static_cast<int>(bytes_since_calc_ * 8 / elapsed_ms);
+            measured_kbps_    = static_cast<int>(bytes_since_calc_ * 8 / elapsed_ms);
             bytes_since_calc_ = 0;
-            last_calc_ = now;
+            last_calc_        = now;
         }
     }
 
@@ -317,7 +319,9 @@ const std::vector<uint8_t>& VideoEncoder::encode(const std::vector<uint8_t>& bgr
 
 // --- VideoDecoder -----------------------------------------------------------
 
-VideoDecoder::~VideoDecoder() { shutdown(); }
+VideoDecoder::~VideoDecoder() {
+    shutdown();
+}
 
 bool VideoDecoder::init() {
     shutdown();
@@ -328,9 +332,9 @@ bool VideoDecoder::init() {
         return false;
     }
 
-    ctx_ = avcodec_alloc_context3(codec);
+    ctx_               = avcodec_alloc_context3(codec);
     ctx_->thread_count = optimal_thread_count();
-    ctx_->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
+    ctx_->thread_type  = FF_THREAD_FRAME | FF_THREAD_SLICE;
 
     int ret = avcodec_open2(ctx_, codec, nullptr);
     if (ret < 0) {
@@ -340,7 +344,7 @@ bool VideoDecoder::init() {
     }
 
     frame_ = av_frame_alloc();
-    pkt_ = av_packet_alloc();
+    pkt_   = av_packet_alloc();
     LOG_INFO() << "video decoder: H.264 (" << codec->name << ")";
     return true;
 }
@@ -371,7 +375,7 @@ bool VideoDecoder::decode(const std::vector<uint8_t>& data, std::vector<uint8_t>
     pkt_->data = const_cast<uint8_t*>(data.data());
     pkt_->size = static_cast<int>(data.size());
 
-    int ret = avcodec_send_packet(ctx_, pkt_);
+    int ret    = avcodec_send_packet(ctx_, pkt_);
     pkt_->data = nullptr;
     pkt_->size = 0;
     if (ret < 0) {
@@ -410,13 +414,13 @@ bool VideoDecoder::decode(const std::vector<uint8_t>& data, std::vector<uint8_t>
         return false;
     }
 
-    out_w = w;
-    out_h = h;
+    out_w         = w;
+    out_h         = h;
     size_t needed = static_cast<size_t>(w) * h * 4;
     rgba_out.resize(needed);
 
     uint8_t* dst_slices[1] = {rgba_out.data()};
-    int dst_stride[1] = {w * 4};
+    int dst_stride[1]      = {w * 4};
     sws_scale(sws_, frame_->data, frame_->linesize, 0, h, dst_slices, dst_stride);
 
     return true;

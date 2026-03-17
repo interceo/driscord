@@ -10,24 +10,26 @@ using namespace utils;
 
 constexpr int kStaleSeconds = 3;
 
-}  // namespace
+} // namespace
 
 VideoSender::VideoSender() = default;
-VideoSender::~VideoSender() { stop(); }
+VideoSender::~VideoSender() {
+    stop();
+}
 
 bool VideoSender::start(int fps, int base_bitrate_kbps, int gop_size, SendCb on_video) {
     if (sharing_) {
         return false;
     }
 
-    fps_ = fps;
+    fps_               = fps;
     base_bitrate_kbps_ = base_bitrate_kbps;
-    this->gop_size = gop_size > 0 ? gop_size : fps;
-    on_video_ = std::move(on_video);
+    this->gop_size     = gop_size > 0 ? gop_size : fps;
+    on_video_          = std::move(on_video);
 
     encode_running_ = true;
-    encode_thread_ = std::thread(&VideoSender::encode_loop, this);
-    sharing_ = true;
+    encode_thread_  = std::thread(&VideoSender::encode_loop, this);
+    sharing_        = true;
 
     LOG_INFO()
         << "video sender started fps=" << fps << " bitrate=" << base_bitrate_kbps << " kbps"
@@ -47,7 +49,7 @@ void VideoSender::stop() {
     }
 
     video_encoder_.shutdown();
-    sharing_ = false;
+    sharing_  = false;
     on_video_ = nullptr;
 
     LOG_INFO() << "video sender stopped";
@@ -61,7 +63,7 @@ void VideoSender::push_frame(ScreenCapture::Frame&& frame) {
     {
         std::scoped_lock lk(frame_mutex_);
         pending_frame_ = std::move(frame);
-        frame_ready_ = true;
+        frame_ready_   = true;
     }
     frame_cv_.notify_one();
 }
@@ -75,7 +77,7 @@ void VideoSender::encode_loop() {
             if (!frame_ready_) {
                 continue;
             }
-            frame = std::move(pending_frame_);
+            frame        = std::move(pending_frame_);
             frame_ready_ = false;
         }
 
@@ -97,12 +99,12 @@ void VideoSender::encode_loop() {
         const auto capture_ts = frame.capture_ts.time_since_epoch().count() != 0 ? frame.capture_ts : WallNow();
 
         const protocol::VideoHeader vh{
-            .width = static_cast<uint32_t>(frame.width),
-            .height = static_cast<uint32_t>(frame.height),
-            .sender_ts = capture_ts,
-            .bitrate_kbps = static_cast<uint32_t>(video_encoder_.measured_kbps()),
+            .width             = static_cast<uint32_t>(frame.width),
+            .height            = static_cast<uint32_t>(frame.height),
+            .sender_ts         = capture_ts,
+            .bitrate_kbps      = static_cast<uint32_t>(video_encoder_.measured_kbps()),
             .frame_duration_us = static_cast<uint32_t>(1'000'000 / fps_),
-            .gop_size = static_cast<uint32_t>(gop_size),
+            .gop_size          = static_cast<uint32_t>(gop_size),
         };
         frame_buf_.resize(protocol::VideoHeader::kWireSize + encoded.size());
         vh.serialize(frame_buf_.data());
@@ -112,23 +114,26 @@ void VideoSender::encode_loop() {
     }
 }
 
-VideoReceiver::VideoReceiver(int buffer_ms, int /*max_sync_gap_ms*/) : video_(buffer_ms) {
+VideoReceiver::VideoReceiver(int buffer_ms, int /*max_sync_gap_ms*/)
+    : video_(buffer_ms) {
     if (!decoder_.init()) {
         LOG_ERROR() << "failed to init video decoder";
     }
     decode_running_ = true;
-    decode_thread_ = std::thread(&VideoReceiver::decode_loop, this);
+    decode_thread_  = std::thread(&VideoReceiver::decode_loop, this);
 }
 
 VideoReceiver::~VideoReceiver() {
     decode_running_ = false;
-    sem_.release();  // wake decode thread if blocked on acquire
+    sem_.release(); // wake decode thread if blocked on acquire
     if (decode_thread_.joinable()) {
         decode_thread_.join();
     }
 }
 
-void VideoReceiver::set_keyframe_callback(std::function<void()> fn) { on_keyframe_needed_ = std::move(fn); }
+void VideoReceiver::set_keyframe_callback(std::function<void()> fn) {
+    on_keyframe_needed_ = std::move(fn);
+}
 
 void VideoReceiver::push_video_packet(const std::string& peer_id, const uint8_t* data, size_t len) {
     if (len <= protocol::VideoHeader::kWireSize) {
@@ -143,7 +148,7 @@ void VideoReceiver::push_video_packet(const std::string& peer_id, const uint8_t*
     {
         std::scoped_lock lk(mutex_);
         current_peer_ = peer_id;
-        last_packet_ = utils::Now();
+        last_packet_  = utils::Now();
     }
 
     if (!decoder_.ready()) {
@@ -151,26 +156,26 @@ void VideoReceiver::push_video_packet(const std::string& peer_id, const uint8_t*
     }
 
     bytes_since_calc_ += len;
-    const auto now = utils::Now();
+    const auto now        = utils::Now();
     const auto elapsed_ms = utils::ElapsedMs(last_calc_, now);
     if (elapsed_ms >= 1000) {
         measured_kbps_.store(static_cast<int>(bytes_since_calc_ * 8 / elapsed_ms), std::memory_order_relaxed);
         bytes_since_calc_ = 0;
-        last_calc_ = now;
+        last_calc_        = now;
     }
 
     // SPSC push — never blocks. If the queue is full the decode thread is
     // lagging; drop the frame (decoder will request a keyframe on next failure).
-    const size_t h = head_.load(std::memory_order_relaxed);
+    const size_t h    = head_.load(std::memory_order_relaxed);
     const size_t next = (h + 1) % kQueueCapacity;
     if (next == tail_.load(std::memory_order_acquire)) {
         LOG_WARNING() << "[video-recv] decode queue full, dropping frame";
         return;
     }
 
-    auto& slot = ring_[h];
+    auto& slot   = ring_[h];
     slot.peer_id = peer_id;
-    slot.vh = vh;
+    slot.vh      = vh;
     slot.encoded.assign(data + protocol::VideoHeader::kWireSize, data + len);
 
     head_.store(next, std::memory_order_release);
@@ -185,7 +190,7 @@ void VideoReceiver::decode_loop() {
         }
 
         const size_t t = tail_.load(std::memory_order_relaxed);
-        auto& slot = ring_[t];
+        auto& slot     = ring_[t];
 
         std::vector<uint8_t> rgba;
         int w = 0, h = 0;
@@ -205,9 +210,13 @@ void VideoReceiver::decode_loop() {
     }
 }
 
-const VideoJitter::Frame* VideoReceiver::update() { return video_.pop(); }
+const VideoJitter::Frame* VideoReceiver::update() {
+    return video_.pop();
+}
 
-const VideoJitter::Frame* VideoReceiver::current_frame() const { return video_.current(); }
+const VideoJitter::Frame* VideoReceiver::current_frame() const {
+    return video_.current();
+}
 
 std::string VideoReceiver::active_peer() const {
     std::scoped_lock lk(mutex_);
@@ -231,5 +240,5 @@ void VideoReceiver::reset() {
     decode_failures_ = 0;
     measured_kbps_.store(0, std::memory_order_relaxed);
     bytes_since_calc_ = 0;
-    last_calc_ = utils::Now();
+    last_calc_        = utils::Now();
 }

@@ -14,7 +14,9 @@ Transport::Transport() {
     rtc_config_.maxMessageSize = 128 * 1024; // 128 KB
 }
 
-Transport::~Transport() { disconnect(); }
+Transport::~Transport() {
+    disconnect();
+}
 
 void Transport::register_channel(ChannelSpec spec) {
     if (primary_channel_.empty()) {
@@ -23,9 +25,8 @@ void Transport::register_channel(ChannelSpec spec) {
     channel_specs_.push_back(std::move(spec));
 }
 
-void Transport::add_turn_server(const std::string& url, const std::string& user,
-                                const std::string& pass) {
-    auto relay_type = rtc::IceServer::RelayType::TurnUdp;
+void Transport::add_turn_server(const std::string& url, const std::string& user, const std::string& pass) {
+    auto relay_type  = rtc::IceServer::RelayType::TurnUdp;
     std::string host = url;
 
     if (host.rfind("turns:", 0) == 0) {
@@ -35,8 +36,8 @@ void Transport::add_turn_server(const std::string& url, const std::string& user,
         host = host.substr(5);
     }
 
-    uint16_t port  = 3478;
-    auto     colon = host.rfind(':');
+    uint16_t port = 3478;
+    auto colon    = host.rfind(':');
     if (colon != std::string::npos) {
         try {
             port = static_cast<uint16_t>(std::stoi(host.substr(colon + 1)));
@@ -104,7 +105,7 @@ void Transport::disconnect() {
     std::shared_ptr<rtc::WebSocket> ws;
     {
         std::scoped_lock lk(ws_mutex_);
-        ws           = std::move(ws_);
+        ws            = std::move(ws_);
         ws_connected_ = false;
     }
     if (ws) {
@@ -143,7 +144,7 @@ std::vector<Transport::PeerInfo> Transport::peers() const {
 
 void Transport::on_ws_message(const std::string& raw) {
     try {
-        auto        msg  = json::parse(raw);
+        auto msg         = json::parse(raw);
         std::string type = msg.value("type", "");
 
         if (type == "welcome") {
@@ -274,8 +275,7 @@ void Transport::handle_answer(const std::string& from, const std::string& sdp) {
     }
 }
 
-void Transport::handle_candidate(const std::string& from, const std::string& candidate,
-                                  const std::string& mid) {
+void Transport::handle_candidate(const std::string& from, const std::string& candidate, const std::string& mid) {
     LOG_INFO() << "remote ICE candidate from " << from << ": " << candidate;
     std::scoped_lock lk(peers_mutex_);
     auto it = peers_.find(from);
@@ -284,13 +284,16 @@ void Transport::handle_candidate(const std::string& from, const std::string& can
     }
 }
 
-void Transport::setup_channel(const std::string& peer_id, const std::string& label,
-                               std::shared_ptr<rtc::DataChannel> dc) {
+void Transport::setup_channel(
+    const std::string& peer_id,
+    const std::string& label,
+    std::shared_ptr<rtc::DataChannel> dc
+) {
     // Find the registered spec for this label.
-    PacketCb    on_data;
+    PacketCb on_data;
     PeerEventCb on_open_cb;
     PeerEventCb on_close_cb;
-    bool        found = false;
+    bool found = false;
 
     for (const auto& spec : channel_specs_) {
         if (spec.label == label) {

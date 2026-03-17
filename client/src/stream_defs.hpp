@@ -22,8 +22,7 @@ inline constexpr StreamPreset kStreamPresets[] = {
     {"1080p", 1920, 1080},
     {"1440p", 2560, 1440},
 };
-static_assert(static_cast<int>(StreamQuality::Count) ==
-              sizeof(kStreamPresets) / sizeof(kStreamPresets[0]));
+static_assert(static_cast<int>(StreamQuality::Count) == sizeof(kStreamPresets) / sizeof(kStreamPresets[0]));
 inline constexpr int kStreamPresetCount = static_cast<int>(StreamQuality::Count);
 
 enum class FrameRate : int {
@@ -34,8 +33,9 @@ enum class FrameRate : int {
 };
 
 inline constexpr int kFpsValues[] = {15, 30, 60};
-static_assert(static_cast<int>(FrameRate::Count) ==
-              sizeof(kFpsValues) / sizeof(kFpsValues[0]));
+static_assert(static_cast<int>(FrameRate::Count) == sizeof(kFpsValues) / sizeof(kFpsValues[0]));
 inline constexpr int kFpsOptionCount = static_cast<int>(FrameRate::Count);
 
-inline constexpr int fps_value(FrameRate fr) { return kFpsValues[static_cast<int>(fr)]; }
+inline constexpr int fps_value(FrameRate fr) {
+    return kFpsValues[static_cast<int>(fr)];
+}

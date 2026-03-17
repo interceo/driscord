@@ -7,9 +7,9 @@
 namespace opus {
 
 constexpr int kSampleRate = 48000;
-constexpr int kFrameSize = 960;  // 20ms @ 48kHz
-constexpr int kMaxPacket = 4000;
-}  // namespace opus
+constexpr int kFrameSize  = 960; // 20ms @ 48kHz
+constexpr int kMaxPacket  = 4000;
+} // namespace opus
 
 struct OpusEncoder;
 struct OpusDecoder;
@@ -19,7 +19,7 @@ public:
     OpusEncode() = default;
     ~OpusEncode();
 
-    OpusEncode(const OpusEncode&) = delete;
+    OpusEncode(const OpusEncode&)            = delete;
     OpusEncode& operator=(const OpusEncode&) = delete;
 
     bool init(int sample_rate, int channels, int bitrate, int application);
@@ -32,8 +32,8 @@ public:
 
 private:
     OpusEncoder* encoder_ = nullptr;
-    int sample_rate_ = 0;
-    int channels_ = 0;
+    int sample_rate_      = 0;
+    int channels_         = 0;
 };
 
 class OpusDecode {
@@ -41,7 +41,7 @@ public:
     OpusDecode() = default;
     ~OpusDecode();
 
-    OpusDecode(const OpusDecode&) = delete;
+    OpusDecode(const OpusDecode&)            = delete;
     OpusDecode& operator=(const OpusDecode&) = delete;
 
     bool init(int sample_rate, int channels);
@@ -54,6 +54,6 @@ public:
 
 private:
     OpusDecoder* decoder_ = nullptr;
-    int sample_rate_ = 0;
-    int channels_ = 0;
+    int sample_rate_      = 0;
+    int channels_         = 0;
 };

@@ -20,7 +20,7 @@ public:
     AudioSender();
     ~AudioSender();
 
-    AudioSender(const AudioSender&) = delete;
+    AudioSender(const AudioSender&)            = delete;
     AudioSender& operator=(const AudioSender&) = delete;
 
     bool start(PacketCallback on_packet);
@@ -55,7 +55,7 @@ class AudioReceiver {
 public:
     explicit AudioReceiver(int jitter_ms, int channels = 1, int sample_rate = opus::kSampleRate);
 
-    AudioReceiver(const AudioReceiver&) = delete;
+    AudioReceiver(const AudioReceiver&)            = delete;
     AudioReceiver& operator=(const AudioReceiver&) = delete;
 
     void push_packet(const uint8_t* data, size_t len);
@@ -87,7 +87,7 @@ private:
 
     int id_;
     uint64_t push_count_ = 0;
-    uint64_t pop_count_ = 0;
+    uint64_t pop_count_  = 0;
 
     static int next_id_;
 };

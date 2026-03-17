@@ -13,7 +13,7 @@ public:
     AudioMixer();
     ~AudioMixer();
 
-    AudioMixer(const AudioMixer&) = delete;
+    AudioMixer(const AudioMixer&)            = delete;
     AudioMixer& operator=(const AudioMixer&) = delete;
 
     bool start();
@@ -39,9 +39,9 @@ private:
     std::vector<std::shared_ptr<AudioReceiver>> snapshot_;
 
     std::unique_ptr<MaDevice> device_;
-    std::atomic<bool>  running_{false};
+    std::atomic<bool> running_{false};
     std::atomic<float> output_volume_{1.0f};
-    std::atomic<bool>  deafened_{false};
+    std::atomic<bool> deafened_{false};
     std::atomic<float> output_level_{0.0f};
     uint64_t playback_count_ = 0;
 };

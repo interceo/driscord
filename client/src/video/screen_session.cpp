@@ -3,29 +3,27 @@
 ScreenSession::ScreenSession(
     int buf_ms,
     int max_sync_ms,
-    SendCb                send_video,
+    SendCb send_video,
     std::function<void()> on_keyframe_req,
-    SendCb                send_screen_audio
+    SendCb send_screen_audio
 )
     : receiver_(buf_ms, max_sync_ms)
     , send_video_(std::move(send_video))
-    , send_screen_audio_(std::move(send_screen_audio))
-{
+    , send_screen_audio_(std::move(send_screen_audio)) {
     receiver_.set_keyframe_callback(std::move(on_keyframe_req));
 }
 
 bool ScreenSession::start_sharing(
     const CaptureTarget& target,
-    int max_w, int max_h,
-    int fps, int bitrate_kbps,
+    int max_w,
+    int max_h,
+    int fps,
+    int bitrate_kbps,
     int gop_size,
     bool share_audio
 ) {
-    return sender_.start_sharing(
-        target, max_w, max_h, fps, bitrate_kbps, gop_size, share_audio,
-        send_video_,
-        send_screen_audio_
-    );
+    return sender_
+        .start_sharing(target, max_w, max_h, fps, bitrate_kbps, gop_size, share_audio, send_video_, send_screen_audio_);
 }
 
 void ScreenSession::stop_sharing() {

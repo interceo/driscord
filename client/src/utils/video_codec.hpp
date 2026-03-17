@@ -17,10 +17,9 @@ public:
     VideoEncoder() = default;
     ~VideoEncoder();
 
-    VideoEncoder(const VideoEncoder&) = delete;
+    VideoEncoder(const VideoEncoder&)            = delete;
     VideoEncoder& operator=(const VideoEncoder&) = delete;
 
-    // gop_size: keyframe interval in frames. 0 = let encoder choose (defaults to fps).
     bool init(int width, int height, int fps, int base_bitrate_kbps, int gop_size = 0);
     void shutdown();
 
@@ -37,20 +36,20 @@ public:
 
 private:
     AVCodecContext* ctx_ = nullptr;
-    SwsContext* sws_ = nullptr;
-    AVFrame* frame_ = nullptr;
-    AVPacket* pkt_ = nullptr;
-    int width_ = 0;
-    int height_ = 0;
-    int fps_ = 30;
-    int gop_size_ = 0;
-    int64_t pts_ = 0;
+    SwsContext* sws_     = nullptr;
+    AVFrame* frame_      = nullptr;
+    AVPacket* pkt_       = nullptr;
+    int width_           = 0;
+    int height_          = 0;
+    int fps_             = 30;
+    int gop_size_        = 0;
+    int64_t pts_         = 0;
 
     std::vector<uint8_t> encode_buf_;
     std::atomic<bool> force_keyframe_{false};
 
     std::atomic<int> measured_kbps_{0};
-    size_t bytes_since_calc_ = 0;
+    size_t bytes_since_calc_    = 0;
     utils::Timestamp last_calc_ = utils::Now();
 };
 
@@ -59,7 +58,7 @@ public:
     VideoDecoder() = default;
     ~VideoDecoder();
 
-    VideoDecoder(const VideoDecoder&) = delete;
+    VideoDecoder(const VideoDecoder&)            = delete;
     VideoDecoder& operator=(const VideoDecoder&) = delete;
 
     bool init();
@@ -70,9 +69,9 @@ public:
 
 private:
     AVCodecContext* ctx_ = nullptr;
-    SwsContext* sws_ = nullptr;
-    AVFrame* frame_ = nullptr;
-    AVPacket* pkt_ = nullptr;
-    int last_w_ = 0;
-    int last_h_ = 0;
+    SwsContext* sws_     = nullptr;
+    AVFrame* frame_      = nullptr;
+    AVPacket* pkt_       = nullptr;
+    int last_w_          = 0;
+    int last_h_          = 0;
 };

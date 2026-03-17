@@ -8,31 +8,38 @@
 namespace {
 constexpr uint8_t kKeyframeRequestTag = 0x01;
 constexpr uint8_t kStopStreamTag      = 0x02;
-}  // namespace
+} // namespace
 
-VideoTransport::VideoTransport(Transport& transport) : transport_(transport) {
+VideoTransport::VideoTransport(Transport& transport)
+    : transport_(transport) {
     transport.register_channel({
         .label           = "video",
         .unordered       = true,
-        .max_retransmits = 0,  // unreliable: lost chunks drop the frame, decoder recovers at next IDR
-        .on_data = [this](const std::string& peer_id, const uint8_t* data, size_t len) {
-            if (len == 1) {
-                if (data[0] == kKeyframeRequestTag) {
-                    if (on_kf_req_) { on_kf_req_(); }
-                    return;
+        .max_retransmits = 0, // unreliable: lost chunks drop the frame, decoder recovers at next IDR
+        .on_data =
+            [this](const std::string& peer_id, const uint8_t* data, size_t len) {
+                if (len == 1) {
+                    if (data[0] == kKeyframeRequestTag) {
+                        if (on_kf_req_) {
+                            on_kf_req_();
+                        }
+                        return;
+                    }
+                    if (data[0] == kStopStreamTag) {
+                        if (on_stop_stream_) {
+                            on_stop_stream_(peer_id);
+                        }
+                        return;
+                    }
                 }
-                if (data[0] == kStopStreamTag) {
-                    if (on_stop_stream_) { on_stop_stream_(peer_id); }
-                    return;
+                on_chunk(peer_id, data, len);
+            },
+        .on_open =
+            [this](const std::string& /*peer_id*/) {
+                if (on_opened_) {
+                    on_opened_();
                 }
-            }
-            on_chunk(peer_id, data, len);
-        },
-        .on_open = [this](const std::string& /*peer_id*/) {
-            if (on_opened_) {
-                on_opened_();
-            }
-        },
+            },
     });
 }
 
@@ -41,8 +48,8 @@ void VideoTransport::send_video(const uint8_t* data, size_t len) {
         return;
     }
 
-    const auto     total_chunks = static_cast<uint16_t>((len + kChunkPayloadSize - 1) / kChunkPayloadSize);
-    const uint64_t frame_id     = next_frame_id_++;
+    const auto total_chunks = static_cast<uint16_t>((len + kChunkPayloadSize - 1) / kChunkPayloadSize);
+    const uint64_t frame_id = next_frame_id_++;
 
     chunk_buf_.resize(protocol::ChunkHeader::kWireSize + kChunkPayloadSize);
 
@@ -58,8 +65,7 @@ void VideoTransport::send_video(const uint8_t* data, size_t len) {
         ch.serialize(chunk_buf_.data());
         std::memcpy(chunk_buf_.data() + protocol::ChunkHeader::kWireSize, data + offset, chunk_len);
 
-        transport_.send_on_channel("video", chunk_buf_.data(),
-                                   protocol::ChunkHeader::kWireSize + chunk_len);
+        transport_.send_on_channel("video", chunk_buf_.data(), protocol::ChunkHeader::kWireSize + chunk_len);
     }
 }
 
@@ -81,12 +87,12 @@ void VideoTransport::on_chunk(const std::string& peer_id, const uint8_t* data, s
         return;
     }
 
-    const uint8_t* payload     = data + protocol::ChunkHeader::kWireSize;
-    const size_t   payload_len = len  - protocol::ChunkHeader::kWireSize;
+    const uint8_t* payload   = data + protocol::ChunkHeader::kWireSize;
+    const size_t payload_len = len - protocol::ChunkHeader::kWireSize;
 
     auto& fa = assembly_[ch.frame_id];
     if (fa.total == 0) {
-        for (auto it = assembly_.begin(); it != assembly_.end(); ) {
+        for (auto it = assembly_.begin(); it != assembly_.end();) {
             if (it->first + kMaxAssemblyFrames < ch.frame_id) {
                 it = assembly_.erase(it);
             } else {
@@ -103,12 +109,10 @@ void VideoTransport::on_chunk(const std::string& peer_id, const uint8_t* data, s
     }
 
     if (!fa.received[ch.chunk_idx]) {
-        std::memcpy(fa.buffer.data() + static_cast<size_t>(ch.chunk_idx) * kChunkPayloadSize,
-                    payload, payload_len);
+        std::memcpy(fa.buffer.data() + static_cast<size_t>(ch.chunk_idx) * kChunkPayloadSize, payload, payload_len);
         fa.received[ch.chunk_idx] = true;
         ++fa.received_count;
-        fa.actual_size = std::max(fa.actual_size,
-            static_cast<size_t>(ch.chunk_idx) * kChunkPayloadSize + payload_len);
+        fa.actual_size = std::max(fa.actual_size, static_cast<size_t>(ch.chunk_idx) * kChunkPayloadSize + payload_len);
     }
 
     if (fa.received_count < fa.total) {

@@ -5,7 +5,9 @@
 #include <algorithm>
 #include <cstring>
 
-ScreenSender::~ScreenSender() { stop_sharing(); }
+ScreenSender::~ScreenSender() {
+    stop_sharing();
+}
 
 bool ScreenSender::start_sharing(
     const CaptureTarget& target,
@@ -23,14 +25,9 @@ bool ScreenSender::start_sharing(
     }
 
     screen_capture_ = ScreenCapture::create();
-    if (!screen_capture_->start(
-            fps,
-            target,
-            max_w,
-            max_h,
-            [this](ScreenCapture::Frame frame) { video_sender_.push_frame(std::move(frame)); }
-        ))
-    {
+    if (!screen_capture_->start(fps, target, max_w, max_h, [this](ScreenCapture::Frame frame) {
+            video_sender_.push_frame(std::move(frame));
+        })) {
         video_sender_.stop();
         screen_capture_.reset();
         return false;
@@ -43,7 +40,7 @@ bool ScreenSender::start_sharing(
             if (cap && cap->start([this](const float* s, size_t f, int c) { on_audio_captured_(s, f, c); })) {
                 screen_audio_encoder_ = std::move(enc);
                 system_audio_capture_ = std::move(cap);
-                on_screen_audio_ = std::move(on_screen_audio);
+                on_screen_audio_      = std::move(on_screen_audio);
                 screen_audio_buf_.assign(static_cast<size_t>(opus::kFrameSize) * SystemAudioCapture::kChannels, 0.0f);
                 screen_audio_encode_buf_.resize(protocol::AudioHeader::kWireSize + opus::kMaxPacket);
                 screen_audio_pos_ = 0;
@@ -61,7 +58,7 @@ void ScreenSender::stop_sharing() {
         system_audio_capture_.reset();
     }
     screen_audio_encoder_.reset();
-    on_screen_audio_ = nullptr;
+    on_screen_audio_  = nullptr;
     screen_audio_pos_ = 0;
     screen_audio_seq_ = 0;
 
@@ -76,16 +73,16 @@ void ScreenSender::on_audio_captured_(const float* samples, size_t frames, int c
     if (!screen_audio_encoder_ || !on_screen_audio_) {
         return;
     }
-    constexpr int kCh = SystemAudioCapture::kChannels;
+    constexpr int kCh         = SystemAudioCapture::kChannels;
     const size_t stereo_frame = static_cast<size_t>(opus::kFrameSize) * kCh;
-    size_t consumed = 0;
+    size_t consumed           = 0;
     while (consumed < frames) {
         size_t remaining = static_cast<size_t>(opus::kFrameSize) - screen_audio_pos_ / kCh;
-        size_t to_copy = std::min(remaining, frames - consumed);
+        size_t to_copy   = std::min(remaining, frames - consumed);
         for (size_t i = 0; i < to_copy; ++i) {
-            size_t src = (consumed + i) * channels;
-            size_t dst = screen_audio_pos_ + i * kCh;
-            screen_audio_buf_[dst] = samples[src];
+            size_t src                 = (consumed + i) * channels;
+            size_t dst                 = screen_audio_pos_ + i * kCh;
+            screen_audio_buf_[dst]     = samples[src];
             screen_audio_buf_[dst + 1] = (channels >= 2) ? samples[src + 1] : samples[src];
         }
         screen_audio_pos_ += to_copy * kCh;
@@ -108,25 +105,40 @@ void ScreenSender::on_audio_captured_(const float* samples, size_t frames, int c
 }
 
 ScreenReceiver::ScreenReceiver(int buffer_ms, int /*max_sync_gap_ms*/)
-    : video_recv_(buffer_ms, 0), audio_recv_(std::make_shared<AudioReceiver>(buffer_ms, /*channels=*/2)) {}
+    : video_recv_(buffer_ms, 0)
+    , audio_recv_(std::make_shared<AudioReceiver>(buffer_ms, /*channels=*/2)) {}
 
 void ScreenReceiver::push_video_packet(const std::string& peer_id, const uint8_t* data, size_t len) {
     video_recv_.push_video_packet(peer_id, data, len);
 }
 
-void ScreenReceiver::push_audio_packet(const uint8_t* data, size_t len) { audio_recv_->push_packet(data, len); }
+void ScreenReceiver::push_audio_packet(const uint8_t* data, size_t len) {
+    audio_recv_->push_packet(data, len);
+}
 
-const VideoJitter::Frame* ScreenReceiver::update() { return video_recv_.update(); }
+const VideoJitter::Frame* ScreenReceiver::update() {
+    return video_recv_.update();
+}
 
 void ScreenReceiver::set_keyframe_callback(std::function<void()> fn) {
     video_recv_.set_keyframe_callback(std::move(fn));
 }
 
-std::string ScreenReceiver::active_peer() const { return video_recv_.active_peer(); }
-bool ScreenReceiver::active() const { return video_recv_.active(); }
-int ScreenReceiver::measured_kbps() const { return video_recv_.measured_kbps(); }
-VideoJitter::Stats ScreenReceiver::video_stats() const { return video_recv_.video_stats(); }
-AudioReceiver::Stats ScreenReceiver::audio_stats() const { return audio_recv_->stats(); }
+std::string ScreenReceiver::active_peer() const {
+    return video_recv_.active_peer();
+}
+bool ScreenReceiver::active() const {
+    return video_recv_.active();
+}
+int ScreenReceiver::measured_kbps() const {
+    return video_recv_.measured_kbps();
+}
+VideoJitter::Stats ScreenReceiver::video_stats() const {
+    return video_recv_.video_stats();
+}
+AudioReceiver::Stats ScreenReceiver::audio_stats() const {
+    return audio_recv_->stats();
+}
 
 void ScreenReceiver::reset() {
     video_recv_.reset();
