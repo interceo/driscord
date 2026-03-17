@@ -21,7 +21,12 @@ public:
 
     void push_video_packet(const std::string& peer_id, const uint8_t* data, size_t len);
 
+    // Advance the jitter buffer and return the next frame to display, or nullptr.
     const VideoJitter::Frame* update();
+
+    // Return the last frame returned by update() without advancing.
+    // Valid until the next update() call that returns non-null.
+    const VideoJitter::Frame* current_frame() const;
 
     void set_keyframe_callback(std::function<void()> fn);
 

@@ -78,7 +78,7 @@ Java_com_driscord_NativeAudioTransport_setScreenAudioReceiver(JNIEnv*, jclass,
         jlong audioHandle, jlong screenHandle) {
     std::shared_ptr<AudioReceiver> recv;
     if (screenHandle != 0) {
-        recv = SCREEN_SESSION(screenHandle)->session.audio_receiver();
+        recv = SCREEN_SESSION(screenHandle)->receiver.audio_receiver();
     }
     AUDIO_TRANSPORT(audioHandle)->set_screen_audio_recv(std::move(recv));
 }
