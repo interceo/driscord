@@ -17,18 +17,22 @@ import org.jetbrains.skia.ImageInfo
 // DriscordApp — orchestrates all native components
 // ---------------------------------------------------------------------------
 
-class DriscordApp(val config: AppConfig = AppConfig.loadDefault()) {
-
+class DriscordApp(
+    val config: AppConfig = AppConfig.loadDefault(),
+) {
     // --- native component handles ---
     private val transportH: Long = NativeTransport.create()
     private val audioTransportH: Long = NativeAudioTransport.create(transportH)
     private val videoTransportH: Long = NativeVideoTransport.create(transportH)
     private val audioSenderH: Long = NativeAudioSender.create(audioTransportH)
     private val audioMixerH: Long = NativeAudioMixer.create()
-    private val screenSessionH: Long = NativeScreenSession.create(
-        config.screenBufferMs, config.maxSyncGapMs,
-        videoTransportH, audioTransportH
-    )
+    private val screenSessionH: Long =
+        NativeScreenSession.create(
+            config.screenBufferMs,
+            config.maxSyncGapMs,
+            videoTransportH,
+            audioTransportH,
+        )
 
     // Per-peer voice receivers: peerId -> NativeAudioReceiver handle
     private val voiceReceivers = HashMap<String, Long>()
@@ -198,7 +202,10 @@ class DriscordApp(val config: AppConfig = AppConfig.loadDefault()) {
         _volume.value = vol
     }
 
-    fun setPeerVolume(peerId: String, vol: Float) {
+    fun setPeerVolume(
+        peerId: String,
+        vol: Float,
+    ) {
         val recv = synchronized(voiceReceivers) { voiceReceivers[peerId] } ?: return
         NativeAudioReceiver.setVolume(recv, vol)
     }
@@ -224,6 +231,7 @@ class DriscordApp(val config: AppConfig = AppConfig.loadDefault()) {
     }
 
     fun setStreamVolume(vol: Float) = NativeScreenSession.setStreamVolume(screenSessionH, vol)
+
     fun streamVolume(): Float = NativeScreenSession.streamVolume(screenSessionH)
 
     fun saveConfig(newConfig: AppConfig) {
@@ -238,20 +246,33 @@ class DriscordApp(val config: AppConfig = AppConfig.loadDefault()) {
         }
     }
 
-    fun startSharing(target: CaptureTarget, quality: Int, fps: Int, shareAudio: Boolean) {
+    fun startSharing(
+        target: CaptureTarget,
+        quality: Int,
+        fps: Int,
+        shareAudio: Boolean,
+    ) {
         // quality is an index: 0=Source, 1=720p, 2=1080p, 3=1440p
-        val (maxW, maxH) = when (quality) {
-            0 -> 0 to 0
-            1 -> 1280 to 720
-            2 -> 1920 to 1080
-            3 -> 2560 to 1440
-            else -> 1920 to 1080
-        }
+        val (maxW, maxH) =
+            when (quality) {
+                0 -> 0 to 0
+                1 -> 1280 to 720
+                2 -> 1920 to 1080
+                3 -> 2560 to 1440
+                else -> 1920 to 1080
+            }
         val targetJson = json.encodeToString(CaptureTarget.serializer(), target)
-        val ok = NativeScreenSession.startSharing(
-            screenSessionH, targetJson,
-            maxW, maxH, fps, config.videoBitrateKbps, config.gopSize, shareAudio
-        )
+        val ok =
+            NativeScreenSession.startSharing(
+                screenSessionH,
+                targetJson,
+                maxW,
+                maxH,
+                fps,
+                config.videoBitrateKbps,
+                config.gopSize,
+                shareAudio,
+            )
         if (ok) {
             _sharing.value = true
             _shareTargetName.value = target.name
@@ -266,10 +287,13 @@ class DriscordApp(val config: AppConfig = AppConfig.loadDefault()) {
 
     val systemAudioAvailable: Boolean get() = NativeScreenCapture.systemAudioAvailable()
 
-    fun listCaptureTargets(): List<CaptureTarget> =
-        json.decodeFromString(NativeScreenCapture.listTargets())
+    fun listCaptureTargets(): List<CaptureTarget> = json.decodeFromString(NativeScreenCapture.listTargets())
 
-    fun grabThumbnail(target: CaptureTarget, maxW: Int = 320, maxH: Int = 180): ImageBitmap? {
+    fun grabThumbnail(
+        target: CaptureTarget,
+        maxW: Int = 320,
+        maxH: Int = 180,
+    ): ImageBitmap? {
         val targetJson = json.encodeToString(CaptureTarget.serializer(), target)
         val rgba = NativeScreenCapture.grabThumbnail(targetJson, maxW, maxH) ?: return null
         val pixels = rgba.size / 4
@@ -310,18 +334,19 @@ class DriscordApp(val config: AppConfig = AppConfig.loadDefault()) {
         _peers.value = json.decodeFromString(NativeTransport.peers(transportH))
     }
 
-    private suspend fun refreshVolatileState() = withContext(Dispatchers.Main) {
-        if (_state.value == AppState.Connected) {
-            _muted.value = NativeAudioSender.muted(audioSenderH)
-            _deafened.value = NativeAudioMixer.deafened(audioMixerH)
-            _inputLevel.value = NativeAudioSender.inputLevel(audioSenderH)
-            _outputLevel.value = NativeAudioMixer.outputLevel(audioMixerH)
-            _sharing.value = NativeScreenSession.sharing(screenSessionH)
-            _watching.value = NativeVideoTransport.watching(videoTransportH)
-            _streamStats.value = json.decodeFromString(NativeScreenSession.stats(screenSessionH))
-            refreshPeers()
+    private suspend fun refreshVolatileState() =
+        withContext(Dispatchers.Main) {
+            if (_state.value == AppState.Connected) {
+                _muted.value = NativeAudioSender.muted(audioSenderH)
+                _deafened.value = NativeAudioMixer.deafened(audioMixerH)
+                _inputLevel.value = NativeAudioSender.inputLevel(audioSenderH)
+                _outputLevel.value = NativeAudioMixer.outputLevel(audioMixerH)
+                _sharing.value = NativeScreenSession.sharing(screenSessionH)
+                _watching.value = NativeVideoTransport.watching(videoTransportH)
+                _streamStats.value = json.decodeFromString(NativeScreenSession.stats(screenSessionH))
+                refreshPeers()
+            }
         }
-    }
 
     // ---------------------------------------------------------------------------
     // Cleanup
@@ -343,7 +368,11 @@ class DriscordApp(val config: AppConfig = AppConfig.loadDefault()) {
     // ---------------------------------------------------------------------------
 
     companion object {
-        fun rgbaToImageBitmap(rgba: ByteArray, w: Int, h: Int): ImageBitmap {
+        fun rgbaToImageBitmap(
+            rgba: ByteArray,
+            w: Int,
+            h: Int,
+        ): ImageBitmap {
             val bitmap = Bitmap()
             bitmap.allocPixels(ImageInfo(w, h, ColorType.RGBA_8888, ColorAlphaType.UNPREMUL))
             bitmap.installPixels(rgba)

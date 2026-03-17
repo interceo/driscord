@@ -8,7 +8,7 @@ rootProject.name = "driscord-compose"
 val buildsRoot: String =
     (extra.properties["buildsDir"] as String?)
         ?: System.getenv("DRISCORD_BUILDS_DIR")
-        ?: rootDir.parentFile.parentFile   // settings file lives in client-compose/
+        ?: rootDir.parentFile.parentFile // settings file lives in client-compose/
             .resolve("builds")
             .absolutePath
 

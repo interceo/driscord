@@ -10,81 +10,80 @@ import com.driscord.DriscordApp
 
 @Composable
 fun MainScreen(app: DriscordApp) {
-    val state           by app.state.collectAsState()
-    val peers           by app.peers.collectAsState()
-    val streamingPeers  by app.streamingPeers.collectAsState()
-    val frames          by app.frames.collectAsState()
-    val muted           by app.muted.collectAsState()
-    val deafened        by app.deafened.collectAsState()
-    val volume          by app.volume.collectAsState()
-    val inputLevel      by app.inputLevel.collectAsState()
-    val outputLevel     by app.outputLevel.collectAsState()
-    val localId         by app.localId.collectAsState()
-    val watching        by app.watching.collectAsState()
-    val sharing         by app.sharing.collectAsState()
+    val state by app.state.collectAsState()
+    val peers by app.peers.collectAsState()
+    val streamingPeers by app.streamingPeers.collectAsState()
+    val frames by app.frames.collectAsState()
+    val muted by app.muted.collectAsState()
+    val deafened by app.deafened.collectAsState()
+    val volume by app.volume.collectAsState()
+    val inputLevel by app.inputLevel.collectAsState()
+    val outputLevel by app.outputLevel.collectAsState()
+    val localId by app.localId.collectAsState()
+    val watching by app.watching.collectAsState()
+    val sharing by app.sharing.collectAsState()
     val shareTargetName by app.shareTargetName.collectAsState()
-    val streamStats     by app.streamStats.collectAsState()
-    val config          by app.currentConfig.collectAsState()
+    val streamStats by app.streamStats.collectAsState()
+    val config by app.currentConfig.collectAsState()
 
     var showShareDialog by remember { mutableStateOf(false) }
 
     Row(modifier = Modifier.fillMaxSize().background(Color(0xFF313338))) {
-
         // ── Left sidebar ────────────────────────────────────────────────
         Sidebar(
-            state            = state,
-            localId          = localId,
-            peers            = peers,
-            muted            = muted,
-            deafened         = deafened,
-            sharing          = sharing,
-            shareTargetName  = shareTargetName,
-            volume           = volume,
-            inputLevel       = inputLevel,
-            outputLevel      = outputLevel,
-            config           = config,
+            state = state,
+            localId = localId,
+            peers = peers,
+            muted = muted,
+            deafened = deafened,
+            sharing = sharing,
+            shareTargetName = shareTargetName,
+            volume = volume,
+            inputLevel = inputLevel,
+            outputLevel = outputLevel,
+            config = config,
             initialServerUrl = config.serverUrl,
-            onConnect        = { app.connect(it) },
-            onDisconnect     = { app.disconnect() },
-            onToggleMute     = { app.toggleMute() },
-            onToggleDeafen   = { app.toggleDeafen() },
-            onSetVolume      = { app.setVolume(it) },
-            onSetPeerVolume  = { id, v -> app.setPeerVolume(id, v) },
-            onGetPeerVolume  = { app.peerVolume(it) },
-            onStartShare     = { showShareDialog = true },
-            onStopShare      = { app.stopSharing() },
-            onSaveConfig     = { app.saveConfig(it) },
+            onConnect = { app.connect(it) },
+            onDisconnect = { app.disconnect() },
+            onToggleMute = { app.toggleMute() },
+            onToggleDeafen = { app.toggleDeafen() },
+            onSetVolume = { app.setVolume(it) },
+            onSetPeerVolume = { id, v -> app.setPeerVolume(id, v) },
+            onGetPeerVolume = { app.peerVolume(it) },
+            onStartShare = { showShareDialog = true },
+            onStopShare = { app.stopSharing() },
+            onSaveConfig = { app.saveConfig(it) },
         )
 
         // ── Main content area ───────────────────────────────────────────
         Box(modifier = Modifier.fillMaxSize()) {
             ContentPanel(
-                state                = state,
-                peers                = peers,
-                streamingPeers       = streamingPeers,
-                frames               = frames,
-                localId              = localId,
-                watching             = watching,
-                sharing              = sharing,
-                streamStats          = streamStats,
+                state = state,
+                peers = peers,
+                streamingPeers = streamingPeers,
+                frames = frames,
+                localId = localId,
+                watching = watching,
+                sharing = sharing,
+                streamStats = streamStats,
                 systemAudioAvailable = app.systemAudioAvailable,
-                onListTargets        = { app.listCaptureTargets() },
-                onGrabThumbnail      = { app.grabThumbnail(it) },
-                onStartSharing       = { t, q, fps, audio -> app.startSharing(t, q, fps, audio) },
-                onStopSharing        = { app.stopSharing() },
-                onJoinStream         = { app.joinStream() },
-                onLeaveStream        = { app.leaveStream() },
-                onSetStreamVolume    = { app.setStreamVolume(it) },
-                onStreamVolume       = { app.streamVolume() },
-                onGetPeerVolume      = { app.peerVolume(it) },
-                onSetPeerVolume      = { id, v -> app.setPeerVolume(id, v) },
-                muted                = muted,
-                deafened             = deafened,
-                selfVolume           = volume,
-                onSetSelfVolume      = { app.setVolume(it) },
-                onToggleMute         = { app.toggleMute() },
-                onToggleDeafen       = { app.toggleDeafen() },
-                externalShareDialog  = showShareDialog,
+                onListTargets = { app.listCaptureTargets() },
+                onGrabThumbnail = { app.grabThumbnail(it) },
+                onStartSharing = { t, q, fps, audio -> app.startSharing(t, q, fps, audio) },
+                onStopSharing = { app.stopSharing() },
+                onJoinStream = { app.joinStream() },
+                onLeaveStream = { app.leaveStream() },
+                onSetStreamVolume = { app.setStreamVolume(it) },
+                onStreamVolume = { app.streamVolume() },
+                onGetPeerVolume = { app.peerVolume(it) },
+                onSetPeerVolume = { id, v -> app.setPeerVolume(id, v) },
+                muted = muted,
+                deafened = deafened,
+                selfVolume = volume,
+                onSetSelfVolume = { app.setVolume(it) },
+                onToggleMute = { app.toggleMute() },
+                onToggleDeafen = { app.toggleDeafen() },
+                externalShareDialog = showShareDialog,
                 onShareDialogDismiss = { showShareDialog = false },
             )
         }

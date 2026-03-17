@@ -76,7 +76,7 @@ fun ContentPanel(
     }
 
     var showShareDialog by remember { mutableStateOf(false) }
-    var focusedPeer     by remember { mutableStateOf<String?>(null) }
+    var focusedPeer by remember { mutableStateOf<String?>(null) }
 
     // Remove focus if the peer left/stopped streaming
     LaunchedEffect(peers, streamingPeers) {
@@ -86,13 +86,13 @@ fun ContentPanel(
     LaunchedEffect(externalShareDialog) { if (externalShareDialog) showShareDialog = true }
 
     Column(modifier = Modifier.fillMaxSize().background(ContentBg)) {
-
         // ── Top toolbar ───────────────────────────────────────────────────
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0xFF2B2D31))
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF2B2D31))
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -127,44 +127,46 @@ fun ContentPanel(
         Divider(color = Color(0xFF1E1F22), thickness = 1.dp)
 
         // ── Content ───────────────────────────────────────────────────────
-        val allPeers = buildList {
-            if (localId.isNotEmpty()) add(localId)
-            peers.forEach { add(it.id) }
-        }
+        val allPeers =
+            buildList {
+                if (localId.isNotEmpty()) add(localId)
+                peers.forEach { add(it.id) }
+            }
         val totalItems = allPeers.size + streamingPeers.size
 
         if (focusedPeer != null) {
             FocusedLayout(
-                focusedPeer       = focusedPeer!!,
-                allPeers          = allPeers,
-                streamingPeers    = streamingPeers,
-                frames            = frames,
-                peers             = peers,
-                localId           = localId,
-                watching          = watching,
-                streamStats       = streamStats,
-                muted             = muted,
-                deafened          = deafened,
-                selfVolume        = selfVolume,
-                onSetSelfVolume   = onSetSelfVolume,
-                onToggleMute      = onToggleMute,
-                onToggleDeafen    = onToggleDeafen,
-                onGetPeerVolume   = onGetPeerVolume,
-                onSetPeerVolume   = onSetPeerVolume,
-                onStreamVolume    = onStreamVolume,
+                focusedPeer = focusedPeer!!,
+                allPeers = allPeers,
+                streamingPeers = streamingPeers,
+                frames = frames,
+                peers = peers,
+                localId = localId,
+                watching = watching,
+                streamStats = streamStats,
+                muted = muted,
+                deafened = deafened,
+                selfVolume = selfVolume,
+                onSetSelfVolume = onSetSelfVolume,
+                onToggleMute = onToggleMute,
+                onToggleDeafen = onToggleDeafen,
+                onGetPeerVolume = onGetPeerVolume,
+                onSetPeerVolume = onSetPeerVolume,
+                onStreamVolume = onStreamVolume,
                 onSetStreamVolume = onSetStreamVolume,
-                onJoinStream      = onJoinStream,
-                onLeaveStream     = onLeaveStream,
-                onFocus           = { focusedPeer = it },
-                onUnfocus         = { focusedPeer = null },
+                onJoinStream = onJoinStream,
+                onLeaveStream = onLeaveStream,
+                onFocus = { focusedPeer = it },
+                onUnfocus = { focusedPeer = null },
             )
         } else {
-            val cols = when {
-                totalItems >= 9 -> 4
-                totalItems >= 4 -> 3
-                totalItems >= 2 -> 2
-                else -> 1
-            }
+            val cols =
+                when {
+                    totalItems >= 9 -> 4
+                    totalItems >= 4 -> 3
+                    totalItems >= 2 -> 2
+                    else -> 1
+                }
             LazyVerticalGrid(
                 columns = GridCells.Fixed(cols),
                 modifier = Modifier.fillMaxSize().padding(12.dp),
@@ -173,31 +175,31 @@ fun ContentPanel(
             ) {
                 items(allPeers, key = { it }) { peerId ->
                     UserTile(
-                        peerId         = peerId,
-                        label          = peerLabel(peerId, localId),
-                        online         = peerId == localId || (peers.find { it.id == peerId }?.connected == true),
-                        isStreaming    = streamingPeers.contains(peerId),
-                        isYou          = peerId == localId,
-                        muted          = if (peerId == localId) muted else false,
-                        deafened       = if (peerId == localId) deafened else false,
-                        onGetVolume    = if (peerId == localId) ({ selfVolume }) else ({ onGetPeerVolume(peerId) }),
-                        onSetVolume    = if (peerId == localId) onSetSelfVolume else ({ v -> onSetPeerVolume(peerId, v) }),
-                        onToggleMute   = if (peerId == localId) onToggleMute else null,
+                        peerId = peerId,
+                        label = peerLabel(peerId, localId),
+                        online = peerId == localId || (peers.find { it.id == peerId }?.connected == true),
+                        isStreaming = streamingPeers.contains(peerId),
+                        isYou = peerId == localId,
+                        muted = if (peerId == localId) muted else false,
+                        deafened = if (peerId == localId) deafened else false,
+                        onGetVolume = if (peerId == localId) ({ selfVolume }) else ({ onGetPeerVolume(peerId) }),
+                        onSetVolume = if (peerId == localId) onSetSelfVolume else ({ v -> onSetPeerVolume(peerId, v) }),
+                        onToggleMute = if (peerId == localId) onToggleMute else null,
                         onToggleDeafen = if (peerId == localId) onToggleDeafen else null,
-                        onClick        = { focusedPeer = peerId },
+                        onClick = { focusedPeer = peerId },
                     )
                 }
                 items(streamingPeers, key = { "stream_$it" }) { peerId ->
                     StreamTile(
-                        peerId            = peerId,
-                        bitmap            = frames[peerId],
-                        watching          = watching,
-                        stats             = streamStats,
-                        streamVolume      = onStreamVolume(),
+                        peerId = peerId,
+                        bitmap = frames[peerId],
+                        watching = watching,
+                        stats = streamStats,
+                        streamVolume = onStreamVolume(),
                         onSetStreamVolume = onSetStreamVolume,
-                        onClick           = { focusedPeer = peerId },
-                        onJoin            = onJoinStream,
-                        onLeave           = onLeaveStream,
+                        onClick = { focusedPeer = peerId },
+                        onJoin = onJoinStream,
+                        onLeave = onLeaveStream,
                     )
                 }
             }
@@ -207,10 +209,13 @@ fun ContentPanel(
     if (showShareDialog) {
         ShareDialog(
             systemAudioAvailable = systemAudioAvailable,
-            onListTargets        = onListTargets,
-            onGrabThumbnail      = onGrabThumbnail,
-            onDismiss            = { showShareDialog = false; onShareDialogDismiss() },
-            onGo                 = { target, quality, fps, audio ->
+            onListTargets = onListTargets,
+            onGrabThumbnail = onGrabThumbnail,
+            onDismiss = {
+                showShareDialog = false
+                onShareDialogDismiss()
+            },
+            onGo = { target, quality, fps, audio ->
                 onStartSharing(target, quality, fps, audio)
                 showShareDialog = false
                 onShareDialogDismiss()
@@ -251,26 +256,31 @@ private fun FocusedLayout(
     val focusedIsStream = streamingPeers.contains(focusedPeer)
     // If big tile shows a StreamTile, keep ALL user tiles in strip.
     // If big tile shows a UserTile, hide that peer from strip (but always keep localId).
-    val otherPeers  = if (focusedIsStream) allPeers
-                      else allPeers.filter { it == localId || it != focusedPeer }
+    val otherPeers =
+        if (focusedIsStream) {
+            allPeers
+        } else {
+            allPeers.filter { it == localId || it != focusedPeer }
+        }
     val otherStreams = streamingPeers.filter { it != focusedPeer }
-    val hasOthers   = otherPeers.isNotEmpty() || otherStreams.isNotEmpty()
+    val hasOthers = otherPeers.isNotEmpty() || otherStreams.isNotEmpty()
 
     var stripVisible by remember { mutableStateOf(true) }
 
     // Hover detection for the whole panel (to show toggle button)
     val areaInteraction = remember { MutableInteractionSource() }
-    val areaHovered     by areaInteraction.collectIsHoveredAsState()
+    val areaHovered by areaInteraction.collectIsHoveredAsState()
 
     // Hover detection for the toggle button (to show label)
     val btnInteraction = remember { MutableInteractionSource() }
-    val btnHovered     by btnInteraction.collectIsHoveredAsState()
+    val btnHovered by btnInteraction.collectIsHoveredAsState()
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(12.dp)
-            .hoverable(areaInteraction),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(12.dp)
+                .hoverable(areaInteraction),
     ) {
         // ── Content column ────────────────────────────────────────────────
         Column(
@@ -281,34 +291,34 @@ private fun FocusedLayout(
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 if (streamingPeers.contains(focusedPeer)) {
                     StreamTile(
-                        peerId            = focusedPeer,
-                        bitmap            = frames[focusedPeer],
-                        watching          = watching,
-                        stats             = streamStats,
-                        streamVolume      = onStreamVolume(),
+                        peerId = focusedPeer,
+                        bitmap = frames[focusedPeer],
+                        watching = watching,
+                        stats = streamStats,
+                        streamVolume = onStreamVolume(),
                         onSetStreamVolume = onSetStreamVolume,
-                        onClick           = onUnfocus,
-                        onJoin            = onJoinStream,
-                        onLeave           = onLeaveStream,
-                        modifier          = Modifier.fillMaxSize(),
+                        onClick = onUnfocus,
+                        onJoin = onJoinStream,
+                        onLeave = onLeaveStream,
+                        modifier = Modifier.fillMaxSize(),
                     )
                 } else {
                     val isYou = focusedPeer == localId
-                    val peer  = peers.find { it.id == focusedPeer }
+                    val peer = peers.find { it.id == focusedPeer }
                     UserTile(
-                        peerId         = focusedPeer,
-                        label          = peerLabel(focusedPeer, localId),
-                        online         = isYou || (peer?.connected == true),
-                        isStreaming    = false,
-                        isYou          = isYou,
-                        muted          = if (isYou) muted else false,
-                        deafened       = if (isYou) deafened else false,
-                        onGetVolume    = if (isYou) ({ selfVolume }) else ({ onGetPeerVolume(focusedPeer) }),
-                        onSetVolume    = if (isYou) onSetSelfVolume else ({ v -> onSetPeerVolume(focusedPeer, v) }),
-                        onToggleMute   = if (isYou) onToggleMute else null,
+                        peerId = focusedPeer,
+                        label = peerLabel(focusedPeer, localId),
+                        online = isYou || (peer?.connected == true),
+                        isStreaming = false,
+                        isYou = isYou,
+                        muted = if (isYou) muted else false,
+                        deafened = if (isYou) deafened else false,
+                        onGetVolume = if (isYou) ({ selfVolume }) else ({ onGetPeerVolume(focusedPeer) }),
+                        onSetVolume = if (isYou) onSetSelfVolume else ({ v -> onSetPeerVolume(focusedPeer, v) }),
+                        onToggleMute = if (isYou) onToggleMute else null,
                         onToggleDeafen = if (isYou) onToggleDeafen else null,
-                        onClick        = onUnfocus,
-                        modifier       = Modifier.fillMaxSize(),
+                        onClick = onUnfocus,
+                        modifier = Modifier.fillMaxSize(),
                     )
                 }
             }
@@ -318,43 +328,43 @@ private fun FocusedLayout(
                 Box(modifier = Modifier.fillMaxWidth()) {
                     if (stripVisible) {
                         LazyRow(
-                            modifier              = Modifier.fillMaxWidth().height(110.dp),
+                            modifier = Modifier.fillMaxWidth().height(110.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
                         ) {
                             items(otherPeers, key = { it }) { peerId ->
                                 val isYou = peerId == localId
-                                val peer  = peers.find { it.id == peerId }
+                                val peer = peers.find { it.id == peerId }
                                 Box(modifier = Modifier.height(110.dp).aspectRatio(16f / 9f)) {
                                     UserTile(
-                                        peerId         = peerId,
-                                        label          = peerLabel(peerId, localId),
-                                        online         = isYou || (peer?.connected == true),
-                                        isStreaming    = streamingPeers.contains(peerId),
-                                        isYou          = isYou,
-                                        muted          = if (isYou) muted else false,
-                                        deafened       = if (isYou) deafened else false,
-                                        onGetVolume    = if (isYou) ({ selfVolume }) else ({ onGetPeerVolume(peerId) }),
-                                        onSetVolume    = if (isYou) onSetSelfVolume else ({ v -> onSetPeerVolume(peerId, v) }),
-                                        onToggleMute   = if (isYou) onToggleMute else null,
+                                        peerId = peerId,
+                                        label = peerLabel(peerId, localId),
+                                        online = isYou || (peer?.connected == true),
+                                        isStreaming = streamingPeers.contains(peerId),
+                                        isYou = isYou,
+                                        muted = if (isYou) muted else false,
+                                        deafened = if (isYou) deafened else false,
+                                        onGetVolume = if (isYou) ({ selfVolume }) else ({ onGetPeerVolume(peerId) }),
+                                        onSetVolume = if (isYou) onSetSelfVolume else ({ v -> onSetPeerVolume(peerId, v) }),
+                                        onToggleMute = if (isYou) onToggleMute else null,
                                         onToggleDeafen = if (isYou) onToggleDeafen else null,
-                                        onClick        = { onFocus(peerId) },
-                                        modifier       = Modifier.fillMaxSize(),
+                                        onClick = { onFocus(peerId) },
+                                        modifier = Modifier.fillMaxSize(),
                                     )
                                 }
                             }
                             items(otherStreams, key = { "stream_$it" }) { peerId ->
                                 Box(modifier = Modifier.height(110.dp).aspectRatio(16f / 9f)) {
                                     StreamTile(
-                                        peerId            = peerId,
-                                        bitmap            = frames[peerId],
-                                        watching          = watching,
-                                        stats             = streamStats,
-                                        streamVolume      = onStreamVolume(),
+                                        peerId = peerId,
+                                        bitmap = frames[peerId],
+                                        watching = watching,
+                                        stats = streamStats,
+                                        streamVolume = onStreamVolume(),
                                         onSetStreamVolume = onSetStreamVolume,
-                                        onClick           = { onFocus(peerId) },
-                                        onJoin            = onJoinStream,
-                                        onLeave           = onLeaveStream,
-                                        modifier          = Modifier.fillMaxSize(),
+                                        onClick = { onFocus(peerId) },
+                                        onJoin = onJoinStream,
+                                        onLeave = onLeaveStream,
+                                        modifier = Modifier.fillMaxSize(),
                                     )
                                 }
                             }
@@ -364,14 +374,15 @@ private fun FocusedLayout(
                     // Toggle button — overlays bottom of strip, visible on area hover
                     if (areaHovered) {
                         Box(
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .padding(bottom = 6.dp)
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(Color(0xCC2B2D31))
-                                .hoverable(btnInteraction)
-                                .clickable { stripVisible = !stripVisible }
-                                .padding(horizontal = 14.dp, vertical = 6.dp),
+                            modifier =
+                                Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(bottom = 6.dp)
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(Color(0xCC2B2D31))
+                                    .hoverable(btnInteraction)
+                                    .clickable { stripVisible = !stripVisible }
+                                    .padding(horizontal = 14.dp, vertical = 6.dp),
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -382,7 +393,7 @@ private fun FocusedLayout(
                                 if (btnHovered) {
                                     Text(
                                         if (stripVisible) "Скрыть участников" else "Показать участников",
-                                        color    = TextMuted,
+                                        color = TextMuted,
                                         fontSize = 11.sp,
                                     )
                                 }
@@ -399,8 +410,12 @@ private fun FocusedLayout(
 // Helper
 // ---------------------------------------------------------------------------
 
-private fun peerLabel(peerId: String, localId: String): String = buildString {
-    val s = if (peerId.length > 12) peerId.take(12) + "…" else peerId
-    append(s)
-    if (peerId == localId) append(" (you)")
-}
+private fun peerLabel(
+    peerId: String,
+    localId: String,
+): String =
+    buildString {
+        val s = if (peerId.length > 12) peerId.take(12) + "…" else peerId
+        append(s)
+        if (peerId == localId) append(" (you)")
+    }
