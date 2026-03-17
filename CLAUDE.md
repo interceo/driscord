@@ -20,7 +20,6 @@ export DRISCORD_NATIVE_LIB_DIR=../build/client
 
 Build outputs:
 - `build/server/driscord_server` — signaling server
-- `build/client/driscord_client` — legacy ImGui client (if OpenGL found)
 - `build/client/libdriscord_jni.so` — JNI bridge for Kotlin client (if JNI found)
 
 ## Running
@@ -28,10 +27,6 @@ Build outputs:
 ```bash
 # Server (port from DRISCORD_PORT env var, or first arg, default 9001)
 ./build/server/driscord_server 8080
-
-# Legacy ImGui client
-./build/client/driscord_client
-```
 
 Runtime config is loaded from `driscord.json` (server host/port, TURN servers, bitrates, jitter settings).
 
@@ -75,7 +70,6 @@ Custom binary headers prepended to all media packets:
 All C++ deps except FFmpeg and system libs are fetched at configure time via CMake FetchContent:
 - libdatachannel v0.22.5 (WebRTC + WebSocket client)
 - Opus v1.5.2 (audio codec)
-- Dear ImGui v1.91.8 + GLFW 3.4 (legacy UI)
 - Boost ≥1.89 (ASIO + Beast, system-installed)
 - FFmpeg (system-installed, required for video encode/decode)
 - nlohmann/json v3.11.3, fmt v10.2.1

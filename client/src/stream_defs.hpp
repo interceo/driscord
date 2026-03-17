@@ -1,6 +1,6 @@
 #pragma once
 
-// Stream quality / FPS definitions shared between App (ImGui) and JNI bridge.
+// Stream quality / FPS definitions shared between App and JNI bridge.
 
 enum class StreamQuality : int {
     Source = 0,
