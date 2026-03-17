@@ -56,14 +56,7 @@ private:
     uint64_t screen_audio_seq_ = 0;
 };
 
-// Receiver half of a screen-share session: reassembles video + audio and
-// presents them in sync to the caller.
-//
-// A/V sync strategy (video-side):
-//   - If the next video frame is more than kHoldThresholdMs ahead of the last
-//     audio frame delivered to the mixer, freeze video until audio catches up.
-//   - If audio is lagging more than kDrainThresholdMs behind video, stale
-//     audio frames are discarded so catch-up happens quickly.
+
 class ScreenReceiver {
 public:
     ScreenReceiver(int buffer_ms, int max_sync_gap_ms);

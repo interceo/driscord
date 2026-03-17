@@ -50,7 +50,7 @@ void VideoSender::stop() {
     LOG_INFO() << "video sender stopped";
 }
 
-void VideoSender::push_frame(ScreenCapture::Frame frame) {
+void VideoSender::push_frame(ScreenCapture::Frame&& frame) {
     if (!sharing_) {
         return;
     }
