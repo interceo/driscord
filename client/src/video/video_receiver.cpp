@@ -1,7 +1,7 @@
 #include "video_receiver.hpp"
 
 #include "log.hpp"
-#include "utils/byte_utils.hpp"
+#include "utils/time.hpp"
 
 #include <cstring>
 
@@ -87,6 +87,10 @@ const VideoJitter::Frame* VideoReceiver::update() {
             << " queue=" << video_.queue_size();
     }
     return result;
+}
+
+const VideoJitter::Frame* VideoReceiver::current_frame() const {
+    return video_.current();
 }
 
 std::string VideoReceiver::active_peer() const {

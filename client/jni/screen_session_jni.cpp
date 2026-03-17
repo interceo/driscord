@@ -1,21 +1,20 @@
 #include "screen_session_jni.hpp"
 #include "audio/audio_mixer.hpp"
-#include "audio_receiver_jni.hpp"
 
 #include <nlohmann/json.hpp>
 
 using json = nlohmann::json;
 
 ScreenSessionJni::ScreenSessionJni(int buf_ms, int max_sync_ms, VideoTransportJni* vt, AudioTransportJni* at)
-    : session(buf_ms, max_sync_ms), video_transport(vt), audio_transport(at) {
-    session.set_keyframe_callback([this]() { video_transport->channel.send_keyframe_request(); });
+    : receiver(buf_ms, max_sync_ms), video_transport(vt), audio_transport(at) {
+    receiver.set_keyframe_callback([this]() { video_transport->channel.send_keyframe_request(); });
     video_transport->set_video_sink(
         [this](const std::string& peer_id, const uint8_t* data, size_t len) {
-            session.push_video_packet(peer_id, data, len);
+            receiver.push_video_packet(peer_id, data, len);
         },
         [this]() {
-            if (session.sharing()) {
-                session.force_keyframe();
+            if (sender.sharing()) {
+                sender.force_keyframe();
             }
         }
     );
@@ -29,7 +28,7 @@ bool ScreenSessionJni::start_sharing(
     int bitrate_kbps,
     bool share_audio
 ) {
-    return session.start_sharing(
+    return sender.start_sharing(
         target,
         max_w,
         max_h,
@@ -42,8 +41,8 @@ bool ScreenSessionJni::start_sharing(
 }
 
 void ScreenSessionJni::update() {
-    if (auto* frame = session.update()) {
-        std::string peer = session.active_peer();
+    if (auto* frame = receiver.update()) {
+        std::string peer = receiver.active_peer();
         if (!peer.empty()) {
             if (!last_peer.empty() && last_peer != peer) {
                 fire_remove_frame(last_peer);
@@ -54,7 +53,7 @@ void ScreenSessionJni::update() {
             last_peer = peer;
         }
     }
-    if (!last_peer.empty() && !session.active()) {
+    if (!last_peer.empty() && !receiver.active()) {
         fire_remove_frame(last_peer);
         last_peer.clear();
     }
@@ -144,19 +143,19 @@ JNIEXPORT jboolean JNICALL Java_com_driscord_NativeScreenSession_startSharing(
 }
 
 JNIEXPORT void JNICALL Java_com_driscord_NativeScreenSession_stopSharing(JNIEnv*, jclass, jlong h) {
-    SCREEN_SESSION(h)->session.stop_sharing();
+    SCREEN_SESSION(h)->sender.stop_sharing();
 }
 
 JNIEXPORT jboolean JNICALL Java_com_driscord_NativeScreenSession_sharing(JNIEnv*, jclass, jlong h) {
-    return SCREEN_SESSION(h)->session.sharing() ? JNI_TRUE : JNI_FALSE;
+    return SCREEN_SESSION(h)->sender.sharing() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL Java_com_driscord_NativeScreenSession_sharingAudio(JNIEnv*, jclass, jlong h) {
-    return SCREEN_SESSION(h)->session.sharing_audio() ? JNI_TRUE : JNI_FALSE;
+    return SCREEN_SESSION(h)->sender.sharing_audio() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL Java_com_driscord_NativeScreenSession_forceKeyframe(JNIEnv*, jclass, jlong h) {
-    SCREEN_SESSION(h)->session.force_keyframe();
+    SCREEN_SESSION(h)->sender.force_keyframe();
 }
 
 JNIEXPORT void JNICALL Java_com_driscord_NativeScreenSession_update(JNIEnv*, jclass, jlong h) {
@@ -164,21 +163,21 @@ JNIEXPORT void JNICALL Java_com_driscord_NativeScreenSession_update(JNIEnv*, jcl
 }
 
 JNIEXPORT jstring JNICALL Java_com_driscord_NativeScreenSession_activePeer(JNIEnv* env, jclass, jlong h) {
-    return env->NewStringUTF(SCREEN_SESSION(h)->session.active_peer().c_str());
+    return env->NewStringUTF(SCREEN_SESSION(h)->receiver.active_peer().c_str());
 }
 
 JNIEXPORT jboolean JNICALL Java_com_driscord_NativeScreenSession_active(JNIEnv*, jclass, jlong h) {
-    return SCREEN_SESSION(h)->session.active() ? JNI_TRUE : JNI_FALSE;
+    return SCREEN_SESSION(h)->receiver.active() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL Java_com_driscord_NativeScreenSession_reset(JNIEnv*, jclass, jlong h) {
-    SCREEN_SESSION(h)->session.reset();
+    SCREEN_SESSION(h)->receiver.reset();
     SCREEN_SESSION(h)->last_peer.clear();
 }
 
 JNIEXPORT void JNICALL
 Java_com_driscord_NativeScreenSession_addAudioReceiverToMixer(JNIEnv*, jclass, jlong screenHandle, jlong mixerHandle) {
-    AUDIO_MIXER(mixerHandle)->add_source(SCREEN_SESSION(screenHandle)->session.audio_receiver());
+    AUDIO_MIXER(mixerHandle)->add_source(SCREEN_SESSION(screenHandle)->receiver.audio_receiver());
 }
 
 JNIEXPORT void JNICALL Java_com_driscord_NativeScreenSession_removeAudioReceiverFromMixer(
@@ -187,29 +186,29 @@ JNIEXPORT void JNICALL Java_com_driscord_NativeScreenSession_removeAudioReceiver
     jlong screenHandle,
     jlong mixerHandle
 ) {
-    AUDIO_MIXER(mixerHandle)->remove_source(SCREEN_SESSION(screenHandle)->session.audio_receiver());
+    AUDIO_MIXER(mixerHandle)->remove_source(SCREEN_SESSION(screenHandle)->receiver.audio_receiver());
 }
 
 JNIEXPORT void JNICALL Java_com_driscord_NativeScreenSession_resetAudioReceiver(JNIEnv*, jclass, jlong h) {
-    SCREEN_SESSION(h)->session.audio_receiver()->reset();
+    SCREEN_SESSION(h)->receiver.audio_receiver()->reset();
 }
 
 JNIEXPORT void JNICALL Java_com_driscord_NativeScreenSession_setStreamVolume(JNIEnv*, jclass, jlong h, jfloat vol) {
-    SCREEN_SESSION(h)->session.audio_receiver()->set_volume(static_cast<float>(vol));
+    SCREEN_SESSION(h)->receiver.audio_receiver()->set_volume(static_cast<float>(vol));
 }
 
 JNIEXPORT jfloat JNICALL Java_com_driscord_NativeScreenSession_streamVolume(JNIEnv*, jclass, jlong h) {
-    return SCREEN_SESSION(h)->session.audio_receiver()->volume();
+    return SCREEN_SESSION(h)->receiver.audio_receiver()->volume();
 }
 
 JNIEXPORT jstring JNICALL Java_com_driscord_NativeScreenSession_stats(JNIEnv* env, jclass, jlong h) {
     auto* s = SCREEN_SESSION(h);
-    auto vs = s->session.video_stats();
-    auto as = s->session.audio_stats();
+    auto vs = s->receiver.video_stats();
+    auto as = s->receiver.audio_stats();
     json j = {
         {"width", s->last_w},
         {"height", s->last_h},
-        {"measuredKbps", s->session.measured_kbps()},
+        {"measuredKbps", s->receiver.measured_kbps()},
         {"video",
          {{"queue", vs.queue_size}, {"bufMs", vs.buffered_ms}, {"drops", vs.drop_count}, {"misses", vs.miss_count}}},
         {"audio",

@@ -170,6 +170,30 @@ public:
         return std::move(result.data);
     }
 
+    // Discard all queued packets whose sender_ts is strictly before ts_ms.
+    // Callable from any thread (uses scoped_lock). Resets the pacing anchor
+    // so playback resumes from the first frame after the drain.
+    size_t drain_before(uint64_t ts_ms) {
+        std::scoped_lock lk(mutex_);
+        size_t dropped = 0;
+        while (true) {
+            auto peek = ring_.peek_next();
+            if (!peek) {
+                break;
+            }
+            if (utils::WallToMs(peek->data->sender_ts) >= ts_ms) {
+                break;
+            }
+            ring_.consume_peeked(peek->skipped);
+            ++drop_count_;
+            ++dropped;
+        }
+        if (dropped > 0) {
+            anchor_sender_ts_.reset();
+        }
+        return dropped;
+    }
+
     // ── queries ──────────────────────────────────────────────────────
 
     bool primed() const {

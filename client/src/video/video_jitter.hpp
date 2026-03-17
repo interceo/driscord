@@ -3,7 +3,6 @@
 #include "utils/jitter.hpp"
 #include "utils/time.hpp"
 
-#include <chrono>
 #include <cstdint>
 #include <optional>
 #include <vector>
@@ -14,14 +13,11 @@ public:
         std::vector<uint8_t> rgba;
         int width = 0;
         int height = 0;
+        utils::WallTimestamp sender_ts{};
     };
 
-    // max_excess_ms: reset pace anchor if sender clock is more than this many ms
-    //   ahead of local clock (prevents latency growth from inter-machine clock skew).
-    // max_queue_size: drop oldest decoded frames when the ring exceeds this depth
-    //   (prevents unbounded growth when the consumer is slower than the sender).
     static constexpr int    kDefaultMaxExcessMs  = 200;
-    static constexpr size_t kDefaultMaxQueueSize = 8;   // ~267ms at 30fps
+    static constexpr size_t kDefaultMaxQueueSize = 8;
 
     explicit VideoJitter(int buffer_ms,
                          int    max_excess_ms  = kDefaultMaxExcessMs,
@@ -29,7 +25,7 @@ public:
         : buf_(buffer_ms, /*pace_by_sender_ts=*/true, max_excess_ms, max_queue_size) {}
 
     void push(std::vector<uint8_t> rgba, int w, int h, utils::WallTimestamp sender_ts) {
-        buf_.push(seq_++, Frame{std::move(rgba), w, h}, sender_ts);
+        buf_.push(seq_++, Frame{std::move(rgba), w, h, sender_ts}, sender_ts);
     }
 
     const Frame* pop() {
@@ -39,6 +35,11 @@ public:
         }
         current_ = std::move(pkt->data);
         return &*current_;
+    }
+
+    // Returns the last popped frame without advancing. Valid until the next pop().
+    const Frame* current() const noexcept {
+        return current_ ? &*current_ : nullptr;
     }
 
     size_t buffered_ms() const { return buf_.buffered_ms(); }
