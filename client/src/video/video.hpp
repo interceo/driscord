@@ -28,7 +28,7 @@ public:
     void stop();
 
     // Called by external screen capture to deliver frames.
-    void push_frame(ScreenCapture::Frame frame);
+    void push_frame(ScreenCapture::Frame&& frame);
 
     bool sharing() const { return sharing_; }
     void force_keyframe() { video_encoder_.force_keyframe(); }

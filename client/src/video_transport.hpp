@@ -3,7 +3,6 @@
 #include "transport.hpp"
 #include "utils/protocol.hpp"
 
-#include <mutex>
 #include <unordered_map>
 #include <vector>
 
@@ -27,9 +26,9 @@ public:
     void send_video(const uint8_t* data, size_t len);
     void send_keyframe_request();
 
-    void on_video_received(PacketCb cb)       { on_video_   = std::move(cb); }
-    void on_video_channel_opened(Callback cb) { on_opened_  = std::move(cb); }
-    void on_keyframe_requested(Callback cb)   { on_kf_req_  = std::move(cb); }
+    void on_video_received(PacketCb cb)       { on_video_  = std::move(cb); }
+    void on_video_channel_opened(Callback cb) { on_opened_ = std::move(cb); }
+    void on_keyframe_requested(Callback cb)   { on_kf_req_ = std::move(cb); }
 
 private:
     void on_chunk(const std::string& peer_id, const uint8_t* data, size_t len);
@@ -40,16 +39,18 @@ private:
     Callback   on_kf_req_;
 
     // Send side
-    uint16_t           next_frame_id_ = 0;
+    uint64_t             next_frame_id_ = 0;
     std::vector<uint8_t> chunk_buf_;
 
-    // Receive side reassembly
+    // Receive-side reassembly.
+    // Accessed only from the single DataChannel receive thread — no locking needed.
     struct FrameAssembly {
-        std::vector<std::vector<uint8_t>> chunks;
-        uint16_t total    = 0;
-        uint16_t received = 0;
+        std::vector<uint8_t> buffer;    // flat: chunk_idx * kChunkPayloadSize
+        std::vector<bool>    received;  // per-chunk dedup flag
+        uint16_t total          = 0;
+        uint16_t received_count = 0;
+        size_t   actual_size    = 0;    // max(chunk_idx * stride + payload_len) across received chunks
     };
-    std::mutex                                  assembly_mutex_;
-    std::unordered_map<uint16_t, FrameAssembly> assembly_;
-    static constexpr size_t kMaxAssemblyFrames  = 8;
+    std::unordered_map<uint64_t, FrameAssembly> assembly_;
+    static constexpr size_t kMaxAssemblyFrames = 8;
 };

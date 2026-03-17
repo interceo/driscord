@@ -7,13 +7,13 @@
 
 namespace {
 constexpr uint8_t kKeyframeRequestTag = 0x01;
-} // namespace
+}  // namespace
 
 VideoTransport::VideoTransport(Transport& transport) : transport_(transport) {
     transport.register_channel({
         .label           = "video",
         .unordered       = true,
-        .max_retransmits = 0, // unreliable: lost chunks drop the frame, decoder recovers at next IDR
+        .max_retransmits = 0,  // unreliable: lost chunks drop the frame, decoder recovers at next IDR
         .on_data = [this](const std::string& peer_id, const uint8_t* data, size_t len) {
             if (len == 1 && data[0] == kKeyframeRequestTag) {
                 if (on_kf_req_) {
@@ -36,8 +36,8 @@ void VideoTransport::send_video(const uint8_t* data, size_t len) {
         return;
     }
 
-    const auto total_chunks = static_cast<uint16_t>((len + kChunkPayloadSize - 1) / kChunkPayloadSize);
-    const uint16_t frame_id = next_frame_id_++;
+    const auto     total_chunks = static_cast<uint16_t>((len + kChunkPayloadSize - 1) / kChunkPayloadSize);
+    const uint64_t frame_id     = next_frame_id_++;
 
     chunk_buf_.resize(protocol::ChunkHeader::kWireSize + kChunkPayloadSize);
 
@@ -75,58 +75,40 @@ void VideoTransport::on_chunk(const std::string& peer_id, const uint8_t* data, s
     const uint8_t* payload     = data + protocol::ChunkHeader::kWireSize;
     const size_t   payload_len = len  - protocol::ChunkHeader::kWireSize;
 
-    std::vector<uint8_t> assembled;
-
-    {
-        std::scoped_lock lk(assembly_mutex_);
-
-        auto& fa = assembly_[ch.frame_id];
-
-        // First chunk seen for this frame_id — evict stale entries first.
-        if (fa.total == 0) {
-            // With unreliable transport frames may arrive incomplete forever.
-            // Evict anything whose frame_id is more than kMaxAssemblyFrames behind
-            // the current frame_id (modular uint16 arithmetic).
-            for (auto it = assembly_.begin(); it != assembly_.end(); ) {
-                const uint16_t age = static_cast<uint16_t>(ch.frame_id - it->first);
-                if (age > kMaxAssemblyFrames && age < 0x8000u) {
-                    it = assembly_.erase(it);
-                } else {
-                    ++it;
-                }
+    auto& fa = assembly_[ch.frame_id];
+    if (fa.total == 0) {
+        for (auto it = assembly_.begin(); it != assembly_.end(); ) {
+            if (it->first + kMaxAssemblyFrames < ch.frame_id) {
+                it = assembly_.erase(it);
+            } else {
+                ++it;
             }
-            fa.total  = ch.total_chunks;
-            fa.chunks.resize(ch.total_chunks);
         }
-
-        // Guard against inconsistent total_chunks across retransmissions.
-        if (fa.total != ch.total_chunks) {
-            return;
-        }
-
-        // Store chunk only once (idempotent on retransmit).
-        if (fa.chunks[ch.chunk_idx].empty()) {
-            fa.chunks[ch.chunk_idx].assign(payload, payload + payload_len);
-            ++fa.received;
-        }
-
-        if (fa.received < fa.total) {
-            return; // still waiting for more chunks
-        }
-
-        // All chunks received — build contiguous frame buffer.
-        size_t total_size = 0;
-        for (const auto& c : fa.chunks) {
-            total_size += c.size();
-        }
-        assembled.reserve(total_size);
-        for (const auto& c : fa.chunks) {
-            assembled.insert(assembled.end(), c.begin(), c.end());
-        }
-        assembly_.erase(ch.frame_id);
+        fa.total = ch.total_chunks;
+        fa.buffer.resize(static_cast<size_t>(ch.total_chunks) * kChunkPayloadSize);
+        fa.received.assign(ch.total_chunks, false);
     }
 
-    if (on_video_ && !assembled.empty()) {
-        on_video_(peer_id, assembled.data(), assembled.size());
+    if (fa.total != ch.total_chunks) {
+        return;
     }
+
+    if (!fa.received[ch.chunk_idx]) {
+        std::memcpy(fa.buffer.data() + static_cast<size_t>(ch.chunk_idx) * kChunkPayloadSize,
+                    payload, payload_len);
+        fa.received[ch.chunk_idx] = true;
+        ++fa.received_count;
+        fa.actual_size = std::max(fa.actual_size,
+            static_cast<size_t>(ch.chunk_idx) * kChunkPayloadSize + payload_len);
+    }
+
+    if (fa.received_count < fa.total) {
+        return;
+    }
+
+    fa.buffer.resize(fa.actual_size);
+    if (on_video_) {
+        on_video_(peer_id, fa.buffer.data(), fa.actual_size);
+    }
+    assembly_.erase(ch.frame_id);
 }
