@@ -2,7 +2,7 @@
 
 #include <jni.h>
 
-#include "audio/audio_sender.hpp"
+#include "audio/audio.hpp"
 #include "audio_transport_jni.hpp"
 
 struct AudioSenderJni {
@@ -16,4 +16,10 @@ struct AudioSenderJni {
             audio_transport->channel.send_audio(d, l);
         });
     }
+};
+
+struct AudioReceiverJni {
+    std::shared_ptr<AudioReceiver> receiver;
+    explicit AudioReceiverJni(int jitter_ms)
+        : receiver(std::make_shared<AudioReceiver>(jitter_ms)) {}
 };

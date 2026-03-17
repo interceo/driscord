@@ -1,5 +1,5 @@
 #include "audio_transport_jni.hpp"
-#include "audio_receiver_jni.hpp"
+#include "audio_jni.hpp"
 #include "screen_session_jni.hpp"
 
 

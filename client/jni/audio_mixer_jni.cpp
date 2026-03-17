@@ -1,4 +1,4 @@
-#include "audio_receiver_jni.hpp"
+#include "audio_jni.hpp"
 #include "audio/audio_mixer.hpp"
 
 #define AUDIO_MIXER(h)    reinterpret_cast<AudioMixer*>(h)
