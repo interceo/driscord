@@ -334,7 +334,7 @@ bool VideoDecoder::init() {
 
     ctx_               = avcodec_alloc_context3(codec);
     ctx_->thread_count = optimal_thread_count();
-    ctx_->thread_type  = FF_THREAD_FRAME | FF_THREAD_SLICE;
+    ctx_->thread_type  = FF_THREAD_SLICE;
 
     int ret = avcodec_open2(ctx_, codec, nullptr);
     if (ret < 0) {
