@@ -8,7 +8,7 @@ using json = nlohmann::json;
 ScreenSessionJni::ScreenSessionJni(int buf_ms, int max_sync_ms, VideoTransportJni* vt, AudioTransportJni* at)
     : session(
           buf_ms,
-          max_sync_ms,
+          std::chrono::milliseconds(max_sync_ms),
           [vt](const uint8_t* d, size_t l) { vt->channel.send_video(d, l); },
           [vt]() { vt->channel.send_keyframe_request(); },
           [at](const uint8_t* d, size_t l) { at->channel.send_screen_audio(d, l); }
@@ -119,7 +119,6 @@ JNIEXPORT jboolean JNICALL Java_com_driscord_jni_NativeScreenSession_startSharin
         static_cast<int>(maxH),
         static_cast<int>(fps),
         static_cast<int>(bitrateKbps),
-        static_cast<int>(gopSize),
         shareAudio == JNI_TRUE
     );
     return ok ? JNI_TRUE : JNI_FALSE;
@@ -159,8 +158,12 @@ JNIEXPORT void JNICALL Java_com_driscord_jni_NativeScreenSession_reset(JNIEnv*, 
     SS(h)->session.reset();
 }
 
-JNIEXPORT void JNICALL
-Java_com_driscord_jni_NativeScreenSession_addAudioReceiverToMixer(JNIEnv*, jclass, jlong screenHandle, jlong mixerHandle) {
+JNIEXPORT void JNICALL Java_com_driscord_jni_NativeScreenSession_addAudioReceiverToMixer(
+    JNIEnv*,
+    jclass,
+    jlong screenHandle,
+    jlong mixerHandle
+) {
     MIXER(mixerHandle)->add_source(SS(screenHandle)->session.audio_receiver());
 }
 
@@ -193,10 +196,8 @@ JNIEXPORT jstring JNICALL Java_com_driscord_jni_NativeScreenSession_stats(JNIEnv
         {"width", s->session.last_width()},
         {"height", s->session.last_height()},
         {"measuredKbps", s->session.measured_kbps()},
-        {"video",
-          {{"queue", vs.queue_size}, {"drops", vs.drop_count}, {"misses", vs.miss_count}}},
-        {"audio",
-          {{"queue", as.queue_size}, {"drops", as.drop_count}, {"misses", as.miss_count}}}
+        {"video", {{"queue", vs.queue_size}, {"drops", vs.drop_count}, {"misses", vs.miss_count}}},
+        {"audio", {{"queue", as.queue_size}, {"drops", as.drop_count}, {"misses", as.miss_count}}}
     };
     return env->NewStringUTF(j.dump().c_str());
 }

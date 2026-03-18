@@ -25,5 +25,10 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(fmt)
 
-add_subdirectory(server)
+# The signaling server is Linux-only; disable when cross-compiling for Windows.
+option(BUILD_SERVER "Build the signaling server" ON)
+if(BUILD_SERVER)
+    add_subdirectory(server)
+endif()
+
 add_subdirectory(client)

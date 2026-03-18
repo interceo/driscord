@@ -114,7 +114,7 @@ void AudioSender::on_capture(const float* input, uint32_t frames) {
 int AudioReceiver::next_id_ = 0;
 
 AudioReceiver::AudioReceiver(int jitter_ms, int channels, int sample_rate)
-    : jitter_(static_cast<size_t>(jitter_ms))
+    : jitter_(std::chrono::milliseconds(jitter_ms))
     , channels_(channels)
     , id_(next_id_++) {
     if (!decoder_.init(sample_rate, channels)) {
@@ -153,16 +153,28 @@ void AudioReceiver::push_packet(const uint8_t* data, size_t len) {
             }
             mono_buf_[static_cast<size_t>(i)] = (sum / channels_) * vol;
         }
+
         std::vector<float> pcm(mono_buf_.begin(), mono_buf_.begin() + samples);
-        jitter_.push(std::move(pcm), ah.seq);
+        jitter_.push(
+            PcmFrame{
+                .samples   = std::move(pcm),
+                .sender_ts = ah.sender_ts,
+            }
+        );
     } else {
         if (vol != 1.0f) {
             for (int i = 0; i < samples; ++i) {
                 decode_buf_[static_cast<size_t>(i)] *= vol;
             }
         }
+
         std::vector<float> pcm(decode_buf_.begin(), decode_buf_.begin() + samples);
-        jitter_.push(std::move(pcm), ah.seq);
+        jitter_.push(
+            PcmFrame{
+                .samples   = std::move(pcm),
+                .sender_ts = ah.sender_ts,
+            }
+        );
     }
 
     ++push_count_;
@@ -177,7 +189,7 @@ void AudioReceiver::push_packet(const uint8_t* data, size_t len) {
 }
 
 std::vector<float> AudioReceiver::pop() {
-    auto result = jitter_.pop();
+    auto result = jitter_.pop().samples;
     ++pop_count_;
     if (pop_count_ % 60 == 0) {
         LOG_INFO()

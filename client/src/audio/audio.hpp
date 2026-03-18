@@ -1,6 +1,6 @@
 #pragma once
 
-#include "audio_jitter.hpp"
+#include "utils/jitter.hpp"
 #include "utils/opus_codec.hpp"
 
 #include <atomic>
@@ -53,6 +53,15 @@ private:
 
 class AudioReceiver {
 public:
+    struct PcmFrame {
+        std::vector<float> samples;
+        utils::WallTimestamp sender_ts{};
+
+        bool empty() const noexcept { return samples.empty(); }
+    };
+
+    using AudioJitter = utils::Jitter<PcmFrame>;
+
     explicit AudioReceiver(int jitter_ms, int channels = 1, int sample_rate = opus::kSampleRate);
 
     AudioReceiver(const AudioReceiver&)            = delete;
@@ -64,8 +73,13 @@ public:
     void set_volume(float v) { volume_.store(v); }
     float volume() const { return volume_.load(); }
 
-    // Discard all queued audio older than max_delay_ms (A/V sync helper).
-    size_t evict_old(int max_delay_ms) { return jitter_.evict_old(max_delay_ms); }
+    // Discard all queued audio older than max_delay (hard timeout).
+    size_t evict_old(utils::Duration max_delay) { return jitter_.evict_old(max_delay); }
+
+    // A/V sync helpers.
+    std::optional<utils::WallTimestamp> front_effective_ts() const { return jitter_.front_effective_ts(); }
+    bool primed() const { return jitter_.primed(); }
+
     int64_t front_age_ms() const { return jitter_.front_age_ms(); }
 
     void reset() { jitter_.reset(); }

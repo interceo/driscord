@@ -23,11 +23,10 @@ public:
 
     bool start_sharing(
         const CaptureTarget& target,
-        int max_w,
-        int max_h,
-        int fps,
-        int bitrate_kbps,
-        int gop_size,
+        const size_t max_w,
+        const size_t max_h,
+        const size_t fps,
+        const size_t bitrate_kbps,
         bool share_audio,
         SendCb on_video,
         SendCb on_screen_audio
@@ -66,7 +65,7 @@ public:
     void push_video_packet(const std::string& peer_id, const uint8_t* data, size_t len);
     void push_audio_packet(const uint8_t* data, size_t len);
 
-    const VideoJitter::Frame* update();
+    const VideoReceiver::Frame* update();
 
     std::shared_ptr<AudioReceiver> audio_receiver() { return audio_recv_; }
     std::shared_ptr<const AudioReceiver> audio_receiver() const { return audio_recv_; }
@@ -77,12 +76,21 @@ public:
     bool active() const;
     int measured_kbps() const;
 
-    VideoJitter::Stats video_stats() const;
+    VideoReceiver::Stats video_stats() const;
     AudioReceiver::Stats audio_stats() const;
 
-    // Evict stale packets from both video and audio jitter buffers.
-    void evict_old(int max_delay_ms);
-    void evict_old_video(int max_delay_ms) { video_recv_.evict_old(max_delay_ms); }
+    // Hard timeout — evict packets that have been sitting too long regardless of content time.
+    void evict_old(utils::Duration max_delay);
+    void evict_old_video(utils::Duration max_delay) { video_recv_.evict_old(max_delay); }
+
+    // A/V sync — sender-timestamp-based.
+    bool video_primed() const { return video_recv_.primed(); }
+    bool audio_primed() const { return audio_recv_->primed(); }
+    std::optional<utils::WallTimestamp> video_front_effective_ts() const { return video_recv_.front_effective_ts(); }
+    std::optional<utils::WallTimestamp> audio_front_effective_ts() const { return audio_recv_->front_effective_ts(); }
+    utils::Duration video_frame_duration() const { return video_recv_.front_frame_duration(); }
+    size_t evict_video_before(utils::WallTimestamp cutoff) { return video_recv_.evict_before_sender_ts(cutoff); }
+
     int64_t video_front_age_ms() const { return video_recv_.front_age_ms(); }
     int64_t audio_front_age_ms() const { return audio_recv_->front_age_ms(); }
 

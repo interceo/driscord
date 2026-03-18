@@ -16,7 +16,7 @@ public:
 
     ScreenSession(
         int buf_ms,
-        int max_sync_ms,
+        utils::Duration max_sync,
         SendCb send_video,
         std::function<void()> on_keyframe_req,
         SendCb send_screen_audio
@@ -28,11 +28,10 @@ public:
 
     bool start_sharing(
         const CaptureTarget& target,
-        int max_w,
-        int max_h,
-        int fps,
-        int bitrate_kbps,
-        int gop_size,
+        const size_t max_w,
+        const size_t max_h,
+        const size_t fps,
+        const size_t bitrate_kbps,
         bool share_audio
     );
     void stop_sharing();
@@ -58,7 +57,7 @@ public:
     std::shared_ptr<AudioReceiver> audio_receiver() { return receiver_.audio_receiver(); }
     std::shared_ptr<const AudioReceiver> audio_receiver() const { return receiver_.audio_receiver(); }
 
-    VideoJitter::Stats video_stats() const { return cached_video_stats_; }
+    VideoReceiver::Stats video_stats() const { return cached_video_stats_; }
     AudioReceiver::Stats audio_stats() const { return cached_audio_stats_; }
 
     void reset();
@@ -75,11 +74,11 @@ private:
     int last_w_ = 0;
     int last_h_ = 0;
 
-    int max_sync_ms_;
+    utils::Duration max_sync_;
 
     using Clock = std::chrono::steady_clock;
     Clock::time_point last_stats_refresh_{};
-    VideoJitter::Stats cached_video_stats_{};
+    VideoReceiver::Stats cached_video_stats_{};
     AudioReceiver::Stats cached_audio_stats_{};
 
     mutable std::mutex cb_mutex_;

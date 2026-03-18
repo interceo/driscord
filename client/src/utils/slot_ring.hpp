@@ -65,13 +65,11 @@ public:
             return std::nullopt;
         }
 
-        // fast path
         auto& slot = slots_[next_seq_ & kMask];
         if (slot.seq == next_seq_) [[likely]] {
             return PeekResult{&slot.data, next_seq_, 0};
         }
 
-        // fallback scan
         for (size_t i = 1; i < Capacity; ++i) {
             auto& s = slots_[(next_seq_ + i) & kMask];
             if (s.seq == next_seq_ + i) {
@@ -129,7 +127,6 @@ public:
         return consume_peeked(p->skipped);
     }
 
-    // Advance the expected sequence without consuming a slot (for gap concealment).
     void advance_seq() {
         if (initialized_) {
             ++next_seq_;

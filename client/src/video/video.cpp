@@ -17,23 +17,20 @@ VideoSender::~VideoSender() {
     stop();
 }
 
-bool VideoSender::start(int fps, int base_bitrate_kbps, int gop_size, SendCb on_video) {
+bool VideoSender::start(const size_t fps, const size_t base_bitrate_kbps, SendCb on_video) {
     if (sharing_) {
         return false;
     }
 
     fps_               = fps;
     base_bitrate_kbps_ = base_bitrate_kbps;
-    this->gop_size     = gop_size > 0 ? gop_size : fps;
     on_video_          = std::move(on_video);
 
     encode_running_ = true;
     encode_thread_  = std::thread(&VideoSender::encode_loop, this);
     sharing_        = true;
 
-    LOG_INFO()
-        << "video sender started fps=" << fps << " bitrate=" << base_bitrate_kbps << " kbps"
-        << " gop=" << gop_size << " frames";
+    LOG_INFO() << "video sender started fps=" << fps << " bitrate=" << base_bitrate_kbps << " kbps";
     return true;
 }
 
@@ -59,7 +56,8 @@ void VideoSender::push_frame(ScreenCapture::Frame&& frame) {
     if (!sharing_) {
         return;
     }
-    frame.capture_ts = std::chrono::system_clock::now();
+
+    frame.capture_ts = utils::WallNow();
     {
         std::scoped_lock lk(frame_mutex_);
         pending_frame_ = std::move(frame);
@@ -86,7 +84,7 @@ void VideoSender::encode_loop() {
         }
 
         if (frame.width != video_encoder_.width() || frame.height != video_encoder_.height()) {
-            if (!video_encoder_.init(frame.width, frame.height, fps_, base_bitrate_kbps_, gop_size)) {
+            if (!video_encoder_.init(frame.width, frame.height, fps_, base_bitrate_kbps_)) {
                 continue;
             }
         }
@@ -104,7 +102,6 @@ void VideoSender::encode_loop() {
             .sender_ts         = capture_ts,
             .bitrate_kbps      = static_cast<uint32_t>(video_encoder_.measured_kbps()),
             .frame_duration_us = static_cast<uint32_t>(1'000'000 / fps_),
-            .gop_size          = static_cast<uint32_t>(gop_size),
         };
         frame_buf_.resize(protocol::VideoHeader::kWireSize + encoded.size());
         vh.serialize(frame_buf_.data());
@@ -115,7 +112,7 @@ void VideoSender::encode_loop() {
 }
 
 VideoReceiver::VideoReceiver(int buffer_ms, int /*max_sync_gap_ms*/)
-    : video_(buffer_ms) {
+    : video_(std::chrono::milliseconds(buffer_ms)) {
     if (!decoder_.init()) {
         LOG_ERROR() << "failed to init video decoder";
     }
@@ -196,7 +193,15 @@ void VideoReceiver::decode_loop() {
         int w = 0, h = 0;
         if (decoder_.decode(slot.encoded, rgba, w, h)) {
             decode_failures_ = 0;
-            video_.push(std::move(rgba), w, h);
+            video_.push(
+                Frame{
+                    .rgba           = std::move(rgba),
+                    .width          = w,
+                    .height         = h,
+                    .sender_ts      = slot.vh.sender_ts,
+                    .frame_duration = std::chrono::microseconds(slot.vh.frame_duration_us),
+                }
+            );
         } else {
             ++decode_failures_;
             const auto kf_now = utils::Now();
@@ -210,7 +215,7 @@ void VideoReceiver::decode_loop() {
     }
 }
 
-const VideoJitter::Frame* VideoReceiver::update() {
+const VideoReceiver::Frame* VideoReceiver::update() {
     while (true) {
         auto f = video_.pop();
         if (f.rgba.empty()) {
