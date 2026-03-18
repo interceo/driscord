@@ -10,8 +10,9 @@
 
 class ScreenSession {
 public:
-    using SendCb      = std::function<void(const uint8_t*, const size_t)>;
-    using OnFrameCb   = std::function<void(const std::string& peer_id, const uint8_t* rgba, const int w, const int h)>;
+    using SendCb    = std::function<void(const uint8_t*, const size_t)>;
+    using OnFrameCb = std::function<
+        void(const std::string& peer_id, const uint8_t* rgba, const int w, const int h)>;
     using OnRemovedCb = std::function<void(const std::string& peer_id)>;
 
     ScreenSession(
@@ -40,8 +41,11 @@ public:
     void force_keyframe() { sender_.force_keyframe(); }
     int sender_kbps() const { return sender_.sender_kbps(); }
 
-    void push_video_packet(const std::string& peer_id, const uint8_t* data, const size_t len);
-    void push_audio_packet(const uint8_t* data, const size_t len);
+    void push_video_packet(
+        const std::string& peer_id,
+        const utils::vector_view<const uint8_t> data
+    );
+    void push_audio_packet(const utils::vector_view<const uint8_t> data);
 
     void update();
 
@@ -55,7 +59,9 @@ public:
     int last_height() const { return last_h_; }
 
     std::shared_ptr<AudioReceiver> audio_receiver() { return receiver_.audio_receiver(); }
-    std::shared_ptr<const AudioReceiver> audio_receiver() const { return receiver_.audio_receiver(); }
+    std::shared_ptr<const AudioReceiver> audio_receiver() const {
+        return receiver_.audio_receiver();
+    }
 
     VideoReceiver::Stats video_stats() const { return cached_video_stats_; }
     AudioReceiver::Stats audio_stats() const { return cached_audio_stats_; }

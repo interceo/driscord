@@ -5,13 +5,12 @@
 #include "utils/protocol.hpp"
 #include "utils/video_codec.hpp"
 
-#include <array>
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
 #include <mutex>
-#include <semaphore>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -79,7 +78,10 @@ public:
     VideoReceiver(const VideoReceiver&)            = delete;
     VideoReceiver& operator=(const VideoReceiver&) = delete;
 
-    void push_video_packet(const std::string& peer_id, const uint8_t* data, size_t len);
+    void push_video_packet(
+        const std::string& peer_id,
+        const utils::vector_view<const uint8_t> data
+    );
 
     const Frame* update();
 
@@ -92,10 +94,15 @@ public:
     Stats video_stats() const { return video_.stats(); }
 
     size_t evict_old(utils::Duration max_delay) { return video_.evict_old(max_delay); }
-    size_t evict_before_sender_ts(utils::WallTimestamp cutoff) { return video_.evict_before_sender_ts(cutoff); }
-    std::optional<utils::WallTimestamp> front_effective_ts() const { return video_.front_effective_ts(); }
+    size_t evict_before_sender_ts(utils::WallTimestamp cutoff) {
+        return video_.evict_before_sender_ts(cutoff);
+    }
+    std::optional<utils::WallTimestamp> front_effective_ts() const {
+        return video_.front_effective_ts();
+    }
     utils::Duration front_frame_duration() const {
-        return video_.with_front([](const Frame& f) { return f.frame_duration; }).value_or(utils::Duration{});
+        return video_.with_front([](const Frame& f) { return f.frame_duration; })
+            .value_or(utils::Duration{});
     }
     bool primed() const { return video_.primed(); }
     int64_t front_age_ms() const { return video_.front_age_ms(); }
@@ -103,23 +110,6 @@ public:
     void reset();
 
 private:
-    void decode_loop();
-
-    struct FrameSlot {
-        std::string peer_id;
-        std::vector<uint8_t> encoded;
-        protocol::VideoHeader vh;
-    };
-
-    static constexpr size_t kQueueCapacity = 4;
-    std::array<FrameSlot, kQueueCapacity> ring_;
-    alignas(64) std::atomic<size_t> head_{0};
-    alignas(64) std::atomic<size_t> tail_{0};
-    std::counting_semaphore<kQueueCapacity> sem_{0};
-
-    std::thread decode_thread_;
-    std::atomic<bool> decode_running_{false};
-
     VideoDecoder decoder_;
     int decode_failures_ = 0;
     utils::Timestamp last_keyframe_req_{};

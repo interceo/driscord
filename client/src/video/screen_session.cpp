@@ -9,7 +9,10 @@ ScreenSession::ScreenSession(
     std::function<void()> on_keyframe_req,
     SendCb send_screen_audio
 )
-    : receiver_(buf_ms, static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(max_sync).count()))
+    : receiver_(
+          buf_ms,
+          static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(max_sync).count())
+      )
     , send_video_(std::move(send_video))
     , send_screen_audio_(std::move(send_screen_audio))
     , max_sync_(max_sync) {
@@ -24,19 +27,31 @@ bool ScreenSession::start_sharing(
     const size_t bitrate_kbps,
     bool share_audio
 ) {
-    return sender_.start_sharing(target, max_w, max_h, fps, bitrate_kbps, share_audio, send_video_, send_screen_audio_);
+    return sender_.start_sharing(
+        target,
+        max_w,
+        max_h,
+        fps,
+        bitrate_kbps,
+        share_audio,
+        send_video_,
+        send_screen_audio_
+    );
 }
 
 void ScreenSession::stop_sharing() {
     sender_.stop_sharing();
 }
 
-void ScreenSession::push_video_packet(const std::string& peer_id, const uint8_t* data, const size_t len) {
-    receiver_.push_video_packet(peer_id, data, len);
+void ScreenSession::push_video_packet(
+    const std::string& peer_id,
+    const utils::vector_view<const uint8_t> data
+) {
+    receiver_.push_video_packet(peer_id, data);
 }
 
-void ScreenSession::push_audio_packet(const uint8_t* data, const size_t len) {
-    receiver_.push_audio_packet(data, len);
+void ScreenSession::push_audio_packet(const utils::vector_view<const uint8_t> data) {
+    receiver_.push_audio_packet(data);
 }
 
 void ScreenSession::update() {
@@ -47,10 +62,12 @@ void ScreenSession::update() {
             const auto v_ts = receiver_.video_front_effective_ts();
             const auto a_ts = receiver_.audio_front_effective_ts();
             if (v_ts && a_ts) {
-                const auto drift_ms = std::chrono::duration_cast<std::chrono::milliseconds>(*a_ts - *v_ts);
                 const auto
-                    frame_ms = std::chrono::duration_cast<std::chrono::milliseconds>(receiver_.video_frame_duration());
-                const auto max_sync_ms = std::chrono::duration_cast<std::chrono::milliseconds>(max_sync_);
+                    drift_ms = std::chrono::duration_cast<std::chrono::milliseconds>(*a_ts - *v_ts);
+                const auto frame_ms = std::chrono::duration_cast<
+                    std::chrono::milliseconds>(receiver_.video_frame_duration());
+                const auto
+                    max_sync_ms = std::chrono::duration_cast<std::chrono::milliseconds>(max_sync_);
                 if (drift_ms > max_sync_ms + frame_ms) {
                     receiver_.evict_video_before(*a_ts - frame_ms);
                 }

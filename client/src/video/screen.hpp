@@ -62,8 +62,11 @@ public:
     ScreenReceiver(const ScreenReceiver&)            = delete;
     ScreenReceiver& operator=(const ScreenReceiver&) = delete;
 
-    void push_video_packet(const std::string& peer_id, const uint8_t* data, size_t len);
-    void push_audio_packet(const uint8_t* data, size_t len);
+    void push_video_packet(
+        const std::string& peer_id,
+        const utils::vector_view<const uint8_t> data
+    );
+    void push_audio_packet(const utils::vector_view<const uint8_t> data);
 
     const VideoReceiver::Frame* update();
 
@@ -86,10 +89,16 @@ public:
     // A/V sync — sender-timestamp-based.
     bool video_primed() const { return video_recv_.primed(); }
     bool audio_primed() const { return audio_recv_->primed(); }
-    std::optional<utils::WallTimestamp> video_front_effective_ts() const { return video_recv_.front_effective_ts(); }
-    std::optional<utils::WallTimestamp> audio_front_effective_ts() const { return audio_recv_->front_effective_ts(); }
+    std::optional<utils::WallTimestamp> video_front_effective_ts() const {
+        return video_recv_.front_effective_ts();
+    }
+    std::optional<utils::WallTimestamp> audio_front_effective_ts() const {
+        return audio_recv_->front_effective_ts();
+    }
     utils::Duration video_frame_duration() const { return video_recv_.front_frame_duration(); }
-    size_t evict_video_before(utils::WallTimestamp cutoff) { return video_recv_.evict_before_sender_ts(cutoff); }
+    size_t evict_video_before(utils::WallTimestamp cutoff) {
+        return video_recv_.evict_before_sender_ts(cutoff);
+    }
 
     int64_t video_front_age_ms() const { return video_recv_.front_age_ms(); }
     int64_t audio_front_age_ms() const { return audio_recv_->front_age_ms(); }

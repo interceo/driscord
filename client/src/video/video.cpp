@@ -71,7 +71,9 @@ void VideoSender::encode_loop() {
         ScreenCapture::Frame frame;
         {
             std::unique_lock lk(frame_mutex_);
-            frame_cv_.wait_for(lk, std::chrono::milliseconds(100), [this] { return frame_ready_ || !encode_running_; });
+            frame_cv_.wait_for(lk, std::chrono::milliseconds(100), [this] {
+                return frame_ready_ || !encode_running_;
+            });
             if (!frame_ready_) {
                 continue;
             }
@@ -94,7 +96,8 @@ void VideoSender::encode_loop() {
             continue;
         }
 
-        const auto capture_ts = frame.capture_ts.time_since_epoch().count() != 0 ? frame.capture_ts : WallNow();
+        const auto capture_ts =
+            frame.capture_ts.time_since_epoch().count() != 0 ? frame.capture_ts : WallNow();
 
         const protocol::VideoHeader vh{
             .width             = static_cast<uint32_t>(frame.width),
@@ -105,7 +108,11 @@ void VideoSender::encode_loop() {
         };
         frame_buf_.resize(protocol::VideoHeader::kWireSize + encoded.size());
         vh.serialize(frame_buf_.data());
-        std::memcpy(frame_buf_.data() + protocol::VideoHeader::kWireSize, encoded.data(), encoded.size());
+        std::memcpy(
+            frame_buf_.data() + protocol::VideoHeader::kWireSize,
+            encoded.data(),
+            encoded.size()
+        );
 
         on_video_(frame_buf_.data(), frame_buf_.size());
     }
@@ -116,28 +123,23 @@ VideoReceiver::VideoReceiver(int buffer_ms, int /*max_sync_gap_ms*/)
     if (!decoder_.init()) {
         LOG_ERROR() << "failed to init video decoder";
     }
-    decode_running_ = true;
-    decode_thread_  = std::thread(&VideoReceiver::decode_loop, this);
 }
 
-VideoReceiver::~VideoReceiver() {
-    decode_running_ = false;
-    sem_.release(); // wake decode thread if blocked on acquire
-    if (decode_thread_.joinable()) {
-        decode_thread_.join();
-    }
-}
+VideoReceiver::~VideoReceiver() = default;
 
 void VideoReceiver::set_keyframe_callback(std::function<void()> fn) {
     on_keyframe_needed_ = std::move(fn);
 }
 
-void VideoReceiver::push_video_packet(const std::string& peer_id, const uint8_t* data, size_t len) {
-    if (len <= protocol::VideoHeader::kWireSize) {
+void VideoReceiver::push_video_packet(
+    const std::string& peer_id,
+    const utils::vector_view<const uint8_t> data
+) {
+    if (data.size() <= protocol::VideoHeader::kWireSize) {
         return;
     }
 
-    const auto vh = protocol::VideoHeader::deserialize(data);
+    const auto vh = protocol::VideoHeader::deserialize(data.data());
     if (vh.width == 0 || vh.height == 0 || vh.width > 7680 || vh.height > 4320) {
         return;
     }
@@ -152,66 +154,41 @@ void VideoReceiver::push_video_packet(const std::string& peer_id, const uint8_t*
         return;
     }
 
-    bytes_since_calc_ += len;
+    bytes_since_calc_ += data.size();
     const auto now        = utils::Now();
     const auto elapsed_ms = utils::ElapsedMs(last_calc_, now);
+
     if (elapsed_ms >= 1000) {
-        measured_kbps_.store(static_cast<int>(bytes_since_calc_ * 8 / elapsed_ms), std::memory_order_relaxed);
+        measured_kbps_
+            .store(static_cast<int>(bytes_since_calc_ * 8 / elapsed_ms), std::memory_order_relaxed);
         bytes_since_calc_ = 0;
         last_calc_        = now;
     }
 
-    // SPSC push — never blocks. If the queue is full the decode thread is
-    // lagging; drop the frame (decoder will request a keyframe on next failure).
-    const size_t h    = head_.load(std::memory_order_relaxed);
-    const size_t next = (h + 1) % kQueueCapacity;
-    if (next == tail_.load(std::memory_order_acquire)) {
-        LOG_WARNING() << "[video-recv] decode queue full, dropping frame";
-        return;
-    }
+    const uint8_t* encoded   = data.data() + protocol::VideoHeader::kWireSize;
+    const size_t encoded_len = data.size() - protocol::VideoHeader::kWireSize;
 
-    auto& slot   = ring_[h];
-    slot.peer_id = peer_id;
-    slot.vh      = vh;
-    slot.encoded.assign(data + protocol::VideoHeader::kWireSize, data + len);
-
-    head_.store(next, std::memory_order_release);
-    sem_.release();
-}
-
-void VideoReceiver::decode_loop() {
-    while (true) {
-        sem_.acquire();
-        if (!decode_running_) {
-            break;
-        }
-
-        const size_t t = tail_.load(std::memory_order_relaxed);
-        auto& slot     = ring_[t];
-
-        std::vector<uint8_t> rgba;
-        int w = 0, h = 0;
-        if (decoder_.decode(slot.encoded, rgba, w, h)) {
-            decode_failures_ = 0;
-            video_.push(
-                Frame{
-                    .rgba           = std::move(rgba),
-                    .width          = w,
-                    .height         = h,
-                    .sender_ts      = slot.vh.sender_ts,
-                    .frame_duration = std::chrono::microseconds(slot.vh.frame_duration_us),
-                }
-            );
-        } else {
-            ++decode_failures_;
-            const auto kf_now = utils::Now();
-            if (on_keyframe_needed_ && (decode_failures_ == 1 || utils::ElapsedMs(last_keyframe_req_, kf_now) >= 500)) {
-                on_keyframe_needed_();
-                last_keyframe_req_ = kf_now;
+    std::vector<uint8_t> rgba;
+    int w = 0, h = 0;
+    if (decoder_.decode(encoded, encoded_len, rgba, w, h)) {
+        decode_failures_ = 0;
+        video_.push(
+            Frame{
+                .rgba           = std::move(rgba),
+                .width          = w,
+                .height         = h,
+                .sender_ts      = vh.sender_ts,
+                .frame_duration = std::chrono::microseconds(vh.frame_duration_us),
             }
+        );
+    } else {
+        ++decode_failures_;
+        const auto kf_now = utils::Now();
+        if (on_keyframe_needed_ &&
+            (decode_failures_ == 1 || utils::ElapsedMs(last_keyframe_req_, kf_now) >= 500)) {
+            on_keyframe_needed_();
+            last_keyframe_req_ = kf_now;
         }
-
-        tail_.store((t + 1) % kQueueCapacity, std::memory_order_release);
     }
 }
 

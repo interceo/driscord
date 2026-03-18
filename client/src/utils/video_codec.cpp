@@ -374,13 +374,13 @@ void VideoDecoder::shutdown() {
     last_h_ = 0;
 }
 
-bool VideoDecoder::decode(const std::vector<uint8_t>& data, std::vector<uint8_t>& rgba_out, int& out_w, int& out_h) {
+bool VideoDecoder::decode(const uint8_t* data, size_t len, std::vector<uint8_t>& rgba_out, int& out_w, int& out_h) {
     if (!ctx_) {
         return false;
     }
 
-    pkt_->data = const_cast<uint8_t*>(data.data());
-    pkt_->size = static_cast<int>(data.size());
+    pkt_->data = const_cast<uint8_t*>(data);
+    pkt_->size = static_cast<int>(len);
 
     int ret    = avcodec_send_packet(ctx_.get(), pkt_.get());
     pkt_->data = nullptr;
