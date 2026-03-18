@@ -79,8 +79,8 @@ public:
 
     VideoJitter::Stats video_stats() const { return video_.stats(); }
 
-    // Drop all buffered frames older than max_delay_ms. Called from the render thread.
     size_t evict_old(int max_delay_ms) { return video_.evict_old(max_delay_ms); }
+    int64_t front_age_ms() const { return video_.front_age_ms(); }
 
     void reset();
 

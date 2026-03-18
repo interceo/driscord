@@ -44,6 +44,15 @@ void ScreenSession::push_audio_packet(const uint8_t* data, size_t len) {
 void ScreenSession::update() {
     if (max_sync_ms_ > 0) {
         receiver_.evict_old(max_sync_ms_);
+
+        // A/V sync: if video packets are sitting much longer than audio,
+        // video is accumulating faster than it's consumed. Evict old video
+        // frames down to audio's lag level + tolerance.
+        const int64_t v_age = receiver_.video_front_age_ms();
+        const int64_t a_age = receiver_.audio_front_age_ms();
+        if (v_age > 0 && a_age > 0 && v_age - a_age > max_sync_ms_ / 2) {
+            receiver_.evict_old_video(static_cast<int>(a_age) + max_sync_ms_ / 4);
+        }
     }
 
     const auto now = Clock::now();
