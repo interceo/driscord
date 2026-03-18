@@ -19,49 +19,50 @@ data class TurnServerConfig(
 
 @Serializable
 data class AppConfig(
-    @SerialName("server_host")       val serverHost: String         = "localhost",
-    @SerialName("server_port")       val serverPort: Int            = 8080,
-    @SerialName("screen_fps")        val screenFps: Int             = 60,
-    @SerialName("capture_width")     val captureWidth: Int          = 1920,
-    @SerialName("capture_height")    val captureHeight: Int         = 1080,
-    @SerialName("video_bitrate_kbps") val videoBitrateKbps: Int     = 8000,
-    @SerialName("voice_jitter_ms")   val voiceJitterMs: Int         = 80,
-    @SerialName("screen_buffer_ms")  val screenBufferMs: Int        = 120,
-    @SerialName("max_sync_gap_ms")   val maxSyncGapMs: Int          = 2000,
-    @SerialName("hold_threshold_ms") val holdThresholdMs: Int        = 50,
-    @SerialName("drain_threshold_ms") val drainThresholdMs: Int      = 50,
-    @SerialName("turn_servers")      val turnServers: List<TurnServerConfig> = emptyList(),
+    @SerialName("server_host") val serverHost: String = "localhost",
+    @SerialName("server_port") val serverPort: Int = 8080,
+    @SerialName("screen_fps") val screenFps: Int = 60,
+    @SerialName("capture_width") val captureWidth: Int = 1920,
+    @SerialName("capture_height") val captureHeight: Int = 1080,
+    @SerialName("video_bitrate_kbps") val videoBitrateKbps: Int = 8000,
+    @SerialName("gop_size") val gopSize: Int = 30,
+    @SerialName("voice_jitter_ms") val voiceJitterMs: Int = 80,
+    @SerialName("screen_buffer_ms") val screenBufferMs: Int = 120,
+    @SerialName("max_sync_gap_ms") val maxSyncGapMs: Int = 2000,
+    @SerialName("turn_servers") val turnServers: List<TurnServerConfig> = emptyList(),
 ) {
     val serverUrl: String get() = "ws://$serverHost:$serverPort"
 
     // Validation — same rules as config.cpp
-    fun validated(): AppConfig = copy(
-        serverHost       = serverHost.ifBlank { "localhost" },
-        serverPort       = serverPort.coerceIn(1, 65535),
-        screenFps        = screenFps.coerceIn(1, 240),
-        videoBitrateKbps = videoBitrateKbps.coerceIn(100, 100_000),
-        voiceJitterMs    = voiceJitterMs.coerceIn(0, 500),
-        screenBufferMs   = screenBufferMs.coerceIn(0, 500),
-        maxSyncGapMs     = maxSyncGapMs.coerceIn(100, 10_000),
-        holdThresholdMs  = holdThresholdMs.coerceIn(0, 1000),
-        drainThresholdMs = drainThresholdMs.coerceIn(0, 1000),
-    )
+    fun validated(): AppConfig =
+        copy(
+            serverHost = serverHost.ifBlank { "localhost" },
+            serverPort = serverPort.coerceIn(1, 65535),
+            screenFps = screenFps.coerceIn(1, 240),
+            videoBitrateKbps = videoBitrateKbps.coerceIn(100, 100_000),
+            gopSize = gopSize.coerceIn(1, 240),
+            voiceJitterMs = voiceJitterMs.coerceIn(0, 500),
+            screenBufferMs = screenBufferMs.coerceIn(0, 500),
+            maxSyncGapMs = maxSyncGapMs.coerceIn(100, 10_000),
+        )
 
     companion object {
-        private val json = Json {
-            ignoreUnknownKeys = true
-            isLenient = true
-            prettyPrint = true
-        }
+        private val json =
+            Json {
+                ignoreUnknownKeys = true
+                isLenient = true
+                prettyPrint = true
+            }
 
         /**
          * Loads config from an explicit path.
          * Returns defaults on missing file or parse error.
          */
-        fun load(path: String): AppConfig = runCatching {
-            val text = File(path).readText()
-            json.decodeFromString<AppConfig>(text).validated()
-        }.getOrElse { AppConfig() }
+        fun load(path: String): AppConfig =
+            runCatching {
+                val text = File(path).readText()
+                json.decodeFromString<AppConfig>(text).validated()
+            }.getOrElse { AppConfig() }
 
         /**
          * Mirrors Config::load_default() from config.cpp:
@@ -77,25 +78,27 @@ data class AppConfig(
         fun loadDefault(): AppConfig {
             val isWindows = System.getProperty("os.name").lowercase().contains("win")
 
-            val candidates: List<File> = buildList {
-                add(File("driscord.json"))
+            val candidates: List<File> =
+                buildList {
+                    add(File("driscord.json"))
 
-                if (isWindows) {
-                    val appData = System.getenv("LOCALAPPDATA")
-                    if (!appData.isNullOrBlank()) {
-                        add(File(appData, "driscord/config.json"))
-                    }
-                } else {
-                    // 2. ~/.config/driscord/config.json  (XDG)
-                    val xdgConfig = System.getenv("XDG_CONFIG_HOME")
-                    val configDir = if (!xdgConfig.isNullOrBlank()) {
-                        File(xdgConfig)
+                    if (isWindows) {
+                        val appData = System.getenv("LOCALAPPDATA")
+                        if (!appData.isNullOrBlank()) {
+                            add(File(appData, "driscord/config.json"))
+                        }
                     } else {
-                        File(System.getProperty("user.home"), ".config")
+                        // 2. ~/.config/driscord/config.json  (XDG)
+                        val xdgConfig = System.getenv("XDG_CONFIG_HOME")
+                        val configDir =
+                            if (!xdgConfig.isNullOrBlank()) {
+                                File(xdgConfig)
+                            } else {
+                                File(System.getProperty("user.home"), ".config")
+                            }
+                        add(File(configDir, "driscord/config.json"))
                     }
-                    add(File(configDir, "driscord/config.json"))
                 }
-            }
 
             for (f in candidates) {
                 if (f.exists() && f.isFile) {
@@ -114,23 +117,31 @@ data class AppConfig(
          */
         fun defaultConfigPath(): String {
             val isWindows = System.getProperty("os.name").lowercase().contains("win")
-            val candidates: List<File> = buildList {
-                add(File("driscord.json"))
-                if (isWindows) {
-                    val appData = System.getenv("LOCALAPPDATA")
-                    if (!appData.isNullOrBlank()) add(File(appData, "driscord/config.json"))
-                } else {
-                    val xdgConfig = System.getenv("XDG_CONFIG_HOME")
-                    val configDir = if (!xdgConfig.isNullOrBlank()) File(xdgConfig)
-                                    else File(System.getProperty("user.home"), ".config")
-                    add(File(configDir, "driscord/config.json"))
+            val candidates: List<File> =
+                buildList {
+                    add(File("driscord.json"))
+                    if (isWindows) {
+                        val appData = System.getenv("LOCALAPPDATA")
+                        if (!appData.isNullOrBlank()) add(File(appData, "driscord/config.json"))
+                    } else {
+                        val xdgConfig = System.getenv("XDG_CONFIG_HOME")
+                        val configDir =
+                            if (!xdgConfig.isNullOrBlank()) {
+                                File(xdgConfig)
+                            } else {
+                                File(System.getProperty("user.home"), ".config")
+                            }
+                        add(File(configDir, "driscord/config.json"))
+                    }
                 }
-            }
             return (candidates.firstOrNull { it.exists() } ?: candidates.first()).absolutePath
         }
 
         /** Writes config as JSON to the given path, creating parent dirs as needed. */
-        fun save(config: AppConfig, path: String) {
+        fun save(
+            config: AppConfig,
+            path: String,
+        ) {
             val file = File(path)
             file.parentFile?.mkdirs()
             file.writeText(json.encodeToString(config.validated()))

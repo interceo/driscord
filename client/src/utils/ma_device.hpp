@@ -8,7 +8,7 @@ public:
 
     ~MaDevice() { stop(); }
 
-    MaDevice(const MaDevice&) = delete;
+    MaDevice(const MaDevice&)            = delete;
     MaDevice& operator=(const MaDevice&) = delete;
 
     bool start(const ma_device_config& cfg);

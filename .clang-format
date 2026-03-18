@@ -1,29 +1,59 @@
-BasedOnStyle: Google
-DerivePointerAlignment: false
-AttributeMacros: ["noexcept"]
-IndentRequiresClause: false
+BasedOnStyle: LLVM
 ColumnLimit: 120
 IndentWidth: 4
 TabWidth: 4
+UseTab: Never
 AccessModifierOffset: -4
+DerivePointerAlignment: false
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+# Braces: attach { to the preceding construct
+BreakBeforeBraces: Attach
+InsertBraces: true
+
+# Parameters / arguments: either all on one line or each on its own
 BinPackParameters: false
 BinPackArguments: false
-AlignAfterOpenBracket: BlockIndent
-AlwaysBreakAfterDefinitionReturnType: None
 AllowAllParametersOfDeclarationOnNextLine: false
 AllowAllArgumentsOnNextLine: false
-BreakBeforeBraces: Custom
-BraceWrapping:
-    AfterControlStatement: MultiLine
-PenaltyBreakOpenParenthesis: 5000000
-PenaltyIndentedWhitespace: 100000
-PenaltyBreakFirstLessLess: 0
-PenaltyBreakScopeResolution: 20000000
-PenaltyBreakAssignment: 10000
-PenaltyExcessCharacter: 1000000000
-PenaltyBreakBeforeFirstCallParameter: 1
-PenaltyReturnTypeOnItsOwnLine: 10000000
-InsertBraces: true
-IndentWrappedFunctionNames: false
+AlignAfterOpenBracket: BlockIndent
+
+# Constructor initializers
+BreakConstructorInitializers: BeforeComma
+PackConstructorInitializers: Never
+
+# Short constructs
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortLambdasOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Empty
+
+# Alignment
+AlignConsecutiveAssignments:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: false
+  AlignCompound: false
+  PadOperators: true
+AlignTrailingComments:
+  Kind: Always
+  OverEmptyLines: 0
+
+# Includes
 SortIncludes: CaseInsensitive
 IncludeBlocks: Preserve
+
+# C++20
+IndentRequiresClause: false
+
+# Penalty tuning: keep return types and scope resolutions on one line
+PenaltyBreakOpenParenthesis: 5000000
+PenaltyBreakBeforeFirstCallParameter: 1
+PenaltyReturnTypeOnItsOwnLine: 10000000
+PenaltyBreakScopeResolution: 20000000
+PenaltyExcessCharacter: 1000000000
+PenaltyBreakFirstLessLess: 0
+PenaltyBreakAssignment: 10000
+PenaltyIndentedWhitespace: 100000
