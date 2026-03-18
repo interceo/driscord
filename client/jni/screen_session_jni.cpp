@@ -194,9 +194,9 @@ JNIEXPORT jstring JNICALL Java_com_driscord_jni_NativeScreenSession_stats(JNIEnv
         {"height", s->session.last_height()},
         {"measuredKbps", s->session.measured_kbps()},
         {"video",
-          {{"queue", vs.queue_size}, {"bufMs", vs.buffered_ms}, {"drops", vs.drop_count}, {"misses", vs.miss_count}}},
+          {{"queue", vs.queue_size}, {"drops", vs.drop_count}, {"misses", vs.miss_count}}},
         {"audio",
-          {{"queue", as.queue_size}, {"bufMs", as.buffered_ms}, {"drops", as.drop_count}, {"misses", as.miss_count}}}
+          {{"queue", as.queue_size}, {"drops", as.drop_count}, {"misses", as.miss_count}}}
     };
     return env->NewStringUTF(j.dump().c_str());
 }

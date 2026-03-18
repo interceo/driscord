@@ -140,6 +140,15 @@ AudioReceiver::Stats ScreenReceiver::audio_stats() const {
     return audio_recv_->stats();
 }
 
+void ScreenReceiver::evict_old(int max_delay_ms) {
+    const size_t vdrop = video_recv_.evict_old(max_delay_ms);
+    const size_t adrop = audio_recv_->evict_old(max_delay_ms);
+    if (vdrop > 0 || adrop > 0) {
+        LOG_INFO() << "[screen-recv] evict_old(" << max_delay_ms << "ms)"
+                   << " video=" << vdrop << " audio=" << adrop;
+    }
+}
+
 void ScreenReceiver::reset() {
     video_recv_.reset();
     audio_recv_->reset();

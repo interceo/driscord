@@ -30,6 +30,10 @@ inline WallTimestamp WallNow() {
     return std::chrono::system_clock::now();
 }
 
+inline uint64_t WallToMs(Timestamp ts) {
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(ts.time_since_epoch()).count());
+}
+
 inline uint64_t WallToMs(WallTimestamp ts) {
     return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(ts.time_since_epoch()).count());
 }

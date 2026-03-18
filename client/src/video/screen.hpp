@@ -80,6 +80,9 @@ public:
     VideoJitter::Stats video_stats() const;
     AudioReceiver::Stats audio_stats() const;
 
+    // Evict stale packets from both video and audio jitter buffers.
+    void evict_old(int max_delay_ms);
+
     void reset();
 
 private:

@@ -154,7 +154,7 @@ void AudioReceiver::push_packet(const uint8_t* data, size_t len) {
             mono_buf_[static_cast<size_t>(i)] = (sum / channels_) * vol;
         }
         std::vector<float> pcm(mono_buf_.begin(), mono_buf_.begin() + samples);
-        jitter_.push(std::move(pcm), ah.seq, ah.sender_ts);
+        jitter_.push(std::move(pcm), ah.seq);
     } else {
         if (vol != 1.0f) {
             for (int i = 0; i < samples; ++i) {
@@ -162,19 +162,16 @@ void AudioReceiver::push_packet(const uint8_t* data, size_t len) {
             }
         }
         std::vector<float> pcm(decode_buf_.begin(), decode_buf_.begin() + samples);
-        jitter_.push(std::move(pcm), ah.seq, ah.sender_ts);
+        jitter_.push(std::move(pcm), ah.seq);
     }
 
     ++push_count_;
     if (push_count_ == 1) {
-        LOG_INFO()
-            << "[audio-recv/" << id_ << "] first push seq=" << ah.seq << " sender_ts=" << utils::WallToMs(ah.sender_ts)
-            << " queue=" << jitter_.queue_size();
+        LOG_INFO() << "[audio-recv/" << id_ << "] first push seq=" << ah.seq << " queue=" << jitter_.queue_size();
     } else if (push_count_ % 30 == 0) {
         const auto st = jitter_.stats();
         LOG_INFO()
-            << "[audio-recv/" << id_ << "] push#" << push_count_ << " sender_ts=" << utils::WallToMs(ah.sender_ts)
-            << " age_ms=" << utils::WallElapsedMs(ah.sender_ts) << " queue=" << st.queue_size
+            << "[audio-recv/" << id_ << "] push#" << push_count_ << " queue=" << st.queue_size
             << " drops=" << st.drop_count << " misses=" << st.miss_count;
     }
 }

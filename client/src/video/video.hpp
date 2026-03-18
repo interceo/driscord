@@ -70,7 +70,6 @@ public:
     void push_video_packet(const std::string& peer_id, const uint8_t* data, size_t len);
 
     const VideoJitter::Frame* update();
-    const VideoJitter::Frame* current_frame() const;
 
     void set_keyframe_callback(std::function<void()> fn);
 
@@ -79,6 +78,9 @@ public:
     int measured_kbps() const { return measured_kbps_.load(std::memory_order_relaxed); }
 
     VideoJitter::Stats video_stats() const { return video_.stats(); }
+
+    // Drop all buffered frames older than max_delay_ms. Called from the render thread.
+    size_t evict_old(int max_delay_ms) { return video_.evict_old(max_delay_ms); }
 
     void reset();
 
@@ -116,4 +118,6 @@ private:
     std::atomic<int> measured_kbps_{0};
     size_t bytes_since_calc_ = 0;
     utils::Timestamp last_calc_{};
+
+    std::optional<VideoJitter::Frame> current_frame_;
 };

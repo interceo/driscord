@@ -1,5 +1,7 @@
 #include "screen_session.hpp"
 
+#include <chrono>
+
 ScreenSession::ScreenSession(
     int buf_ms,
     int max_sync_ms,
@@ -9,7 +11,8 @@ ScreenSession::ScreenSession(
 )
     : receiver_(buf_ms, max_sync_ms)
     , send_video_(std::move(send_video))
-    , send_screen_audio_(std::move(send_screen_audio)) {
+    , send_screen_audio_(std::move(send_screen_audio))
+    , max_sync_ms_(max_sync_ms) {
     receiver_.set_keyframe_callback(std::move(on_keyframe_req));
 }
 
@@ -39,6 +42,17 @@ void ScreenSession::push_audio_packet(const uint8_t* data, size_t len) {
 }
 
 void ScreenSession::update() {
+    if (max_sync_ms_ > 0) {
+        receiver_.evict_old(max_sync_ms_);
+    }
+
+    const auto now = Clock::now();
+    if (now - last_stats_refresh_ >= std::chrono::milliseconds(500)) {
+        cached_video_stats_ = receiver_.video_stats();
+        cached_audio_stats_ = receiver_.audio_stats();
+        last_stats_refresh_ = now;
+    }
+
     if (const auto* frame = receiver_.update()) {
         std::string peer = receiver_.active_peer();
         if (!peer.empty()) {
