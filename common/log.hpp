@@ -34,9 +34,11 @@ public:
         const auto tt = std::chrono::system_clock::to_time_t(now);
 
         std::tm tm{};
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(__MINGW32__)
+        // MSVC / native Windows CRT — provides localtime_s
         localtime_s(&tm, &tt);
 #else
+        // Linux, macOS, and MinGW cross-compile (which has localtime_r via POSIX)
         localtime_r(&tt, &tm);
 #endif
 

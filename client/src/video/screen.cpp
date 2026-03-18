@@ -11,16 +11,15 @@ ScreenSender::~ScreenSender() {
 
 bool ScreenSender::start_sharing(
     const CaptureTarget& target,
-    int max_w,
-    int max_h,
-    int fps,
-    int bitrate_kbps,
-    int gop_size,
+    const size_t max_w,
+    const size_t max_h,
+    const size_t fps,
+    const size_t bitrate_kbps,
     bool share_audio,
     SendCb on_video,
     SendCb on_screen_audio
 ) {
-    if (!video_sender_.start(fps, bitrate_kbps, gop_size, std::move(on_video))) {
+    if (!video_sender_.start(fps, bitrate_kbps, std::move(on_video))) {
         return false;
     }
 
@@ -116,7 +115,7 @@ void ScreenReceiver::push_audio_packet(const uint8_t* data, size_t len) {
     audio_recv_->push_packet(data, len);
 }
 
-const VideoJitter::Frame* ScreenReceiver::update() {
+const VideoReceiver::Frame* ScreenReceiver::update() {
     return video_recv_.update();
 }
 
@@ -133,19 +132,21 @@ bool ScreenReceiver::active() const {
 int ScreenReceiver::measured_kbps() const {
     return video_recv_.measured_kbps();
 }
-VideoJitter::Stats ScreenReceiver::video_stats() const {
+VideoReceiver::Stats ScreenReceiver::video_stats() const {
     return video_recv_.video_stats();
 }
 AudioReceiver::Stats ScreenReceiver::audio_stats() const {
     return audio_recv_->stats();
 }
 
-void ScreenReceiver::evict_old(int max_delay_ms) {
-    const size_t vdrop = video_recv_.evict_old(max_delay_ms);
-    const size_t adrop = audio_recv_->evict_old(max_delay_ms);
+void ScreenReceiver::evict_old(utils::Duration max_delay) {
+    const size_t vdrop = video_recv_.evict_old(max_delay);
+    const size_t adrop = audio_recv_->evict_old(max_delay);
     if (vdrop > 0 || adrop > 0) {
-        LOG_INFO() << "[screen-recv] evict_old(" << max_delay_ms << "ms)"
-                   << " video=" << vdrop << " audio=" << adrop;
+        LOG_INFO()
+            << "[screen-recv] evict_old(" << std::chrono::duration_cast<std::chrono::milliseconds>(max_delay).count()
+            << "ms)"
+            << " video=" << vdrop << " audio=" << adrop;
     }
 }
 

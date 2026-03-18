@@ -11,13 +11,24 @@ group = "com.driscord"
 version = "1.0.0"
 
 // ---------------------------------------------------------------------------
-// Output directory: ../builds  (on Windows mapped as Z:\)
-// Can be overridden via DRISCORD_BUILDS_DIR env var or -PbuildsDir=<path>
+// Output directories
+//   buildsRoot      — top-level builds/ folder (gradle cache, kotlin class output)
+//   clientBuildDir  — final staging dir for the distributable client package
+//
+// Override via:
+//   -PbuildsDir=<path>      or  DRISCORD_BUILDS_DIR env var
+//   -PclientBuildDir=<path> or  DRISCORD_CLIENT_BUILD_DIR env var
 // ---------------------------------------------------------------------------
 val buildsRoot: String = (
     findProperty("buildsDir") as String?
         ?: System.getenv("DRISCORD_BUILDS_DIR")
         ?: Paths.get(rootDir.parent, "builds").toString()
+)
+
+val clientBuildDir: String = (
+    findProperty("clientBuildDir") as String?
+        ?: System.getenv("DRISCORD_CLIENT_BUILD_DIR")
+        ?: Paths.get(buildsRoot, "client-compose").toString()
 )
 
 layout.buildDirectory.set(file("$buildsRoot/kotlin"))
@@ -53,7 +64,7 @@ tasks.register<Jar>("fatJar") {
     description = "Assembles a self-contained uber-JAR with all runtime dependencies"
 
     archiveFileName.set("driscord.jar")
-    destinationDirectory.set(file("$buildsRoot/dist"))
+    destinationDirectory.set(file(clientBuildDir))
 
     manifest {
         attributes(

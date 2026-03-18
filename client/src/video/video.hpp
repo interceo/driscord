@@ -1,9 +1,9 @@
 #pragma once
 
 #include "capture/screen_capture.hpp"
+#include "utils/jitter.hpp"
 #include "utils/protocol.hpp"
 #include "utils/video_codec.hpp"
-#include "video_jitter.hpp"
 
 #include <array>
 #include <atomic>
@@ -25,12 +25,12 @@ public:
     VideoSender(const VideoSender&)            = delete;
     VideoSender& operator=(const VideoSender&) = delete;
 
-    bool start(int fps, int base_bitrate_kbps, int gop_size, SendCb on_video);
+    bool start(const size_t fps, const size_t base_bitrate_kbps, SendCb on_video);
     void stop();
 
     void push_frame(ScreenCapture::Frame&& frame);
 
-    bool sharing() const { return sharing_; }
+    bool sharing() const noexcept { return sharing_; }
     void force_keyframe() { video_encoder_.force_keyframe(); }
     int measured_kbps() const { return video_encoder_.measured_kbps(); }
     int width() const { return video_encoder_.width(); }
@@ -50,9 +50,8 @@ private:
     ScreenCapture::Frame pending_frame_;
     bool frame_ready_ = false;
 
-    int fps_               = 0;
-    int base_bitrate_kbps_ = 0;
-    int gop_size           = 0;
+    size_t fps_               = 0;
+    size_t base_bitrate_kbps_ = 0;
 
     std::vector<uint8_t> frame_buf_;
 
@@ -61,6 +60,19 @@ private:
 
 class VideoReceiver {
 public:
+    struct Frame {
+        std::vector<uint8_t> rgba;
+        int width  = 0;
+        int height = 0;
+        utils::WallTimestamp sender_ts{};
+        utils::Duration frame_duration{};
+
+        bool empty() const noexcept { return rgba.empty(); }
+    };
+
+    using VideoJitter = utils::Jitter<Frame>;
+    using Stats       = VideoJitter::Stats;
+
     VideoReceiver(int buffer_ms, int max_sync_gap_ms);
     ~VideoReceiver();
 
@@ -69,7 +81,7 @@ public:
 
     void push_video_packet(const std::string& peer_id, const uint8_t* data, size_t len);
 
-    const VideoJitter::Frame* update();
+    const Frame* update();
 
     void set_keyframe_callback(std::function<void()> fn);
 
@@ -77,9 +89,15 @@ public:
     bool active() const;
     int measured_kbps() const { return measured_kbps_.load(std::memory_order_relaxed); }
 
-    VideoJitter::Stats video_stats() const { return video_.stats(); }
+    Stats video_stats() const { return video_.stats(); }
 
-    size_t evict_old(int max_delay_ms) { return video_.evict_old(max_delay_ms); }
+    size_t evict_old(utils::Duration max_delay) { return video_.evict_old(max_delay); }
+    size_t evict_before_sender_ts(utils::WallTimestamp cutoff) { return video_.evict_before_sender_ts(cutoff); }
+    std::optional<utils::WallTimestamp> front_effective_ts() const { return video_.front_effective_ts(); }
+    utils::Duration front_frame_duration() const {
+        return video_.with_front([](const Frame& f) { return f.frame_duration; }).value_or(utils::Duration{});
+    }
+    bool primed() const { return video_.primed(); }
     int64_t front_age_ms() const { return video_.front_age_ms(); }
 
     void reset();
@@ -119,5 +137,5 @@ private:
     size_t bytes_since_calc_ = 0;
     utils::Timestamp last_calc_{};
 
-    std::optional<VideoJitter::Frame> current_frame_;
+    std::optional<Frame> current_frame_;
 };

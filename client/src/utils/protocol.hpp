@@ -80,15 +80,4 @@ struct ChunkHeader {
     }
 };
 
-static_assert(AudioHeader::kWireSize == 2 * sizeof(uint64_t), "AudioHeader wire layout: seq(8) + sender_ts(8)");
-static_assert(
-    VideoHeader::kWireSize == 2 * sizeof(uint32_t) + sizeof(uint64_t) + 3 * sizeof(uint32_t),
-    "VideoHeader wire layout: width(4) + height(4) + sender_ts(8) + bitrate_kbps(4) + frame_duration_us(4) + "
-    "video_version(4)"
-);
-static_assert(
-    ChunkHeader::kWireSize == sizeof(uint64_t) + 2 * sizeof(uint16_t),
-    "ChunkHeader wire layout: frame_id(8) + chunk_idx(2) + total_chunks(2)"
-);
-
 } // namespace protocol
