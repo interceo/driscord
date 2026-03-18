@@ -93,18 +93,24 @@ void AudioSender::on_capture(const float* input, uint32_t frames) {
 
     uint32_t consumed = 0;
     while (consumed < frames) {
-        uint32_t to_copy = std::min(static_cast<uint32_t>(opus::kFrameSize - capture_pos_), frames - consumed);
+        uint32_t to_copy =
+            std::min(static_cast<uint32_t>(opus::kFrameSize - capture_pos_), frames - consumed);
         std::memcpy(&capture_buf_[capture_pos_], &input[consumed], to_copy * sizeof(float));
         capture_pos_ += to_copy;
         consumed += to_copy;
 
         if (capture_pos_ == static_cast<size_t>(opus::kFrameSize)) {
             uint8_t* opus_start = encode_buf_.data() + protocol::AudioHeader::kWireSize;
-            int bytes           = encoder_->encode(capture_buf_.data(), opus::kFrameSize, opus_start, opus::kMaxPacket);
+            int bytes =
+                encoder_
+                    ->encode(capture_buf_.data(), opus::kFrameSize, opus_start, opus::kMaxPacket);
             if (bytes > 0) {
                 const protocol::AudioHeader ah{.seq = send_seq_++, .sender_ts = WallNow()};
                 ah.serialize(encode_buf_.data());
-                on_packet_(encode_buf_.data(), protocol::AudioHeader::kWireSize + static_cast<size_t>(bytes));
+                on_packet_(
+                    encode_buf_.data(),
+                    protocol::AudioHeader::kWireSize + static_cast<size_t>(bytes)
+                );
             }
             capture_pos_ = 0;
         }
@@ -126,14 +132,14 @@ AudioReceiver::AudioReceiver(int jitter_ms, int channels, int sample_rate)
     }
 }
 
-void AudioReceiver::push_packet(const uint8_t* data, size_t len) {
-    if (len <= protocol::AudioHeader::kWireSize) {
+void AudioReceiver::push_packet(const utils::vector_view<const uint8_t> data) {
+    if (data.size() <= protocol::AudioHeader::kWireSize) {
         return;
     }
 
-    const auto ah            = protocol::AudioHeader::deserialize(data);
-    const uint8_t* opus_data = data + protocol::AudioHeader::kWireSize;
-    int opus_len             = static_cast<int>(len - protocol::AudioHeader::kWireSize);
+    const auto ah            = protocol::AudioHeader::deserialize(data.data());
+    const uint8_t* opus_data = data.data() + protocol::AudioHeader::kWireSize;
+    int opus_len             = static_cast<int>(data.size() - protocol::AudioHeader::kWireSize);
 
     const int samples = decoder_.decode(opus_data, opus_len, decode_buf_.data(), opus::kFrameSize);
     if (samples <= 0) {
@@ -179,7 +185,9 @@ void AudioReceiver::push_packet(const uint8_t* data, size_t len) {
 
     ++push_count_;
     if (push_count_ == 1) {
-        LOG_INFO() << "[audio-recv/" << id_ << "] first push seq=" << ah.seq << " queue=" << jitter_.queue_size();
+        LOG_INFO()
+            << "[audio-recv/" << id_ << "] first push seq=" << ah.seq
+            << " queue=" << jitter_.queue_size();
     } else if (push_count_ % 30 == 0) {
         const auto st = jitter_.stats();
         LOG_INFO()
@@ -193,8 +201,8 @@ std::vector<float> AudioReceiver::pop() {
     ++pop_count_;
     if (pop_count_ % 60 == 0) {
         LOG_INFO()
-            << "[audio-recv/" << id_ << "] pop#" << pop_count_ << " got=" << (result.empty() ? "null" : "frame")
-            << " queue=" << jitter_.queue_size();
+            << "[audio-recv/" << id_ << "] pop#" << pop_count_
+            << " got=" << (result.empty() ? "null" : "frame") << " queue=" << jitter_.queue_size();
     }
     return result;
 }

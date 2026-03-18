@@ -2,6 +2,7 @@
 
 #include "utils/jitter.hpp"
 #include "utils/opus_codec.hpp"
+#include "utils/vector_view.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -67,7 +68,7 @@ public:
     AudioReceiver(const AudioReceiver&)            = delete;
     AudioReceiver& operator=(const AudioReceiver&) = delete;
 
-    void push_packet(const uint8_t* data, size_t len);
+    void push_packet(const utils::vector_view<const uint8_t> data);
     std::vector<float> pop();
 
     void set_volume(float v) { volume_.store(v); }
@@ -77,7 +78,9 @@ public:
     size_t evict_old(utils::Duration max_delay) { return jitter_.evict_old(max_delay); }
 
     // A/V sync helpers.
-    std::optional<utils::WallTimestamp> front_effective_ts() const { return jitter_.front_effective_ts(); }
+    std::optional<utils::WallTimestamp> front_effective_ts() const {
+        return jitter_.front_effective_ts();
+    }
     bool primed() const { return jitter_.primed(); }
 
     int64_t front_age_ms() const { return jitter_.front_age_ms(); }

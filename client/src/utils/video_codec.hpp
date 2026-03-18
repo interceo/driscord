@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "time.hpp"
+#include "vector_view.hpp"
 
 struct AVCodecContext;
 struct SwsContext;
@@ -90,7 +91,13 @@ public:
     void shutdown();
     bool ready() const { return ctx_ != nullptr; }
 
-    bool decode(const std::vector<uint8_t>& data, std::vector<uint8_t>& rgba_out, int& out_w, int& out_h);
+    bool decode(
+        const uint8_t* data,
+        size_t len,
+        std::vector<uint8_t>& rgba_out,
+        int& out_w,
+        int& out_h
+    );
 
 private:
     ff::CodecContextPtr ctx_;

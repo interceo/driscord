@@ -1,11 +1,17 @@
 #include "screen_session_jni.hpp"
 #include "audio/audio_mixer.hpp"
+#include "utils/vector_view.hpp"
 
 #include <nlohmann/json.hpp>
 
 using json = nlohmann::json;
 
-ScreenSessionJni::ScreenSessionJni(int buf_ms, int max_sync_ms, VideoTransportJni* vt, AudioTransportJni* at)
+ScreenSessionJni::ScreenSessionJni(
+    int buf_ms,
+    int max_sync_ms,
+    VideoTransportJni* vt,
+    AudioTransportJni* at
+)
     : session(
           buf_ms,
           std::chrono::milliseconds(max_sync_ms),
@@ -16,7 +22,7 @@ ScreenSessionJni::ScreenSessionJni(int buf_ms, int max_sync_ms, VideoTransportJn
     , video_transport(vt) {
     vt->set_video_sink(
         [this](const std::string& peer_id, const uint8_t* data, size_t len) {
-            session.push_video_packet(peer_id, data, len);
+            session.push_video_packet(peer_id, utils::vector_view<const uint8_t>{data, len});
         },
         [this]() {
             if (session.sharing()) {
@@ -28,7 +34,9 @@ ScreenSessionJni::ScreenSessionJni(int buf_ms, int max_sync_ms, VideoTransportJn
     session.set_on_frame([this](const std::string& peer_id, const uint8_t* rgba, int w, int h) {
         fire_frame(peer_id, rgba, w, h);
     });
-    session.set_on_frame_removed([this](const std::string& peer_id) { fire_remove_frame(peer_id); });
+    session.set_on_frame_removed([this](const std::string& peer_id) {
+        fire_remove_frame(peer_id);
+    });
 }
 
 void ScreenSessionJni::fire_frame(const std::string& peer_id, const uint8_t* rgba, int w, int h) {
@@ -124,21 +132,25 @@ JNIEXPORT jboolean JNICALL Java_com_driscord_jni_NativeScreenSession_startSharin
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 
-JNIEXPORT void JNICALL Java_com_driscord_jni_NativeScreenSession_stopSharing(JNIEnv*, jclass, jlong h) {
+JNIEXPORT void JNICALL
+Java_com_driscord_jni_NativeScreenSession_stopSharing(JNIEnv*, jclass, jlong h) {
     auto* s = SS(h);
     s->session.stop_sharing();
     s->video_transport->channel.send_stop_stream();
 }
 
-JNIEXPORT jboolean JNICALL Java_com_driscord_jni_NativeScreenSession_sharing(JNIEnv*, jclass, jlong h) {
+JNIEXPORT jboolean JNICALL
+Java_com_driscord_jni_NativeScreenSession_sharing(JNIEnv*, jclass, jlong h) {
     return SS(h)->session.sharing() ? JNI_TRUE : JNI_FALSE;
 }
 
-JNIEXPORT jboolean JNICALL Java_com_driscord_jni_NativeScreenSession_sharingAudio(JNIEnv*, jclass, jlong h) {
+JNIEXPORT jboolean JNICALL
+Java_com_driscord_jni_NativeScreenSession_sharingAudio(JNIEnv*, jclass, jlong h) {
     return SS(h)->session.sharing_audio() ? JNI_TRUE : JNI_FALSE;
 }
 
-JNIEXPORT void JNICALL Java_com_driscord_jni_NativeScreenSession_forceKeyframe(JNIEnv*, jclass, jlong h) {
+JNIEXPORT void JNICALL
+Java_com_driscord_jni_NativeScreenSession_forceKeyframe(JNIEnv*, jclass, jlong h) {
     SS(h)->session.force_keyframe();
 }
 
@@ -146,11 +158,13 @@ JNIEXPORT void JNICALL Java_com_driscord_jni_NativeScreenSession_update(JNIEnv*,
     SS(h)->session.update();
 }
 
-JNIEXPORT jstring JNICALL Java_com_driscord_jni_NativeScreenSession_activePeer(JNIEnv* env, jclass, jlong h) {
+JNIEXPORT jstring JNICALL
+Java_com_driscord_jni_NativeScreenSession_activePeer(JNIEnv* env, jclass, jlong h) {
     return env->NewStringUTF(SS(h)->session.active_peer().c_str());
 }
 
-JNIEXPORT jboolean JNICALL Java_com_driscord_jni_NativeScreenSession_active(JNIEnv*, jclass, jlong h) {
+JNIEXPORT jboolean JNICALL
+Java_com_driscord_jni_NativeScreenSession_active(JNIEnv*, jclass, jlong h) {
     return SS(h)->session.active() ? JNI_TRUE : JNI_FALSE;
 }
 
@@ -176,19 +190,23 @@ JNIEXPORT void JNICALL Java_com_driscord_jni_NativeScreenSession_removeAudioRece
     MIXER(mixerHandle)->remove_source(SS(screenHandle)->session.audio_receiver());
 }
 
-JNIEXPORT void JNICALL Java_com_driscord_jni_NativeScreenSession_resetAudioReceiver(JNIEnv*, jclass, jlong h) {
+JNIEXPORT void JNICALL
+Java_com_driscord_jni_NativeScreenSession_resetAudioReceiver(JNIEnv*, jclass, jlong h) {
     SS(h)->session.reset_audio();
 }
 
-JNIEXPORT void JNICALL Java_com_driscord_jni_NativeScreenSession_setStreamVolume(JNIEnv*, jclass, jlong h, jfloat vol) {
+JNIEXPORT void JNICALL
+Java_com_driscord_jni_NativeScreenSession_setStreamVolume(JNIEnv*, jclass, jlong h, jfloat vol) {
     SS(h)->session.audio_receiver()->set_volume(static_cast<float>(vol));
 }
 
-JNIEXPORT jfloat JNICALL Java_com_driscord_jni_NativeScreenSession_streamVolume(JNIEnv*, jclass, jlong h) {
+JNIEXPORT jfloat JNICALL
+Java_com_driscord_jni_NativeScreenSession_streamVolume(JNIEnv*, jclass, jlong h) {
     return SS(h)->session.audio_receiver()->volume();
 }
 
-JNIEXPORT jstring JNICALL Java_com_driscord_jni_NativeScreenSession_stats(JNIEnv* env, jclass, jlong h) {
+JNIEXPORT jstring JNICALL
+Java_com_driscord_jni_NativeScreenSession_stats(JNIEnv* env, jclass, jlong h) {
     auto* s = SS(h);
     auto vs = s->session.video_stats();
     auto as = s->session.audio_stats();
@@ -202,14 +220,19 @@ JNIEXPORT jstring JNICALL Java_com_driscord_jni_NativeScreenSession_stats(JNIEnv
     return env->NewStringUTF(j.dump().c_str());
 }
 
-JNIEXPORT void JNICALL Java_com_driscord_jni_NativeScreenSession_setOnFrame(JNIEnv* env, jclass, jlong h, jobject cb) {
+JNIEXPORT void JNICALL
+Java_com_driscord_jni_NativeScreenSession_setOnFrame(JNIEnv* env, jclass, jlong h, jobject cb) {
     auto* s = SS(h);
     std::scoped_lock lk(s->cb_mutex);
     set_callback(env, s->on_frame_cb, cb, "invoke", "(Ljava/lang/String;[BII)V");
 }
 
-JNIEXPORT void JNICALL
-Java_com_driscord_jni_NativeScreenSession_setOnFrameRemoved(JNIEnv* env, jclass, jlong h, jobject cb) {
+JNIEXPORT void JNICALL Java_com_driscord_jni_NativeScreenSession_setOnFrameRemoved(
+    JNIEnv* env,
+    jclass,
+    jlong h,
+    jobject cb
+) {
     auto* s = SS(h);
     std::scoped_lock lk(s->cb_mutex);
     set_callback(env, s->on_frame_removed_cb, cb, "invoke", "(Ljava/lang/String;)V");
