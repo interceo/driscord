@@ -1,15 +1,20 @@
 #include "screen_session.hpp"
 
-#include "log.hpp"
+#include <chrono>
 
-#include <algorithm>
-#include <cstring>
-
-ScreenSession::~ScreenSession() { stop_sharing(); }
-
-// -------------------------------------------------------------------------
-// Sender side
-// -------------------------------------------------------------------------
+ScreenSession::ScreenSession(
+    int buf_ms,
+    int max_sync_ms,
+    SendCb send_video,
+    std::function<void()> on_keyframe_req,
+    SendCb send_screen_audio
+)
+    : receiver_(buf_ms, max_sync_ms)
+    , send_video_(std::move(send_video))
+    , send_screen_audio_(std::move(send_screen_audio))
+    , max_sync_ms_(max_sync_ms) {
+    receiver_.set_keyframe_callback(std::move(on_keyframe_req));
+}
 
 bool ScreenSession::start_sharing(
     const CaptureTarget& target,
@@ -17,100 +22,92 @@ bool ScreenSession::start_sharing(
     int max_h,
     int fps,
     int bitrate_kbps,
-    bool share_audio,
-    SendCb on_video,
-    SendCb on_screen_audio
+    int gop_size,
+    bool share_audio
 ) {
-    if (!video_sender_.start(fps, bitrate_kbps, std::move(on_video))) {
-        return false;
-    }
-
-    screen_capture_ = ScreenCapture::create();
-    if (!screen_capture_->start(
-            fps,
-            target,
-            max_w,
-            max_h,
-            [this](ScreenCapture::Frame frame) { video_sender_.push_frame(std::move(frame)); }
-        ))
-    {
-        video_sender_.stop();
-        screen_capture_.reset();
-        return false;
-    }
-
-    if (share_audio && on_screen_audio && SystemAudioCapture::available()) {
-        auto enc = std::make_unique<OpusEncode>();
-        if (enc->init(opus::kSampleRate, SystemAudioCapture::kChannels, 128000, 2049 /*OPUS_APPLICATION_AUDIO*/)) {
-            auto cap = SystemAudioCapture::create();
-            if (cap && cap->start([this](const float* s, size_t f, int c) { on_audio_captured_(s, f, c); })) {
-                screen_audio_encoder_ = std::move(enc);
-                system_audio_capture_ = std::move(cap);
-                on_screen_audio_ = std::move(on_screen_audio);
-                screen_audio_buf_.assign(static_cast<size_t>(opus::kFrameSize) * SystemAudioCapture::kChannels, 0.0f);
-                screen_audio_encode_buf_.resize(protocol::AudioHeader::kWireSize + opus::kMaxPacket);
-                screen_audio_pos_ = 0;
-                screen_audio_seq_ = 0;
-            }
-        }
-    }
-
-    return true;
+    return sender_
+        .start_sharing(target, max_w, max_h, fps, bitrate_kbps, gop_size, share_audio, send_video_, send_screen_audio_);
 }
 
 void ScreenSession::stop_sharing() {
-    if (system_audio_capture_) {
-        system_audio_capture_->stop();
-        system_audio_capture_.reset();
-    }
-    screen_audio_encoder_.reset();
-    on_screen_audio_ = nullptr;
-    screen_audio_pos_ = 0;
-    screen_audio_seq_ = 0;
+    sender_.stop_sharing();
+}
 
-    if (screen_capture_) {
-        screen_capture_->stop();
-        screen_capture_.reset();
+void ScreenSession::push_video_packet(const std::string& peer_id, const uint8_t* data, size_t len) {
+    receiver_.push_video_packet(peer_id, data, len);
+}
+
+void ScreenSession::push_audio_packet(const uint8_t* data, size_t len) {
+    receiver_.push_audio_packet(data, len);
+}
+
+void ScreenSession::update() {
+    if (max_sync_ms_ > 0) {
+        receiver_.evict_old(max_sync_ms_);
+
+        // A/V sync: if video packets are sitting much longer than audio,
+        // video is accumulating faster than it's consumed. Evict old video
+        // frames down to audio's lag level + tolerance.
+        const int64_t v_age = receiver_.video_front_age_ms();
+        const int64_t a_age = receiver_.audio_front_age_ms();
+        if (v_age > 0 && a_age > 0 && v_age - a_age > max_sync_ms_ / 2) {
+            receiver_.evict_old_video(static_cast<int>(a_age) + max_sync_ms_ / 4);
+        }
     }
-    video_sender_.stop();
+
+    const auto now = Clock::now();
+    if (now - last_stats_refresh_ >= std::chrono::milliseconds(500)) {
+        cached_video_stats_ = receiver_.video_stats();
+        cached_audio_stats_ = receiver_.audio_stats();
+        last_stats_refresh_ = now;
+    }
+
+    if (const auto* frame = receiver_.update()) {
+        std::string peer = receiver_.active_peer();
+        if (!peer.empty()) {
+            if (!last_peer_.empty() && last_peer_ != peer) {
+                std::scoped_lock lk(cb_mutex_);
+                if (on_frame_removed_cb_) {
+                    on_frame_removed_cb_(last_peer_);
+                }
+            }
+            last_w_ = frame->width;
+            last_h_ = frame->height;
+            {
+                std::scoped_lock lk(cb_mutex_);
+                if (on_frame_cb_) {
+                    on_frame_cb_(peer, frame->rgba.data(), frame->width, frame->height);
+                }
+            }
+            last_peer_ = peer;
+        }
+    }
+    if (!last_peer_.empty() && !receiver_.active()) {
+        {
+            std::scoped_lock lk(cb_mutex_);
+            if (on_frame_removed_cb_) {
+                on_frame_removed_cb_(last_peer_);
+            }
+        }
+        last_peer_.clear();
+    }
+}
+
+void ScreenSession::set_on_frame(OnFrameCb cb) {
+    std::scoped_lock lk(cb_mutex_);
+    on_frame_cb_ = std::move(cb);
+}
+
+void ScreenSession::set_on_frame_removed(OnRemovedCb cb) {
+    std::scoped_lock lk(cb_mutex_);
+    on_frame_removed_cb_ = std::move(cb);
 }
 
 void ScreenSession::reset() {
-    video_recv_.reset();
-    audio_recv_->reset();
+    receiver_.reset();
+    last_peer_.clear();
 }
 
-void ScreenSession::on_audio_captured_(const float* samples, size_t frames, int channels) {
-    if (!screen_audio_encoder_ || !on_screen_audio_) {
-        return;
-    }
-    constexpr int kCh = SystemAudioCapture::kChannels;
-    const size_t stereo_frame = static_cast<size_t>(opus::kFrameSize) * kCh;
-    size_t consumed = 0;
-    while (consumed < frames) {
-        size_t remaining = static_cast<size_t>(opus::kFrameSize) - screen_audio_pos_ / kCh;
-        size_t to_copy = std::min(remaining, frames - consumed);
-        for (size_t i = 0; i < to_copy; ++i) {
-            size_t src = (consumed + i) * channels;
-            size_t dst = screen_audio_pos_ + i * kCh;
-            screen_audio_buf_[dst] = samples[src];
-            screen_audio_buf_[dst + 1] = (channels >= 2) ? samples[src + 1] : samples[src];
-        }
-        screen_audio_pos_ += to_copy * kCh;
-        consumed += to_copy;
-        if (screen_audio_pos_ >= stereo_frame) {
-            uint8_t* out = screen_audio_encode_buf_.data() + protocol::AudioHeader::kWireSize;
-            int bytes =
-                screen_audio_encoder_->encode(screen_audio_buf_.data(), opus::kFrameSize, out, opus::kMaxPacket);
-            if (bytes > 0) {
-                protocol::AudioHeader ah{.seq = screen_audio_seq_++, .sender_ts = utils::WallNow()};
-                ah.serialize(screen_audio_encode_buf_.data());
-                on_screen_audio_(
-                    screen_audio_encode_buf_.data(),
-                    protocol::AudioHeader::kWireSize + static_cast<size_t>(bytes)
-                );
-            }
-            screen_audio_pos_ = 0;
-        }
-    }
+void ScreenSession::reset_audio() {
+    receiver_.audio_receiver()->reset();
 }

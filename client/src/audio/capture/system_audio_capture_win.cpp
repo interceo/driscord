@@ -24,7 +24,8 @@
 
 class LoopbackActivationHandler : public IActivateAudioInterfaceCompletionHandler {
 public:
-    LoopbackActivationHandler() : event_(CreateEventW(nullptr, FALSE, FALSE, nullptr)) {}
+    LoopbackActivationHandler()
+        : event_(CreateEventW(nullptr, FALSE, FALSE, nullptr)) {}
     ~LoopbackActivationHandler() {
         if (event_) {
             CloseHandle(event_);
@@ -60,13 +61,13 @@ public:
     IUnknown* interface_ptr() const { return activated_; }
 
 private:
-    ULONG ref_count_ = 1;
-    HANDLE event_ = nullptr;
+    ULONG ref_count_     = 1;
+    HANDLE event_        = nullptr;
     HRESULT activate_hr_ = E_FAIL;
     IUnknown* activated_ = nullptr;
 };
 
-#endif  // DRIST_HAS_PROCESS_LOOPBACK
+#endif // DRIST_HAS_PROCESS_LOOPBACK
 
 class SystemAudioCaptureWin : public SystemAudioCapture {
 public:
@@ -79,7 +80,7 @@ public:
 
         callback_ = std::move(cb);
 
-        HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        HRESULT hr      = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         co_initialized_ = SUCCEEDED(hr) || hr == S_FALSE;
 
         bool initialized = false;
@@ -113,7 +114,7 @@ public:
         }
 
         running_ = true;
-        thread_ = std::thread([this] { capture_loop(); });
+        thread_  = std::thread([this] { capture_loop(); });
         return true;
     }
 
@@ -141,16 +142,16 @@ private:
 #if DRIST_HAS_PROCESS_LOOPBACK
     bool try_process_loopback() {
         AUDIOCLIENT_ACTIVATION_PARAMS params{};
-        params.ActivationType = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK;
-        params.ProcessLoopbackParams.TargetProcessId = GetCurrentProcessId();
+        params.ActivationType                            = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK;
+        params.ProcessLoopbackParams.TargetProcessId     = GetCurrentProcessId();
         params.ProcessLoopbackParams.ProcessLoopbackMode = PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE;
 
         PROPVARIANT pv{};
-        pv.vt = VT_BLOB;
-        pv.blob.cbSize = sizeof(params);
+        pv.vt             = VT_BLOB;
+        pv.blob.cbSize    = sizeof(params);
         pv.blob.pBlobData = reinterpret_cast<BYTE*>(&params);
 
-        auto* handler = new LoopbackActivationHandler();
+        auto* handler                             = new LoopbackActivationHandler();
         IActivateAudioInterfaceAsyncOperation* op = nullptr;
 
         HRESULT hr = ActivateAudioInterfaceAsync(
@@ -186,7 +187,7 @@ private:
         }
 
         IUnknown* iface = handler->interface_ptr();
-        hr = iface->QueryInterface(__uuidof(IAudioClient), reinterpret_cast<void**>(&audio_client_));
+        hr              = iface->QueryInterface(__uuidof(IAudioClient), reinterpret_cast<void**>(&audio_client_));
         handler->Release();
         if (op) {
             op->Release();
@@ -202,7 +203,7 @@ private:
 
     bool init_standard_loopback() {
         IMMDeviceEnumerator* enumerator = nullptr;
-        HRESULT hr = CoCreateInstance(
+        HRESULT hr                      = CoCreateInstance(
             __uuidof(MMDeviceEnumerator),
             nullptr,
             CLSCTX_ALL,
@@ -215,7 +216,7 @@ private:
         }
 
         IMMDevice* device = nullptr;
-        hr = enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &device);
+        hr                = enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &device);
         enumerator->Release();
         if (FAILED(hr)) {
             LOG_ERROR() << "GetDefaultAudioEndpoint failed: " << std::hex << hr;
@@ -234,15 +235,15 @@ private:
 
     bool init_client(DWORD extra_flags) {
         WAVEFORMATEX desired{};
-        desired.wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
-        desired.nChannels = kChannels;
-        desired.nSamplesPerSec = opus::kSampleRate;
-        desired.wBitsPerSample = 32;
-        desired.nBlockAlign = desired.nChannels * desired.wBitsPerSample / 8;
+        desired.wFormatTag      = WAVE_FORMAT_IEEE_FLOAT;
+        desired.nChannels       = kChannels;
+        desired.nSamplesPerSec  = opus::kSampleRate;
+        desired.wBitsPerSample  = 32;
+        desired.nBlockAlign     = desired.nChannels * desired.wBitsPerSample / 8;
         desired.nAvgBytesPerSec = desired.nSamplesPerSec * desired.nBlockAlign;
 
-        REFERENCE_TIME duration = 200000;  // 20ms
-        HRESULT hr = audio_client_->Initialize(
+        REFERENCE_TIME duration = 200000; // 20ms
+        HRESULT hr              = audio_client_->Initialize(
             AUDCLNT_SHAREMODE_SHARED,
             extra_flags | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
             duration,
@@ -276,15 +277,15 @@ private:
     void capture_loop() {
         while (running_) {
             UINT32 packet_length = 0;
-            HRESULT hr = capture_client_->GetNextPacketSize(&packet_length);
+            HRESULT hr           = capture_client_->GetNextPacketSize(&packet_length);
             if (FAILED(hr)) {
                 break;
             }
 
             while (packet_length > 0) {
-                BYTE* data = nullptr;
+                BYTE* data        = nullptr;
                 UINT32 num_frames = 0;
-                DWORD flags = 0;
+                DWORD flags       = 0;
 
                 hr = capture_client_->GetBuffer(&data, &num_frames, &flags, nullptr, nullptr);
                 if (FAILED(hr)) {
@@ -320,17 +321,21 @@ private:
 
     AudioCallback callback_;
     std::atomic<bool> running_{false};
-    bool co_initialized_ = false;
-    IAudioClient* audio_client_ = nullptr;
+    bool co_initialized_                 = false;
+    IAudioClient* audio_client_          = nullptr;
     IAudioCaptureClient* capture_client_ = nullptr;
     std::thread thread_;
     std::vector<float> silence_buf_;
-    uint32_t silent_count_ = 0;
+    uint32_t silent_count_       = 0;
     uint32_t first_audio_logged_ = 0;
 };
 
-bool SystemAudioCapture::available() { return true; }
+bool SystemAudioCapture::available() {
+    return true;
+}
 
-std::unique_ptr<SystemAudioCapture> SystemAudioCapture::create() { return std::make_unique<SystemAudioCaptureWin>(); }
+std::unique_ptr<SystemAudioCapture> SystemAudioCapture::create() {
+    return std::make_unique<SystemAudioCaptureWin>();
+}
 
-#endif  // _WIN32
+#endif // _WIN32

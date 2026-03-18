@@ -9,17 +9,17 @@ using json = nlohmann::json;
 extern "C" {
 
 JNIEXPORT jlong JNICALL
-Java_com_driscord_NativeTransport_create(JNIEnv*, jclass) {
+Java_com_driscord_jni_NativeTransport_create(JNIEnv*, jclass) {
     return reinterpret_cast<jlong>(new TransportJni());
 }
 
 JNIEXPORT void JNICALL
-Java_com_driscord_NativeTransport_destroy(JNIEnv*, jclass, jlong h) {
+Java_com_driscord_jni_NativeTransport_destroy(JNIEnv*, jclass, jlong h) {
     delete TRANSPORT(h);
 }
 
 JNIEXPORT void JNICALL
-Java_com_driscord_NativeTransport_addTurnServer(JNIEnv* env, jclass, jlong h,
+Java_com_driscord_jni_NativeTransport_addTurnServer(JNIEnv* env, jclass, jlong h,
         jstring jUrl, jstring jUser, jstring jPass) {
     auto url  = env->GetStringUTFChars(jUrl,  nullptr);
     auto user = env->GetStringUTFChars(jUser, nullptr);
@@ -31,29 +31,29 @@ Java_com_driscord_NativeTransport_addTurnServer(JNIEnv* env, jclass, jlong h,
 }
 
 JNIEXPORT void JNICALL
-Java_com_driscord_NativeTransport_connect(JNIEnv* env, jclass, jlong h, jstring jUrl) {
+Java_com_driscord_jni_NativeTransport_connect(JNIEnv* env, jclass, jlong h, jstring jUrl) {
     auto url = env->GetStringUTFChars(jUrl, nullptr);
     TRANSPORT(h)->transport.connect(url);
     env->ReleaseStringUTFChars(jUrl, url);
 }
 
 JNIEXPORT void JNICALL
-Java_com_driscord_NativeTransport_disconnect(JNIEnv*, jclass, jlong h) {
+Java_com_driscord_jni_NativeTransport_disconnect(JNIEnv*, jclass, jlong h) {
     TRANSPORT(h)->transport.disconnect();
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_driscord_NativeTransport_connected(JNIEnv*, jclass, jlong h) {
+Java_com_driscord_jni_NativeTransport_connected(JNIEnv*, jclass, jlong h) {
     return TRANSPORT(h)->transport.connected() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_driscord_NativeTransport_localId(JNIEnv* env, jclass, jlong h) {
+Java_com_driscord_jni_NativeTransport_localId(JNIEnv* env, jclass, jlong h) {
     return env->NewStringUTF(TRANSPORT(h)->transport.local_id().c_str());
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_driscord_NativeTransport_peers(JNIEnv* env, jclass, jlong h) {
+Java_com_driscord_jni_NativeTransport_peers(JNIEnv* env, jclass, jlong h) {
     auto ps = TRANSPORT(h)->transport.peers();
     json arr = json::array();
     for (auto& p : ps) arr.push_back({{"id", p.id}, {"connected", p.primary_open}});
@@ -61,14 +61,14 @@ Java_com_driscord_NativeTransport_peers(JNIEnv* env, jclass, jlong h) {
 }
 
 JNIEXPORT void JNICALL
-Java_com_driscord_NativeTransport_setOnPeerJoined(JNIEnv* env, jclass, jlong h, jobject cb) {
+Java_com_driscord_jni_NativeTransport_setOnPeerJoined(JNIEnv* env, jclass, jlong h, jobject cb) {
     auto* t = TRANSPORT(h);
     std::scoped_lock lk(t->cb_mutex);
     set_callback(env, t->on_peer_joined, cb, "invoke", "(Ljava/lang/String;)V");
 }
 
 JNIEXPORT void JNICALL
-Java_com_driscord_NativeTransport_setOnPeerLeft(JNIEnv* env, jclass, jlong h, jobject cb) {
+Java_com_driscord_jni_NativeTransport_setOnPeerLeft(JNIEnv* env, jclass, jlong h, jobject cb) {
     auto* t = TRANSPORT(h);
     std::scoped_lock lk(t->cb_mutex);
     set_callback(env, t->on_peer_left, cb, "invoke", "(Ljava/lang/String;)V");

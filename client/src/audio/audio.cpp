@@ -13,7 +13,9 @@
 using namespace utils;
 
 AudioSender::AudioSender() = default;
-AudioSender::~AudioSender() { stop(); }
+AudioSender::~AudioSender() {
+    stop();
+}
 
 bool AudioSender::start(PacketCallback on_packet) {
     if (running_) {
@@ -27,10 +29,10 @@ bool AudioSender::start(PacketCallback on_packet) {
     }
 
     ma_device_config config = ma_device_config_init(ma_device_type_capture);
-    config.capture.format = ma_format_f32;
+    config.capture.format   = ma_format_f32;
     config.capture.channels = kChannels;
-    config.sampleRate = opus::kSampleRate;
-    config.dataCallback = [](ma_device* d, void* /*out*/, const void* in, ma_uint32 fc) {
+    config.sampleRate       = opus::kSampleRate;
+    config.dataCallback     = [](ma_device* d, void* /*out*/, const void* in, ma_uint32 fc) {
         static_cast<AudioSender*>(d->pUserData)->on_capture(static_cast<const float*>(in), fc);
     };
     config.notificationCallback = [](const ma_device_notification* n) {
@@ -42,7 +44,7 @@ bool AudioSender::start(PacketCallback on_packet) {
             LOG_INFO() << "AudioSender: capture device rerouted";
         }
     };
-    config.pUserData = this;
+    config.pUserData          = this;
     config.periodSizeInFrames = opus::kFrameSize;
 
     auto dev = std::make_unique<MaDevice>();
@@ -55,10 +57,10 @@ bool AudioSender::start(PacketCallback on_packet) {
     capture_buf_.assign(opus::kFrameSize, 0.0f);
     encode_buf_.resize(protocol::AudioHeader::kWireSize + opus::kMaxPacket);
     capture_pos_ = 0;
-    send_seq_ = 0;
-    encoder_ = std::move(enc);
-    device_ = std::move(dev);
-    running_ = true;
+    send_seq_    = 0;
+    encoder_     = std::move(enc);
+    device_      = std::move(dev);
+    running_     = true;
 
     LOG_INFO() << "AudioSender: started";
     return true;
@@ -69,7 +71,7 @@ void AudioSender::stop() {
         return;
     }
     running_ = false;
-    device_.reset();  // MaDevice destructor calls ma_device_stop + ma_device_uninit
+    device_.reset(); // MaDevice destructor calls ma_device_stop + ma_device_uninit
     encoder_.reset();
     LOG_INFO() << "AudioSender: stopped";
 }
@@ -98,7 +100,7 @@ void AudioSender::on_capture(const float* input, uint32_t frames) {
 
         if (capture_pos_ == static_cast<size_t>(opus::kFrameSize)) {
             uint8_t* opus_start = encode_buf_.data() + protocol::AudioHeader::kWireSize;
-            int bytes = encoder_->encode(capture_buf_.data(), opus::kFrameSize, opus_start, opus::kMaxPacket);
+            int bytes           = encoder_->encode(capture_buf_.data(), opus::kFrameSize, opus_start, opus::kMaxPacket);
             if (bytes > 0) {
                 const protocol::AudioHeader ah{.seq = send_seq_++, .sender_ts = WallNow()};
                 ah.serialize(encode_buf_.data());
@@ -112,7 +114,9 @@ void AudioSender::on_capture(const float* input, uint32_t frames) {
 int AudioReceiver::next_id_ = 0;
 
 AudioReceiver::AudioReceiver(int jitter_ms, int channels, int sample_rate)
-    : jitter_(static_cast<size_t>(jitter_ms)), channels_(channels), id_(next_id_++) {
+    : jitter_(static_cast<size_t>(jitter_ms))
+    , channels_(channels)
+    , id_(next_id_++) {
     if (!decoder_.init(sample_rate, channels)) {
         LOG_ERROR() << "AudioReceiver: failed to init Opus decoder (ch=" << channels << ")";
     }
@@ -127,9 +131,9 @@ void AudioReceiver::push_packet(const uint8_t* data, size_t len) {
         return;
     }
 
-    const auto ah = protocol::AudioHeader::deserialize(data);
+    const auto ah            = protocol::AudioHeader::deserialize(data);
     const uint8_t* opus_data = data + protocol::AudioHeader::kWireSize;
-    int opus_len = static_cast<int>(len - protocol::AudioHeader::kWireSize);
+    int opus_len             = static_cast<int>(len - protocol::AudioHeader::kWireSize);
 
     const int samples = decoder_.decode(opus_data, opus_len, decode_buf_.data(), opus::kFrameSize);
     if (samples <= 0) {
@@ -150,7 +154,7 @@ void AudioReceiver::push_packet(const uint8_t* data, size_t len) {
             mono_buf_[static_cast<size_t>(i)] = (sum / channels_) * vol;
         }
         std::vector<float> pcm(mono_buf_.begin(), mono_buf_.begin() + samples);
-        jitter_.push(std::move(pcm), ah.seq, ah.sender_ts);
+        jitter_.push(std::move(pcm), ah.seq);
     } else {
         if (vol != 1.0f) {
             for (int i = 0; i < samples; ++i) {
@@ -158,19 +162,16 @@ void AudioReceiver::push_packet(const uint8_t* data, size_t len) {
             }
         }
         std::vector<float> pcm(decode_buf_.begin(), decode_buf_.begin() + samples);
-        jitter_.push(std::move(pcm), ah.seq, ah.sender_ts);
+        jitter_.push(std::move(pcm), ah.seq);
     }
 
     ++push_count_;
     if (push_count_ == 1) {
-        LOG_INFO()
-            << "[audio-recv/" << id_ << "] first push seq=" << ah.seq << " sender_ts=" << utils::WallToMs(ah.sender_ts)
-            << " queue=" << jitter_.queue_size();
+        LOG_INFO() << "[audio-recv/" << id_ << "] first push seq=" << ah.seq << " queue=" << jitter_.queue_size();
     } else if (push_count_ % 30 == 0) {
         const auto st = jitter_.stats();
         LOG_INFO()
-            << "[audio-recv/" << id_ << "] push#" << push_count_ << " sender_ts=" << utils::WallToMs(ah.sender_ts)
-            << " age_ms=" << utils::WallElapsedMs(ah.sender_ts) << " queue=" << st.queue_size
+            << "[audio-recv/" << id_ << "] push#" << push_count_ << " queue=" << st.queue_size
             << " drops=" << st.drop_count << " misses=" << st.miss_count;
     }
 }

@@ -22,26 +22,26 @@ public:
         callback_ = std::move(cb);
 
         pa_sample_spec spec{};
-        spec.format = PA_SAMPLE_FLOAT32LE;
-        spec.rate = opus::kSampleRate;
+        spec.format   = PA_SAMPLE_FLOAT32LE;
+        spec.rate     = opus::kSampleRate;
         spec.channels = kChannels;
 
-        constexpr uint32_t kFragFrames = 48;  // 20ms @ 48kHz
-        constexpr uint32_t kFragBytes = kFragFrames * kChannels * sizeof(float);
+        constexpr uint32_t kFragFrames = 48; // 20ms @ 48kHz
+        constexpr uint32_t kFragBytes  = kFragFrames * kChannels * sizeof(float);
 
         pa_buffer_attr attr{};
         attr.maxlength = kFragBytes * 4;
-        attr.fragsize = kFragBytes;
+        attr.fragsize  = kFragBytes;
 
         int error = 0;
-        pa_ = pa_simple_new(
-            nullptr,     // default server
-            "driscord",  // app name
+        pa_       = pa_simple_new(
+            nullptr,    // default server
+            "driscord", // app name
             PA_STREAM_RECORD,
-            "@DEFAULT_MONITOR@",  // monitor of default sink
+            "@DEFAULT_MONITOR@", // monitor of default sink
             "screen_audio",
             &spec,
-            nullptr,  // default channel map
+            nullptr, // default channel map
             &attr,
             &error
         );
@@ -52,7 +52,7 @@ public:
         }
 
         running_ = true;
-        thread_ = std::thread([this] { capture_loop(); });
+        thread_  = std::thread([this] { capture_loop(); });
         return true;
     }
 
@@ -77,12 +77,12 @@ public:
 private:
     void capture_loop() {
         constexpr size_t kFramesPerRead = opus::kFrameSize;
-        constexpr size_t kBufSize = kFramesPerRead * kChannels;
+        constexpr size_t kBufSize       = kFramesPerRead * kChannels;
         float buf[kBufSize];
 
         while (running_) {
             int error = 0;
-            int ret = pa_simple_read(pa_, buf, sizeof(buf), &error);
+            int ret   = pa_simple_read(pa_, buf, sizeof(buf), &error);
             if (ret < 0) {
                 LOG_ERROR() << "pa_simple_read failed: " << pa_strerror(error);
                 break;
@@ -103,13 +103,13 @@ private:
 bool SystemAudioCapture::available() {
     int error = 0;
     pa_sample_spec spec{};
-    spec.format = PA_SAMPLE_FLOAT32LE;
-    spec.rate = opus::kSampleRate;
+    spec.format   = PA_SAMPLE_FLOAT32LE;
+    spec.rate     = opus::kSampleRate;
     spec.channels = 2;
 
     pa_buffer_attr attr{};
     attr.maxlength = static_cast<uint32_t>(-1);
-    attr.fragsize = 960 * 2 * sizeof(float);
+    attr.fragsize  = 960 * 2 * sizeof(float);
 
     pa_simple* test = pa_simple_new(
         nullptr,
@@ -129,6 +129,8 @@ bool SystemAudioCapture::available() {
     return false;
 }
 
-std::unique_ptr<SystemAudioCapture> SystemAudioCapture::create() { return std::make_unique<SystemAudioCaptureLinux>(); }
+std::unique_ptr<SystemAudioCapture> SystemAudioCapture::create() {
+    return std::make_unique<SystemAudioCaptureLinux>();
+}
 
-#endif  // __linux__
+#endif // __linux__

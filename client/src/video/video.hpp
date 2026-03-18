@@ -5,12 +5,13 @@
 #include "utils/video_codec.hpp"
 #include "video_jitter.hpp"
 
+#include <array>
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
-#include <deque>
 #include <functional>
 #include <mutex>
+#include <semaphore>
 #include <thread>
 #include <vector>
 
@@ -21,14 +22,13 @@ public:
     VideoSender();
     ~VideoSender();
 
-    VideoSender(const VideoSender&) = delete;
+    VideoSender(const VideoSender&)            = delete;
     VideoSender& operator=(const VideoSender&) = delete;
 
-    bool start(int fps, int base_bitrate_kbps, SendCb on_video);
+    bool start(int fps, int base_bitrate_kbps, int gop_size, SendCb on_video);
     void stop();
 
-    // Called by external screen capture to deliver frames.
-    void push_frame(ScreenCapture::Frame frame);
+    void push_frame(ScreenCapture::Frame&& frame);
 
     bool sharing() const { return sharing_; }
     void force_keyframe() { video_encoder_.force_keyframe(); }
@@ -50,8 +50,9 @@ private:
     ScreenCapture::Frame pending_frame_;
     bool frame_ready_ = false;
 
-    int fps_ = 0;
+    int fps_               = 0;
     int base_bitrate_kbps_ = 0;
+    int gop_size           = 0;
 
     std::vector<uint8_t> frame_buf_;
 
@@ -63,13 +64,12 @@ public:
     VideoReceiver(int buffer_ms, int max_sync_gap_ms);
     ~VideoReceiver();
 
-    VideoReceiver(const VideoReceiver&) = delete;
+    VideoReceiver(const VideoReceiver&)            = delete;
     VideoReceiver& operator=(const VideoReceiver&) = delete;
 
     void push_video_packet(const std::string& peer_id, const uint8_t* data, size_t len);
 
     const VideoJitter::Frame* update();
-    const VideoJitter::Frame* current_frame() const;
 
     void set_keyframe_callback(std::function<void()> fn);
 
@@ -79,15 +79,34 @@ public:
 
     VideoJitter::Stats video_stats() const { return video_.stats(); }
 
+    size_t evict_old(int max_delay_ms) { return video_.evict_old(max_delay_ms); }
+    int64_t front_age_ms() const { return video_.front_age_ms(); }
+
     void reset();
 
 private:
-    struct DecodeJob {
+    void decode_loop();
+
+    struct FrameSlot {
+        std::string peer_id;
         std::vector<uint8_t> encoded;
         protocol::VideoHeader vh;
     };
 
-    void decode_loop();
+    static constexpr size_t kQueueCapacity = 4;
+    std::array<FrameSlot, kQueueCapacity> ring_;
+    alignas(64) std::atomic<size_t> head_{0};
+    alignas(64) std::atomic<size_t> tail_{0};
+    std::counting_semaphore<kQueueCapacity> sem_{0};
+
+    std::thread decode_thread_;
+    std::atomic<bool> decode_running_{false};
+
+    VideoDecoder decoder_;
+    int decode_failures_ = 0;
+    utils::Timestamp last_keyframe_req_{};
+
+    std::function<void()> on_keyframe_needed_;
 
     VideoJitter video_;
 
@@ -95,24 +114,10 @@ private:
     std::string current_peer_;
     utils::Timestamp last_packet_{};
 
-    VideoDecoder decoder_;
-    int decode_failures_ = 0;
-    utils::Timestamp last_keyframe_req_{};
+    // Bitrate measurement — producer thread only.
     std::atomic<int> measured_kbps_{0};
-
-    std::function<void()> on_keyframe_needed_;
-
     size_t bytes_since_calc_ = 0;
     utils::Timestamp last_calc_{};
 
-    uint64_t push_count_ = 0;
-    uint64_t pop_count_ = 0;
-
-    std::deque<DecodeJob> decode_queue_;
-    std::mutex decode_queue_mutex_;
-    std::condition_variable decode_cv_;
-    std::thread decode_thread_;
-    std::atomic<bool> decode_running_{false};
-
-    static constexpr size_t kMaxDecodeQueue = 4;
+    std::optional<VideoJitter::Frame> current_frame_;
 };

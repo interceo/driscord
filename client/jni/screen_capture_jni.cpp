@@ -8,12 +8,12 @@ using json = nlohmann::json;
 extern "C" {
 
 JNIEXPORT jboolean JNICALL
-Java_com_driscord_NativeScreenCapture_systemAudioAvailable(JNIEnv*, jclass) {
+Java_com_driscord_jni_NativeScreenCapture_systemAudioAvailable(JNIEnv*, jclass) {
     return SystemAudioCapture::available() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_driscord_NativeScreenCapture_listTargets(JNIEnv* env, jclass) {
+Java_com_driscord_jni_NativeScreenCapture_listTargets(JNIEnv* env, jclass) {
     auto targets = ScreenCapture::list_targets();
     json arr = json::array();
     for (auto& t : targets) {
@@ -28,7 +28,7 @@ Java_com_driscord_NativeScreenCapture_listTargets(JNIEnv* env, jclass) {
 }
 
 JNIEXPORT jbyteArray JNICALL
-Java_com_driscord_NativeScreenCapture_grabThumbnail(JNIEnv* env, jclass,
+Java_com_driscord_jni_NativeScreenCapture_grabThumbnail(JNIEnv* env, jclass,
         jstring jTargetJson, jint maxW, jint maxH) {
     const char* raw = env->GetStringUTFChars(jTargetJson, nullptr);
     CaptureTarget target = target_from_json(json::parse(raw));

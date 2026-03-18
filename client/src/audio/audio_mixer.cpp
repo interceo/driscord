@@ -10,17 +10,19 @@
 #include <cstring>
 
 AudioMixer::AudioMixer() = default;
-AudioMixer::~AudioMixer() { stop(); }
+AudioMixer::~AudioMixer() {
+    stop();
+}
 
 bool AudioMixer::start() {
     if (running_) {
         return true;
     }
 
-    ma_device_config config = ma_device_config_init(ma_device_type_playback);
-    config.playback.format = ma_format_f32;
+    ma_device_config config  = ma_device_config_init(ma_device_type_playback);
+    config.playback.format   = ma_format_f32;
     config.playback.channels = 1;
-    config.sampleRate = opus::kSampleRate;
+    config.sampleRate        = opus::kSampleRate;
 
     config.dataCallback = [](ma_device* d, void* out, const void* /*in*/, ma_uint32 fc) {
         static_cast<AudioMixer*>(d->pUserData)->on_playback(static_cast<float*>(out), fc);
@@ -35,7 +37,7 @@ bool AudioMixer::start() {
         }
     };
 
-    config.pUserData = this;
+    config.pUserData          = this;
     config.periodSizeInFrames = opus::kFrameSize;
 
     auto dev = std::make_unique<MaDevice>();
@@ -44,7 +46,7 @@ bool AudioMixer::start() {
         return false;
     }
 
-    device_ = std::move(dev);
+    device_  = std::move(dev);
     running_ = true;
     LOG_INFO() << "AudioMixer: started";
     return true;
@@ -55,7 +57,7 @@ void AudioMixer::stop() {
         return;
     }
     running_ = false;
-    device_.reset();  // MaDevice destructor calls ma_device_stop + ma_device_uninit
+    device_.reset(); // MaDevice destructor calls ma_device_stop + ma_device_uninit
     {
         std::scoped_lock lk(sources_mutex_);
         sources_.clear();
@@ -114,7 +116,7 @@ void AudioMixer::on_playback(float* output, const uint32_t frames) {
     }
 
     const float vol = output_volume_.load();
-    float sum = 0.0f;
+    float sum       = 0.0f;
     for (uint32_t i = 0; i < frames; ++i) {
         output[i] *= vol;
         sum += output[i] * output[i];

@@ -21,6 +21,12 @@ public:
         size_t skipped;
     };
 
+    struct ConstPeekResult {
+        const T* data;
+        uint64_t seq;
+        size_t skipped;
+    };
+
     struct PopResult {
         T data;
         size_t skipped;
@@ -70,6 +76,26 @@ public:
             auto& s = slots_[(next_seq_ + i) & kMask];
             if (s.seq == next_seq_ + i) {
                 return PeekResult{&s.data, s.seq, i};
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    std::optional<ConstPeekResult> peek_next() const {
+        if (size_ == 0) {
+            return std::nullopt;
+        }
+
+        const auto& slot = slots_[next_seq_ & kMask];
+        if (slot.seq == next_seq_) [[likely]] {
+            return ConstPeekResult{&slot.data, next_seq_, 0};
+        }
+
+        for (size_t i = 1; i < Capacity; ++i) {
+            const auto& s = slots_[(next_seq_ + i) & kMask];
+            if (s.seq == next_seq_ + i) {
+                return ConstPeekResult{&s.data, s.seq, i};
             }
         }
 
