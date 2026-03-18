@@ -31,11 +31,11 @@ void ScreenSession::stop_sharing() {
     sender_.stop_sharing();
 }
 
-void ScreenSession::push_video_packet(const std::string& peer_id, const uint8_t* data, size_t len) {
+void ScreenSession::push_video_packet(const std::string& peer_id, const uint8_t* data, const size_t len) {
     receiver_.push_video_packet(peer_id, data, len);
 }
 
-void ScreenSession::push_audio_packet(const uint8_t* data, size_t len) {
+void ScreenSession::push_audio_packet(const uint8_t* data, const size_t len) {
     receiver_.push_audio_packet(data, len);
 }
 

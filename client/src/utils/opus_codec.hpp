@@ -22,18 +22,23 @@ public:
     OpusEncode(const OpusEncode&)            = delete;
     OpusEncode& operator=(const OpusEncode&) = delete;
 
-    bool init(int sample_rate, int channels, int bitrate, int application);
+    bool init(
+        const size_t sample_rate,
+        const size_t channels,
+        const size_t bitrate,
+        const size_t application
+    );
     void shutdown();
 
-    int encode(const float* pcm, int frame_size, uint8_t* output, int max_output);
+    int encode(const float* pcm, const size_t frame_size, uint8_t* output, const size_t max_output);
 
-    int sample_rate() const { return sample_rate_; }
-    int channels() const { return channels_; }
+    size_t sample_rate() const { return sample_rate_; }
+    size_t channels() const { return channels_; }
 
 private:
     OpusEncoder* encoder_ = nullptr;
-    int sample_rate_      = 0;
-    int channels_         = 0;
+    size_t sample_rate_   = 0;
+    size_t channels_      = 0;
 };
 
 class OpusDecode {
@@ -47,13 +52,13 @@ public:
     bool init(int sample_rate, int channels);
     void shutdown();
 
-    int decode(const uint8_t* data, int len, float* output, int max_samples);
+    int decode(const uint8_t* data, const size_t len, float* output, const size_t max_samples);
 
-    int sample_rate() const { return sample_rate_; }
-    int channels() const { return channels_; }
+    size_t sample_rate() const { return sample_rate_; }
+    size_t channels() const { return channels_; }
 
 private:
     OpusDecoder* decoder_ = nullptr;
-    int sample_rate_      = 0;
-    int channels_         = 0;
+    size_t sample_rate_   = 0;
+    size_t channels_      = 0;
 };

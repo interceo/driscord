@@ -13,11 +13,9 @@ namespace utils {
 
 template <typename T> class JitterBuffer {
 public:
-    using Clock = std::chrono::steady_clock;
-
     struct Packet {
         T data{};
-        Clock::time_point arrival{};
+        utils::Timestamp arrival{};
     };
 
     struct Stats {
@@ -27,7 +25,7 @@ public:
         uint64_t miss_count = 0;
     };
 
-    explicit JitterBuffer(utils::Duration target_delay)
+    explicit JitterBuffer(const utils::Duration target_delay)
         : target_delay_(
               std::max(
                   std::chrono::milliseconds(1),
@@ -38,7 +36,7 @@ public:
     void push(const uint64_t seq, T&& data) {
         std::scoped_lock lk(mutex_);
 
-        const auto now = Clock::now();
+        const auto now = utils::Now();
         if (!first_push_time_) {
             first_push_time_ = now;
         }
@@ -54,7 +52,7 @@ public:
             return std::nullopt;
         }
 
-        const auto now = Clock::now();
+        const auto now = utils::Now();
 
         if (!first_push_time_) {
             return std::nullopt;
@@ -78,17 +76,17 @@ public:
 
         if (peek->skipped > 0) {
             ring_.advance_seq();
-            ++miss_count_; // real sequence gap — lost packet
+            ++miss_count_;
             return std::nullopt;
         }
 
         auto result = ring_.consume_peeked(0);
         ++played_count_;
 
-        return std::move(result.data);
+        return std::make_optional(std::move(result.data));
     }
 
-    size_t evict_old(utils::Duration max_delay) {
+    size_t evict_old(const utils::Duration max_delay) {
         std::scoped_lock lk(mutex_);
         size_t dropped = 0;
         while (true) {
@@ -124,7 +122,8 @@ public:
         return dropped;
     }
 
-    template <typename F> auto with_front(F&& fn) const -> std::optional<std::invoke_result_t<F, const T&>> {
+    template <typename F>
+    auto with_front(F&& fn) const -> std::optional<std::invoke_result_t<F, const T&>> {
         std::scoped_lock lk(mutex_);
         auto peek = ring_.peek_next();
         if (!peek) {
@@ -141,7 +140,9 @@ public:
         if (!peek) {
             return -1;
         }
-        return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - peek->data->arrival).count();
+        return std::chrono::duration_cast<
+                   std::chrono::milliseconds>(utils::Elapsed(peek->data->arrival))
+            .count();
     }
 
     bool primed() const {
@@ -166,7 +167,12 @@ public:
 
     Stats stats() const {
         std::scoped_lock lk(mutex_);
-        return {primed_, ring_.size(), drop_count_, miss_count_};
+        return {
+            primed_,
+            ring_.size(),
+            drop_count_,
+            miss_count_,
+        };
     }
 
 private:
@@ -176,7 +182,7 @@ private:
     bool primed_ = false;
     utils::Duration target_delay_;
 
-    std::optional<Clock::time_point> first_push_time_;
+    std::optional<utils::Timestamp> first_push_time_;
 
     uint64_t played_count_ = 0;
     uint64_t drop_count_   = 0;
@@ -188,7 +194,7 @@ public:
     using JitterBuf = JitterBuffer<Frame>;
     using Stats     = JitterBuf::Stats;
 
-    explicit Jitter(utils::Duration target_delay)
+    explicit Jitter(const utils::Duration target_delay)
         : buf_(target_delay) {}
 
     void push(Frame&& frame) {
@@ -206,18 +212,21 @@ public:
         return std::move(pkt->data);
     }
 
-    size_t evict_old(utils::Duration max_delay) { return buf_.evict_old(max_delay); }
+    size_t evict_old(const utils::Duration max_delay) { return buf_.evict_old(max_delay); }
 
-    size_t evict_before_sender_ts(utils::WallTimestamp cutoff) {
+    size_t evict_before_sender_ts(const utils::WallTimestamp cutoff) {
         return buf_.evict_if([cutoff](const Frame& f) { return f.sender_ts < cutoff; });
     }
 
     std::optional<utils::WallTimestamp> front_effective_ts() const {
         const auto td = std::chrono::duration_cast<std::chrono::milliseconds>(buf_.target_delay());
-        return buf_.with_front([td](const Frame& f) -> utils::WallTimestamp { return f.sender_ts + td; });
+        return buf_.with_front([td](const Frame& f) -> utils::WallTimestamp {
+            return f.sender_ts + td;
+        });
     }
 
-    template <typename F> auto with_front(F&& fn) const -> std::optional<std::invoke_result_t<F, const Frame&>> {
+    template <typename F>
+    auto with_front(F&& fn) const -> std::optional<std::invoke_result_t<F, const Frame&>> {
         return buf_.with_front(std::forward<F>(fn));
     }
 
