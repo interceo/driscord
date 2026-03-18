@@ -129,7 +129,7 @@ static void setup_common_ctx(AVCodecContext* ctx, int width, int height, int fps
     ctx->gop_size     = (gop_size > 0) ? gop_size : fps;
     ctx->max_b_frames = 0;
     ctx->thread_count = optimal_thread_count();
-    ctx->thread_type  = FF_THREAD_SLICE;
+    ctx->thread_type  = FF_THREAD_FRAME | FF_THREAD_SLICE;
     ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
 }
 
@@ -334,7 +334,7 @@ bool VideoDecoder::init() {
 
     ctx_               = avcodec_alloc_context3(codec);
     ctx_->thread_count = optimal_thread_count();
-    ctx_->thread_type  = FF_THREAD_FRAME | FF_THREAD_SLICE;
+    ctx_->thread_type  = FF_THREAD_SLICE;
 
     int ret = avcodec_open2(ctx_, codec, nullptr);
     if (ret < 0) {
