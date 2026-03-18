@@ -1,4 +1,4 @@
-package com.driscord.ui
+package com.driscord.presentation.ui
 
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -18,39 +18,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.driscord.AppConfig
 import com.driscord.AppState
-import com.driscord.PeerInfo
+import com.driscord.presentation.AppIntent
+import com.driscord.presentation.AppUiState
+import com.driscord.ui.*
 
 @Composable
 fun Sidebar(
-    state: AppState,
-    localId: String,
-    peers: List<PeerInfo>,
-    muted: Boolean,
-    deafened: Boolean,
-    sharing: Boolean,
-    shareTargetName: String,
-    volume: Float,
-    inputLevel: Float,
-    outputLevel: Float,
-    config: AppConfig,
-    initialServerUrl: String,
-    onConnect: (String) -> Unit,
-    onDisconnect: () -> Unit,
-    onToggleMute: () -> Unit,
-    onToggleDeafen: () -> Unit,
-    onSetVolume: (Float) -> Unit,
-    onSetPeerVolume: (String, Float) -> Unit,
+    state: AppUiState,
+    onIntent: (AppIntent) -> Unit,
     onGetPeerVolume: (String) -> Float,
-    onStartShare: () -> Unit,
-    onStopShare: () -> Unit,
-    onSaveConfig: (AppConfig) -> Unit,
 ) {
-    var serverUrl by remember(initialServerUrl) { mutableStateOf(initialServerUrl) }
+    var serverUrl by remember(state.config.serverUrl) { mutableStateOf(state.config.serverUrl) }
     var expandedPeer by remember { mutableStateOf<String?>(null) }
-    var showSettings by remember { mutableStateOf(false) }
-
     Column(
         modifier =
             Modifier
