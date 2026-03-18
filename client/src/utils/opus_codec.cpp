@@ -10,8 +10,14 @@ OpusEncode::~OpusEncode() {
     shutdown();
 }
 
-bool OpusEncode::init(int sample_rate, int channels, int bitrate, int application) {
+bool OpusEncode::init(
+    const size_t sample_rate,
+    const size_t channels,
+    const size_t bitrate,
+    const size_t application
+) {
     shutdown();
+
     int err;
     encoder_ = opus_encoder_create(sample_rate, channels, application, &err);
     if (err != OPUS_OK) {
@@ -19,7 +25,13 @@ bool OpusEncode::init(int sample_rate, int channels, int bitrate, int applicatio
         encoder_ = nullptr;
         return false;
     }
-    opus_encoder_ctl(encoder_, OPUS_SET_BITRATE(bitrate));
+
+    if (opus_encoder_ctl(encoder_, OPUS_SET_BITRATE(bitrate)) != OPUS_OK) {
+        LOG_ERROR() << "opus_encoder_ctl (OPUS_SET_BITRATE) failed: " << opus_strerror(err);
+        shutdown();
+        return false;
+    }
+
     sample_rate_ = sample_rate;
     channels_    = channels;
     return true;
@@ -34,7 +46,12 @@ void OpusEncode::shutdown() {
     channels_    = 0;
 }
 
-int OpusEncode::encode(const float* pcm, int frame_size, uint8_t* output, int max_output) {
+int OpusEncode::encode(
+    const float* pcm,
+    const size_t frame_size,
+    uint8_t* output,
+    const size_t max_output
+) {
     if (!encoder_) {
         return -1;
     }
@@ -49,6 +66,7 @@ OpusDecode::~OpusDecode() {
 
 bool OpusDecode::init(int sample_rate, int channels) {
     shutdown();
+
     int err;
     decoder_ = opus_decoder_create(sample_rate, channels, &err);
     if (err != OPUS_OK) {
@@ -70,7 +88,12 @@ void OpusDecode::shutdown() {
     channels_    = 0;
 }
 
-int OpusDecode::decode(const uint8_t* data, int len, float* output, int max_samples) {
+int OpusDecode::decode(
+    const uint8_t* data,
+    const size_t len,
+    float* output,
+    const size_t max_samples
+) {
     if (!decoder_) {
         return -1;
     }

@@ -10,8 +10,8 @@
 
 class ScreenSession {
 public:
-    using SendCb      = std::function<void(const uint8_t*, size_t)>;
-    using OnFrameCb   = std::function<void(const std::string& peer_id, const uint8_t* rgba, int w, int h)>;
+    using SendCb      = std::function<void(const uint8_t*, const size_t)>;
+    using OnFrameCb   = std::function<void(const std::string& peer_id, const uint8_t* rgba, const int w, const int h)>;
     using OnRemovedCb = std::function<void(const std::string& peer_id)>;
 
     ScreenSession(
@@ -40,8 +40,8 @@ public:
     void force_keyframe() { sender_.force_keyframe(); }
     int sender_kbps() const { return sender_.sender_kbps(); }
 
-    void push_video_packet(const std::string& peer_id, const uint8_t* data, size_t len);
-    void push_audio_packet(const uint8_t* data, size_t len);
+    void push_video_packet(const std::string& peer_id, const uint8_t* data, const size_t len);
+    void push_audio_packet(const uint8_t* data, const size_t len);
 
     void update();
 
