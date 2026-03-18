@@ -198,7 +198,9 @@ internal fun StatsOverlay(stats: StreamStats) {
             )
             val warn = stats.video.misses > 0 || stats.audio.misses > 0
             Text(
-                "V: q=${stats.video.queue} ${stats.video.bufMs}ms  A: q=${stats.audio.queue} ${stats.audio.bufMs}ms",
+                "V: q=${stats.video.queue}  A: q=${stats.audio.queue}  \n" +
+                "V: d=${stats.video.drops}  A: d=${stats.audio.drops}  \n" +
+                "V: m=${stats.video.misses}  A: m=${stats.audio.misses}",
                 color = if (warn) Color(0xFFFFC800) else Color(0xFF3BA55C),
                 fontSize = 10.sp,
             )

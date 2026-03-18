@@ -196,7 +196,7 @@ void VideoReceiver::decode_loop() {
         int w = 0, h = 0;
         if (decoder_.decode(slot.encoded, rgba, w, h)) {
             decode_failures_ = 0;
-            video_.push(std::move(rgba), w, h, slot.vh.sender_ts);
+            video_.push(std::move(rgba), w, h);
         } else {
             ++decode_failures_;
             const auto kf_now = utils::Now();
@@ -211,11 +211,15 @@ void VideoReceiver::decode_loop() {
 }
 
 const VideoJitter::Frame* VideoReceiver::update() {
-    return video_.pop();
-}
+    while (true) {
+        auto f = video_.pop();
+        if (f.rgba.empty()) {
+            break;
+        }
 
-const VideoJitter::Frame* VideoReceiver::current_frame() const {
-    return video_.current();
+        current_frame_ = std::move(f);
+    }
+    return current_frame_ ? &*current_frame_ : nullptr;
 }
 
 std::string VideoReceiver::active_peer() const {

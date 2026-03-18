@@ -58,8 +58,8 @@ public:
     std::shared_ptr<AudioReceiver> audio_receiver() { return receiver_.audio_receiver(); }
     std::shared_ptr<const AudioReceiver> audio_receiver() const { return receiver_.audio_receiver(); }
 
-    VideoJitter::Stats video_stats() const { return receiver_.video_stats(); }
-    AudioReceiver::Stats audio_stats() const { return receiver_.audio_stats(); }
+    VideoJitter::Stats video_stats() const { return cached_video_stats_; }
+    AudioReceiver::Stats audio_stats() const { return cached_audio_stats_; }
 
     void reset();
     void reset_audio();
@@ -74,6 +74,13 @@ private:
     std::string last_peer_;
     int last_w_ = 0;
     int last_h_ = 0;
+
+    int max_sync_ms_;
+
+    using Clock = std::chrono::steady_clock;
+    Clock::time_point last_stats_refresh_{};
+    VideoJitter::Stats cached_video_stats_{};
+    AudioReceiver::Stats cached_audio_stats_{};
 
     mutable std::mutex cb_mutex_;
     OnFrameCb on_frame_cb_;
