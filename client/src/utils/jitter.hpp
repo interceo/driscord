@@ -64,19 +64,17 @@ public:
         }
 
         if (ring_.empty()) {
-            ++miss_count_;
             return std::nullopt;
         }
 
         auto peek = ring_.peek_next();
         if (!peek) {
-            ++miss_count_;
             return std::nullopt;
         }
 
         if (peek->skipped > 0) {
             ring_.advance_seq();
-            ++miss_count_;
+            ++miss_count_; // real sequence gap — lost packet
             return std::nullopt;
         }
 
@@ -112,6 +110,19 @@ public:
         }
 
         return dropped;
+    }
+
+    // Age in ms of the oldest packet waiting to be consumed (front of sequence queue).
+    // Returns -1 if the buffer is empty. Used for A/V sync.
+    int64_t front_age_ms() const {
+        std::scoped_lock lk(mutex_);
+        auto peek = ring_.peek_next();
+        if (!peek) {
+            return -1;
+        }
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   Clock::now() - peek->data->arrival)
+            .count();
     }
 
     bool primed() const {

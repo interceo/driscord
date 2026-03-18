@@ -66,6 +66,7 @@ public:
 
     // Discard all queued audio older than max_delay_ms (A/V sync helper).
     size_t evict_old(int max_delay_ms) { return jitter_.evict_old(max_delay_ms); }
+    int64_t front_age_ms() const { return jitter_.front_age_ms(); }
 
     void reset() { jitter_.reset(); }
 

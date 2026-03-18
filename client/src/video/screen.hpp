@@ -82,6 +82,9 @@ public:
 
     // Evict stale packets from both video and audio jitter buffers.
     void evict_old(int max_delay_ms);
+    void evict_old_video(int max_delay_ms) { video_recv_.evict_old(max_delay_ms); }
+    int64_t video_front_age_ms() const { return video_recv_.front_age_ms(); }
+    int64_t audio_front_age_ms() const { return audio_recv_->front_age_ms(); }
 
     void reset();
 

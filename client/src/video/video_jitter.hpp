@@ -33,8 +33,8 @@ public:
     }
 
     size_t queue_size() const { return buf_.queue_size(); }
+    int64_t front_age_ms() const { return buf_.front_age_ms(); }
 
-    // Discard frames older than max_delay_ms (e.g. for A/V sync).
     size_t evict_old(int max_delay_ms) { return buf_.evict_old(max_delay_ms); }
 
     void reset() {
