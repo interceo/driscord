@@ -1,13 +1,37 @@
-package com.driscord.ui
+package com.driscord.presentation.ui
 
-import androidx.compose.foundation.*
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.*
-import androidx.compose.runtime.*
+import androidx.compose.material.Button
+import androidx.compose.material.ButtonDefaults
+import androidx.compose.material.Checkbox
+import androidx.compose.material.CheckboxDefaults
+import androidx.compose.material.Divider
+import androidx.compose.material.Surface
+import androidx.compose.material.Text
+import androidx.compose.material.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -19,7 +43,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import com.driscord.CaptureTarget
+import com.driscord.domain.model.CaptureTarget
+import com.driscord.presentation.ui.components.DropdownSelect
+import com.driscord.ui.Blurple
+import com.driscord.ui.DividerColor
+import com.driscord.ui.Green
+import com.driscord.ui.SidebarBg
+import com.driscord.ui.TextMuted
+import com.driscord.ui.TextPrimary
 
 @Composable
 fun ShareDialog(
@@ -30,12 +61,11 @@ fun ShareDialog(
     onGo: (CaptureTarget, Int, Int, Boolean) -> Unit,
 ) {
     val targets = remember { onListTargets() }
-    val thumbnails =
-        remember {
-            mutableStateMapOf<Int, ImageBitmap?>().also { map ->
-                targets.forEachIndexed { i, t -> map[i] = onGrabThumbnail(t) }
-            }
+    val thumbnails = remember {
+        mutableMapOf<Int, ImageBitmap?>().also { map ->
+            targets.forEachIndexed { i, t -> map[i] = onGrabThumbnail(t) }
         }
+    }
 
     var selectedIdx by remember { mutableStateOf(-1) }
     var quality by remember { mutableStateOf(2) }
@@ -49,13 +79,18 @@ fun ShareDialog(
         Surface(
             modifier = Modifier.size(700.dp, 520.dp),
             shape = RoundedCornerShape(8.dp),
-            color = Color(0xFF2B2D31),
+            color = SidebarBg,
             elevation = 8.dp,
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text("Choose what to share", color = TextW, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = "Choose what to share",
+                    color = TextPrimary,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
                 Spacer(Modifier.height(8.dp))
-                Divider(color = Color(0xFF1E1F22))
+                Divider(color = DividerColor)
                 Spacer(Modifier.height(8.dp))
 
                 LazyVerticalGrid(
@@ -64,23 +99,21 @@ fun ShareDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(targets.indices.toList()) { idx ->
+                    itemsIndexed(targets) { idx, target ->
                         val selected = idx == selectedIdx
                         Column(
-                            modifier =
-                                Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .border(2.dp, if (selected) Blurple else Color.Transparent, RoundedCornerShape(4.dp))
-                                    .clickable { selectedIdx = idx }
-                                    .padding(4.dp),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .border(2.dp, if (selected) Blurple else Color.Transparent, RoundedCornerShape(4.dp))
+                                .clickable { selectedIdx = idx }
+                                .padding(4.dp),
                         ) {
                             Box(
-                                modifier =
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .aspectRatio(16f / 9f)
-                                        .clip(RoundedCornerShape(3.dp))
-                                        .background(Color(0xFF111214)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(16f / 9f)
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(Color(0xFF111214)),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 val thumb = thumbnails[idx]
@@ -96,8 +129,8 @@ fun ShareDialog(
                                 }
                             }
                             Text(
-                                targets[idx].name.take(24),
-                                color = TextW,
+                                text = target.name.take(24),
+                                color = TextPrimary,
                                 fontSize = 11.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -108,7 +141,7 @@ fun ShareDialog(
                 }
 
                 Spacer(Modifier.height(8.dp))
-                Divider(color = Color(0xFF1E1F22))
+                Divider(color = DividerColor)
                 Spacer(Modifier.height(8.dp))
 
                 Row(
@@ -121,7 +154,11 @@ fun ShareDialog(
                     }
                     Column {
                         Text("FPS", color = TextMuted, fontSize = 11.sp)
-                        DropdownSelect(fpsOptions.map { "$it" }, fpsOptions.indexOf(fps)) { fps = fpsOptions[it] }
+                        DropdownSelect(
+                            options = fpsOptions.map { "$it" },
+                            selectedIndex = fpsOptions.indexOf(fps),
+                            onSelect = { fps = fpsOptions[it] },
+                        )
                     }
                     if (systemAudioAvailable) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -130,11 +167,13 @@ fun ShareDialog(
                                 onCheckedChange = { shareAudio = it },
                                 colors = CheckboxDefaults.colors(checkedColor = Blurple),
                             )
-                            Text("Share Audio", color = TextW, fontSize = 13.sp)
+                            Text("Share Audio", color = TextPrimary, fontSize = 13.sp)
                         }
                     }
                     Spacer(Modifier.weight(1f))
-                    TextButton(onClick = onDismiss) { Text("Cancel", color = TextMuted) }
+                    TextButton(onClick = onDismiss) {
+                        Text("Cancel", color = TextMuted)
+                    }
                     Button(
                         onClick = { if (selectedIdx >= 0) onGo(targets[selectedIdx], quality, fps, shareAudio) },
                         enabled = selectedIdx >= 0,
@@ -143,40 +182,6 @@ fun ShareDialog(
                     ) {
                         Text("Go Live", color = Color.White)
                     }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun DropdownSelect(
-    options: List<String>,
-    selectedIndex: Int,
-    onSelect: (Int) -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    Box {
-        OutlinedButton(
-            onClick = { expanded = true },
-            shape = RoundedCornerShape(4.dp),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = TextW),
-            modifier = Modifier.height(28.dp),
-            contentPadding = PaddingValues(horizontal = 8.dp),
-        ) {
-            Text(options.getOrElse(selectedIndex) { "" }, fontSize = 12.sp)
-        }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier = Modifier.background(Color(0xFF2B2D31)),
-        ) {
-            options.forEachIndexed { i, label ->
-                DropdownMenuItem(onClick = {
-                    onSelect(i)
-                    expanded = false
-                }) {
-                    Text(label, color = TextW, fontSize = 12.sp)
                 }
             }
         }

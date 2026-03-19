@@ -1,4 +1,4 @@
-package com.driscord.ui
+package com.driscord.presentation.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -14,12 +14,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.driscord.AppConfig
-
-private val BgDialog = Color(0xFF23272A)
-private val BgField = Color(0xFF40444B)
-private val AccentBlue = Color(0xFF5865F2)
-private val TextGray = Color(0xFF72767D)
-private val GreenColor = Color(0xFF3BA55C)
+import com.driscord.ui.*
 
 @Composable
 fun SettingsDialog(
@@ -40,19 +35,18 @@ fun SettingsDialog(
         Surface(
             modifier = Modifier.width(340.dp),
             shape = RoundedCornerShape(8.dp),
-            color = BgDialog,
+            color = VoiceBg,
             elevation = 8.dp,
         ) {
             Column(
-                modifier =
-                    Modifier
-                        .padding(16.dp)
-                        .verticalScroll(rememberScrollState()),
+                modifier = Modifier
+                    .padding(16.dp)
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text("Settings", color = TextW, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text("Settings", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(4.dp))
-                Divider(color = BgField)
+                Divider(color = FieldBg)
                 Spacer(Modifier.height(4.dp))
 
                 SettingsGroup("Connection") {
@@ -77,33 +71,34 @@ fun SettingsDialog(
 
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    "* A/V Sync and Connection settings take effect after restart",
-                    color = TextGray,
+                    text = "* A/V Sync and Connection settings take effect after restart",
+                    color = TextMuted,
                     fontSize = 10.sp,
                 )
                 Spacer(Modifier.height(8.dp))
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                        Text("Cancel", color = TextGray)
+                        Text("Cancel", color = TextMuted)
                     }
                     Button(
                         onClick = {
                             onSave(
                                 config.copy(
-                                    serverHost = serverHost.ifBlank { "localhost" },
-                                    serverPort = serverPort.toIntOrNull() ?: config.serverPort,
-                                    screenFps = screenFps.toIntOrNull() ?: config.screenFps,
+                                    serverHost       = serverHost.ifBlank { "localhost" },
+                                    serverPort       = serverPort.toIntOrNull() ?: config.serverPort,
+                                    screenFps        = screenFps.toIntOrNull() ?: config.screenFps,
                                     videoBitrateKbps = videoBitrate.toIntOrNull() ?: config.videoBitrateKbps,
-                                    voiceJitterMs = voiceJitter.toIntOrNull() ?: config.voiceJitterMs,
-                                    screenBufferMs = screenBuffer.toIntOrNull() ?: config.screenBufferMs,
-                                    maxSyncGapMs = maxSyncGap.toIntOrNull() ?: config.maxSyncGapMs,
+                                    gopSize          = gopSize.toIntOrNull() ?: config.gopSize,
+                                    voiceJitterMs    = voiceJitter.toIntOrNull() ?: config.voiceJitterMs,
+                                    screenBufferMs   = screenBuffer.toIntOrNull() ?: config.screenBufferMs,
+                                    maxSyncGapMs     = maxSyncGap.toIntOrNull() ?: config.maxSyncGapMs,
                                 ),
                             )
                             onDismiss()
                         },
                         modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(backgroundColor = AccentBlue),
+                        colors = ButtonDefaults.buttonColors(backgroundColor = Blurple),
                         shape = RoundedCornerShape(4.dp),
                     ) {
                         Text("Save", color = Color.White)
@@ -119,14 +114,13 @@ private fun SettingsGroup(
     title: String,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Text(title, color = TextGray, fontSize = 10.sp, letterSpacing = 0.5.sp)
+    Text(title, color = TextMuted, fontSize = 10.sp, letterSpacing = 0.5.sp)
     Spacer(Modifier.height(2.dp))
     Column(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .background(BgField.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
-                .padding(horizontal = 8.dp, vertical = 6.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(FieldBg.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
         content = content,
     )
@@ -143,20 +137,19 @@ private fun SettingsField(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(label, color = TextW, fontSize = 12.sp, modifier = Modifier.weight(1f).padding(top = 6.dp))
+        Text(label, color = TextPrimary, fontSize = 12.sp, modifier = Modifier.weight(1f).padding(top = 6.dp))
         OutlinedTextField(
             value = value,
             onValueChange = onChange,
             singleLine = true,
             modifier = Modifier.width(110.dp),
-            colors =
-                TextFieldDefaults.outlinedTextFieldColors(
-                    textColor = TextW,
-                    unfocusedBorderColor = Color(0xFF40444B),
-                    focusedBorderColor = AccentBlue,
-                    backgroundColor = Color(0xFF2C2F33),
-                    cursorColor = AccentBlue,
-                ),
+            colors = TextFieldDefaults.outlinedTextFieldColors(
+                textColor = TextPrimary,
+                unfocusedBorderColor = FieldBg,
+                focusedBorderColor = Blurple,
+                backgroundColor = FieldBgDark,
+                cursorColor = Blurple,
+            ),
             textStyle = LocalTextStyle.current.copy(fontSize = 12.sp),
         )
     }
