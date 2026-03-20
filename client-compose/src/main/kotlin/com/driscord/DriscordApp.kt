@@ -229,7 +229,7 @@ class DriscordApp(
         NativeScreenSession.removeAudioReceiverFromMixer(screenSessionH, audioMixerH)
         NativeAudioTransport.unsetScreenAudioReceiver(audioTransportH, watchingPeer)
         watchingPeer = ""
-        NativeScreenSession.reset(screenSessionH)
+        NativeScreenSession.resetAudioReceiver(screenSessionH)
         _watching.value = false
     }
 

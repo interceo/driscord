@@ -1,6 +1,7 @@
 #include "screen_session.hpp"
 
 #include <chrono>
+#include <unordered_set>
 
 ScreenSession::ScreenSession(
     int buf_ms,
@@ -82,35 +83,35 @@ void ScreenSession::update() {
         last_stats_refresh_ = now;
     }
 
-    if (const auto* frame = receiver_.update()) {
-        const std::string& peer = frame->peer_id;
-        if (!peer.empty()) {
-            if (!last_peer_.empty() && last_peer_ != peer) {
-                std::scoped_lock lk(cb_mutex_);
-                if (on_frame_removed_cb_) {
-                    on_frame_removed_cb_(last_peer_);
-                }
-            }
-            last_w_ = frame->width;
-            last_h_ = frame->height;
-            {
-                std::scoped_lock lk(cb_mutex_);
-                if (on_frame_cb_) {
-                    on_frame_cb_(peer, frame->rgba.data(), frame->width, frame->height);
-                }
-            }
-            last_peer_ = peer;
+    std::unordered_set<std::string> seen_this_tick;
+    receiver_.update([&](const VideoReceiver::Frame& frame) {
+        const std::string& peer = frame.peer_id;
+        if (peer.empty()) {
+            return;
         }
-    }
-    if (!last_peer_.empty() && !receiver_.active()) {
-        {
+        seen_this_tick.insert(peer);
+        last_w_ = frame.width;
+        last_h_ = frame.height;
+        std::scoped_lock lk(cb_mutex_);
+        if (on_frame_cb_) {
+            on_frame_cb_(peer, frame.rgba.data(), frame.width, frame.height);
+        }
+    });
+
+    // Fire on_frame_removed_cb_ for peers that have gone stale.
+    const auto active = receiver_.active_peers();
+    for (auto it = last_peers_.begin(); it != last_peers_.end(); ) {
+        if (active.count(*it) == 0) {
             std::scoped_lock lk(cb_mutex_);
             if (on_frame_removed_cb_) {
-                on_frame_removed_cb_(last_peer_);
+                on_frame_removed_cb_(*it);
             }
+            it = last_peers_.erase(it);
+        } else {
+            ++it;
         }
-        last_peer_.clear();
     }
+    last_peers_.insert(seen_this_tick.begin(), seen_this_tick.end());
 }
 
 void ScreenSession::set_on_frame(OnFrameCb cb) {
@@ -125,7 +126,7 @@ void ScreenSession::set_on_frame_removed(OnRemovedCb cb) {
 
 void ScreenSession::reset() {
     receiver_.reset();
-    last_peer_.clear();
+    last_peers_.clear();
 }
 
 void ScreenSession::reset_audio() {

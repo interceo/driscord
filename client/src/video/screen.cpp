@@ -130,8 +130,8 @@ void ScreenReceiver::push_audio_packet(const utils::vector_view<const uint8_t> d
     audio_recv_->push_packet(data);
 }
 
-const VideoReceiver::Frame* ScreenReceiver::update() {
-    return video_recv_.update();
+void ScreenReceiver::update(std::function<void(const VideoReceiver::Frame&)> on_frame) {
+    video_recv_.update(std::move(on_frame));
 }
 
 void ScreenReceiver::set_keyframe_callback(std::function<void()> fn) {
@@ -143,6 +143,9 @@ std::string ScreenReceiver::active_peer() const {
 }
 bool ScreenReceiver::active() const {
     return video_recv_.active();
+}
+std::unordered_set<std::string> ScreenReceiver::active_peers() const {
+    return video_recv_.active_peers();
 }
 int ScreenReceiver::measured_kbps() const {
     return video_recv_.measured_kbps();

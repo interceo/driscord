@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <unordered_set>
 #include <vector>
 
 class ScreenSender {
@@ -68,7 +69,7 @@ public:
     );
     void push_audio_packet(const utils::vector_view<const uint8_t> data);
 
-    const VideoReceiver::Frame* update();
+    void update(std::function<void(const VideoReceiver::Frame&)> on_frame);
 
     std::shared_ptr<AudioReceiver> audio_receiver() { return audio_recv_; }
     std::shared_ptr<const AudioReceiver> audio_receiver() const { return audio_recv_; }
@@ -77,6 +78,7 @@ public:
 
     std::string active_peer() const;
     bool active() const;
+    std::unordered_set<std::string> active_peers() const;
     int measured_kbps() const;
 
     VideoReceiver::Stats video_stats() const;
