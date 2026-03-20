@@ -115,15 +115,21 @@ void Transport::disconnect() {
 }
 
 void Transport::send_on_channel(const std::string& label, const uint8_t* data, size_t len) {
-    std::scoped_lock lk(peers_mutex_);
-    for (auto& [_, state] : peers_) {
-        auto it = state.channels.find(label);
-        if (it != state.channels.end() && it->second.dc && it->second.open) {
-            try {
-                it->second.dc->send(reinterpret_cast<const std::byte*>(data), len);
-            } catch (const std::exception& e) {
-                LOG_ERROR() << "send_on_channel[" << label << "]: " << e.what();
+    std::vector<std::shared_ptr<rtc::DataChannel>> targets;
+    {
+        std::scoped_lock lk(peers_mutex_);
+        for (auto& [_, state] : peers_) {
+            auto it = state.channels.find(label);
+            if (it != state.channels.end() && it->second.dc && it->second.open) {
+                targets.push_back(it->second.dc);
             }
+        }
+    }
+    for (const auto& dc : targets) {
+        try {
+            dc->send(reinterpret_cast<const std::byte*>(data), len);
+        } catch (const std::exception& e) {
+            LOG_ERROR() << "send_on_channel[" << label << "]: " << e.what();
         }
     }
 }
@@ -148,8 +154,12 @@ void Transport::on_ws_message(const std::string& raw) {
         std::string type = msg.value("type", "");
 
         if (type == "welcome") {
-            local_id_ = msg["id"];
-            LOG_INFO() << "assigned id: " << local_id_;
+            std::string assigned_id = msg["id"];
+            {
+                std::scoped_lock lk(ws_mutex_);
+                local_id_ = assigned_id;
+            }
+            LOG_INFO() << "assigned id: " << assigned_id;
             if (msg.contains("peers")) {
                 for (auto& peer_id : msg["peers"]) {
                     std::string pid = peer_id;

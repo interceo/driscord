@@ -84,7 +84,8 @@ static const AVCodec* pick_h264_encoder() {
     return avcodec_find_encoder(AV_CODEC_ID_H264);
 }
 
-static void setup_rate_control(AVCodecContext* ctx, int bitrate_bps, std::string_view enc_name) {
+static void setup_rate_control(AVCodecContext* ctx, int bitrate_kbps, std::string_view enc_name) {
+    const int64_t bitrate_bps = static_cast<int64_t>(bitrate_kbps) * 1000;
     ctx->bit_rate       = bitrate_bps;
     ctx->rc_max_rate    = bitrate_bps;
     ctx->rc_buffer_size = static_cast<int>(bitrate_bps * 2);
@@ -101,8 +102,9 @@ static void setup_rate_control(AVCodecContext* ctx, int bitrate_bps, std::string
         av_opt_set(ctx->priv_data, "nal-hrd", "cbr", 0);
         av_opt_set(ctx->priv_data, "rc-lookahead", "0", 0);
         av_opt_set(ctx->priv_data, "repeat-headers", "1", 0);
-        av_opt_set(ctx->priv_data, "vbv-maxrate", std::to_string(bitrate_bps / 1000).c_str(), 0);
-        av_opt_set(ctx->priv_data, "vbv-bufsize", std::to_string(bitrate_bps / 500).c_str(), 0);
+        // vbv-maxrate and vbv-bufsize are in kbps for libx264
+        av_opt_set(ctx->priv_data, "vbv-maxrate", std::to_string(bitrate_kbps).c_str(), 0);
+        av_opt_set(ctx->priv_data, "vbv-bufsize", std::to_string(bitrate_kbps * 2).c_str(), 0);
     } else if (enc_name.find("nvenc") != std::string_view::npos) {
         av_opt_set(ctx->priv_data, "preset", "p4", 0);
         av_opt_set(ctx->priv_data, "tune", "ll", 0);
@@ -146,7 +148,7 @@ static void setup_common_ctx(AVCodecContext* ctx, int width, int height, int fps
     ctx->gop_size     = fps;
     ctx->max_b_frames = 0;
     ctx->thread_count = optimal_thread_count();
-    ctx->thread_type  = FF_THREAD_FRAME | FF_THREAD_SLICE;
+    ctx->thread_type  = FF_THREAD_SLICE; // FF_THREAD_FRAME adds latency = thread_count-1 frames, incompatible with LOW_DELAY
     ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
 }
 
@@ -240,7 +242,10 @@ bool VideoEncoder::init(const size_t width, const size_t height, const size_t fp
     frame->format = AV_PIX_FMT_YUV420P;
     frame->width  = w;
     frame->height = h;
-    av_frame_get_buffer(frame.get(), 0);
+    if (const int ret = av_frame_get_buffer(frame.get(), 0); ret < 0) {
+        LOG_ERROR() << "av_frame_get_buffer failed: " << ff_err(ret);
+        return false;
+    }
 
     auto pkt = ff::PacketPtr{av_packet_alloc()};
     if (!pkt) {
@@ -382,13 +387,16 @@ bool VideoDecoder::decode(const uint8_t* data, size_t len, std::vector<uint8_t>&
     pkt_->data = const_cast<uint8_t*>(data);
     pkt_->size = static_cast<int>(len);
 
-    int ret    = avcodec_send_packet(ctx_.get(), pkt_.get());
-    pkt_->data = nullptr;
-    pkt_->size = 0;
+    int ret = avcodec_send_packet(ctx_.get(), pkt_.get());
+    av_packet_unref(pkt_.get());
     if (ret < 0) {
         return false;
     }
 
+    // avcodec_receive_frame always calls av_frame_unref(frame) before returning,
+    // including on EAGAIN. Using a loop would leave frame_ unref'd after the last
+    // failed call. With max_b_frames=0 and LOW_DELAY, one send produces at most
+    // one frame, so a single receive is correct here.
     if (avcodec_receive_frame(ctx_.get(), frame_.get()) < 0) {
         return false;
     }

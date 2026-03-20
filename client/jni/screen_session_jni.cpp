@@ -114,7 +114,7 @@ JNIEXPORT jboolean JNICALL Java_com_driscord_jni_NativeScreenSession_startSharin
     jint maxH,
     jint fps,
     jint bitrateKbps,
-    jint gopSize,
+    jint /*gopSize*/,
     jboolean shareAudio
 ) {
     const char* raw      = env->GetStringUTFChars(jTargetJson, nullptr);

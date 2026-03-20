@@ -37,7 +37,10 @@ public:
     void disconnect();
 
     bool connected() const { return ws_connected_; }
-    std::string local_id() const { return local_id_; }
+    std::string local_id() const {
+        std::scoped_lock lk(ws_mutex_);
+        return local_id_;
+    }
 
     void on_peer_joined(PeerEventCb cb) { on_peer_joined_ = std::move(cb); }
     void on_peer_left(PeerEventCb cb) { on_peer_left_ = std::move(cb); }

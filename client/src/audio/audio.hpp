@@ -102,5 +102,5 @@ private:
     uint64_t push_count_ = 0;
     uint64_t pop_count_  = 0;
 
-    static int next_id_;
+    static std::atomic<int> next_id_;
 };
