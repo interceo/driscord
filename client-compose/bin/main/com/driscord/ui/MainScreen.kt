@@ -71,7 +71,7 @@ fun MainScreen(app: DriscordApp) {
                 onGrabThumbnail = { app.grabThumbnail(it) },
                 onStartSharing = { t, q, fps, audio -> app.startSharing(t, q, fps, audio) },
                 onStopSharing = { app.stopSharing() },
-                onJoinStream = { app.joinStream() },
+                onJoinStream = { app.joinStream(it) },
                 onLeaveStream = { app.leaveStream() },
                 onSetStreamVolume = { app.setStreamVolume(it) },
                 onStreamVolume = { app.streamVolume() },

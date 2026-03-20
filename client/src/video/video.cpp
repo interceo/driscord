@@ -119,11 +119,7 @@ void VideoSender::encode_loop() {
 }
 
 VideoReceiver::VideoReceiver(int buffer_ms, int /*max_sync_gap_ms*/)
-    : video_(std::chrono::milliseconds(buffer_ms)) {
-    if (!decoder_.init()) {
-        LOG_ERROR() << "failed to init video decoder";
-    }
-}
+    : buffer_delay_(std::chrono::milliseconds(buffer_ms)) {}
 
 VideoReceiver::~VideoReceiver() = default;
 
@@ -144,13 +140,28 @@ void VideoReceiver::push_video_packet(
         return;
     }
 
+    // Find or create per-peer decoder. Each peer has its own H.264 codec context
+    // so simultaneous streams don't corrupt each other's decoder state.
+    // Use shared_ptr so reset() clearing the map doesn't leave a dangling pointer.
+    std::shared_ptr<PeerDecoder> ps;
     {
         std::scoped_lock lk(mutex_);
         current_peer_ = peer_id;
         last_packet_  = utils::Now();
+
+        auto& entry = peer_decoders_[peer_id];
+        if (!entry) {
+            entry = std::make_shared<PeerDecoder>(buffer_delay_);
+            if (!entry->decoder.init()) {
+                LOG_ERROR() << "video decoder init failed for peer " << peer_id;
+                peer_decoders_.erase(peer_id);
+                return;
+            }
+        }
+        ps = entry;
     }
 
-    if (!decoder_.ready()) {
+    if (!ps || !ps->decoder.ready()) {
         return;
     }
 
@@ -170,39 +181,141 @@ void VideoReceiver::push_video_packet(
 
     std::vector<uint8_t> rgba;
     int w = 0, h = 0;
-    if (decoder_.decode(encoded, encoded_len, rgba, w, h)) {
-        decode_failures_ = 0;
-        video_.push(
+    if (ps->decoder.decode(encoded, encoded_len, rgba, w, h)) {
+        ps->decode_failures = 0;
+        ps->jitter.push(
             Frame{
                 .rgba           = std::move(rgba),
                 .width          = w,
                 .height         = h,
+                .peer_id        = peer_id,
                 .sender_ts      = vh.sender_ts,
                 .frame_duration = std::chrono::microseconds(vh.frame_duration_us),
             }
         );
     } else {
-        ++decode_failures_;
+        ++ps->decode_failures;
         const auto kf_now = utils::Now();
         if (on_keyframe_needed_ &&
-            (decode_failures_ == 1 || utils::ElapsedMs(last_keyframe_req_, kf_now) >= 500)) {
+            (ps->decode_failures == 1 || utils::ElapsedMs(ps->last_keyframe_req, kf_now) >= 500)) {
             on_keyframe_needed_();
-            last_keyframe_req_ = kf_now;
+            ps->last_keyframe_req = kf_now;
         }
     }
 }
 
 const VideoReceiver::Frame* VideoReceiver::update() {
-    while (true) {
-        auto frame = video_.pop();
-        if (!frame || frame->rgba.empty()) {
-            break;
+    std::vector<std::shared_ptr<PeerDecoder>> peers;
+    {
+        std::scoped_lock lk(mutex_);
+        for (auto& [_, pd] : peer_decoders_) {
+            peers.push_back(pd);
         }
-
-        current_frame_ = std::move(frame);
     }
-
+    for (auto& pd : peers) {
+        while (true) {
+            auto frame = pd->jitter.pop();
+            if (!frame || frame->rgba.empty()) {
+                break;
+            }
+            current_frame_ = std::move(frame);
+        }
+    }
     return current_frame_.get();
+}
+
+VideoReceiver::Stats VideoReceiver::video_stats() const {
+    std::shared_ptr<PeerDecoder> pd;
+    {
+        std::scoped_lock lk(mutex_);
+        auto it = peer_decoders_.find(current_peer_);
+        if (it != peer_decoders_.end()) {
+            pd = it->second;
+        }
+    }
+    return pd ? pd->jitter.stats() : Stats{};
+}
+
+size_t VideoReceiver::evict_old(utils::Duration max_delay) {
+    std::vector<std::shared_ptr<PeerDecoder>> peers;
+    {
+        std::scoped_lock lk(mutex_);
+        for (auto& [_, p] : peer_decoders_) {
+            peers.push_back(p);
+        }
+    }
+    size_t total = 0;
+    for (auto& p : peers) {
+        total += p->jitter.evict_old(max_delay);
+    }
+    return total;
+}
+
+size_t VideoReceiver::evict_before_sender_ts(utils::WallTimestamp cutoff) {
+    std::vector<std::shared_ptr<PeerDecoder>> peers;
+    {
+        std::scoped_lock lk(mutex_);
+        for (auto& [_, p] : peer_decoders_) {
+            peers.push_back(p);
+        }
+    }
+    size_t total = 0;
+    for (auto& p : peers) {
+        total += p->jitter.evict_before_sender_ts(cutoff);
+    }
+    return total;
+}
+
+std::optional<utils::WallTimestamp> VideoReceiver::front_effective_ts() const {
+    std::shared_ptr<PeerDecoder> pd;
+    {
+        std::scoped_lock lk(mutex_);
+        auto it = peer_decoders_.find(current_peer_);
+        if (it != peer_decoders_.end()) {
+            pd = it->second;
+        }
+    }
+    return pd ? pd->jitter.front_effective_ts() : std::nullopt;
+}
+
+utils::Duration VideoReceiver::front_frame_duration() const {
+    std::shared_ptr<PeerDecoder> pd;
+    {
+        std::scoped_lock lk(mutex_);
+        auto it = peer_decoders_.find(current_peer_);
+        if (it != peer_decoders_.end()) {
+            pd = it->second;
+        }
+    }
+    if (!pd) {
+        return {};
+    }
+    return pd->jitter.with_front([](const Frame& f) { return f.frame_duration; })
+        .value_or(utils::Duration{});
+}
+
+bool VideoReceiver::primed() const {
+    std::shared_ptr<PeerDecoder> pd;
+    {
+        std::scoped_lock lk(mutex_);
+        auto it = peer_decoders_.find(current_peer_);
+        if (it != peer_decoders_.end()) {
+            pd = it->second;
+        }
+    }
+    return pd && pd->jitter.primed();
+}
+
+int64_t VideoReceiver::front_age_ms() const {
+    std::shared_ptr<PeerDecoder> pd;
+    {
+        std::scoped_lock lk(mutex_);
+        auto it = peer_decoders_.find(current_peer_);
+        if (it != peer_decoders_.end()) {
+            pd = it->second;
+        }
+    }
+    return pd ? pd->jitter.front_age_ms() : -1;
 }
 
 std::string VideoReceiver::active_peer() const {
@@ -222,9 +335,10 @@ void VideoReceiver::reset() {
     {
         std::scoped_lock lk(mutex_);
         current_peer_.clear();
+        last_packet_ = {};
+        peer_decoders_.clear();
     }
-    video_.reset();
-    decode_failures_ = 0;
+    current_frame_.reset();
     measured_kbps_.store(0, std::memory_order_relaxed);
     bytes_since_calc_ = 0;
     last_calc_        = utils::Now();
