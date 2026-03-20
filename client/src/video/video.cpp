@@ -194,14 +194,15 @@ void VideoReceiver::push_video_packet(
 
 const VideoReceiver::Frame* VideoReceiver::update() {
     while (true) {
-        auto f = video_.pop();
-        if (f.rgba.empty()) {
+        auto frame = video_.pop();
+        if (!frame || frame->rgba.empty()) {
             break;
         }
 
-        current_frame_ = std::move(f);
+        current_frame_ = std::move(frame);
     }
-    return current_frame_ ? &*current_frame_ : nullptr;
+
+    return current_frame_.get();
 }
 
 std::string VideoReceiver::active_peer() const {

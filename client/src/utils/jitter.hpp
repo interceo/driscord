@@ -6,6 +6,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <optional>
 
@@ -13,8 +14,10 @@ namespace utils {
 
 template <typename T> class JitterBuffer {
 public:
+    using Ptr = std::unique_ptr<T>;
+
     struct Packet {
-        T data{};
+        Ptr data{};
         utils::Timestamp arrival{};
     };
 
@@ -33,11 +36,11 @@ public:
               )
           ) {}
 
-    void push(const uint64_t seq, T&& data) {
+    void push(const uint64_t seq, Ptr&& data) {
         std::scoped_lock lk(mutex_);
 
         const auto now = utils::Now();
-        if (!first_push_time_) {
+        if (!first_push_time_) [[unlikely]] {
             first_push_time_ = now;
         }
 
@@ -46,44 +49,43 @@ public:
         }
     }
 
-    std::optional<Packet> pop() {
+    Ptr pop() noexcept {
         std::unique_lock lk(mutex_, std::try_to_lock);
-        if (!lk.owns_lock()) {
-            return std::nullopt;
+        if (!lk.owns_lock()) [[unlikely]] {
+            return nullptr;
         }
 
         const auto now = utils::Now();
-
-        if (!first_push_time_) {
-            return std::nullopt;
+        if (!first_push_time_) [[unlikely]] {
+            return nullptr;
         }
 
-        if (!primed_) {
+        if (!primed_) [[unlikely]] {
             if (utils::Elapsed(*first_push_time_, now) < target_delay_) {
-                return std::nullopt;
+                return nullptr;
             }
             primed_ = true;
         }
 
         if (ring_.empty()) {
-            return std::nullopt;
+            return nullptr;
         }
 
         auto peek = ring_.peek_next();
         if (!peek) {
-            return std::nullopt;
+            return nullptr;
         }
 
         if (peek->skipped > 0) {
             ring_.advance_seq();
             ++miss_count_;
-            return std::nullopt;
+            return nullptr;
         }
 
         auto result = ring_.consume_peeked(0);
         ++played_count_;
 
-        return std::make_optional(std::move(result.data));
+        return std::move(result.data.data);
     }
 
     size_t evict_old(const utils::Duration max_delay) {
@@ -112,7 +114,7 @@ public:
             if (!peek) {
                 break;
             }
-            if (!pred(peek->data->data)) {
+            if (!pred(*peek->data->data)) {
                 break;
             }
             ring_.consume_peeked(peek->skipped);
@@ -129,7 +131,7 @@ public:
         if (!peek) {
             return std::nullopt;
         }
-        return fn(peek->data->data);
+        return fn(*peek->data->data);
     }
 
     utils::Duration target_delay() const { return target_delay_; }
@@ -177,7 +179,7 @@ public:
 
 private:
     mutable std::mutex mutex_;
-    SlotRing<Packet> ring_;
+    mutable SlotRing<Packet> ring_;
 
     bool primed_ = false;
     utils::Duration target_delay_;
@@ -193,6 +195,7 @@ template <typename Frame> class Jitter {
 public:
     using JitterBuf = JitterBuffer<Frame>;
     using Stats     = JitterBuf::Stats;
+    using Ptr       = JitterBuf::Ptr;
 
     explicit Jitter(const utils::Duration target_delay)
         : buf_(target_delay) {}
@@ -201,15 +204,11 @@ public:
         if (frame.empty()) {
             return;
         }
-        buf_.push(seq_++, std::move(frame));
+        buf_.push(seq_++, std::make_unique<Frame>(std::move(frame)));
     }
 
-    Frame pop() {
-        auto pkt = buf_.pop();
-        if (!pkt || pkt->data.empty()) {
-            return {};
-        }
-        return std::move(pkt->data);
+    Ptr pop() {
+        return buf_.pop();
     }
 
     size_t evict_old(const utils::Duration max_delay) { return buf_.evict_old(max_delay); }

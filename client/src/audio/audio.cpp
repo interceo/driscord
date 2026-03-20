@@ -197,12 +197,20 @@ void AudioReceiver::push_packet(const utils::vector_view<const uint8_t> data) {
 }
 
 std::vector<float> AudioReceiver::pop() {
-    auto result = jitter_.pop().samples;
+    auto result = jitter_.pop();
+
+    if (!result) {
+        return {};
+    }
+
+    auto samples = std::move(result->samples);
+
     ++pop_count_;
     if (pop_count_ % 60 == 0) {
         LOG_INFO()
             << "[audio-recv/" << id_ << "] pop#" << pop_count_
-            << " got=" << (result.empty() ? "null" : "frame") << " queue=" << jitter_.queue_size();
+            << " got=" << (result ? "frame" : "null") << " queue=" << jitter_.queue_size()
+            << " got=" << (samples.empty() ? "null" : "frame") << " queue=" << jitter_.queue_size();
     }
-    return result;
+    return samples;
 }
