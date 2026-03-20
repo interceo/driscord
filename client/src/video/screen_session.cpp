@@ -83,7 +83,7 @@ void ScreenSession::update() {
     }
 
     if (const auto* frame = receiver_.update()) {
-        std::string peer = receiver_.active_peer();
+        const std::string& peer = frame->peer_id;
         if (!peer.empty()) {
             if (!last_peer_.empty() && last_peer_ != peer) {
                 std::scoped_lock lk(cb_mutex_);

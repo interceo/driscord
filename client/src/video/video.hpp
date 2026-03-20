@@ -11,7 +11,9 @@
 #include <functional>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 class VideoSender {
@@ -63,6 +65,7 @@ public:
         std::vector<uint8_t> rgba;
         int width  = 0;
         int height = 0;
+        std::string peer_id;
         utils::WallTimestamp sender_ts{};
         utils::Duration frame_duration{};
 
@@ -91,34 +94,35 @@ public:
     bool active() const;
     int measured_kbps() const { return measured_kbps_.load(std::memory_order_relaxed); }
 
-    Stats video_stats() const { return video_.stats(); }
+    Stats video_stats() const;
 
-    size_t evict_old(utils::Duration max_delay) { return video_.evict_old(max_delay); }
-    size_t evict_before_sender_ts(utils::WallTimestamp cutoff) {
-        return video_.evict_before_sender_ts(cutoff);
-    }
-    std::optional<utils::WallTimestamp> front_effective_ts() const {
-        return video_.front_effective_ts();
-    }
-    utils::Duration front_frame_duration() const {
-        return video_.with_front([](const Frame& f) { return f.frame_duration; })
-            .value_or(utils::Duration{});
-    }
-    bool primed() const { return video_.primed(); }
-    int64_t front_age_ms() const { return video_.front_age_ms(); }
+    size_t evict_old(utils::Duration max_delay);
+    size_t evict_before_sender_ts(utils::WallTimestamp cutoff);
+    std::optional<utils::WallTimestamp> front_effective_ts() const;
+    utils::Duration front_frame_duration() const;
+    bool primed() const;
+    int64_t front_age_ms() const;
 
     void reset();
 
 private:
-    VideoDecoder decoder_;
-    int decode_failures_ = 0;
-    utils::Timestamp last_keyframe_req_{};
+    // Per-peer state — each peer has its own H.264 decoder and jitter buffer.
+    // Created lazily on first packet, destroyed on reset().
+    struct PeerDecoder {
+        VideoDecoder decoder;
+        VideoJitter jitter;
+        int decode_failures = 0;
+        utils::Timestamp last_keyframe_req{};
+
+        explicit PeerDecoder(utils::Duration buf_delay) : jitter(buf_delay) {}
+    };
 
     std::function<void()> on_keyframe_needed_;
 
-    VideoJitter video_;
+    utils::Duration buffer_delay_;
 
     mutable std::mutex mutex_;
+    std::unordered_map<std::string, std::shared_ptr<PeerDecoder>> peer_decoders_;
     std::string current_peer_;
     utils::Timestamp last_packet_{};
 

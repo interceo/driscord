@@ -26,9 +26,14 @@ object NativeAudioTransport {
         peer: String,
     )
 
-    /** Pass screenHandle=0 to clear. */
     @JvmStatic external fun setScreenAudioReceiver(
         audioHandle: Long,
+        peerId: String,
         screenHandle: Long,
+    )
+
+    @JvmStatic external fun unsetScreenAudioReceiver(
+        audioHandle: Long,
+        peerId: String,
     )
 }

@@ -15,11 +15,12 @@ struct AudioTransportJni {
 
     std::mutex recv_mutex;
     std::unordered_map<std::string, std::shared_ptr<AudioReceiver>> voice_recv;
-    std::shared_ptr<AudioReceiver> screen_audio_recv;
+    std::unordered_map<std::string, std::shared_ptr<AudioReceiver>> screen_audio_recv;
 
     explicit AudioTransportJni(TransportJni& t);
 
     void register_voice(const std::string& peer_id, std::shared_ptr<AudioReceiver> recv);
     void unregister_voice(const std::string& peer_id);
-    void set_screen_audio_recv(std::shared_ptr<AudioReceiver> recv);
+    void set_screen_audio_recv(const std::string& peer_id, std::shared_ptr<AudioReceiver> recv);
+    void unset_screen_audio_recv(const std::string& peer_id);
 };

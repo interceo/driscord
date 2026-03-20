@@ -70,6 +70,7 @@ class DriscordApp(
 
     private val _watching = MutableStateFlow(false)
     val watching: StateFlow<Boolean> = _watching.asStateFlow()
+    private var watchingPeer: String = ""
 
     private val _sharing = MutableStateFlow(false)
     val sharing: StateFlow<Boolean> = _sharing.asStateFlow()
@@ -215,9 +216,10 @@ class DriscordApp(
         return NativeAudioReceiver.volume(recv)
     }
 
-    fun joinStream() {
+    fun joinStream(peerId: String) {
+        watchingPeer = peerId
         NativeVideoTransport.setWatching(videoTransportH, true)
-        NativeAudioTransport.setScreenAudioReceiver(audioTransportH, screenSessionH)
+        NativeAudioTransport.setScreenAudioReceiver(audioTransportH, peerId, screenSessionH)
         NativeScreenSession.addAudioReceiverToMixer(screenSessionH, audioMixerH)
         _watching.value = true
     }
@@ -225,7 +227,8 @@ class DriscordApp(
     fun leaveStream() {
         NativeVideoTransport.setWatching(videoTransportH, false)
         NativeScreenSession.removeAudioReceiverFromMixer(screenSessionH, audioMixerH)
-        NativeAudioTransport.setScreenAudioReceiver(audioTransportH, 0L)
+        NativeAudioTransport.unsetScreenAudioReceiver(audioTransportH, watchingPeer)
+        watchingPeer = ""
         NativeScreenSession.reset(screenSessionH)
         _watching.value = false
     }

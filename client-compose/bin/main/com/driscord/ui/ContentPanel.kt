@@ -42,7 +42,7 @@ fun ContentPanel(
     onGrabThumbnail: (CaptureTarget) -> ImageBitmap?,
     onStartSharing: (CaptureTarget, Int, Int, Boolean) -> Unit,
     onStopSharing: () -> Unit,
-    onJoinStream: () -> Unit,
+    onJoinStream: (String) -> Unit,
     onLeaveStream: () -> Unit,
     onSetStreamVolume: (Float) -> Unit,
     onStreamVolume: () -> Float,
@@ -198,7 +198,7 @@ fun ContentPanel(
                         streamVolume = onStreamVolume(),
                         onSetStreamVolume = onSetStreamVolume,
                         onClick = { focusedPeer = peerId },
-                        onJoin = onJoinStream,
+                        onJoin = { onJoinStream(peerId) },
                         onLeave = onLeaveStream,
                     )
                 }
@@ -248,7 +248,7 @@ private fun FocusedLayout(
     onSetPeerVolume: (String, Float) -> Unit,
     onStreamVolume: () -> Float,
     onSetStreamVolume: (Float) -> Unit,
-    onJoinStream: () -> Unit,
+    onJoinStream: (String) -> Unit,
     onLeaveStream: () -> Unit,
     onFocus: (String) -> Unit,
     onUnfocus: () -> Unit,
@@ -298,7 +298,7 @@ private fun FocusedLayout(
                         streamVolume = onStreamVolume(),
                         onSetStreamVolume = onSetStreamVolume,
                         onClick = onUnfocus,
-                        onJoin = onJoinStream,
+                        onJoin = { onJoinStream(focusedPeer) },
                         onLeave = onLeaveStream,
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -362,7 +362,7 @@ private fun FocusedLayout(
                                         streamVolume = onStreamVolume(),
                                         onSetStreamVolume = onSetStreamVolume,
                                         onClick = { onFocus(peerId) },
-                                        onJoin = onJoinStream,
+                                        onJoin = { onJoinStream(peerId) },
                                         onLeave = onLeaveStream,
                                         modifier = Modifier.fillMaxSize(),
                                     )
