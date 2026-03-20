@@ -147,7 +147,6 @@ void VideoReceiver::push_video_packet(
     {
         std::scoped_lock lk(mutex_);
         current_peer_ = peer_id;
-        last_packet_  = utils::Now();
 
         auto& entry = peer_decoders_[peer_id];
         if (!entry) {
@@ -158,6 +157,7 @@ void VideoReceiver::push_video_packet(
                 return;
             }
         }
+        entry->last_packet = utils::Now();
         ps = entry;
     }
 
@@ -204,7 +204,7 @@ void VideoReceiver::push_video_packet(
     }
 }
 
-const VideoReceiver::Frame* VideoReceiver::update() {
+void VideoReceiver::update(std::function<void(const Frame&)> on_frame) {
     std::vector<std::shared_ptr<PeerDecoder>> peers;
     {
         std::scoped_lock lk(mutex_);
@@ -218,10 +218,12 @@ const VideoReceiver::Frame* VideoReceiver::update() {
             if (!frame || frame->rgba.empty()) {
                 break;
             }
-            current_frame_ = std::move(frame);
+            pd->current_frame = std::move(frame);
+        }
+        if (pd->current_frame) {
+            on_frame(*pd->current_frame);
         }
     }
-    return current_frame_.get();
 }
 
 VideoReceiver::Stats VideoReceiver::video_stats() const {
@@ -325,20 +327,30 @@ std::string VideoReceiver::active_peer() const {
 
 bool VideoReceiver::active() const {
     std::scoped_lock lk(mutex_);
-    if (current_peer_.empty()) {
+    auto it = peer_decoders_.find(current_peer_);
+    if (it == peer_decoders_.end()) {
         return false;
     }
-    return utils::ElapsedMs(last_packet_) / 1000 <= kStaleSeconds;
+    return utils::ElapsedMs(it->second->last_packet) / 1000 <= kStaleSeconds;
+}
+
+std::unordered_set<std::string> VideoReceiver::active_peers() const {
+    std::scoped_lock lk(mutex_);
+    std::unordered_set<std::string> result;
+    for (auto& [id, pd] : peer_decoders_) {
+        if (utils::ElapsedMs(pd->last_packet) / 1000 <= kStaleSeconds) {
+            result.insert(id);
+        }
+    }
+    return result;
 }
 
 void VideoReceiver::reset() {
     {
         std::scoped_lock lk(mutex_);
         current_peer_.clear();
-        last_packet_ = {};
         peer_decoders_.clear();
     }
-    current_frame_.reset();
     measured_kbps_.store(0, std::memory_order_relaxed);
     bytes_since_calc_ = 0;
     last_calc_        = utils::Now();

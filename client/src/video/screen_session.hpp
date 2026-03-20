@@ -7,6 +7,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_set>
 
 class ScreenSession {
 public:
@@ -76,7 +77,7 @@ private:
     SendCb send_video_;
     SendCb send_screen_audio_;
 
-    std::string last_peer_;
+    std::unordered_set<std::string> last_peers_;
     int last_w_ = 0;
     int last_h_ = 0;
 

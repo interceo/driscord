@@ -14,6 +14,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 class VideoSender {
@@ -86,12 +87,14 @@ public:
         const utils::vector_view<const uint8_t> data
     );
 
-    const Frame* update();
+    // Drains each peer's jitter, calls on_frame once per peer that has a current frame.
+    void update(std::function<void(const Frame&)> on_frame);
 
     void set_keyframe_callback(std::function<void()> fn);
 
     std::string active_peer() const;
     bool active() const;
+    std::unordered_set<std::string> active_peers() const;
     int measured_kbps() const { return measured_kbps_.load(std::memory_order_relaxed); }
 
     Stats video_stats() const;
@@ -106,11 +109,13 @@ public:
     void reset();
 
 private:
-    // Per-peer state — each peer has its own H.264 decoder and jitter buffer.
+    // Per-peer state — each peer has its own H.264 decoder, jitter buffer, and current frame.
     // Created lazily on first packet, destroyed on reset().
     struct PeerDecoder {
         VideoDecoder decoder;
         VideoJitter jitter;
+        VideoJitter::Ptr current_frame;
+        utils::Timestamp last_packet{};
         int decode_failures = 0;
         utils::Timestamp last_keyframe_req{};
 
@@ -124,12 +129,9 @@ private:
     mutable std::mutex mutex_;
     std::unordered_map<std::string, std::shared_ptr<PeerDecoder>> peer_decoders_;
     std::string current_peer_;
-    utils::Timestamp last_packet_{};
 
     // Bitrate measurement — producer thread only.
     std::atomic<int> measured_kbps_{0};
     size_t bytes_since_calc_ = 0;
     utils::Timestamp last_calc_{};
-
-    VideoJitter::Ptr current_frame_;
 };
