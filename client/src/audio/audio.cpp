@@ -117,7 +117,7 @@ void AudioSender::on_capture(const float* input, uint32_t frames) {
     }
 }
 
-int AudioReceiver::next_id_ = 0;
+std::atomic<int> AudioReceiver::next_id_ = 0;
 
 AudioReceiver::AudioReceiver(int jitter_ms, int channels, int sample_rate)
     : jitter_(std::chrono::milliseconds(jitter_ms))
@@ -206,11 +206,5 @@ std::vector<float> AudioReceiver::pop() {
     auto samples = std::move(result->samples);
 
     ++pop_count_;
-    if (pop_count_ % 60 == 0) {
-        LOG_INFO()
-            << "[audio-recv/" << id_ << "] pop#" << pop_count_
-            << " got=" << (result ? "frame" : "null") << " queue=" << jitter_.queue_size()
-            << " got=" << (samples.empty() ? "null" : "frame") << " queue=" << jitter_.queue_size();
-    }
     return samples;
 }

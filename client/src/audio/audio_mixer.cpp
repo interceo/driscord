@@ -91,23 +91,14 @@ void AudioMixer::on_playback(float* output, const uint32_t frames) {
 
     std::memset(output, 0, frames * sizeof(float));
 
-    size_t active_sources = 0;
     for (const auto& src : snapshot_) {
         auto samples = src->pop();
-        if (!samples.empty()) {
-            ++active_sources;
-        }
         for (size_t i = 0; i < samples.size() && i < frames; ++i) {
             output[i] += samples[i];
         }
     }
 
     ++playback_count_;
-    if (playback_count_ % 500 == 0) {
-        LOG_INFO()
-            << "[mixer] cb#" << playback_count_ << " sources=" << snapshot_.size() << " active=" << active_sources
-            << " frames=" << frames;
-    }
 
     if (deafened_) {
         std::memset(output, 0, frames * sizeof(float));

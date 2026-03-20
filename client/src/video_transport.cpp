@@ -86,15 +86,19 @@ void VideoTransport::on_chunk(const std::string& peer_id, const uint8_t* data, s
     if (ch.total_chunks == 0 || ch.chunk_idx >= ch.total_chunks) {
         return;
     }
+    if (ch.total_chunks > kMaxChunksPerFrame) {
+        return;
+    }
 
     const uint8_t* payload   = data + protocol::ChunkHeader::kWireSize;
     const size_t payload_len = len - protocol::ChunkHeader::kWireSize;
 
-    auto& fa = assembly_[ch.frame_id];
+    auto& peer_map = peer_assembly_[peer_id];
+    auto& fa       = peer_map[ch.frame_id];
     if (fa.total == 0) {
-        for (auto it = assembly_.begin(); it != assembly_.end();) {
+        for (auto it = peer_map.begin(); it != peer_map.end();) {
             if (it->first + kMaxAssemblyFrames < ch.frame_id) {
-                it = assembly_.erase(it);
+                it = peer_map.erase(it);
             } else {
                 ++it;
             }
@@ -123,5 +127,5 @@ void VideoTransport::on_chunk(const std::string& peer_id, const uint8_t* data, s
     if (on_video_) {
         on_video_(peer_id, fa.buffer.data(), fa.actual_size);
     }
-    assembly_.erase(ch.frame_id);
+    peer_map.erase(ch.frame_id);
 }

@@ -12,7 +12,9 @@ public:
     using Callback = std::function<void()>;
 
     // Keep well under PMTU (~1400 bytes after DTLS/SCTP/UDP/IP headers).
-    static constexpr size_t kChunkPayloadSize = 1100;
+    static constexpr size_t   kChunkPayloadSize = 1100;
+    // 512 chunks * 1100 bytes = ~560 KB max per frame; rejects malformed/malicious packets.
+    static constexpr uint16_t kMaxChunksPerFrame = 512;
 
     explicit VideoTransport(Transport& transport);
 
@@ -44,6 +46,7 @@ private:
         uint16_t received_count = 0;
         size_t actual_size      = 0;
     };
-    std::unordered_map<uint64_t, FrameAssembly> assembly_;
+    // Keyed by peer_id then frame_id to prevent frame_id collision across peers.
+    std::unordered_map<std::string, std::unordered_map<uint64_t, FrameAssembly>> peer_assembly_;
     static constexpr size_t kMaxAssemblyFrames = 8;
 };
