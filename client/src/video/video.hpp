@@ -127,5 +127,5 @@ private:
     size_t bytes_since_calc_ = 0;
     utils::Timestamp last_calc_{};
 
-    std::optional<Frame> current_frame_;
+    VideoJitter::Ptr current_frame_;
 };
