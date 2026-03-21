@@ -20,7 +20,7 @@ ScreenSessionJni::ScreenSessionJni(
           [at](const uint8_t* d, size_t l) { at->channel.send_screen_audio(d, l); }
       )
     , video_transport(vt) {
-    vt->set_video_sink(
+    vt->channel.set_video_sink(
         [this](const std::string& peer_id, const uint8_t* data, size_t len) {
             session.push_video_packet(peer_id, utils::vector_view<const uint8_t>{data, len});
         },
@@ -59,7 +59,7 @@ void ScreenSessionJni::fire_frame(const std::string& peer_id, const uint8_t* rgb
 void ScreenSessionJni::fire_remove_frame(const std::string& peer_id) {
     // Keep seen_streaming in sync: if the stream went stale the sender didn't
     // send kStopStreamTag (e.g. crash), so clean up here as a fallback.
-    video_transport->remove_streaming_peer(peer_id);
+    video_transport->channel.remove_streaming_peer(peer_id);
 
     std::scoped_lock lk(cb_mutex);
     if (!on_frame_removed_cb.obj) {
@@ -101,7 +101,7 @@ JNIEXPORT jlong JNICALL Java_com_driscord_jni_NativeScreenSession_create(
 
 JNIEXPORT void JNICALL Java_com_driscord_jni_NativeScreenSession_destroy(JNIEnv*, jclass, jlong h) {
     auto* s = SS(h);
-    s->video_transport->clear_video_sink();
+    s->video_transport->channel.clear_video_sink();
     delete s;
 }
 
