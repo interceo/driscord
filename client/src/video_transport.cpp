@@ -15,20 +15,19 @@ VideoTransport::VideoTransport(Transport& transport)
     transport.register_channel({
         .label           = "video",
         .unordered       = true,
-        .max_retransmits = 0, // unreliable: lost chunks drop the frame, decoder recovers at next IDR
+        .max_retransmits = 0,
         .on_data =
             [this](const std::string& peer_id, const uint8_t* data, size_t len) {
                 if (len == 1) {
                     if (data[0] == kKeyframeRequestTag) {
-                        if (on_kf_req_) {
-                            on_kf_req_();
+                        std::scoped_lock lk(sink_mutex_);
+                        if (on_keyframe_needed_) {
+                            on_keyframe_needed_();
                         }
                         return;
                     }
                     if (data[0] == kStopStreamTag) {
-                        if (on_stop_stream_) {
-                            on_stop_stream_(peer_id);
-                        }
+                        remove_streaming_peer(peer_id);
                         return;
                     }
                 }
@@ -36,8 +35,9 @@ VideoTransport::VideoTransport(Transport& transport)
             },
         .on_open =
             [this](const std::string& /*peer_id*/) {
-                if (on_opened_) {
-                    on_opened_();
+                std::scoped_lock lk(sink_mutex_);
+                if (on_keyframe_needed_) {
+                    on_keyframe_needed_();
                 }
             },
     });
@@ -75,6 +75,62 @@ void VideoTransport::send_keyframe_request() {
 
 void VideoTransport::send_stop_stream() {
     transport_.send_on_channel("video", &kStopStreamTag, 1);
+}
+
+void VideoTransport::on_new_streaming_peer(std::function<void(const std::string&)> cb) {
+    std::scoped_lock lk(streaming_mutex_);
+    on_new_streaming_peer_ = std::move(cb);
+}
+
+void VideoTransport::on_streaming_peer_removed(std::function<void(const std::string&)> cb) {
+    std::scoped_lock lk(streaming_mutex_);
+    on_streaming_peer_removed_ = std::move(cb);
+}
+
+void VideoTransport::remove_streaming_peer(const std::string& peer_id) {
+    bool was_present;
+    std::function<void(const std::string&)> cb;
+    {
+        std::scoped_lock lk(streaming_mutex_);
+        was_present = seen_streaming_.erase(peer_id) > 0;
+        cb = on_streaming_peer_removed_;
+    }
+    if (was_present && cb) {
+        cb(peer_id);
+    }
+}
+
+void VideoTransport::set_video_sink(VideoPacketCb video_cb, KeyframeCb kf_cb) {
+    std::scoped_lock lk(sink_mutex_);
+    on_video_sink_      = std::move(video_cb);
+    on_keyframe_needed_ = std::move(kf_cb);
+}
+
+void VideoTransport::clear_video_sink() {
+    std::scoped_lock lk(sink_mutex_);
+    on_video_sink_      = nullptr;
+    on_keyframe_needed_ = nullptr;
+}
+
+void VideoTransport::on_assembled(const std::string& peer_id, const uint8_t* data, size_t len) {
+    {
+        std::function<void(const std::string&)> cb;
+        bool is_new;
+        {
+            std::scoped_lock lk(streaming_mutex_);
+            is_new = seen_streaming_.insert(peer_id).second;
+            cb = on_new_streaming_peer_;
+        }
+        if (is_new && cb) {
+            cb(peer_id);
+        }
+    }
+    if (watching_.load(std::memory_order_relaxed)) {
+        std::scoped_lock lk(sink_mutex_);
+        if (on_video_sink_) {
+            on_video_sink_(peer_id, data, len);
+        }
+    }
 }
 
 void VideoTransport::on_chunk(const std::string& peer_id, const uint8_t* data, size_t len) {
@@ -124,8 +180,6 @@ void VideoTransport::on_chunk(const std::string& peer_id, const uint8_t* data, s
     }
 
     fa.buffer.resize(fa.actual_size);
-    if (on_video_) {
-        on_video_(peer_id, fa.buffer.data(), fa.actual_size);
-    }
+    on_assembled(peer_id, fa.buffer.data(), fa.actual_size);
     peer_map.erase(ch.frame_id);
 }

@@ -16,14 +16,10 @@ AudioTransport::AudioTransport(Transport& transport)
                 if (n == 1 || n % 200 == 0) {
                     LOG_INFO() << "[audio-dc] rx#" << n << " peer=" << peer_id << " bytes=" << len;
                 }
-                if (on_audio_) {
-                    on_audio_(peer_id, data, len);
-                }
-            },
-        .on_open =
-            [this](const std::string& /*peer_id*/) {
-                if (on_audio_opened_) {
-                    on_audio_opened_();
+                std::scoped_lock lk(recv_mutex_);
+                auto it = voice_recv_.find(peer_id);
+                if (it != voice_recv_.end()) {
+                    it->second->push_packet(utils::vector_view<const uint8_t>{data, len});
                 }
             },
     });
@@ -34,14 +30,10 @@ AudioTransport::AudioTransport(Transport& transport)
         .max_retransmits = 0,
         .on_data =
             [this](const std::string& peer_id, const uint8_t* data, size_t len) {
-                if (on_screen_audio_) {
-                    on_screen_audio_(peer_id, data, len);
-                }
-            },
-        .on_open =
-            [this](const std::string& /*peer_id*/) {
-                if (on_screen_audio_opened_) {
-                    on_screen_audio_opened_();
+                std::scoped_lock lk(recv_mutex_);
+                auto it = screen_audio_recv_.find(peer_id);
+                if (it != screen_audio_recv_.end()) {
+                    it->second->push_packet(utils::vector_view<const uint8_t>{data, len});
                 }
             },
     });
@@ -53,4 +45,31 @@ void AudioTransport::send_audio(const uint8_t* data, size_t len) {
 
 void AudioTransport::send_screen_audio(const uint8_t* data, size_t len) {
     transport_.send_on_channel("screen_audio", data, len);
+}
+
+void AudioTransport::register_voice(const std::string& peer_id, std::shared_ptr<AudioReceiver> recv) {
+    std::scoped_lock lk(recv_mutex_);
+    voice_recv_[peer_id] = std::move(recv);
+}
+
+void AudioTransport::unregister_voice(const std::string& peer_id) {
+    std::scoped_lock lk(recv_mutex_);
+    voice_recv_.erase(peer_id);
+}
+
+void AudioTransport::set_screen_audio_recv(
+    const std::string& peer_id,
+    std::shared_ptr<AudioReceiver> recv
+) {
+    std::scoped_lock lk(recv_mutex_);
+    if (recv) {
+        screen_audio_recv_[peer_id] = std::move(recv);
+    } else {
+        screen_audio_recv_.erase(peer_id);
+    }
+}
+
+void AudioTransport::unset_screen_audio_recv(const std::string& peer_id) {
+    std::scoped_lock lk(recv_mutex_);
+    screen_audio_recv_.erase(peer_id);
 }
