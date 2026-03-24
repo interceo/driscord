@@ -48,6 +48,8 @@ class VideoServiceImpl(
     private val _streamStats = MutableStateFlow(StreamStats())
     override val streamStats: StateFlow<StreamStats> = _streamStats.asStateFlow()
 
+    private var watchedPeerId: String = ""
+
     override val systemAudioAvailable: Boolean
         get() = NativeScreenCapture.systemAudioAvailable()
 
@@ -89,15 +91,18 @@ class VideoServiceImpl(
 
     override fun joinStream(mixerHandle: Long) {
         NativeVideoTransport.setWatching(videoTransportH, true)
-        NativeAudioTransport.setScreenAudioReceiver(audioTransportH, screenSessionH)
+        watchedPeerId = _streamingPeers.value.firstOrNull() ?: ""
+        NativeAudioTransport.setScreenAudioReceiver(audioTransportH, watchedPeerId, screenSessionH)
         NativeScreenSession.addAudioReceiverToMixer(screenSessionH, mixerHandle)
+        NativeVideoTransport.sendKeyframeRequest(videoTransportH)
         _watching.value = true
     }
 
     override fun leaveStream(mixerHandle: Long) {
         NativeVideoTransport.setWatching(videoTransportH, false)
         NativeScreenSession.removeAudioReceiverFromMixer(screenSessionH, mixerHandle)
-        NativeAudioTransport.setScreenAudioReceiver(audioTransportH, 0L)
+        NativeAudioTransport.unsetScreenAudioReceiver(audioTransportH, watchedPeerId)
+        watchedPeerId = ""
         NativeScreenSession.reset(screenSessionH)
         _watching.value = false
     }
