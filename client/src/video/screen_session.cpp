@@ -51,8 +51,11 @@ void ScreenSession::push_video_packet(
     receiver_.push_video_packet(peer_id, data);
 }
 
-void ScreenSession::push_audio_packet(const utils::vector_view<const uint8_t> data) {
-    receiver_.push_audio_packet(data);
+void ScreenSession::push_audio_packet(
+    const std::string& peer_id,
+    const utils::vector_view<const uint8_t> data
+) {
+    receiver_.push_audio_packet(peer_id, data);  // peer_id routed inside AudioReceiver
 }
 
 void ScreenSession::update() {

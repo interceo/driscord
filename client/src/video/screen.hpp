@@ -67,7 +67,7 @@ public:
         const std::string& peer_id,
         const utils::vector_view<const uint8_t> data
     );
-    void push_audio_packet(const utils::vector_view<const uint8_t> data);
+    void push_audio_packet(const std::string& peer_id, const utils::vector_view<const uint8_t> data);
 
     void update(std::function<void(const VideoReceiver::Frame&)> on_frame);
 

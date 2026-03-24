@@ -3,12 +3,12 @@
 #include "transport.hpp"
 #include "utils/protocol.hpp"
 
-#include <atomic>
 #include <functional>
 #include <mutex>
 #include <set>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 class VideoTransport {
@@ -34,9 +34,11 @@ public:
     void on_streaming_peer_removed(std::function<void(const std::string&)> cb);
     void remove_streaming_peer(const std::string& peer_id);
 
-    // Watching gate — only routes incoming video to the sink while true.
-    void set_watching(bool w) { watching_.store(w, std::memory_order_relaxed); }
-    bool watching() const { return watching_.load(std::memory_order_relaxed); }
+    // Watching gate — only routes incoming video from explicitly added peers to the sink.
+    void add_watched_peer(const std::string& peer_id);
+    void remove_watched_peer(const std::string& peer_id);
+    void clear_watched_peers();
+    bool watching() const;
 
     // Video sink — set by whichever component consumes incoming video.
     void set_video_sink(VideoPacketCb video_cb, KeyframeCb kf_cb);
@@ -48,14 +50,14 @@ private:
 
     Transport& transport_;
 
-    std::atomic<bool> watching_{false};
+    std::unordered_set<std::string> watched_peers_; // guarded by sink_mutex_
 
     std::mutex streaming_mutex_;
     std::set<std::string> seen_streaming_;
     std::function<void(const std::string&)> on_new_streaming_peer_;
     std::function<void(const std::string&)> on_streaming_peer_removed_;
 
-    std::mutex sink_mutex_;
+    mutable std::mutex sink_mutex_;
     VideoPacketCb on_video_sink_;
     KeyframeCb on_keyframe_needed_;
 

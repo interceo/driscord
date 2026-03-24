@@ -46,7 +46,7 @@ public:
         const std::string& peer_id,
         const utils::vector_view<const uint8_t> data
     );
-    void push_audio_packet(const utils::vector_view<const uint8_t> data);
+    void push_audio_packet(const std::string& peer_id, const utils::vector_view<const uint8_t> data);
 
     void update();
 
@@ -60,9 +60,7 @@ public:
     int last_height() const { return last_h_; }
 
     std::shared_ptr<AudioReceiver> audio_receiver() { return receiver_.audio_receiver(); }
-    std::shared_ptr<const AudioReceiver> audio_receiver() const {
-        return receiver_.audio_receiver();
-    }
+    std::shared_ptr<const AudioReceiver> audio_receiver() const { return receiver_.audio_receiver(); }
 
     VideoReceiver::Stats video_stats() const { return cached_video_stats_; }
     AudioReceiver::Stats audio_stats() const { return cached_audio_stats_; }

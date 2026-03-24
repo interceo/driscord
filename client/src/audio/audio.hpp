@@ -8,6 +8,9 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 class MaDevice;
@@ -68,7 +71,12 @@ public:
     AudioReceiver(const AudioReceiver&)            = delete;
     AudioReceiver& operator=(const AudioReceiver&) = delete;
 
+    // Single-peer push (voice chat — maps to peer_id "").
     void push_packet(const utils::vector_view<const uint8_t> data);
+    // Multi-peer push (screen audio — each peer gets its own decoder + jitter).
+    void push_packet(const std::string& peer_id, const utils::vector_view<const uint8_t> data);
+
+    // Pops and mixes samples from all active peer buffers.
     std::vector<float> pop();
 
     void set_volume(float v) { volume_.store(v); }
@@ -77,34 +85,50 @@ public:
     void set_muted(bool m) { muted_.store(m); }
     bool muted() const { return muted_.load(); }
 
-    // Discard all queued audio older than max_delay (hard timeout).
-    size_t evict_old(utils::Duration max_delay) { return jitter_.evict_old(max_delay); }
+    size_t evict_old(utils::Duration max_delay);
 
-    // A/V sync helpers.
-    std::optional<utils::WallTimestamp> front_effective_ts() const {
-        return jitter_.front_effective_ts();
-    }
-    bool primed() const { return jitter_.primed(); }
+    std::optional<utils::WallTimestamp> front_effective_ts() const;
+    bool primed() const;
+    int64_t front_age_ms() const;
 
-    int64_t front_age_ms() const { return jitter_.front_age_ms(); }
+    void reset();
 
-    void reset() { jitter_.reset(); }
-
-    using Stats = AudioJitter::Stats;
-    Stats stats() const { return jitter_.stats(); }
+    struct Stats {
+        size_t   queue_size = 0;
+        uint64_t drop_count = 0;
+        uint64_t miss_count = 0;
+        std::unordered_map<std::string, AudioJitter::Stats> peers;
+    };
+    Stats stats() const;
 
 private:
-    AudioJitter jitter_;
-    OpusDecode decoder_;
+    // Per-peer decoder + jitter, mirroring VideoReceiver::PeerDecoder.
+    struct PeerBuffer {
+        OpusDecode decoder;
+        AudioJitter jitter;
+        utils::Timestamp last_packet{};
+        std::vector<float> decode_buf;
+        std::vector<float> mono_buf;
+        uint64_t push_count = 0;
+
+        PeerBuffer(utils::Duration buf_delay, int channels, int sample_rate);
+    };
+
+    std::shared_ptr<PeerBuffer> get_or_create_peer(const std::string& peer_id);
+    void do_push(PeerBuffer& pb, const utils::vector_view<const uint8_t> data);
+
+    mutable std::mutex peer_mutex_;
+    std::unordered_map<std::string, std::shared_ptr<PeerBuffer>> peer_buffers_;
+
+    utils::Duration buf_delay_;
     int channels_;
-    std::vector<float> decode_buf_;
-    std::vector<float> mono_buf_;
+    int sample_rate_;
+
     std::atomic<float> volume_{1.0f};
     std::atomic<bool>  muted_{false};
 
     int id_;
-    uint64_t push_count_ = 0;
-    uint64_t pop_count_  = 0;
+    uint64_t pop_count_ = 0;
 
     static std::atomic<int> next_id_;
 };

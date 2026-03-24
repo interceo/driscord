@@ -27,8 +27,8 @@ class VideoServiceImpl(
     private val _shareTargetName = MutableStateFlow("")
     override val shareTargetName: StateFlow<String> = _shareTargetName.asStateFlow()
 
-    private val _watching = MutableStateFlow(false)
-    override val watching: StateFlow<Boolean> = _watching.asStateFlow()
+    private val _watching = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    override val watching: StateFlow<Map<String, Boolean>> = _watching.asStateFlow()
 
     private val _streamingPeers = MutableStateFlow<List<String>>(emptyList())
     override val streamingPeers: StateFlow<List<String>> = _streamingPeers.asStateFlow()
@@ -49,6 +49,10 @@ class VideoServiceImpl(
             scope.launch(Dispatchers.Main) {
                 if (peerId !in _streamingPeers.value)
                     _streamingPeers.value = _streamingPeers.value + peerId
+                // Auto-join new peers while already watching.
+                if (_watching.value) {
+                    NativeScreenSession.joinStream(peerId)
+                }
             }
         }
         NativeVideoTransport.setOnStreamingPeerRemoved { peerId ->
@@ -81,8 +85,7 @@ class VideoServiceImpl(
     }
 
     override fun joinStream() {
-        val peerId = _streamingPeers.value.firstOrNull() ?: ""
-        NativeScreenSession.joinStream(peerId)
+        _streamingPeers.value.forEach { NativeScreenSession.joinStream(it) }
         _watching.value = true
     }
 
