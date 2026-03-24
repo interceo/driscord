@@ -19,7 +19,7 @@ AudioTransport::AudioTransport(Transport& transport)
                 std::scoped_lock lk(recv_mutex_);
                 auto it = voice_recv_.find(peer_id);
                 if (it != voice_recv_.end()) {
-                    it->second->push_packet(utils::vector_view<const uint8_t>{data, len});
+                    it->second->push_packet(peer_id, utils::vector_view<const uint8_t>{data, len});
                 }
             },
     });

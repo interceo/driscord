@@ -19,7 +19,7 @@ sealed interface AppIntent {
 
     object JoinStream : AppIntent
     object LeaveStream : AppIntent
-    data class SetStreamVolume(val volume: Float) : AppIntent
+    data class SetStreamVolume(val peerId: String, val volume: Float) : AppIntent
 
     object OpenSettings : AppIntent
     object DismissSettings : AppIntent

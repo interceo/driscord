@@ -71,8 +71,6 @@ public:
     AudioReceiver(const AudioReceiver&)            = delete;
     AudioReceiver& operator=(const AudioReceiver&) = delete;
 
-    // Single-peer push (voice chat — maps to peer_id "").
-    void push_packet(const utils::vector_view<const uint8_t> data);
     // Multi-peer push (screen audio — each peer gets its own decoder + jitter).
     void push_packet(const std::string& peer_id, const utils::vector_view<const uint8_t> data);
 

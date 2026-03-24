@@ -18,7 +18,7 @@ interface VideoService {
     fun leaveStream()
     fun startSharing(target: CaptureTarget, quality: Int, fps: Int, shareAudio: Boolean, bitrateKbps: Int, gopSize: Int): Boolean
     fun stopSharing()
-    fun setStreamVolume(vol: Float)
+    fun setStreamVolume(peerId: String, vol: Float)
     fun getStreamVolume(): Float
     fun listCaptureTargets(): List<CaptureTarget>
     fun grabThumbnail(target: CaptureTarget): ImageBitmap?

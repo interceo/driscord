@@ -85,7 +85,7 @@ class AppViewModel(
 
             AppIntent.JoinStream -> videoService.joinStream()
             AppIntent.LeaveStream -> videoService.leaveStream()
-            is AppIntent.SetStreamVolume -> videoService.setStreamVolume(intent.volume)
+            is AppIntent.SetStreamVolume -> videoService.setStreamVolume(intent.peerId, intent.volume)
 
             AppIntent.OpenSettings -> _state.update { it.copy(showSettings = true) }
             AppIntent.DismissSettings -> _state.update { it.copy(showSettings = false) }
