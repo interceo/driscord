@@ -1,4 +1,5 @@
 #include "screen_session_jni.hpp"
+#include "driscord_state.hpp"
 #include "audio/audio_mixer.hpp"
 #include "utils/vector_view.hpp"
 
@@ -6,21 +7,21 @@
 
 using json = nlohmann::json;
 
-ScreenSessionJni::ScreenSessionJni(
-    int buf_ms,
-    int max_sync_ms,
-    VideoTransportJni* vt,
-    AudioTransportJni* at
-)
+ScreenSessionJni::ScreenSessionJni(int buf_ms, int max_sync_ms)
     : session(
           buf_ms,
           std::chrono::milliseconds(max_sync_ms),
-          [vt](const uint8_t* d, size_t l) { vt->channel.send_video(d, l); },
-          [vt]() { vt->channel.send_keyframe_request(); },
-          [at](const uint8_t* d, size_t l) { at->channel.send_screen_audio(d, l); }
-      )
-    , video_transport(vt) {
-    vt->channel.set_video_sink(
+          [](const uint8_t* d, size_t l) {
+              DriscordState::get().video_transport.channel.send_video(d, l);
+          },
+          []() {
+              DriscordState::get().video_transport.channel.send_keyframe_request();
+          },
+          [](const uint8_t* d, size_t l) {
+              DriscordState::get().audio_transport.channel.send_screen_audio(d, l);
+          }
+      ) {
+    DriscordState::get().video_transport.channel.set_video_sink(
         [this](const std::string& peer_id, const uint8_t* data, size_t len) {
             session.push_video_packet(peer_id, utils::vector_view<const uint8_t>{data, len});
         },
@@ -57,9 +58,7 @@ void ScreenSessionJni::fire_frame(const std::string& peer_id, const uint8_t* rgb
 }
 
 void ScreenSessionJni::fire_remove_frame(const std::string& peer_id) {
-    // Keep seen_streaming in sync: if the stream went stale the sender didn't
-    // send kStopStreamTag (e.g. crash), so clean up here as a fallback.
-    video_transport->channel.remove_streaming_peer(peer_id);
+    DriscordState::get().video_transport.channel.remove_streaming_peer(peer_id);
 
     std::scoped_lock lk(cb_mutex);
     if (!on_frame_removed_cb.obj) {
@@ -87,22 +86,17 @@ JNIEXPORT jlong JNICALL Java_com_driscord_jni_NativeScreenSession_create(
     JNIEnv*,
     jclass,
     jint bufMs,
-    jint maxSyncMs,
-    jlong videoTransportHandle,
-    jlong audioTransportHandle
+    jint maxSyncMs
 ) {
     return reinterpret_cast<jlong>(new ScreenSessionJni(
         static_cast<int>(bufMs),
-        static_cast<int>(maxSyncMs),
-        reinterpret_cast<VideoTransportJni*>(videoTransportHandle),
-        reinterpret_cast<AudioTransportJni*>(audioTransportHandle)
+        static_cast<int>(maxSyncMs)
     ));
 }
 
 JNIEXPORT void JNICALL Java_com_driscord_jni_NativeScreenSession_destroy(JNIEnv*, jclass, jlong h) {
-    auto* s = SS(h);
-    s->video_transport->channel.clear_video_sink();
-    delete s;
+    DriscordState::get().video_transport.channel.clear_video_sink();
+    delete SS(h);
 }
 
 JNIEXPORT jboolean JNICALL Java_com_driscord_jni_NativeScreenSession_startSharing(
@@ -134,9 +128,8 @@ JNIEXPORT jboolean JNICALL Java_com_driscord_jni_NativeScreenSession_startSharin
 
 JNIEXPORT void JNICALL
 Java_com_driscord_jni_NativeScreenSession_stopSharing(JNIEnv*, jclass, jlong h) {
-    auto* s = SS(h);
-    s->session.stop_sharing();
-    s->video_transport->channel.send_stop_stream();
+    SS(h)->session.stop_sharing();
+    DriscordState::get().video_transport.channel.send_stop_stream();
 }
 
 JNIEXPORT jboolean JNICALL
