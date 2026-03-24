@@ -18,11 +18,6 @@ class VideoServiceImpl(
     config: AppConfig,
 ) : VideoService {
 
-    private val screenSessionH: Long = NativeScreenSession.create(
-        config.screenBufferMs,
-        config.maxSyncGapMs,
-    )
-
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -44,12 +39,12 @@ class VideoServiceImpl(
     private val _streamStats = MutableStateFlow(StreamStats())
     override val streamStats: StateFlow<StreamStats> = _streamStats.asStateFlow()
 
-    private var watchedPeerId: String = ""
-
     override val systemAudioAvailable: Boolean
         get() = NativeScreenCapture.systemAudioAvailable()
 
     init {
+        NativeScreenSession.init(config.screenBufferMs, config.maxSyncGapMs)
+
         NativeVideoTransport.setOnNewStreamingPeer { peerId ->
             scope.launch(Dispatchers.Main) {
                 if (peerId !in _streamingPeers.value)
@@ -62,23 +57,23 @@ class VideoServiceImpl(
                 _frames.value = _frames.value - peerId
             }
         }
-        NativeScreenSession.setOnFrame(screenSessionH) { peerId, rgba, w, h ->
+        NativeScreenSession.setOnFrame { peerId, rgba, w, h ->
             scope.launch(Dispatchers.Main) {
                 _frames.value = _frames.value + (peerId to rgbaToImageBitmap(rgba, w, h))
             }
         }
-        NativeScreenSession.setOnFrameRemoved(screenSessionH) { peerId ->
+        NativeScreenSession.setOnFrameRemoved { peerId ->
             scope.launch(Dispatchers.Main) { _frames.value = _frames.value - peerId }
         }
 
         // Update loop: screen session tick + stats
         scope.launch {
             while (isActive) {
-                NativeScreenSession.update(screenSessionH)
+                NativeScreenSession.update()
                 withContext(Dispatchers.Main) {
-                    _sharing.value = NativeScreenSession.sharing(screenSessionH)
+                    _sharing.value = NativeScreenSession.sharing()
                     _watching.value = NativeVideoTransport.watching()
-                    _streamStats.value = json.decodeFromString(NativeScreenSession.stats(screenSessionH))
+                    _streamStats.value = json.decodeFromString(NativeScreenSession.stats())
                 }
                 delay(16)
             }
@@ -86,20 +81,13 @@ class VideoServiceImpl(
     }
 
     override fun joinStream() {
-        NativeVideoTransport.setWatching(true)
-        watchedPeerId = _streamingPeers.value.firstOrNull() ?: ""
-        NativeAudioTransport.setScreenAudioReceiver(watchedPeerId, screenSessionH)
-        NativeAudioTransport.addScreenAudioToMixer(watchedPeerId)
-        NativeVideoTransport.sendKeyframeRequest()
+        val peerId = _streamingPeers.value.firstOrNull() ?: ""
+        NativeScreenSession.joinStream(peerId)
         _watching.value = true
     }
 
     override fun leaveStream() {
-        NativeVideoTransport.setWatching(false)
-        NativeAudioTransport.removeScreenAudioFromMixer(watchedPeerId)
-        NativeAudioTransport.unsetScreenAudioReceiver(watchedPeerId)
-        watchedPeerId = ""
-        NativeScreenSession.reset(screenSessionH)
+        NativeScreenSession.leaveStream()
         _watching.value = false
     }
 
@@ -120,7 +108,7 @@ class VideoServiceImpl(
         }
         val targetJson = json.encodeToString(CaptureTarget.serializer(), target)
         val ok = NativeScreenSession.startSharing(
-            screenSessionH, targetJson, maxW, maxH, fps, bitrateKbps, gopSize, shareAudio,
+            targetJson, maxW, maxH, fps, bitrateKbps, gopSize, shareAudio,
         )
         if (ok) {
             _sharing.value = true
@@ -130,16 +118,14 @@ class VideoServiceImpl(
     }
 
     override fun stopSharing() {
-        NativeScreenSession.stopSharing(screenSessionH)
+        NativeScreenSession.stopSharing()
         _sharing.value = false
         _shareTargetName.value = ""
     }
 
-    override fun setStreamVolume(vol: Float) =
-        NativeScreenSession.setStreamVolume(screenSessionH, vol)
+    override fun setStreamVolume(vol: Float) = NativeScreenSession.setStreamVolume(vol)
 
-    override fun getStreamVolume(): Float =
-        NativeScreenSession.streamVolume(screenSessionH)
+    override fun getStreamVolume(): Float = NativeScreenSession.streamVolume()
 
     override fun listCaptureTargets(): List<CaptureTarget> =
         json.decodeFromString(NativeScreenCapture.listTargets())
@@ -157,7 +143,7 @@ class VideoServiceImpl(
 
     override fun destroy() {
         scope.cancel()
-        NativeScreenSession.destroy(screenSessionH)
+        NativeScreenSession.deinit()
     }
 
     companion object {
