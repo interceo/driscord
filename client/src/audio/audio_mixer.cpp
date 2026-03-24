@@ -92,9 +92,11 @@ void AudioMixer::on_playback(float* output, const uint32_t frames) {
     std::memset(output, 0, frames * sizeof(float));
 
     for (const auto& src : snapshot_) {
+        if (src->muted()) continue;
         auto samples = src->pop();
+        const float vol = src->volume();
         for (size_t i = 0; i < samples.size() && i < frames; ++i) {
-            output[i] += samples[i];
+            output[i] += samples[i] * vol;
         }
     }
 
