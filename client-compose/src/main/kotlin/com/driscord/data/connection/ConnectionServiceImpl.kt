@@ -3,18 +3,12 @@ package com.driscord.data.connection
 import com.driscord.AppConfig
 import com.driscord.domain.model.ConnectionState
 import com.driscord.domain.model.PeerInfo
-import com.driscord.jni.NativeAudioTransport
 import com.driscord.jni.NativeTransport
-import com.driscord.jni.NativeVideoTransport
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.Json
 
 class ConnectionServiceImpl(config: AppConfig) : ConnectionService {
-
-    val transportH: Long = NativeTransport.create()
-    val audioTransportH: Long = NativeAudioTransport.create(transportH)
-    val videoTransportH: Long = NativeVideoTransport.create(transportH)
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val json = Json { ignoreUnknownKeys = true }
@@ -35,18 +29,17 @@ class ConnectionServiceImpl(config: AppConfig) : ConnectionService {
     override val peerLeftEvents: SharedFlow<String> = _peerLeftEvents.asSharedFlow()
 
     init {
-        // Apply TURN servers
         config.turnServers.forEach { ts ->
-            NativeTransport.addTurnServer(transportH, ts.url, ts.user, ts.pass)
+            NativeTransport.addTurnServer(ts.url, ts.user, ts.pass)
         }
 
-        NativeTransport.setOnPeerJoined(transportH) { peerId ->
+        NativeTransport.setOnPeerJoined { peerId ->
             scope.launch {
                 _peerJoinedEvents.emit(peerId)
                 withContext(Dispatchers.Main) { refreshPeers() }
             }
         }
-        NativeTransport.setOnPeerLeft(transportH) { peerId ->
+        NativeTransport.setOnPeerLeft { peerId ->
             scope.launch {
                 _peerLeftEvents.emit(peerId)
                 withContext(Dispatchers.Main) { refreshPeers() }
@@ -57,12 +50,12 @@ class ConnectionServiceImpl(config: AppConfig) : ConnectionService {
     override fun connect(serverUrl: String) {
         if (_connectionState.value != ConnectionState.Disconnected) return
         _connectionState.value = ConnectionState.Connecting
-        NativeTransport.connect(transportH, serverUrl)
+        NativeTransport.connect(serverUrl)
         scope.launch {
-            while (isActive && !NativeTransport.connected(transportH)) delay(100)
-            if (NativeTransport.connected(transportH)) {
+            while (isActive && !NativeTransport.connected()) delay(100)
+            if (NativeTransport.connected()) {
                 withContext(Dispatchers.Main) {
-                    _localId.value = NativeTransport.localId(transportH)
+                    _localId.value = NativeTransport.localId()
                     _connectionState.value = ConnectionState.Connected
                 }
             }
@@ -70,7 +63,7 @@ class ConnectionServiceImpl(config: AppConfig) : ConnectionService {
     }
 
     override fun disconnect() {
-        NativeTransport.disconnect(transportH)
+        NativeTransport.disconnect()
         _connectionState.value = ConnectionState.Disconnected
         _peers.value = emptyList()
         _localId.value = ""
@@ -78,12 +71,9 @@ class ConnectionServiceImpl(config: AppConfig) : ConnectionService {
 
     override fun destroy() {
         scope.cancel()
-        NativeVideoTransport.destroy(videoTransportH)
-        NativeAudioTransport.destroy(audioTransportH)
-        NativeTransport.destroy(transportH)
     }
 
     private fun refreshPeers() {
-        _peers.value = json.decodeFromString(NativeTransport.peers(transportH))
+        _peers.value = json.decodeFromString(NativeTransport.peers())
     }
 }

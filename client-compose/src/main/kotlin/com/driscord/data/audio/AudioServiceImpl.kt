@@ -4,11 +4,9 @@ import com.driscord.jni.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
-class AudioServiceImpl(
-    private val audioTransportH: Long,
-) : AudioService {
+class AudioServiceImpl : AudioService {
 
-    private val audioSenderH: Long = NativeAudioSender.create(audioTransportH)
+    private val audioSenderH: Long = NativeAudioSender.create()
     private val audioMixerH: Long = NativeAudioMixer.create()
 
     override val mixerHandle: Long get() = audioMixerH
@@ -84,13 +82,13 @@ class AudioServiceImpl(
     override fun onPeerJoined(peerId: String, jitterMs: Int) {
         val recv = NativeAudioReceiver.create(jitterMs)
         synchronized(voiceReceivers) { voiceReceivers[peerId] = recv }
-        NativeAudioTransport.registerVoiceReceiver(audioTransportH, peerId, recv)
+        NativeAudioTransport.registerVoiceReceiver(peerId, recv)
         NativeAudioMixer.addSource(audioMixerH, recv)
     }
 
     override fun onPeerLeft(peerId: String) {
         val recv = synchronized(voiceReceivers) { voiceReceivers.remove(peerId) } ?: return
-        NativeAudioTransport.unregisterVoiceReceiver(audioTransportH, peerId)
+        NativeAudioTransport.unregisterVoiceReceiver(peerId)
         NativeAudioMixer.removeSource(audioMixerH, recv)
         NativeAudioReceiver.destroy(recv)
     }
