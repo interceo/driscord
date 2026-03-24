@@ -2,7 +2,6 @@
 
 #include "capture/screen_capture.hpp"
 #include "utils/jitter.hpp"
-#include "utils/protocol.hpp"
 #include "utils/video_codec.hpp"
 
 #include <atomic>

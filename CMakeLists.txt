@@ -32,3 +32,8 @@ if(BUILD_SERVER)
 endif()
 
 add_subdirectory(client)
+
+option(BUILD_BENCHMARKS "Build benchmarks" OFF)
+if(BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
+endif()

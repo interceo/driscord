@@ -1,4 +1,5 @@
 #include "video_transport_jni.hpp"
+#include "driscord_state.hpp"
 
 VideoTransportJni::VideoTransportJni(TransportJni& t) : channel(t.transport) {
     channel.on_new_streaming_peer([this](const std::string& peer_id) {
@@ -9,61 +10,50 @@ VideoTransportJni::VideoTransportJni(TransportJni& t) : channel(t.transport) {
     });
 }
 
-#define VIDEO_TRANSPORT(h) reinterpret_cast<VideoTransportJni*>(h)
+#define VT() DriscordState::get().video_transport
 
 extern "C" {
 
-JNIEXPORT jlong JNICALL
-Java_com_driscord_jni_NativeVideoTransport_create(JNIEnv*, jclass, jlong transportHandle) {
-    return reinterpret_cast<
-        jlong>(new VideoTransportJni(*reinterpret_cast<TransportJni*>(transportHandle)));
-}
-
 JNIEXPORT void JNICALL
-Java_com_driscord_jni_NativeVideoTransport_destroy(JNIEnv*, jclass, jlong h) {
-    delete VIDEO_TRANSPORT(h);
-}
-
-JNIEXPORT void JNICALL
-Java_com_driscord_jni_NativeVideoTransport_setWatching(JNIEnv*, jclass, jlong h, jboolean watching) {
-    VIDEO_TRANSPORT(h)->channel.set_watching(watching == JNI_TRUE);
+Java_com_driscord_jni_NativeVideoTransport_setWatching(JNIEnv*, jclass, jboolean watching) {
+    VT().channel.set_watching(watching == JNI_TRUE);
 }
 
 JNIEXPORT jboolean JNICALL
-Java_com_driscord_jni_NativeVideoTransport_watching(JNIEnv*, jclass, jlong h) {
-    return VIDEO_TRANSPORT(h)->channel.watching() ? JNI_TRUE : JNI_FALSE;
+Java_com_driscord_jni_NativeVideoTransport_watching(JNIEnv*, jclass) {
+    return VT().channel.watching() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL
 Java_com_driscord_jni_NativeVideoTransport_removeStreamingPeer(
-    JNIEnv* env, jclass, jlong h, jstring jPeer
+    JNIEnv* env, jclass, jstring jPeer
 ) {
     auto peer = env->GetStringUTFChars(jPeer, nullptr);
-    VIDEO_TRANSPORT(h)->channel.remove_streaming_peer(peer);
+    VT().channel.remove_streaming_peer(peer);
     env->ReleaseStringUTFChars(jPeer, peer);
 }
 
 JNIEXPORT void JNICALL
-Java_com_driscord_jni_NativeVideoTransport_sendKeyframeRequest(JNIEnv*, jclass, jlong h) {
-    VIDEO_TRANSPORT(h)->channel.send_keyframe_request();
+Java_com_driscord_jni_NativeVideoTransport_sendKeyframeRequest(JNIEnv*, jclass) {
+    VT().channel.send_keyframe_request();
 }
 
 JNIEXPORT void JNICALL
 Java_com_driscord_jni_NativeVideoTransport_setOnNewStreamingPeer(
-    JNIEnv* env, jclass, jlong h, jobject cb
+    JNIEnv* env, jclass, jobject cb
 ) {
-    auto* vt = VIDEO_TRANSPORT(h);
-    std::scoped_lock lk(vt->cb_mutex);
-    set_callback(env, vt->on_streaming_peer, cb, "invoke", "(Ljava/lang/String;)V");
+    auto& vt = VT();
+    std::scoped_lock lk(vt.cb_mutex);
+    set_callback(env, vt.on_streaming_peer, cb, "invoke", "(Ljava/lang/String;)V");
 }
 
 JNIEXPORT void JNICALL
 Java_com_driscord_jni_NativeVideoTransport_setOnStreamingPeerRemoved(
-    JNIEnv* env, jclass, jlong h, jobject cb
+    JNIEnv* env, jclass, jobject cb
 ) {
-    auto* vt = VIDEO_TRANSPORT(h);
-    std::scoped_lock lk(vt->cb_mutex);
-    set_callback(env, vt->on_streaming_peer_removed, cb, "invoke", "(Ljava/lang/String;)V");
+    auto& vt = VT();
+    std::scoped_lock lk(vt.cb_mutex);
+    set_callback(env, vt.on_streaming_peer_removed, cb, "invoke", "(Ljava/lang/String;)V");
 }
 
 }  // extern "C"

@@ -1,6 +1,7 @@
 #include "video.hpp"
 
 #include "log.hpp"
+#include "utils/protocol.hpp"
 
 #include <cstring>
 
@@ -158,7 +159,7 @@ void VideoReceiver::push_video_packet(
             }
         }
         entry->last_packet = utils::Now();
-        ps = entry;
+        ps                 = entry;
     }
 
     if (!ps || !ps->decoder.ready()) {

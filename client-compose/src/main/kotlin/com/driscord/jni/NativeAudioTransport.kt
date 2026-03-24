@@ -5,35 +5,13 @@ object NativeAudioTransport {
         NativeLoader.load()
     }
 
-    @JvmStatic external fun create(transportHandle: Long): Long
+    @JvmStatic external fun sendAudio(data: ByteArray, len: Int)
 
-    @JvmStatic external fun destroy(h: Long)
+    @JvmStatic external fun registerVoiceReceiver(peer: String, receiverHandle: Long)
 
-    @JvmStatic external fun sendAudio(
-        h: Long,
-        data: ByteArray,
-        len: Int,
-    )
+    @JvmStatic external fun unregisterVoiceReceiver(peer: String)
 
-    @JvmStatic external fun registerVoiceReceiver(
-        h: Long,
-        peer: String,
-        receiverHandle: Long,
-    )
+    @JvmStatic external fun setScreenAudioReceiver(peerId: String, screenHandle: Long)
 
-    @JvmStatic external fun unregisterVoiceReceiver(
-        h: Long,
-        peer: String,
-    )
-
-    @JvmStatic external fun setScreenAudioReceiver(
-        audioHandle: Long,
-        peerId: String,
-        screenHandle: Long,
-    )
-
-    @JvmStatic external fun unsetScreenAudioReceiver(
-        audioHandle: Long,
-        peerId: String,
-    )
+    @JvmStatic external fun unsetScreenAudioReceiver(peerId: String)
 }

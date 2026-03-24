@@ -1,14 +1,23 @@
 #include "audio_jni.hpp"
+#include "driscord_state.hpp"
+
+bool AudioSenderJni::start() {
+    return sender.start([](const uint8_t* d, size_t l) {
+        DriscordState::get().audio_transport.channel.send_audio(d, l);
+    });
+}
 
 #define AUDIO_SENDER(h) reinterpret_cast<AudioSenderJni*>(h)
 
 extern "C" {
 
-JNIEXPORT jlong JNICALL Java_com_driscord_jni_NativeAudioSender_create(JNIEnv*, jclass, jlong audioTransportHandle) {
-    return reinterpret_cast<jlong>(new AudioSenderJni(reinterpret_cast<AudioTransportJni*>(audioTransportHandle)));
+JNIEXPORT jlong JNICALL Java_com_driscord_jni_NativeAudioSender_create(JNIEnv*, jclass) {
+    return reinterpret_cast<jlong>(new AudioSenderJni());
 }
 
-JNIEXPORT void JNICALL Java_com_driscord_jni_NativeAudioSender_destroy(JNIEnv*, jclass, jlong h) { delete AUDIO_SENDER(h); }
+JNIEXPORT void JNICALL Java_com_driscord_jni_NativeAudioSender_destroy(JNIEnv*, jclass, jlong h) {
+    delete AUDIO_SENDER(h);
+}
 
 JNIEXPORT jboolean JNICALL Java_com_driscord_jni_NativeAudioSender_start(JNIEnv*, jclass, jlong h) {
     return AUDIO_SENDER(h)->start() ? JNI_TRUE : JNI_FALSE;
@@ -29,8 +38,6 @@ JNIEXPORT void JNICALL Java_com_driscord_jni_NativeAudioSender_setMuted(JNIEnv*,
 JNIEXPORT jfloat JNICALL Java_com_driscord_jni_NativeAudioSender_inputLevel(JNIEnv*, jclass, jlong h) {
     return AUDIO_SENDER(h)->sender.input_level();
 }
-
-
 
 /*----------------------------------------------*/
 
