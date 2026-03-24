@@ -1,5 +1,6 @@
 #include "screen.hpp"
 
+#include "utils/protocol.hpp"
 #include "log.hpp"
 
 #include <algorithm>

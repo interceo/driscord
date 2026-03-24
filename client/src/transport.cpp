@@ -165,11 +165,19 @@ void Transport::on_ws_message(const std::string& raw) {
                     std::string pid = peer_id;
                     LOG_INFO() << "existing peer: " << pid << ", creating offer";
                     create_peer(pid, true);
+                    if (on_peer_joined_) {
+                        on_peer_joined_(pid);
+                    }
                 }
             }
         } else if (type == "peer_joined") {
             std::string peer_id = msg["id"];
             LOG_INFO() << "peer joined: " << peer_id;
+            {
+                // Pre-register peer so peers() returns it before offer arrives
+                std::scoped_lock lk(peers_mutex_);
+                peers_.emplace(peer_id, PeerState{});
+            }
             if (on_peer_joined_) {
                 on_peer_joined_(peer_id);
             }
