@@ -107,6 +107,26 @@ void VideoTransport::remove_streaming_peer(const std::string& peer_id) {
     }
 }
 
+void VideoTransport::add_watched_peer(const std::string& peer_id) {
+    std::scoped_lock lk(sink_mutex_);
+    watched_peers_.insert(peer_id);
+}
+
+void VideoTransport::remove_watched_peer(const std::string& peer_id) {
+    std::scoped_lock lk(sink_mutex_);
+    watched_peers_.erase(peer_id);
+}
+
+void VideoTransport::clear_watched_peers() {
+    std::scoped_lock lk(sink_mutex_);
+    watched_peers_.clear();
+}
+
+bool VideoTransport::watching() const {
+    std::scoped_lock lk(sink_mutex_);
+    return !watched_peers_.empty();
+}
+
 void VideoTransport::set_video_sink(VideoPacketCb video_cb, KeyframeCb kf_cb) {
     std::scoped_lock lk(sink_mutex_);
     on_video_sink_      = std::move(video_cb);
@@ -132,9 +152,9 @@ void VideoTransport::on_assembled(const std::string& peer_id, const uint8_t* dat
             cb(peer_id);
         }
     }
-    if (watching_.load(std::memory_order_relaxed)) {
+    {
         std::scoped_lock lk(sink_mutex_);
-        if (on_video_sink_) {
+        if (on_video_sink_ && watched_peers_.count(peer_id) > 0) {
             on_video_sink_(peer_id, data, len);
         }
     }

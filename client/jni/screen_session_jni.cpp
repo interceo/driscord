@@ -40,23 +40,25 @@ ScreenSessionJni::ScreenSessionJni(int buf_ms, int max_sync_ms)
 }
 
 void ScreenSessionJni::join_stream(const std::string& peer_id) {
-    watched_peer_id = peer_id;
-    auto& at        = DriscordState::get().audio_transport.channel;
-    auto& vt        = DriscordState::get().video_transport.channel;
-    at.set_screen_audio_recv(peer_id, session.audio_receiver());
+    watched_peers.insert(peer_id);
+    auto& at = DriscordState::get().audio_transport.channel;
+    auto& vt = DriscordState::get().video_transport.channel;
+    at.set_screen_audio_recv(peer_id, session.audio_receiver());  // single shared multi-peer receiver
     at.add_screen_audio_to_mixer(peer_id);
-    vt.set_watching(true);
+    vt.add_watched_peer(peer_id);
     vt.send_keyframe_request();
 }
 
 void ScreenSessionJni::leave_stream() {
     auto& at = DriscordState::get().audio_transport.channel;
     auto& vt = DriscordState::get().video_transport.channel;
-    vt.set_watching(false);
-    at.remove_screen_audio_from_mixer(watched_peer_id);
-    at.unset_screen_audio_recv(watched_peer_id);
+    vt.clear_watched_peers();
+    for (const auto& pid : watched_peers) {
+        at.remove_screen_audio_from_mixer(pid);
+        at.unset_screen_audio_recv(pid);
+    }
     session.reset();
-    watched_peer_id.clear();
+    watched_peers.clear();
 }
 
 void ScreenSessionJni::fire_frame(const std::string& peer_id, const uint8_t* rgba, int w, int h) {

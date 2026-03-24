@@ -16,7 +16,9 @@ extern "C" {
 
 JNIEXPORT void JNICALL
 Java_com_driscord_jni_NativeVideoTransport_setWatching(JNIEnv*, jclass, jboolean watching) {
-    VT().channel.set_watching(watching == JNI_TRUE);
+    if (watching == JNI_FALSE) {
+        VT().channel.clear_watched_peers();
+    }
 }
 
 JNIEXPORT jboolean JNICALL

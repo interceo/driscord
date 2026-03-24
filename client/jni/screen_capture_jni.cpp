@@ -24,7 +24,7 @@ Java_com_driscord_jni_NativeScreenCapture_listTargets(JNIEnv* env, jclass) {
             {"x",      t.x},     {"y",      t.y}
         });
     }
-    return env->NewStringUTF(arr.dump().c_str());
+    return env->NewStringUTF(arr.dump(-1, ' ', /*ensure_ascii=*/true, nlohmann::json::error_handler_t::replace).c_str());
 }
 
 JNIEXPORT jbyteArray JNICALL
