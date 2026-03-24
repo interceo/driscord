@@ -83,8 +83,8 @@ class AppViewModel(
             }
             AppIntent.StopSharing -> videoService.stopSharing()
 
-            AppIntent.JoinStream -> videoService.joinStream(audioService.mixerHandle)
-            AppIntent.LeaveStream -> videoService.leaveStream(audioService.mixerHandle)
+            AppIntent.JoinStream -> videoService.joinStream()
+            AppIntent.LeaveStream -> videoService.leaveStream()
             is AppIntent.SetStreamVolume -> videoService.setStreamVolume(intent.volume)
 
             AppIntent.OpenSettings -> _state.update { it.copy(showSettings = true) }

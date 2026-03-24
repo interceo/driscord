@@ -203,6 +203,10 @@ std::vector<float> AudioReceiver::pop() {
         return {};
     }
 
+    if (muted_.load()) {
+        return {};
+    }
+
     auto samples = std::move(result->samples);
 
     ++pop_count_;

@@ -7,7 +7,6 @@ interface AudioService {
     val deafened: StateFlow<Boolean>
     val outputVolume: StateFlow<Float>
     val inputLevel: StateFlow<Float>
-    val mixerHandle: Long
 
     fun start()
     fun stop()
