@@ -210,9 +210,7 @@ if(JNI_FOUND)
     add_library(driscord_jni SHARED
         jni/driscord_state.cpp
         jni/transport_jni.cpp
-        jni/audio_jni.cpp
         jni/audio_transport_jni.cpp
-        jni/audio_mixer_jni.cpp
         jni/video_transport_jni.cpp
         jni/screen_session_jni.cpp
         jni/screen_capture_jni.cpp

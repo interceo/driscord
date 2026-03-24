@@ -49,10 +49,6 @@ object NativeScreenSession {
 
     @JvmStatic external fun reset(h: Long)
 
-    @JvmStatic external fun addAudioReceiverToMixer(screenHandle: Long, mixerHandle: Long)
-
-    @JvmStatic external fun removeAudioReceiverFromMixer(screenHandle: Long, mixerHandle: Long)
-
     @JvmStatic external fun resetAudioReceiver(h: Long)
 
     @JvmStatic external fun setStreamVolume(h: Long, vol: Float)
