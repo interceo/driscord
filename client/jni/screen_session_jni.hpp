@@ -5,12 +5,13 @@
 
 #include <mutex>
 #include <string>
+#include <unordered_set>
 
 // Thin JNI adapter that owns a ScreenSession and exposes Java callbacks
 // (on_frame / on_frame_removed). All business logic lives in ScreenSession.
 struct ScreenSessionJni {
     ScreenSession session;
-    std::string   watched_peer_id;
+    std::unordered_set<std::string> watched_peers;
 
     std::mutex  cb_mutex;
     JniCallback on_frame_cb;

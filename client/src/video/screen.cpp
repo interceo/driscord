@@ -127,8 +127,11 @@ void ScreenReceiver::push_video_packet(
     video_recv_.push_video_packet(peer_id, data);
 }
 
-void ScreenReceiver::push_audio_packet(const utils::vector_view<const uint8_t> data) {
-    audio_recv_->push_packet(data);
+void ScreenReceiver::push_audio_packet(
+    const std::string& peer_id,
+    const utils::vector_view<const uint8_t> data
+) {
+    audio_recv_->push_packet(peer_id, data);
 }
 
 void ScreenReceiver::update(std::function<void(const VideoReceiver::Frame&)> on_frame) {
