@@ -18,12 +18,7 @@ object NativeScreenSession {
         fun invoke(peerId: String)
     }
 
-    @JvmStatic external fun create(
-        bufMs: Int,
-        maxSyncMs: Int,
-        videoTransportHandle: Long,
-        audioTransportHandle: Long,
-    ): Long
+    @JvmStatic external fun create(bufMs: Int, maxSyncMs: Int): Long
 
     @JvmStatic external fun destroy(h: Long)
 
@@ -54,35 +49,20 @@ object NativeScreenSession {
 
     @JvmStatic external fun reset(h: Long)
 
-    @JvmStatic external fun addAudioReceiverToMixer(
-        screenHandle: Long,
-        mixerHandle: Long,
-    )
+    @JvmStatic external fun addAudioReceiverToMixer(screenHandle: Long, mixerHandle: Long)
 
-    @JvmStatic external fun removeAudioReceiverFromMixer(
-        screenHandle: Long,
-        mixerHandle: Long,
-    )
+    @JvmStatic external fun removeAudioReceiverFromMixer(screenHandle: Long, mixerHandle: Long)
 
     @JvmStatic external fun resetAudioReceiver(h: Long)
 
-    @JvmStatic external fun setStreamVolume(
-        h: Long,
-        vol: Float,
-    )
+    @JvmStatic external fun setStreamVolume(h: Long, vol: Float)
 
     @JvmStatic external fun streamVolume(h: Long): Float
 
     /** Returns JSON with width/height/measuredKbps/video{queue,bufMs,drops,misses}/audio{...} */
     @JvmStatic external fun stats(h: Long): String
 
-    @JvmStatic external fun setOnFrame(
-        h: Long,
-        cb: OnFrameCallback,
-    )
+    @JvmStatic external fun setOnFrame(h: Long, cb: OnFrameCallback)
 
-    @JvmStatic external fun setOnFrameRemoved(
-        h: Long,
-        cb: StringCallback,
-    )
+    @JvmStatic external fun setOnFrameRemoved(h: Long, cb: StringCallback)
 }
