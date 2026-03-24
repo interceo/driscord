@@ -1,27 +1,63 @@
 package com.driscord.presentation.ui
 
-import androidx.compose.foundation.*
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.Button
+import androidx.compose.material.ButtonDefaults
+import androidx.compose.material.CircularProgressIndicator
+import androidx.compose.material.Divider
+import androidx.compose.material.LinearProgressIndicator
+import androidx.compose.material.LocalTextStyle
+import androidx.compose.material.OutlinedTextField
+import androidx.compose.material.Slider
+import androidx.compose.material.SliderDefaults
+import androidx.compose.material.Text
+import androidx.compose.material.TextFieldDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.input.pointer.isSecondaryPressed
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.driscord.AppState
+import com.driscord.domain.model.ConnectionState
 import com.driscord.presentation.AppIntent
 import com.driscord.presentation.AppUiState
-import com.driscord.ui.*
+import com.driscord.presentation.ui.components.AvatarBox
+import com.driscord.presentation.ui.components.IconActionButton
+import com.driscord.presentation.ui.components.LiveBadge
+import com.driscord.presentation.ui.components.SignalBars
+import com.driscord.ui.Blurple
+import com.driscord.ui.BottomBg
+import com.driscord.ui.Connecting
+import com.driscord.ui.DividerColor
+import com.driscord.ui.FieldBg
+import com.driscord.ui.Green
+import com.driscord.ui.Red
+import com.driscord.ui.SidebarBg
+import com.driscord.ui.TextMuted
+import com.driscord.ui.TextPrimary
+import com.driscord.ui.VoiceBg
 
 @Composable
 fun Sidebar(
@@ -31,488 +67,284 @@ fun Sidebar(
 ) {
     var serverUrl by remember(state.config.serverUrl) { mutableStateOf(state.config.serverUrl) }
     var expandedPeer by remember { mutableStateOf<String?>(null) }
+
     Column(
-        modifier =
-            Modifier
-                .width(240.dp)
-                .fillMaxHeight()
-                .background(SidebarBg),
+        modifier = Modifier
+            .width(240.dp)
+            .fillMaxHeight()
+            .background(SidebarBg),
     ) {
-        // ── Server header ────────────────────────────────────────────────
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .background(SidebarBg)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                "DRISCORD",
-                color = TextPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.5.sp,
-                modifier = Modifier.weight(1f),
-            )
-        }
-        Divider(color = Color(0xFF1E1F22), thickness = 1.dp)
-
-        // ── Members list ────────────────────────────────────────────────
-        Column(
-            modifier =
-                Modifier
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState())
-                    .padding(top = 8.dp),
-        ) {
-            Text(
-                "MEMBERS — ${peers.size + if (state == AppState.Connected) 1 else 0}",
-                color = TextMuted,
-                fontSize = 10.sp,
-                letterSpacing = 0.5.sp,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            )
-
-            if (state == AppState.Connected) {
-                MemberRow(
-                    id = localId,
-                    label = "${if (localId.length > 14) localId.take(14) + "…" else localId} (you)",
-                    online = true,
-                    expanded = expandedPeer == localId,
-                    onClick = { expandedPeer = if (expandedPeer == localId) null else localId },
-                    isYou = true,
-                    muted = muted,
-                    deafened = deafened,
-                    onGetVolume = { volume },
-                    onSetVolume = onSetVolume,
-                    onToggleMute = onToggleMute,
-                    onToggleDeafen = onToggleDeafen,
-                )
-                if (expandedPeer == localId) {
-                    MemberExpanded(
-                        label = "Mic Volume",
-                        value = volume,
-                        level = inputLevel,
-                        levelLabel = "Mic",
-                        active = muted,
-                        onChange = onSetVolume,
-                    )
-                }
-            }
-
-            peers.forEach { peer ->
-                val label = if (peer.id.length > 14) peer.id.take(14) + "…" else peer.id
-                MemberRow(
-                    id = peer.id,
-                    label = label,
-                    online = peer.connected,
-                    expanded = expandedPeer == peer.id,
-                    onClick = { expandedPeer = if (expandedPeer == peer.id) null else peer.id },
-                    onGetVolume = { onGetPeerVolume(peer.id) },
-                    onSetVolume = { v -> onSetPeerVolume(peer.id, v) },
-                )
-                if (expandedPeer == peer.id) {
-                    var pVol by remember(peer.id) { mutableStateOf(onGetPeerVolume(peer.id)) }
-                    MemberExpanded(
-                        label = "Volume",
-                        value = pVol,
-                        level = null,
-                        levelLabel = null,
-                        active = false,
-                        onChange = { v ->
-                            pVol = v
-                            onSetPeerVolume(peer.id, v)
-                        },
-                    )
-                }
-            }
-
-            if (state != AppState.Connected && peers.isEmpty()) {
-                Text("  —", color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp))
-            }
-        }
-
-        // ── Voice / connect section ──────────────────────────────────────
-        when (state) {
-            AppState.Disconnected -> {
-                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-                    Text("Server", color = TextMuted, fontSize = 11.sp, letterSpacing = 0.3.sp)
-                    Spacer(Modifier.height(4.dp))
-                    OutlinedTextField(
-                        value = serverUrl,
-                        onValueChange = { serverUrl = it },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors =
-                            TextFieldDefaults.outlinedTextFieldColors(
-                                textColor = TextPrimary,
-                                unfocusedBorderColor = Color(0xFF40444B),
-                                focusedBorderColor = Blurple,
-                                backgroundColor = Color(0xFF1E1F22),
-                                cursorColor = Blurple,
-                            ),
-                        textStyle = LocalTextStyle.current.copy(fontSize = 12.sp),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Button(
-                        onClick = { onConnect(serverUrl) },
-                        modifier = Modifier.fillMaxWidth().height(32.dp),
-                        colors = ButtonDefaults.buttonColors(backgroundColor = Blurple),
-                        shape = RoundedCornerShape(4.dp),
-                        contentPadding = PaddingValues(0.dp),
-                    ) {
-                        Text("Connect", color = Color.White, fontSize = 13.sp)
-                    }
-                }
-            }
-
-            AppState.Connecting -> {
-                Row(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .background(VoiceBg)
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(14.dp),
-                        strokeWidth = 2.dp,
-                        color = Color(0xFFFAA61A),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text("Connecting…", color = Color(0xFFFAA61A), fontSize = 13.sp)
-                }
-            }
-
-            AppState.Connected -> {
-                Column(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .background(VoiceBg)
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        // Signal bars
-                        SignalBars(modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            "Voice Connected",
-                            color = Green,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.weight(1f),
-                        )
-                        // Signal quality indicator
-                        SignalBars(modifier = Modifier.size(12.dp))
-                        Spacer(Modifier.width(8.dp))
-                        // Disconnect
-                        Box(
-                            modifier =
-                                Modifier
-                                    .size(20.dp)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(Color(0xFF40444B))
-                                    .clickable(onClick = onDisconnect),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text("✕", color = Red, fontSize = 10.sp)
-                        }
-                    }
-                    Spacer(Modifier.height(2.dp))
-                    val shortUrl = config.serverUrl.removePrefix("ws://").removePrefix("wss://")
-                    Text(
-                        "${peers.size + 1} connected  ·  $shortUrl",
-                        color = TextMuted,
-                        fontSize = 11.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    // Active share indicator
-                    if (sharing) {
-                        Spacer(Modifier.height(4.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier =
-                                    Modifier
-                                        .clip(RoundedCornerShape(2.dp))
-                                        .background(Red)
-                                        .padding(horizontal = 3.dp, vertical = 1.dp),
-                            ) {
-                                Text("LIVE", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold)
-                            }
-                            Spacer(Modifier.width(5.dp))
-                            Text(
-                                shareTargetName.ifEmpty { "Screen" },
-                                color = Green,
-                                fontSize = 11.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        Divider(color = Color(0xFF1E1F22), thickness = 1.dp)
-
-        // ── Bottom user bar ──────────────────────────────────────────────
-        Divider(color = Color(0xFF1E1F22), thickness = 1.dp)
+        SidebarHeader()
+        Divider(color = DividerColor, thickness = 1.dp)
+        MembersList(
+            state = state,
+            expandedPeer = expandedPeer,
+            onExpandPeer = { expandedPeer = if (expandedPeer == it) null else it },
+            onIntent = onIntent,
+            onGetPeerVolume = onGetPeerVolume,
+            modifier = Modifier.weight(1f),
+        )
+        ConnectionSection(
+            state = state,
+            serverUrl = serverUrl,
+            onServerUrlChange = { serverUrl = it },
+            onIntent = onIntent,
+        )
+        Divider(color = DividerColor, thickness = 1.dp)
         UserBar(
-            localId = localId.ifEmpty { "—" },
-            muted = muted,
-            deafened = deafened,
-            sharing = sharing,
-            connected = state == AppState.Connected,
-            onToggleMute = onToggleMute,
-            onToggleDeafen = onToggleDeafen,
-            onToggleShare = { if (sharing) onStopShare() else onStartShare() },
-            onSettings = { showSettings = true },
+            localId = state.localId.ifEmpty { "—" },
+            muted = state.muted,
+            deafened = state.deafened,
+            sharing = state.sharing,
+            connected = state.connectionState == ConnectionState.Connected,
+            onToggleMute = { onIntent(AppIntent.ToggleMute) },
+            onToggleDeafen = { onIntent(AppIntent.ToggleDeafen) },
+            onToggleShare = {
+                if (state.sharing) onIntent(AppIntent.StopSharing)
+                else onIntent(AppIntent.OpenShareDialog)
+            },
+            onSettings = { onIntent(AppIntent.OpenSettings) },
         )
     }
 
-    if (showSettings) {
+    if (state.showSettings) {
         SettingsDialog(
-            config = config,
-            onDismiss = { showSettings = false },
-            onSave = {
-                onSaveConfig(it)
-                showSettings = false
-            },
+            config = state.config,
+            onDismiss = { onIntent(AppIntent.DismissSettings) },
+            onSave = { onIntent(AppIntent.SaveConfig(it)) },
         )
     }
 }
 
 // ---------------------------------------------------------------------------
-// Member row
+// Header
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun MemberRow(
-    id: String,
-    label: String,
-    online: Boolean,
-    expanded: Boolean,
-    onClick: () -> Unit,
-    isYou: Boolean = false,
-    muted: Boolean = false,
-    deafened: Boolean = false,
-    onGetVolume: (() -> Float)? = null,
-    onSetVolume: ((Float) -> Unit)? = null,
-    onToggleMute: (() -> Unit)? = null,
-    onToggleDeafen: (() -> Unit)? = null,
-) {
-    val bg = if (expanded) Color(0xFF35373C) else Color.Transparent
-
-    var showMenu by remember { mutableStateOf(false) }
-    var cursorPx by remember { mutableStateOf(IntOffset.Zero) }
-    var vol by remember { mutableStateOf(1f) }
-    var peerMuted by remember { mutableStateOf(false) }
-    var savedVol by remember { mutableStateOf(1f) }
-
-    // Avoid stale closure in pointerInput(Unit)
-    val currentOnGetVolume by rememberUpdatedState(onGetVolume)
-
-    Box(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .background(bg)
-                .then(
-                    if (onGetVolume != null) {
-                        Modifier.pointerInput(Unit) {
-                            awaitPointerEventScope {
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
-                                        val pos = event.changes.first().position
-                                        cursorPx = IntOffset(pos.x.toInt(), pos.y.toInt())
-                                        vol = currentOnGetVolume?.invoke() ?: 1f
-                                        showMenu = true
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        Modifier
-                    },
-                ),
+private fun SidebarHeader() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onClick)
-                    .padding(horizontal = 8.dp, vertical = 5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            val avatarLetter = id.firstOrNull()?.uppercaseChar() ?: 'D'
-            val avatarColor =
-                remember(id) {
-                    val h = id.fold(0x811c9dc5.toInt()) { acc, c -> (acc xor c.code) * 0x01000193.toInt() }
-                    Color(
-                        red = (80 + (h and 0x7F)) / 255f,
-                        green = (80 + ((h shr 8) and 0x7F)) / 255f,
-                        blue = (80 + ((h shr 16) and 0x7F)) / 255f,
-                    )
+        Text(
+            text = "DRISCORD",
+            color = TextPrimary,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 0.5.sp,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Members list
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun MembersList(
+    state: AppUiState,
+    expandedPeer: String?,
+    onExpandPeer: (String) -> Unit,
+    onIntent: (AppIntent) -> Unit,
+    onGetPeerVolume: (String) -> Float,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .verticalScroll(rememberScrollState())
+            .padding(top = 8.dp),
+    ) {
+        val memberCount = state.peers.size + if (state.connectionState == ConnectionState.Connected) 1 else 0
+        Text(
+            text = "MEMBERS — $memberCount",
+            color = TextMuted,
+            fontSize = 10.sp,
+            letterSpacing = 0.5.sp,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+
+        if (state.connectionState == ConnectionState.Connected) {
+            MemberRow(
+                id = state.localId,
+                label = peerLabel(state.localId, state.localId),
+                online = true,
+                expanded = expandedPeer == state.localId,
+                onClick = { onExpandPeer(state.localId) },
+                isYou = true,
+                muted = state.muted,
+                deafened = state.deafened,
+                onGetVolume = { state.outputVolume },
+                onSetVolume = { v -> onIntent(AppIntent.SetOutputVolume(v)) },
+                onToggleMute = { onIntent(AppIntent.ToggleMute) },
+                onToggleDeafen = { onIntent(AppIntent.ToggleDeafen) },
+            )
+            if (expandedPeer == state.localId) {
+                MemberExpanded(
+                    label = "Mic Volume",
+                    value = state.outputVolume,
+                    level = state.inputLevel,
+                    levelLabel = "Mic",
+                    active = state.muted,
+                    onChange = { v -> onIntent(AppIntent.SetOutputVolume(v)) },
+                )
+            }
+        }
+
+        state.peers.forEach { peer ->
+            MemberRow(
+                id = peer.id,
+                label = peerLabel(peer.id, state.localId),
+                online = peer.connected,
+                expanded = expandedPeer == peer.id,
+                onClick = { onExpandPeer(peer.id) },
+                onGetVolume = { onGetPeerVolume(peer.id) },
+                onSetVolume = { v -> onIntent(AppIntent.SetPeerVolume(peer.id, v)) },
+            )
+            if (expandedPeer == peer.id) {
+                var pVol by remember(peer.id) { mutableStateOf(onGetPeerVolume(peer.id)) }
+                MemberExpanded(
+                    label = "Volume",
+                    value = pVol,
+                    level = null,
+                    levelLabel = null,
+                    active = false,
+                    onChange = { v ->
+                        pVol = v
+                        onIntent(AppIntent.SetPeerVolume(peer.id, v))
+                    },
+                )
+            }
+        }
+
+        if (state.connectionState != ConnectionState.Connected && state.peers.isEmpty()) {
+            Text("  —", color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Connection section
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun ConnectionSection(
+    state: AppUiState,
+    serverUrl: String,
+    onServerUrlChange: (String) -> Unit,
+    onIntent: (AppIntent) -> Unit,
+) {
+    when (state.connectionState) {
+        ConnectionState.Disconnected -> {
+            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                Text("Server", color = TextMuted, fontSize = 11.sp, letterSpacing = 0.3.sp)
+                Spacer(Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = serverUrl,
+                    onValueChange = onServerUrlChange,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = TextFieldDefaults.outlinedTextFieldColors(
+                        textColor = TextPrimary,
+                        unfocusedBorderColor = FieldBg,
+                        focusedBorderColor = Blurple,
+                        backgroundColor = BottomBg,
+                        cursorColor = Blurple,
+                    ),
+                    textStyle = LocalTextStyle.current.copy(fontSize = 12.sp),
+                )
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = { onIntent(AppIntent.Connect(serverUrl)) },
+                    modifier = Modifier.fillMaxWidth().height(32.dp),
+                    colors = ButtonDefaults.buttonColors(backgroundColor = Blurple),
+                    shape = RoundedCornerShape(4.dp),
+                    contentPadding = PaddingValues(0.dp),
+                ) {
+                    Text("Connect", color = Color.White, fontSize = 13.sp)
                 }
+            }
+        }
+
+        ConnectionState.Connecting -> {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(VoiceBg)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Connecting)
+                Spacer(Modifier.width(8.dp))
+                Text("Connecting…", color = Connecting, fontSize = 13.sp)
+            }
+        }
+
+        ConnectionState.Connected -> {
+            ConnectedStatus(state = state, onIntent = onIntent)
+        }
+    }
+}
+
+@Composable
+private fun ConnectedStatus(state: AppUiState, onIntent: (AppIntent) -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(VoiceBg)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SignalBars(modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = "Voice Connected",
+                color = Green,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
             Box(
-                modifier = Modifier.size(28.dp).clip(CircleShape).background(avatarColor),
+                modifier = Modifier
+                    .size(20.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(FieldBg)
+                    .clickable { onIntent(AppIntent.Disconnect) },
                 contentAlignment = Alignment.Center,
             ) {
-                Text(avatarLetter.toString(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text("✕", color = Red, fontSize = 10.sp)
             }
-            Spacer(Modifier.width(8.dp))
-            Column(modifier = Modifier.weight(1f)) {
+        }
+        Spacer(Modifier.height(2.dp))
+        val shortUrl = state.config.serverUrl.removePrefix("ws://").removePrefix("wss://")
+        Text(
+            text = "${state.peers.size + 1} connected  ·  $shortUrl",
+            color = TextMuted,
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (state.sharing) {
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                LiveBadge()
+                Spacer(Modifier.width(5.dp))
                 Text(
-                    label,
-                    color = if (online) TextPrimary else TextMuted,
-                    fontSize = 13.sp,
+                    text = state.shareTargetName.ifEmpty { "Screen" },
+                    color = Green,
+                    fontSize = 11.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Box(
-                modifier =
-                    Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(if (online) Green else Color(0xFF737F8D)),
-            )
-        }
-
-        if (onGetVolume != null && onSetVolume != null) {
-            // Zero-size anchor at cursor position for the context menu
-            Box(modifier = Modifier.align(Alignment.TopStart).offset { cursorPx }.size(0.dp)) {
-                DropdownMenu(
-                    expanded = showMenu,
-                    onDismissRequest = { showMenu = false },
-                    modifier = Modifier.background(Color(0xFF2B2D31)).width(200.dp),
-                ) {
-                    Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
-                        Text(
-                            if (id.length > 20) id.take(20) + "…" else id,
-                            color = Blurple,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                    Divider(color = Color(0xFF1E1F22))
-                    if (isYou) {
-                        Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
-                            Column {
-                                Text("Громкость микрофона", color = TextMuted, fontSize = 10.sp)
-                                Slider(
-                                    value = vol,
-                                    onValueChange = { v ->
-                                        vol = v
-                                        onSetVolume(v)
-                                    },
-                                    valueRange = 0f..2f,
-                                    colors = SliderDefaults.colors(thumbColor = Blurple, activeTrackColor = Blurple),
-                                    modifier = Modifier.requiredWidth(176.dp).height(28.dp),
-                                )
-                            }
-                        }
-                        if (onToggleMute != null) {
-                            DropdownMenuItem(onClick = { onToggleMute() }) {
-                                Text("Заглушить", color = TextPrimary, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                                Checkbox(
-                                    checked = muted,
-                                    onCheckedChange = null,
-                                    colors = CheckboxDefaults.colors(checkedColor = Blurple, uncheckedColor = TextMuted),
-                                )
-                            }
-                        }
-                        if (onToggleDeafen != null) {
-                            DropdownMenuItem(onClick = { onToggleDeafen() }) {
-                                Text("Откл. звук", color = TextPrimary, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                                Checkbox(
-                                    checked = deafened,
-                                    onCheckedChange = null,
-                                    colors = CheckboxDefaults.colors(checkedColor = Blurple, uncheckedColor = TextMuted),
-                                )
-                            }
-                        }
-                    } else {
-                        Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
-                            Column {
-                                Text("Громкость", color = TextMuted, fontSize = 10.sp)
-                                Slider(
-                                    value = vol,
-                                    onValueChange = { v ->
-                                        vol = v
-                                        peerMuted = false
-                                        onSetVolume(v)
-                                    },
-                                    valueRange = 0f..2f,
-                                    colors = SliderDefaults.colors(thumbColor = Blurple, activeTrackColor = Blurple),
-                                    modifier = Modifier.requiredWidth(176.dp).height(28.dp),
-                                )
-                            }
-                        }
-                        DropdownMenuItem(onClick = {
-                            if (peerMuted) {
-                                vol = savedVol
-                                onSetVolume(savedVol)
-                            } else {
-                                savedVol = vol.takeIf { it > 0f } ?: 1f
-                                vol = 0f
-                                onSetVolume(0f)
-                            }
-                            peerMuted = !peerMuted
-                        }) {
-                            Text("Заглушить", color = TextPrimary, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                            Checkbox(
-                                checked = peerMuted,
-                                onCheckedChange = null,
-                                colors = CheckboxDefaults.colors(checkedColor = Blurple, uncheckedColor = TextMuted),
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MemberExpanded(
-    label: String,
-    value: Float,
-    level: Float?,
-    levelLabel: String?,
-    active: Boolean,
-    onChange: (Float) -> Unit,
-) {
-    Column(modifier = Modifier.padding(start = 44.dp, end = 8.dp, bottom = 4.dp)) {
-        Text(label, color = TextMuted, fontSize = 10.sp)
-        Slider(
-            value = value,
-            onValueChange = onChange,
-            valueRange = 0f..2f,
-            colors = SliderDefaults.colors(thumbColor = Blurple, activeTrackColor = Blurple),
-            modifier = Modifier.height(28.dp),
-        )
-        if (level != null && levelLabel != null) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(levelLabel, color = TextMuted, fontSize = 10.sp, modifier = Modifier.width(20.dp))
-                LinearProgressIndicator(
-                    progress = level.coerceIn(0f, 1f),
-                    modifier = Modifier.width(80.dp).height(6.dp),
-                    color = if (active) Red else Green,
-                    backgroundColor = Color(0xFF40444B),
-                )
-            }
         }
     }
 }
 
 // ---------------------------------------------------------------------------
-// User bar (bottom)
+// User bar (bottom of sidebar)
 // ---------------------------------------------------------------------------
 
 @Composable
@@ -527,36 +359,19 @@ private fun UserBar(
     onToggleShare: () -> Unit,
     onSettings: () -> Unit,
 ) {
-    val short = if (localId.length > 12) localId.take(12) + "…" else localId
-    val avatarLetter = localId.firstOrNull()?.uppercaseChar() ?: 'D'
-
     Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .background(BottomBg)
-                .padding(horizontal = 8.dp, vertical = 6.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(BottomBg)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val avatarColor =
-            remember(localId) {
-                val h = localId.fold(0x811c9dc5.toInt()) { acc, c -> (acc xor c.code) * 0x01000193.toInt() }
-                Color(
-                    red = (80 + (h and 0x7F)) / 255f,
-                    green = (80 + ((h shr 8) and 0x7F)) / 255f,
-                    blue = (80 + ((h shr 16) and 0x7F)) / 255f,
-                )
-            }
-        Box(
-            modifier = Modifier.size(28.dp).clip(CircleShape).background(avatarColor),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(avatarLetter.toString(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        }
+        AvatarBox(peerId = localId, size = 28, fontSize = 12)
         Spacer(Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1f)) {
+            val short = if (localId.length > 12) localId.take(12) + "…" else localId
             Text(
-                short,
+                text = short,
                 color = TextPrimary,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
@@ -566,52 +381,100 @@ private fun UserBar(
             Text(if (connected) "Connected" else "Offline", color = TextMuted, fontSize = 10.sp)
         }
         if (connected) {
-            BottomIconBtn(label = if (muted) "M!" else "M", active = muted, activeColor = Red, onClick = onToggleMute)
+            IconActionButton(if (muted) "M!" else "M", muted, Red, onToggleMute)
             Spacer(Modifier.width(2.dp))
-            BottomIconBtn(label = if (deafened) "H!" else "H", active = deafened, activeColor = Red, onClick = onToggleDeafen)
+            IconActionButton(if (deafened) "H!" else "H", deafened, Red, onToggleDeafen)
             Spacer(Modifier.width(2.dp))
-            BottomIconBtn(label = if (sharing) "◼" else "◻", active = sharing, activeColor = Green, onClick = onToggleShare)
+            IconActionButton(if (sharing) "◼" else "◻", sharing, Green, onToggleShare)
             Spacer(Modifier.width(2.dp))
         }
-        BottomIconBtn(label = "⚙", active = false, activeColor = Red, onClick = onSettings)
+        IconActionButton("⚙", false, Red, onSettings)
     }
 }
 
+// ---------------------------------------------------------------------------
+// Member row — one entry in the members list
+// ---------------------------------------------------------------------------
+
 @Composable
-private fun BottomIconBtn(
+private fun MemberRow(
+    id: String,
     label: String,
-    active: Boolean,
-    activeColor: Color,
+    online: Boolean,
+    expanded: Boolean,
     onClick: () -> Unit,
+    isYou: Boolean = false,
+    muted: Boolean = false,
+    deafened: Boolean = false,
+    onGetVolume: () -> Float = { 1f },
+    onSetVolume: (Float) -> Unit = {},
+    onToggleMute: (() -> Unit)? = null,
+    onToggleDeafen: (() -> Unit)? = null,
 ) {
-    Box(
-        modifier =
-            Modifier
-                .size(26.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .background(if (active) activeColor.copy(alpha = 0.2f) else Color.Transparent)
-                .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, color = if (active) activeColor else TextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        AvatarBox(peerId = id, size = 24, fontSize = 11)
+        Spacer(Modifier.width(8.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                color = if (online) TextPrimary else TextMuted,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (isYou) {
+            if (muted) Text("M", color = Red, fontSize = 10.sp)
+            if (deafened) Text("H", color = Red, fontSize = 10.sp)
+        }
     }
 }
 
 // ---------------------------------------------------------------------------
-// Signal bars decoration
+// Member expanded — volume slider shown below a member row
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun SignalBars(modifier: Modifier = Modifier) {
-    Row(modifier = modifier, verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(1.dp)) {
-        repeat(3) { i ->
-            Box(
-                modifier =
-                    Modifier
-                        .width(3.dp)
-                        .height((4 + i * 3).dp)
-                        .clip(RoundedCornerShape(1.dp))
-                        .background(Green),
+private fun MemberExpanded(
+    label: String,
+    value: Float,
+    level: Float?,
+    levelLabel: String?,
+    active: Boolean,
+    onChange: (Float) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(BottomBg)
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+    ) {
+        Text(label, color = TextMuted, fontSize = 10.sp)
+        Slider(
+            value = value,
+            onValueChange = onChange,
+            valueRange = 0f..2f,
+            colors = SliderDefaults.colors(
+                thumbColor = if (active) Red else Blurple,
+                activeTrackColor = if (active) Red else Blurple,
+            ),
+            modifier = Modifier.fillMaxWidth().height(28.dp),
+        )
+        if (level != null && levelLabel != null) {
+            Spacer(Modifier.height(2.dp))
+            Text(levelLabel, color = TextMuted, fontSize = 10.sp)
+            LinearProgressIndicator(
+                progress = level.coerceIn(0f, 1f),
+                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                color = Green,
+                backgroundColor = FieldBg,
             )
         }
     }

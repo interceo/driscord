@@ -34,11 +34,18 @@ VideoTransport::VideoTransport(Transport& transport)
                 on_chunk(peer_id, data, len);
             },
         .on_open =
-            [this](const std::string& /*peer_id*/) {
+            [this](const std::string& peer_id) {
+                // Reset stale streaming state from any previous connection to this peer.
+                // remove_streaming_peer is a no-op if the peer wasn't streaming before.
+                remove_streaming_peer(peer_id);
                 std::scoped_lock lk(sink_mutex_);
                 if (on_keyframe_needed_) {
                     on_keyframe_needed_();
                 }
+            },
+        .on_close =
+            [this](const std::string& peer_id) {
+                remove_streaming_peer(peer_id);
             },
     });
 }
