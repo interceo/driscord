@@ -15,16 +15,12 @@ import org.jetbrains.skia.ColorType
 import org.jetbrains.skia.ImageInfo
 
 class VideoServiceImpl(
-    private val videoTransportH: Long,
-    private val audioTransportH: Long,
     config: AppConfig,
 ) : VideoService {
 
     private val screenSessionH: Long = NativeScreenSession.create(
         config.screenBufferMs,
         config.maxSyncGapMs,
-        videoTransportH,
-        audioTransportH,
     )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -54,13 +50,13 @@ class VideoServiceImpl(
         get() = NativeScreenCapture.systemAudioAvailable()
 
     init {
-        NativeVideoTransport.setOnNewStreamingPeer(videoTransportH) { peerId ->
+        NativeVideoTransport.setOnNewStreamingPeer { peerId ->
             scope.launch(Dispatchers.Main) {
                 if (peerId !in _streamingPeers.value)
                     _streamingPeers.value = _streamingPeers.value + peerId
             }
         }
-        NativeVideoTransport.setOnStreamingPeerRemoved(videoTransportH) { peerId ->
+        NativeVideoTransport.setOnStreamingPeerRemoved { peerId ->
             scope.launch(Dispatchers.Main) {
                 _streamingPeers.value = _streamingPeers.value - peerId
                 _frames.value = _frames.value - peerId
@@ -81,7 +77,7 @@ class VideoServiceImpl(
                 NativeScreenSession.update(screenSessionH)
                 withContext(Dispatchers.Main) {
                     _sharing.value = NativeScreenSession.sharing(screenSessionH)
-                    _watching.value = NativeVideoTransport.watching(videoTransportH)
+                    _watching.value = NativeVideoTransport.watching()
                     _streamStats.value = json.decodeFromString(NativeScreenSession.stats(screenSessionH))
                 }
                 delay(16)
@@ -90,18 +86,18 @@ class VideoServiceImpl(
     }
 
     override fun joinStream(mixerHandle: Long) {
-        NativeVideoTransport.setWatching(videoTransportH, true)
+        NativeVideoTransport.setWatching(true)
         watchedPeerId = _streamingPeers.value.firstOrNull() ?: ""
-        NativeAudioTransport.setScreenAudioReceiver(audioTransportH, watchedPeerId, screenSessionH)
+        NativeAudioTransport.setScreenAudioReceiver(watchedPeerId, screenSessionH)
         NativeScreenSession.addAudioReceiverToMixer(screenSessionH, mixerHandle)
-        NativeVideoTransport.sendKeyframeRequest(videoTransportH)
+        NativeVideoTransport.sendKeyframeRequest()
         _watching.value = true
     }
 
     override fun leaveStream(mixerHandle: Long) {
-        NativeVideoTransport.setWatching(videoTransportH, false)
+        NativeVideoTransport.setWatching(false)
         NativeScreenSession.removeAudioReceiverFromMixer(screenSessionH, mixerHandle)
-        NativeAudioTransport.unsetScreenAudioReceiver(audioTransportH, watchedPeerId)
+        NativeAudioTransport.unsetScreenAudioReceiver(watchedPeerId)
         watchedPeerId = ""
         NativeScreenSession.reset(screenSessionH)
         _watching.value = false

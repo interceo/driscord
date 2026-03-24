@@ -14,12 +14,8 @@ import com.driscord.presentation.ui.MainScreen
 fun main() = application {
     val configRepo = ConfigRepositoryImpl()
     val connectionSvc = ConnectionServiceImpl(configRepo.config.value)
-    val audioSvc = AudioServiceImpl(connectionSvc.audioTransportH)
-    val videoSvc = VideoServiceImpl(
-        connectionSvc.videoTransportH,
-        connectionSvc.audioTransportH,
-        configRepo.config.value,
-    )
+    val audioSvc = AudioServiceImpl()
+    val videoSvc = VideoServiceImpl(configRepo.config.value)
     val viewModel = AppViewModel(connectionSvc, audioSvc, videoSvc, configRepo)
 
     Window(
