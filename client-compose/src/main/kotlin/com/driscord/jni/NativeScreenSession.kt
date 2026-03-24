@@ -18,12 +18,11 @@ object NativeScreenSession {
         fun invoke(peerId: String)
     }
 
-    @JvmStatic external fun create(bufMs: Int, maxSyncMs: Int): Long
+    @JvmStatic external fun init(bufMs: Int, maxSyncMs: Int)
 
-    @JvmStatic external fun destroy(h: Long)
+    @JvmStatic external fun deinit()
 
     @JvmStatic external fun startSharing(
-        h: Long,
         targetJson: String,
         maxW: Int,
         maxH: Int,
@@ -33,36 +32,36 @@ object NativeScreenSession {
         shareAudio: Boolean,
     ): Boolean
 
-    @JvmStatic external fun stopSharing(h: Long)
+    @JvmStatic external fun stopSharing()
 
-    @JvmStatic external fun sharing(h: Long): Boolean
+    @JvmStatic external fun sharing(): Boolean
 
-    @JvmStatic external fun sharingAudio(h: Long): Boolean
+    @JvmStatic external fun sharingAudio(): Boolean
 
-    @JvmStatic external fun forceKeyframe(h: Long)
+    @JvmStatic external fun forceKeyframe()
 
-    @JvmStatic external fun update(h: Long)
+    @JvmStatic external fun update()
 
-    @JvmStatic external fun activePeer(h: Long): String
+    @JvmStatic external fun activePeer(): String
 
-    @JvmStatic external fun active(h: Long): Boolean
+    @JvmStatic external fun active(): Boolean
 
-    @JvmStatic external fun reset(h: Long)
+    @JvmStatic external fun reset()
 
-    @JvmStatic external fun addAudioReceiverToMixer(screenHandle: Long, mixerHandle: Long)
+    @JvmStatic external fun resetAudioReceiver()
 
-    @JvmStatic external fun removeAudioReceiverFromMixer(screenHandle: Long, mixerHandle: Long)
+    @JvmStatic external fun setStreamVolume(vol: Float)
 
-    @JvmStatic external fun resetAudioReceiver(h: Long)
-
-    @JvmStatic external fun setStreamVolume(h: Long, vol: Float)
-
-    @JvmStatic external fun streamVolume(h: Long): Float
+    @JvmStatic external fun streamVolume(): Float
 
     /** Returns JSON with width/height/measuredKbps/video{queue,bufMs,drops,misses}/audio{...} */
-    @JvmStatic external fun stats(h: Long): String
+    @JvmStatic external fun stats(): String
 
-    @JvmStatic external fun setOnFrame(h: Long, cb: OnFrameCallback)
+    @JvmStatic external fun setOnFrame(cb: OnFrameCallback)
 
-    @JvmStatic external fun setOnFrameRemoved(h: Long, cb: StringCallback)
+    @JvmStatic external fun setOnFrameRemoved(cb: StringCallback)
+
+    @JvmStatic external fun joinStream(peerId: String)
+
+    @JvmStatic external fun leaveStream()
 }

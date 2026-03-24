@@ -1,17 +1,11 @@
 package com.driscord.data.audio
 
-import com.driscord.jni.*
+import com.driscord.jni.NativeAudioTransport
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
 class AudioServiceImpl : AudioService {
 
-    private val audioSenderH: Long = NativeAudioSender.create()
-    private val audioMixerH: Long = NativeAudioMixer.create()
-
-    override val mixerHandle: Long get() = audioMixerH
-
-    private val voiceReceivers = HashMap<String, Long>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val _muted = MutableStateFlow(false)
@@ -27,13 +21,12 @@ class AudioServiceImpl : AudioService {
     override val inputLevel: StateFlow<Float> = _inputLevel.asStateFlow()
 
     init {
-        // Polling loop scoped to audio only
         scope.launch {
             while (isActive) {
                 withContext(Dispatchers.Main) {
-                    _muted.value = NativeAudioSender.muted(audioSenderH)
-                    _deafened.value = NativeAudioMixer.deafened(audioMixerH)
-                    _inputLevel.value = NativeAudioSender.inputLevel(audioSenderH)
+                    _muted.value = NativeAudioTransport.selfMuted()
+                    _deafened.value = NativeAudioTransport.deafened()
+                    _inputLevel.value = NativeAudioTransport.inputLevel()
                 }
                 delay(16)
             }
@@ -41,69 +34,49 @@ class AudioServiceImpl : AudioService {
     }
 
     override fun start() {
-        NativeAudioMixer.start(audioMixerH)
-        NativeAudioSender.start(audioSenderH)
+        NativeAudioTransport.start()
     }
 
     override fun stop() {
-        NativeAudioSender.stop(audioSenderH)
-        NativeAudioMixer.stop(audioMixerH)
+        NativeAudioTransport.stop()
     }
 
     override fun toggleMute() {
-        val next = !NativeAudioSender.muted(audioSenderH)
-        NativeAudioSender.setMuted(audioSenderH, next)
+        val next = !NativeAudioTransport.selfMuted()
+        NativeAudioTransport.setSelfMuted(next)
         _muted.value = next
     }
 
     override fun toggleDeafen() {
-        val next = !NativeAudioMixer.deafened(audioMixerH)
-        NativeAudioMixer.setDeafened(audioMixerH, next)
+        val next = !NativeAudioTransport.deafened()
+        NativeAudioTransport.setDeafened(next)
         _deafened.value = next
-        NativeAudioSender.setMuted(audioSenderH, next)
-        _muted.value = NativeAudioSender.muted(audioSenderH)
+        NativeAudioTransport.setSelfMuted(next)
+        _muted.value = NativeAudioTransport.selfMuted()
     }
 
     override fun setOutputVolume(vol: Float) {
-        NativeAudioMixer.setOutputVolume(audioMixerH, vol)
+        NativeAudioTransport.setMasterVolume(vol)
         _outputVolume.value = vol
     }
 
     override fun setPeerVolume(peerId: String, vol: Float) {
-        val recv = synchronized(voiceReceivers) { voiceReceivers[peerId] } ?: return
-        NativeAudioReceiver.setVolume(recv, vol)
+        NativeAudioTransport.setPeerVolume(peerId, vol)
     }
 
-    override fun getPeerVolume(peerId: String): Float {
-        val recv = synchronized(voiceReceivers) { voiceReceivers[peerId] } ?: return 1f
-        return NativeAudioReceiver.volume(recv)
-    }
+    override fun getPeerVolume(peerId: String): Float =
+        NativeAudioTransport.getPeerVolume(peerId)
 
     override fun onPeerJoined(peerId: String, jitterMs: Int) {
-        val recv = NativeAudioReceiver.create(jitterMs)
-        synchronized(voiceReceivers) { voiceReceivers[peerId] = recv }
-        NativeAudioTransport.registerVoiceReceiver(peerId, recv)
-        NativeAudioMixer.addSource(audioMixerH, recv)
+        NativeAudioTransport.onPeerJoined(peerId, jitterMs)
     }
 
     override fun onPeerLeft(peerId: String) {
-        val recv = synchronized(voiceReceivers) { voiceReceivers.remove(peerId) } ?: return
-        NativeAudioTransport.unregisterVoiceReceiver(peerId)
-        NativeAudioMixer.removeSource(audioMixerH, recv)
-        NativeAudioReceiver.destroy(recv)
+        NativeAudioTransport.onPeerLeft(peerId)
     }
 
     override fun destroy() {
         scope.cancel()
         stop()
-        synchronized(voiceReceivers) {
-            voiceReceivers.values.forEach { recv ->
-                NativeAudioMixer.removeSource(audioMixerH, recv)
-                NativeAudioReceiver.destroy(recv)
-            }
-            voiceReceivers.clear()
-        }
-        NativeAudioSender.destroy(audioSenderH)
-        NativeAudioMixer.destroy(audioMixerH)
     }
 }
