@@ -14,8 +14,8 @@ interface VideoService {
     val streamStats: StateFlow<StreamStats>
     val systemAudioAvailable: Boolean
 
-    fun joinStream(mixerHandle: Long)
-    fun leaveStream(mixerHandle: Long)
+    fun joinStream()
+    fun leaveStream()
     fun startSharing(target: CaptureTarget, quality: Int, fps: Int, shareAudio: Boolean, bitrateKbps: Int, gopSize: Int): Boolean
     fun stopSharing()
     fun setStreamVolume(vol: Float)

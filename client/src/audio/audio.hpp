@@ -74,6 +74,9 @@ public:
     void set_volume(float v) { volume_.store(v); }
     float volume() const { return volume_.load(); }
 
+    void set_muted(bool m) { muted_.store(m); }
+    bool muted() const { return muted_.load(); }
+
     // Discard all queued audio older than max_delay (hard timeout).
     size_t evict_old(utils::Duration max_delay) { return jitter_.evict_old(max_delay); }
 
@@ -97,6 +100,7 @@ private:
     std::vector<float> decode_buf_;
     std::vector<float> mono_buf_;
     std::atomic<float> volume_{1.0f};
+    std::atomic<bool>  muted_{false};
 
     int id_;
     uint64_t push_count_ = 0;

@@ -85,18 +85,18 @@ class VideoServiceImpl(
         }
     }
 
-    override fun joinStream(mixerHandle: Long) {
+    override fun joinStream() {
         NativeVideoTransport.setWatching(true)
         watchedPeerId = _streamingPeers.value.firstOrNull() ?: ""
         NativeAudioTransport.setScreenAudioReceiver(watchedPeerId, screenSessionH)
-        NativeScreenSession.addAudioReceiverToMixer(screenSessionH, mixerHandle)
+        NativeAudioTransport.addScreenAudioToMixer(watchedPeerId)
         NativeVideoTransport.sendKeyframeRequest()
         _watching.value = true
     }
 
-    override fun leaveStream(mixerHandle: Long) {
+    override fun leaveStream() {
         NativeVideoTransport.setWatching(false)
-        NativeScreenSession.removeAudioReceiverFromMixer(screenSessionH, mixerHandle)
+        NativeAudioTransport.removeScreenAudioFromMixer(watchedPeerId)
         NativeAudioTransport.unsetScreenAudioReceiver(watchedPeerId)
         watchedPeerId = ""
         NativeScreenSession.reset(screenSessionH)

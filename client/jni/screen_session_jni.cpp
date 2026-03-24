@@ -1,6 +1,5 @@
 #include "screen_session_jni.hpp"
 #include "driscord_state.hpp"
-#include "audio/audio_mixer.hpp"
 #include "utils/vector_view.hpp"
 
 #include <nlohmann/json.hpp>
@@ -78,7 +77,6 @@ void ScreenSessionJni::fire_remove_frame(const std::string& peer_id) {
 // ---------------------------------------------------------------------------
 
 #define SS(h) reinterpret_cast<ScreenSessionJni*>(h)
-#define MIXER(h) reinterpret_cast<AudioMixer*>(h)
 
 extern "C" {
 
@@ -165,23 +163,6 @@ JNIEXPORT void JNICALL Java_com_driscord_jni_NativeScreenSession_reset(JNIEnv*, 
     SS(h)->session.reset();
 }
 
-JNIEXPORT void JNICALL Java_com_driscord_jni_NativeScreenSession_addAudioReceiverToMixer(
-    JNIEnv*,
-    jclass,
-    jlong screenHandle,
-    jlong mixerHandle
-) {
-    MIXER(mixerHandle)->add_source(SS(screenHandle)->session.audio_receiver());
-}
-
-JNIEXPORT void JNICALL Java_com_driscord_jni_NativeScreenSession_removeAudioReceiverFromMixer(
-    JNIEnv*,
-    jclass,
-    jlong screenHandle,
-    jlong mixerHandle
-) {
-    MIXER(mixerHandle)->remove_source(SS(screenHandle)->session.audio_receiver());
-}
 
 JNIEXPORT void JNICALL
 Java_com_driscord_jni_NativeScreenSession_resetAudioReceiver(JNIEnv*, jclass, jlong h) {
