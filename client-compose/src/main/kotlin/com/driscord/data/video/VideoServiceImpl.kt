@@ -27,8 +27,8 @@ class VideoServiceImpl(
     private val _shareTargetName = MutableStateFlow("")
     override val shareTargetName: StateFlow<String> = _shareTargetName.asStateFlow()
 
-    private val _watching = MutableStateFlow<Map<String, Boolean>>(emptyMap())
-    override val watching: StateFlow<Map<String, Boolean>> = _watching.asStateFlow()
+    private val _watching = MutableStateFlow<Boolean>(false)
+    override val watching: StateFlow<Boolean> = _watching.asStateFlow()
 
     private val _streamingPeers = MutableStateFlow<List<String>>(emptyList())
     override val streamingPeers: StateFlow<List<String>> = _streamingPeers.asStateFlow()
@@ -48,7 +48,7 @@ class VideoServiceImpl(
         NativeVideoTransport.setOnNewStreamingPeer { peerId ->
             scope.launch(Dispatchers.Main) {
                 if (peerId !in _streamingPeers.value)
-                    _streamingPeers.value = _streamingPeers.value + peerId
+                    _streamingPeers.value += peerId
                 // Auto-join new peers while already watching.
                 if (_watching.value) {
                     NativeScreenSession.joinStream(peerId)
@@ -57,17 +57,17 @@ class VideoServiceImpl(
         }
         NativeVideoTransport.setOnStreamingPeerRemoved { peerId ->
             scope.launch(Dispatchers.Main) {
-                _streamingPeers.value = _streamingPeers.value - peerId
-                _frames.value = _frames.value - peerId
+                _streamingPeers.value -= peerId
+                _frames.value -= peerId
             }
         }
         NativeScreenSession.setOnFrame { peerId, rgba, w, h ->
             scope.launch(Dispatchers.Main) {
-                _frames.value = _frames.value + (peerId to rgbaToImageBitmap(rgba, w, h))
+                _frames.value += (peerId to rgbaToImageBitmap(rgba, w, h))
             }
         }
         NativeScreenSession.setOnFrameRemoved { peerId ->
-            scope.launch(Dispatchers.Main) { _frames.value = _frames.value - peerId }
+            scope.launch(Dispatchers.Main) { _frames.value -= peerId }
         }
 
         // Update loop: screen session tick + stats
@@ -126,7 +126,7 @@ class VideoServiceImpl(
         _shareTargetName.value = ""
     }
 
-    override fun setStreamVolume(vol: Float) = NativeScreenSession.setStreamVolume(vol)
+    override fun setStreamVolume(peerId: String, vol: Float) = NativeScreenSession.setStreamVolume(peerId, vol)
 
     override fun getStreamVolume(): Float = NativeScreenSession.streamVolume()
 

@@ -187,9 +187,11 @@ JNIEXPORT void JNICALL Java_com_driscord_jni_NativeScreenSession_resetAudioRecei
 }
 
 JNIEXPORT void JNICALL Java_com_driscord_jni_NativeScreenSession_setStreamVolume(
-    JNIEnv*, jclass, jfloat vol
+    JNIEnv* env, jclass, jstring jPeerId, jfloat vol
 ) {
-    SS().session.audio_receiver()->set_volume(static_cast<float>(vol));
+    const char* peer = env->GetStringUTFChars(jPeerId, nullptr);
+    SS().session.audio_receiver()->set_volume(peer, static_cast<float>(vol));
+    env->ReleaseStringUTFChars(jPeerId, peer);
 }
 
 JNIEXPORT jfloat JNICALL Java_com_driscord_jni_NativeScreenSession_streamVolume(JNIEnv*, jclass) {

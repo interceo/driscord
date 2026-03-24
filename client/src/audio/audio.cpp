@@ -77,7 +77,7 @@ void AudioSender::stop() {
 }
 
 void AudioSender::on_capture(const float* input, uint32_t frames) {
-    if (!running_ || !on_packet_) {
+    if (!running_ || !on_packet_ || muted_) {
         return;
     }
 
@@ -86,10 +86,6 @@ void AudioSender::on_capture(const float* input, uint32_t frames) {
         sum += input[i] * input[i];
     }
     input_level_.store(std::sqrt(sum / static_cast<float>(frames)));
-
-    if (muted_) {
-        return;
-    }
 
     uint32_t consumed = 0;
     while (consumed < frames) {
@@ -196,10 +192,6 @@ void AudioReceiver::do_push(PeerBuffer& pb, const utils::vector_view<const uint8
             << " queue=" << st.queue_size << " drops=" << st.drop_count
             << " misses=" << st.miss_count;
     }
-}
-
-void AudioReceiver::push_packet(const utils::vector_view<const uint8_t> data) {
-    push_packet("", data);
 }
 
 void AudioReceiver::push_packet(

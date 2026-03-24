@@ -50,7 +50,7 @@ object NativeScreenSession {
 
     @JvmStatic external fun resetAudioReceiver()
 
-    @JvmStatic external fun setStreamVolume(vol: Float)
+    @JvmStatic external fun setStreamVolume(peerId: String, vol: Float)
 
     @JvmStatic external fun streamVolume(): Float
 

@@ -90,10 +90,17 @@ void AudioMixer::on_playback(float* output, const uint32_t frames) {
     }
 
     std::memset(output, 0, frames * sizeof(float));
+    if (deafened_) {
+        output_level_.store(0.0f);
+        return;
+    }
 
     for (const auto& src : snapshot_) {
-        if (src->muted()) continue;
-        auto samples = src->pop();
+        if (src->muted()) {
+            continue;
+        }
+        
+        auto samples    = src->pop();
         const float vol = src->volume();
         for (size_t i = 0; i < samples.size() && i < frames; ++i) {
             output[i] += samples[i] * vol;
@@ -102,17 +109,11 @@ void AudioMixer::on_playback(float* output, const uint32_t frames) {
 
     ++playback_count_;
 
-    if (deafened_) {
-        std::memset(output, 0, frames * sizeof(float));
-        output_level_.store(0.0f);
-        return;
-    }
-
     const float vol = output_volume_.load();
     float sum       = 0.0f;
     for (uint32_t i = 0; i < frames; ++i) {
         output[i] *= vol;
         sum += output[i] * output[i];
     }
-    output_level_.store(std::sqrt(sum / static_cast<float>(frames)));
+    output_level_.store(std::sqrt(sum / frames));
 }
