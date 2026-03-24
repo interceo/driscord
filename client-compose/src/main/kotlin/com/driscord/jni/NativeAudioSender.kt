@@ -5,7 +5,7 @@ object NativeAudioSender {
         NativeLoader.load()
     }
 
-    @JvmStatic external fun create(audioTransportHandle: Long): Long
+    @JvmStatic external fun create(): Long
 
     @JvmStatic external fun destroy(h: Long)
 
@@ -15,10 +15,7 @@ object NativeAudioSender {
 
     @JvmStatic external fun muted(h: Long): Boolean
 
-    @JvmStatic external fun setMuted(
-        h: Long,
-        muted: Boolean,
-    )
+    @JvmStatic external fun setMuted(h: Long, muted: Boolean)
 
     @JvmStatic external fun inputLevel(h: Long): Float
 }
