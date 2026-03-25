@@ -9,8 +9,6 @@
 #include <functional>
 #include <memory>
 #include <mutex>
-#include <string>
-#include <unordered_map>
 #include <vector>
 
 class MaDevice;
@@ -55,6 +53,9 @@ private:
     uint64_t send_seq_ = 0;
 };
 
+// Single-peer audio receiver: one decoder, one jitter buffer.
+// Per-peer lifecycle (creation, volume, mute) is managed by the caller (AudioTransport or
+// ScreenReceiver). AudioMixer applies src->volume() to the output of pop().
 class AudioReceiver {
 public:
     struct PcmFrame {
@@ -71,10 +72,9 @@ public:
     AudioReceiver(const AudioReceiver&)            = delete;
     AudioReceiver& operator=(const AudioReceiver&) = delete;
 
-    // Multi-peer push (screen audio — each peer gets its own decoder + jitter).
-    void push_packet(const std::string& peer_id, const utils::vector_view<const uint8_t> data);
+    void push_packet(utils::vector_view<const uint8_t> data);
 
-    // Pops and mixes samples from all active peer buffers.
+    // Pops one decoded frame of PCM samples (mono, mixed down from channels_).
     std::vector<float> pop();
 
     void set_volume(float v) { volume_.store(v); }
@@ -95,38 +95,25 @@ public:
         size_t   queue_size = 0;
         uint64_t drop_count = 0;
         uint64_t miss_count = 0;
-        std::unordered_map<std::string, AudioJitter::Stats> peers;
     };
     Stats stats() const;
 
 private:
-    // Per-peer decoder + jitter, mirroring VideoReceiver::PeerDecoder.
-    struct PeerBuffer {
-        OpusDecode decoder;
-        AudioJitter jitter;
-        utils::Timestamp last_packet{};
-        std::vector<float> decode_buf;
-        std::vector<float> mono_buf;
-        uint64_t push_count = 0;
+    mutable std::mutex decode_mutex_;
+    OpusDecode         decoder_;
+    AudioJitter        jitter_;
+    std::vector<float> decode_buf_;
+    std::vector<float> mono_buf_;
+    uint64_t           push_count_ = 0;
 
-        PeerBuffer(utils::Duration buf_delay, int channels, int sample_rate);
-    };
-
-    std::shared_ptr<PeerBuffer> get_or_create_peer(const std::string& peer_id);
-    void do_push(PeerBuffer& pb, const utils::vector_view<const uint8_t> data);
-
-    mutable std::mutex peer_mutex_;
-    std::unordered_map<std::string, std::shared_ptr<PeerBuffer>> peer_buffers_;
-
-    utils::Duration buf_delay_;
     int channels_;
     int sample_rate_;
 
     std::atomic<float> volume_{1.0f};
     std::atomic<bool>  muted_{false};
 
-    int id_;
+    uint64_t      id_ = 0;
     uint64_t pop_count_ = 0;
 
-    static std::atomic<int> next_id_;
+    static std::atomic<uint64_t> next_id_;
 };
