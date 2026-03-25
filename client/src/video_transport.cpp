@@ -6,8 +6,10 @@
 #include <cstring>
 
 namespace {
+
 constexpr uint8_t kKeyframeRequestTag = 0x01;
 constexpr uint8_t kStopStreamTag      = 0x02;
+
 } // namespace
 
 VideoTransport::VideoTransport(Transport& transport)
@@ -43,10 +45,7 @@ VideoTransport::VideoTransport(Transport& transport)
                     on_keyframe_needed_();
                 }
             },
-        .on_close =
-            [this](const std::string& peer_id) {
-                remove_streaming_peer(peer_id);
-            },
+        .on_close = [this](const std::string& peer_id) { remove_streaming_peer(peer_id); },
     });
 }
 
@@ -55,7 +54,8 @@ void VideoTransport::send_video(const uint8_t* data, size_t len) {
         return;
     }
 
-    const auto total_chunks = static_cast<uint16_t>((len + kChunkPayloadSize - 1) / kChunkPayloadSize);
+    const auto
+        total_chunks = static_cast<uint16_t>((len + kChunkPayloadSize - 1) / kChunkPayloadSize);
     const uint64_t frame_id = next_frame_id_++;
 
     chunk_buf_.resize(protocol::ChunkHeader::kWireSize + kChunkPayloadSize);
@@ -72,7 +72,11 @@ void VideoTransport::send_video(const uint8_t* data, size_t len) {
         ch.serialize(chunk_buf_.data());
         std::memcpy(chunk_buf_.data() + protocol::ChunkHeader::kWireSize, data + offset, chunk_len);
 
-        transport_.send_on_channel("video", chunk_buf_.data(), protocol::ChunkHeader::kWireSize + chunk_len);
+        transport_.send_on_channel(
+            "video",
+            chunk_buf_.data(),
+            protocol::ChunkHeader::kWireSize + chunk_len
+        );
     }
 }
 
@@ -100,7 +104,7 @@ void VideoTransport::remove_streaming_peer(const std::string& peer_id) {
     {
         std::scoped_lock lk(streaming_mutex_);
         was_present = seen_streaming_.erase(peer_id) > 0;
-        cb = on_streaming_peer_removed_;
+        cb          = on_streaming_peer_removed_;
     }
     if (was_present && cb) {
         cb(peer_id);
@@ -146,7 +150,7 @@ void VideoTransport::on_assembled(const std::string& peer_id, const uint8_t* dat
         {
             std::scoped_lock lk(streaming_mutex_);
             is_new = seen_streaming_.insert(peer_id).second;
-            cb = on_new_streaming_peer_;
+            cb     = on_new_streaming_peer_;
         }
         if (is_new && cb) {
             cb(peer_id);
@@ -196,10 +200,17 @@ void VideoTransport::on_chunk(const std::string& peer_id, const uint8_t* data, s
     }
 
     if (!fa.received[ch.chunk_idx]) {
-        std::memcpy(fa.buffer.data() + static_cast<size_t>(ch.chunk_idx) * kChunkPayloadSize, payload, payload_len);
+        std::memcpy(
+            fa.buffer.data() + static_cast<size_t>(ch.chunk_idx) * kChunkPayloadSize,
+            payload,
+            payload_len
+        );
         fa.received[ch.chunk_idx] = true;
         ++fa.received_count;
-        fa.actual_size = std::max(fa.actual_size, static_cast<size_t>(ch.chunk_idx) * kChunkPayloadSize + payload_len);
+        fa.actual_size = std::max(
+            fa.actual_size,
+            static_cast<size_t>(ch.chunk_idx) * kChunkPayloadSize + payload_len
+        );
     }
 
     if (fa.received_count < fa.total) {

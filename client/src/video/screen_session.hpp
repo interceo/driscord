@@ -59,6 +59,10 @@ public:
     int last_width() const { return last_w_; }
     int last_height() const { return last_h_; }
 
+    // Per-peer video receiver lifecycle (must be called before push_video_packet for that peer).
+    void add_video_peer(const std::string& peer_id) { receiver_.add_video_peer(peer_id); }
+    void remove_video_peer(const std::string& peer_id) { receiver_.remove_video_peer(peer_id); }
+
     // Per-peer audio receiver lifecycle (must be called before push_audio_packet for that peer).
     void add_audio_peer(const std::string& peer_id) { receiver_.add_audio_peer(peer_id); }
     void remove_audio_peer(const std::string& peer_id) { receiver_.remove_audio_peer(peer_id); }

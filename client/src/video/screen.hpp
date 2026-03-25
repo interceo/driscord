@@ -66,6 +66,10 @@ public:
     ScreenReceiver(const ScreenReceiver&)            = delete;
     ScreenReceiver& operator=(const ScreenReceiver&) = delete;
 
+    // Video peer lifecycle — must be called before push_video_packet for that peer.
+    void add_video_peer(const std::string& peer_id);
+    void remove_video_peer(const std::string& peer_id);
+
     void push_video_packet(
         const std::string& peer_id,
         const utils::vector_view<const uint8_t> data
@@ -92,28 +96,32 @@ public:
 
     // Hard timeout eviction.
     void evict_old(utils::Duration max_delay);
-    void evict_old_video(utils::Duration max_delay) { video_recv_.evict_old(max_delay); }
+    void evict_old_video(utils::Duration max_delay);
 
     // A/V sync — sender-timestamp-based.
-    bool video_primed() const { return video_recv_.primed(); }
+    bool video_primed() const;
     bool audio_primed() const;
-    std::optional<utils::WallTimestamp> video_front_effective_ts() const {
-        return video_recv_.front_effective_ts();
-    }
+    std::optional<utils::WallTimestamp> video_front_effective_ts() const;
     std::optional<utils::WallTimestamp> audio_front_effective_ts() const;
-    utils::Duration video_frame_duration() const { return video_recv_.front_frame_duration(); }
-    size_t evict_video_before(utils::WallTimestamp cutoff) {
-        return video_recv_.evict_before_sender_ts(cutoff);
-    }
+    utils::Duration video_frame_duration() const;
+    size_t evict_video_before(utils::WallTimestamp cutoff);
 
-    int64_t video_front_age_ms() const { return video_recv_.front_age_ms(); }
+    int64_t video_front_age_ms() const;
     int64_t audio_front_age_ms() const;
 
     void reset();
     void reset_audio();
 
 private:
-    VideoReceiver video_recv_;
+    // Returns the VideoReceiver for the current peer; must be called with video_mutex_ held.
+    std::shared_ptr<VideoReceiver> current_video_recv_locked() const;
+
+    int video_buffer_ms_;
+    std::function<void()> keyframe_cb_;
+
+    mutable std::mutex video_mutex_;
+    std::unordered_map<std::string, std::shared_ptr<VideoReceiver>> video_receivers_;
+    std::string current_video_peer_;
 
     mutable std::mutex audio_mutex_;
     std::unordered_map<std::string, std::shared_ptr<AudioReceiver>> audio_receivers_;

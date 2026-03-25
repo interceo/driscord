@@ -12,8 +12,6 @@
 #include <optional>
 #include <string>
 #include <thread>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 class VideoSender {
@@ -59,6 +57,8 @@ private:
     SendCb on_video_;
 };
 
+// Single-peer video receiver: one H.264 decoder, one jitter buffer.
+// Per-peer lifecycle (creation, routing) is managed by ScreenReceiver.
 class VideoReceiver {
 public:
     struct Frame {
@@ -75,25 +75,20 @@ public:
     using VideoJitter = utils::Jitter<Frame>;
     using Stats       = VideoJitter::Stats;
 
-    VideoReceiver(int buffer_ms, int max_sync_gap_ms);
+    VideoReceiver(std::string peer_id, int buffer_ms);
     ~VideoReceiver();
 
     VideoReceiver(const VideoReceiver&)            = delete;
     VideoReceiver& operator=(const VideoReceiver&) = delete;
 
-    void push_video_packet(
-        const std::string& peer_id,
-        const utils::vector_view<const uint8_t> data
-    );
+    void push_video_packet(utils::vector_view<const uint8_t> data);
 
-    // Drains each peer's jitter, calls on_frame once per peer that has a current frame.
+    // Drains jitter, calls on_frame if a current frame is available.
     void update(std::function<void(const Frame&)> on_frame);
 
     void set_keyframe_callback(std::function<void()> fn);
 
-    std::string active_peer() const;
     bool active() const;
-    std::unordered_set<std::string> active_peers() const;
     int measured_kbps() const { return measured_kbps_.load(std::memory_order_relaxed); }
 
     Stats video_stats() const;
@@ -108,26 +103,18 @@ public:
     void reset();
 
 private:
-    // Per-peer state — each peer has its own H.264 decoder, jitter buffer, and current frame.
-    // Created lazily on first packet, destroyed on reset().
-    struct PeerDecoder {
-        VideoDecoder decoder;
-        VideoJitter jitter;
-        VideoJitter::Ptr current_frame;
-        utils::Timestamp last_packet{};
-        int decode_failures = 0;
-        utils::Timestamp last_keyframe_req{};
-
-        explicit PeerDecoder(utils::Duration buf_delay) : jitter(buf_delay) {}
-    };
-
+    std::string peer_id_;
     std::function<void()> on_keyframe_needed_;
-
     utils::Duration buffer_delay_;
 
+    VideoDecoder decoder_;
+    VideoJitter jitter_;
+    VideoJitter::Ptr current_frame_;
+
     mutable std::mutex mutex_;
-    std::unordered_map<std::string, std::shared_ptr<PeerDecoder>> peer_decoders_;
-    std::string current_peer_;
+    utils::Timestamp last_packet_{};
+    int decode_failures_ = 0;
+    utils::Timestamp last_keyframe_req_{};
 
     // Bitrate measurement — producer thread only.
     std::atomic<int> measured_kbps_{0};
