@@ -150,7 +150,7 @@ JNIEXPORT void JNICALL Java_com_driscord_jni_NativeAudioTransport_setScreenAudio
     const char* peer = env->GetStringUTFChars(jPeerId, nullptr);
     std::shared_ptr<AudioReceiver> recv;
     if (screenHandle != 0) {
-        recv = SCREEN_SESSION(screenHandle)->session.audio_receiver();  // multi-peer receiver
+        recv = SCREEN_SESSION(screenHandle)->session.audio_receiver(peer);
     }
     AT().set_screen_audio_recv(peer, std::move(recv));
     env->ReleaseStringUTFChars(jPeerId, peer);

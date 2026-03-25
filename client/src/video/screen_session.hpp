@@ -59,8 +59,19 @@ public:
     int last_width() const { return last_w_; }
     int last_height() const { return last_h_; }
 
-    std::shared_ptr<AudioReceiver> audio_receiver() { return receiver_.audio_receiver(); }
-    std::shared_ptr<const AudioReceiver> audio_receiver() const { return receiver_.audio_receiver(); }
+    // Per-peer video receiver lifecycle (must be called before push_video_packet for that peer).
+    void add_video_peer(const std::string& peer_id) { receiver_.add_video_peer(peer_id); }
+    void remove_video_peer(const std::string& peer_id) { receiver_.remove_video_peer(peer_id); }
+
+    // Per-peer audio receiver lifecycle (must be called before push_audio_packet for that peer).
+    void add_audio_peer(const std::string& peer_id) { receiver_.add_audio_peer(peer_id); }
+    void remove_audio_peer(const std::string& peer_id) { receiver_.remove_audio_peer(peer_id); }
+    std::shared_ptr<AudioReceiver> audio_receiver(const std::string& peer_id) {
+        return receiver_.audio_receiver(peer_id);
+    }
+    std::shared_ptr<const AudioReceiver> audio_receiver(const std::string& peer_id) const {
+        return receiver_.audio_receiver(peer_id);
+    }
 
     VideoReceiver::Stats video_stats() const { return cached_video_stats_; }
     AudioReceiver::Stats audio_stats() const { return cached_audio_stats_; }
