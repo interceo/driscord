@@ -4,9 +4,6 @@
 #include <mutex>
 #include <string>
 
-#include <nlohmann/json.hpp>
-#include "video/capture/screen_capture.hpp"
-
 // ---------------------------------------------------------------------------
 // JNI callback helper
 // ---------------------------------------------------------------------------
@@ -47,20 +44,4 @@ inline void fire_string(JniCallback& cb, std::mutex& mtx, const std::string& s) 
     jstring js = env->NewStringUTF(s.c_str());
     env->CallVoidMethod(cb.obj, cb.mid, js);
     env->DeleteLocalRef(js);
-}
-
-// ---------------------------------------------------------------------------
-// Parse CaptureTarget from JSON
-// ---------------------------------------------------------------------------
-
-inline CaptureTarget target_from_json(const nlohmann::json& j) {
-    CaptureTarget t;
-    t.type   = j.value("type", 0) == 0 ? CaptureTarget::Monitor : CaptureTarget::Window;
-    t.id     = j.value("id",     "");
-    t.name   = j.value("name",   "");
-    t.width  = j.value("width",  0);
-    t.height = j.value("height", 0);
-    t.x      = j.value("x",      0);
-    t.y      = j.value("y",      0);
-    return t;
 }

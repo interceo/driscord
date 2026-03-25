@@ -115,6 +115,7 @@ endif()
 
 # --- driscord_core executable ---
 add_library(driscord_core STATIC
+    src/driscord_core.cpp
     src/video/video.cpp
     src/video/screen.cpp
     src/video/screen_session.cpp
@@ -208,12 +209,12 @@ endif()
 find_package(JNI QUIET)
 if(JNI_FOUND)
     add_library(driscord_jni SHARED
-        jni/driscord_state.cpp
         jni/transport_jni.cpp
         jni/audio_transport_jni.cpp
         jni/video_transport_jni.cpp
         jni/screen_session_jni.cpp
         jni/screen_capture_jni.cpp
+        jni/driscord_state.cpp
     )
 
     target_include_directories(driscord_jni PRIVATE

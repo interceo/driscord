@@ -3,6 +3,8 @@
 #include <chrono>
 #include <unordered_set>
 
+#include <nlohmann/json.hpp>
+
 ScreenSession::ScreenSession(
     int buf_ms,
     utils::Duration max_sync,
@@ -134,4 +136,17 @@ void ScreenSession::reset() {
 
 void ScreenSession::reset_audio() {
     receiver_.reset_audio();
+}
+
+std::string ScreenSession::stats_json() const {
+    auto vs = video_stats();
+    auto as = audio_stats();
+    nlohmann::json j = {
+        {"width",        last_w_},
+        {"height",       last_h_},
+        {"measuredKbps", measured_kbps()},
+        {"video", {{"queue", vs.queue_size}, {"drops", vs.drop_count}, {"misses", vs.miss_count}}},
+        {"audio", {{"queue", as.queue_size}, {"drops", as.drop_count}, {"misses", as.miss_count}}}
+    };
+    return j.dump();
 }
