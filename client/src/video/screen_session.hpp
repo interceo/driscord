@@ -75,6 +75,7 @@ public:
 
     VideoReceiver::Stats video_stats() const { return cached_video_stats_; }
     AudioReceiver::Stats audio_stats() const { return cached_audio_stats_; }
+    std::string stats_json() const;
 
     void reset();
     void reset_audio();

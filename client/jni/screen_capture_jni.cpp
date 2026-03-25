@@ -1,7 +1,8 @@
-#include "jni_common.hpp"
-#include "audio/capture/system_audio_capture.hpp"
-
+#include <jni.h>
 #include <nlohmann/json.hpp>
+
+#include "video/capture/screen_capture.hpp"
+#include "audio/capture/system_audio_capture.hpp"
 
 using json = nlohmann::json;
 
@@ -24,27 +25,25 @@ Java_com_driscord_jni_NativeScreenCapture_listTargets(JNIEnv* env, jclass) {
             {"x",      t.x},     {"y",      t.y}
         });
     }
-    return env->NewStringUTF(arr.dump(-1, ' ', /*ensure_ascii=*/true, nlohmann::json::error_handler_t::replace).c_str());
+    return env->NewStringUTF(arr.dump(-1, ' ', /*ensure_ascii=*/true,
+        nlohmann::json::error_handler_t::replace).c_str());
 }
 
 JNIEXPORT jbyteArray JNICALL
 Java_com_driscord_jni_NativeScreenCapture_grabThumbnail(JNIEnv* env, jclass,
         jstring jTargetJson, jint maxW, jint maxH) {
     const char* raw = env->GetStringUTFChars(jTargetJson, nullptr);
-    CaptureTarget target = target_from_json(json::parse(raw));
+    auto target = CaptureTarget::from_json(json::parse(raw));
     env->ReleaseStringUTFChars(jTargetJson, raw);
 
     auto frame = ScreenCapture::grab_thumbnail(target,
         static_cast<int>(maxW), static_cast<int>(maxH));
     if (frame.data.empty()) return nullptr;
 
-    // BGRA → RGBA swap
-    for (size_t i = 0; i < frame.data.size(); i += 4)
-        std::swap(frame.data[i], frame.data[i + 2]);
-
-    jbyteArray out = env->NewByteArray(static_cast<jsize>(frame.data.size()));
-    env->SetByteArrayRegion(out, 0, static_cast<jsize>(frame.data.size()),
-                            reinterpret_cast<const jbyte*>(frame.data.data()));
+    auto rgba = frame.to_rgba();
+    jbyteArray out = env->NewByteArray(static_cast<jsize>(rgba.size()));
+    env->SetByteArrayRegion(out, 0, static_cast<jsize>(rgba.size()),
+                            reinterpret_cast<const jbyte*>(rgba.data()));
     return out;
 }
 
