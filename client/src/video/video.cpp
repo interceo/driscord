@@ -119,8 +119,14 @@ void VideoSender::encode_loop() {
     }
 }
 
-VideoReceiver::VideoReceiver(int buffer_ms, int /*max_sync_gap_ms*/)
-    : buffer_delay_(std::chrono::milliseconds(buffer_ms)) {}
+VideoReceiver::VideoReceiver(std::string peer_id, int buffer_ms)
+    : peer_id_(std::move(peer_id))
+    , buffer_delay_(std::chrono::milliseconds(buffer_ms))
+    , jitter_(buffer_delay_) {
+    if (!decoder_.init()) {
+        LOG_ERROR() << "video decoder init failed for peer " << peer_id_;
+    }
+}
 
 VideoReceiver::~VideoReceiver() = default;
 
@@ -128,11 +134,11 @@ void VideoReceiver::set_keyframe_callback(std::function<void()> fn) {
     on_keyframe_needed_ = std::move(fn);
 }
 
-void VideoReceiver::push_video_packet(
-    const std::string& peer_id,
-    const utils::vector_view<const uint8_t> data
-) {
+void VideoReceiver::push_video_packet(const utils::vector_view<const uint8_t> data) {
     if (data.size() <= protocol::VideoHeader::kWireSize) {
+        return;
+    }
+    if (!decoder_.ready()) {
         return;
     }
 
@@ -141,29 +147,9 @@ void VideoReceiver::push_video_packet(
         return;
     }
 
-    // Find or create per-peer decoder. Each peer has its own H.264 codec context
-    // so simultaneous streams don't corrupt each other's decoder state.
-    // Use shared_ptr so reset() clearing the map doesn't leave a dangling pointer.
-    std::shared_ptr<PeerDecoder> ps;
     {
         std::scoped_lock lk(mutex_);
-        current_peer_ = peer_id;
-
-        auto& entry = peer_decoders_[peer_id];
-        if (!entry) {
-            entry = std::make_shared<PeerDecoder>(buffer_delay_);
-            if (!entry->decoder.init()) {
-                LOG_ERROR() << "video decoder init failed for peer " << peer_id;
-                peer_decoders_.erase(peer_id);
-                return;
-            }
-        }
-        entry->last_packet = utils::Now();
-        ps                 = entry;
-    }
-
-    if (!ps || !ps->decoder.ready()) {
-        return;
+        last_packet_ = utils::Now();
     }
 
     bytes_since_calc_ += data.size();
@@ -182,176 +168,85 @@ void VideoReceiver::push_video_packet(
 
     std::vector<uint8_t> rgba;
     int w = 0, h = 0;
-    if (ps->decoder.decode(encoded, encoded_len, rgba, w, h)) {
-        ps->decode_failures = 0;
-        ps->jitter.push(
+    if (decoder_.decode(encoded, encoded_len, rgba, w, h)) {
+        decode_failures_ = 0;
+        jitter_.push(
             Frame{
                 .rgba           = std::move(rgba),
                 .width          = w,
                 .height         = h,
-                .peer_id        = peer_id,
+                .peer_id        = peer_id_,
                 .sender_ts      = vh.sender_ts,
                 .frame_duration = std::chrono::microseconds(vh.frame_duration_us),
             }
         );
     } else {
-        ++ps->decode_failures;
+        ++decode_failures_;
         const auto kf_now = utils::Now();
         if (on_keyframe_needed_ &&
-            (ps->decode_failures == 1 || utils::ElapsedMs(ps->last_keyframe_req, kf_now) >= 500)) {
+            (decode_failures_ == 1 || utils::ElapsedMs(last_keyframe_req_, kf_now) >= 500)) {
             on_keyframe_needed_();
-            ps->last_keyframe_req = kf_now;
+            last_keyframe_req_ = kf_now;
         }
     }
 }
 
 void VideoReceiver::update(std::function<void(const Frame&)> on_frame) {
-    std::vector<std::shared_ptr<PeerDecoder>> peers;
-    {
-        std::scoped_lock lk(mutex_);
-        for (auto& [_, pd] : peer_decoders_) {
-            peers.push_back(pd);
+    while (true) {
+        auto frame = jitter_.pop();
+        if (!frame || frame->rgba.empty()) {
+            break;
         }
+        current_frame_ = std::move(frame);
     }
-    for (auto& pd : peers) {
-        while (true) {
-            auto frame = pd->jitter.pop();
-            if (!frame || frame->rgba.empty()) {
-                break;
-            }
-            pd->current_frame = std::move(frame);
-        }
-        if (pd->current_frame) {
-            on_frame(*pd->current_frame);
-        }
+    if (current_frame_) {
+        on_frame(*current_frame_);
     }
 }
 
 VideoReceiver::Stats VideoReceiver::video_stats() const {
-    std::shared_ptr<PeerDecoder> pd;
-    {
-        std::scoped_lock lk(mutex_);
-        auto it = peer_decoders_.find(current_peer_);
-        if (it != peer_decoders_.end()) {
-            pd = it->second;
-        }
-    }
-    return pd ? pd->jitter.stats() : Stats{};
+    return jitter_.stats();
 }
 
 size_t VideoReceiver::evict_old(utils::Duration max_delay) {
-    std::vector<std::shared_ptr<PeerDecoder>> peers;
-    {
-        std::scoped_lock lk(mutex_);
-        for (auto& [_, p] : peer_decoders_) {
-            peers.push_back(p);
-        }
-    }
-    size_t total = 0;
-    for (auto& p : peers) {
-        total += p->jitter.evict_old(max_delay);
-    }
-    return total;
+    return jitter_.evict_old(max_delay);
 }
 
 size_t VideoReceiver::evict_before_sender_ts(utils::WallTimestamp cutoff) {
-    std::vector<std::shared_ptr<PeerDecoder>> peers;
-    {
-        std::scoped_lock lk(mutex_);
-        for (auto& [_, p] : peer_decoders_) {
-            peers.push_back(p);
-        }
-    }
-    size_t total = 0;
-    for (auto& p : peers) {
-        total += p->jitter.evict_before_sender_ts(cutoff);
-    }
-    return total;
+    return jitter_.evict_before_sender_ts(cutoff);
 }
 
 std::optional<utils::WallTimestamp> VideoReceiver::front_effective_ts() const {
-    std::shared_ptr<PeerDecoder> pd;
-    {
-        std::scoped_lock lk(mutex_);
-        auto it = peer_decoders_.find(current_peer_);
-        if (it != peer_decoders_.end()) {
-            pd = it->second;
-        }
-    }
-    return pd ? pd->jitter.front_effective_ts() : std::nullopt;
+    return jitter_.front_effective_ts();
 }
 
 utils::Duration VideoReceiver::front_frame_duration() const {
-    std::shared_ptr<PeerDecoder> pd;
-    {
-        std::scoped_lock lk(mutex_);
-        auto it = peer_decoders_.find(current_peer_);
-        if (it != peer_decoders_.end()) {
-            pd = it->second;
-        }
-    }
-    if (!pd) {
-        return {};
-    }
-    return pd->jitter.with_front([](const Frame& f) { return f.frame_duration; })
+    return jitter_.with_front([](const Frame& f) { return f.frame_duration; })
         .value_or(utils::Duration{});
 }
 
 bool VideoReceiver::primed() const {
-    std::shared_ptr<PeerDecoder> pd;
-    {
-        std::scoped_lock lk(mutex_);
-        auto it = peer_decoders_.find(current_peer_);
-        if (it != peer_decoders_.end()) {
-            pd = it->second;
-        }
-    }
-    return pd && pd->jitter.primed();
+    return jitter_.primed();
 }
 
 int64_t VideoReceiver::front_age_ms() const {
-    std::shared_ptr<PeerDecoder> pd;
-    {
-        std::scoped_lock lk(mutex_);
-        auto it = peer_decoders_.find(current_peer_);
-        if (it != peer_decoders_.end()) {
-            pd = it->second;
-        }
-    }
-    return pd ? pd->jitter.front_age_ms() : -1;
-}
-
-std::string VideoReceiver::active_peer() const {
-    std::scoped_lock lk(mutex_);
-    return current_peer_;
+    return jitter_.front_age_ms();
 }
 
 bool VideoReceiver::active() const {
     std::scoped_lock lk(mutex_);
-    auto it = peer_decoders_.find(current_peer_);
-    if (it == peer_decoders_.end()) {
-        return false;
-    }
-    return utils::ElapsedMs(it->second->last_packet) / 1000 <= kStaleSeconds;
-}
-
-std::unordered_set<std::string> VideoReceiver::active_peers() const {
-    std::scoped_lock lk(mutex_);
-    std::unordered_set<std::string> result;
-    for (auto& [id, pd] : peer_decoders_) {
-        if (utils::ElapsedMs(pd->last_packet) / 1000 <= kStaleSeconds) {
-            result.insert(id);
-        }
-    }
-    return result;
+    return utils::ElapsedMs(last_packet_) / 1000 <= kStaleSeconds;
 }
 
 void VideoReceiver::reset() {
     {
         std::scoped_lock lk(mutex_);
-        current_peer_.clear();
-        peer_decoders_.clear();
+        last_packet_      = utils::Timestamp{};
+        decode_failures_  = 0;
+        last_keyframe_req_ = utils::Timestamp{};
     }
+    jitter_.reset();
+    current_frame_.reset();
     measured_kbps_.store(0, std::memory_order_relaxed);
     bytes_since_calc_ = 0;
     last_calc_        = utils::Now();

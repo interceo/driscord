@@ -41,6 +41,7 @@ ScreenSessionJni::ScreenSessionJni(int buf_ms, int max_sync_ms)
 
 void ScreenSessionJni::join_stream(const std::string& peer_id) {
     watched_peers.insert(peer_id);
+    session.add_video_peer(peer_id);
     session.add_audio_peer(peer_id);
     auto& at = DriscordState::get().audio_transport.channel;
     auto& vt = DriscordState::get().video_transport.channel;
@@ -58,6 +59,7 @@ void ScreenSessionJni::leave_stream() {
         at.remove_screen_audio_from_mixer(pid);
         at.unset_screen_audio_recv(pid);
         session.remove_audio_peer(pid);
+        session.remove_video_peer(pid);
     }
     session.reset();
     watched_peers.clear();
@@ -197,12 +199,10 @@ JNIEXPORT void JNICALL Java_com_driscord_jni_NativeScreenSession_setStreamVolume
 }
 
 JNIEXPORT jfloat JNICALL Java_com_driscord_jni_NativeScreenSession_streamVolume(
-    JNIEnv* env, jclass, jstring jPeerId
+    JNIEnv*, jclass
 ) {
-    const char* peer = env->GetStringUTFChars(jPeerId, nullptr);
-    float vol = DriscordState::get().audio_transport.channel.screen_audio_peer_volume(peer);
-    env->ReleaseStringUTFChars(jPeerId, peer);
-    return vol;
+    const std::string peer = SS().session.active_peer();
+    return DriscordState::get().audio_transport.channel.screen_audio_peer_volume(peer);
 }
 
 JNIEXPORT jstring JNICALL Java_com_driscord_jni_NativeScreenSession_stats(
