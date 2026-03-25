@@ -1,7 +1,7 @@
 #include "screen.hpp"
 
-#include "utils/protocol.hpp"
 #include "log.hpp"
+#include "utils/protocol.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -116,54 +116,282 @@ void ScreenSender::on_audio_captured_(const float* samples, size_t frames, int c
     }
 }
 
+// ---------------------------------------------------------------------------
+// ScreenReceiver
+// ---------------------------------------------------------------------------
+
 ScreenReceiver::ScreenReceiver(int buffer_ms, int /*max_sync_gap_ms*/)
-    : video_recv_(buffer_ms, 0)
-    , audio_recv_(std::make_shared<AudioReceiver>(buffer_ms, /*channels=*/2)) {}
+    : video_buffer_ms_(buffer_ms)
+    , audio_jitter_ms_(buffer_ms) {}
+
+std::shared_ptr<VideoReceiver> ScreenReceiver::current_video_recv_locked() const {
+    auto it = video_receivers_.find(current_video_peer_);
+    return it != video_receivers_.end() ? it->second : nullptr;
+}
+
+void ScreenReceiver::add_video_peer(const std::string& peer_id) {
+    std::scoped_lock lk(video_mutex_);
+    if (!video_receivers_.count(peer_id)) {
+        auto recv = std::make_shared<VideoReceiver>(peer_id, video_buffer_ms_);
+        if (keyframe_cb_) {
+            recv->set_keyframe_callback(keyframe_cb_);
+        }
+        video_receivers_[peer_id] = std::move(recv);
+    }
+}
+
+void ScreenReceiver::remove_video_peer(const std::string& peer_id) {
+    std::scoped_lock lk(video_mutex_);
+    video_receivers_.erase(peer_id);
+    if (current_video_peer_ == peer_id) {
+        current_video_peer_.clear();
+    }
+}
 
 void ScreenReceiver::push_video_packet(
     const std::string& peer_id,
     const utils::vector_view<const uint8_t> data
 ) {
-    video_recv_.push_video_packet(peer_id, data);
+    std::shared_ptr<VideoReceiver> recv;
+    {
+        std::scoped_lock lk(video_mutex_);
+        auto it = video_receivers_.find(peer_id);
+        if (it != video_receivers_.end()) {
+            recv                = it->second;
+            current_video_peer_ = peer_id;
+        }
+    }
+    if (recv) {
+        recv->push_video_packet(data);
+    }
 }
 
 void ScreenReceiver::push_audio_packet(
     const std::string& peer_id,
     const utils::vector_view<const uint8_t> data
 ) {
-    audio_recv_->push_packet(peer_id, data);
+    std::shared_ptr<AudioReceiver> recv;
+    {
+        std::scoped_lock lk(audio_mutex_);
+        auto it = audio_receivers_.find(peer_id);
+        if (it != audio_receivers_.end()) {
+            recv = it->second;
+        }
+    }
+    if (recv) {
+        recv->push_packet(data);
+    }
+}
+
+void ScreenReceiver::add_audio_peer(const std::string& peer_id) {
+    std::scoped_lock lk(audio_mutex_);
+    if (!audio_receivers_.count(peer_id)) {
+        audio_receivers_[peer_id] = std::make_shared<
+            AudioReceiver>(audio_jitter_ms_, /*channels=*/2);
+    }
+}
+
+void ScreenReceiver::remove_audio_peer(const std::string& peer_id) {
+    std::scoped_lock lk(audio_mutex_);
+    audio_receivers_.erase(peer_id);
+}
+
+std::shared_ptr<AudioReceiver> ScreenReceiver::audio_receiver(const std::string& peer_id) {
+    std::scoped_lock lk(audio_mutex_);
+    auto it = audio_receivers_.find(peer_id);
+    return it != audio_receivers_.end() ? it->second : nullptr;
+}
+
+std::shared_ptr<const AudioReceiver> ScreenReceiver::audio_receiver(
+    const std::string& peer_id
+) const {
+    std::scoped_lock lk(audio_mutex_);
+    auto it = audio_receivers_.find(peer_id);
+    return it != audio_receivers_.end() ? it->second : nullptr;
 }
 
 void ScreenReceiver::update(std::function<void(const VideoReceiver::Frame&)> on_frame) {
-    video_recv_.update(std::move(on_frame));
+    std::vector<std::shared_ptr<VideoReceiver>> receivers;
+    {
+        std::scoped_lock lk(video_mutex_);
+        for (auto& [_, r] : video_receivers_) {
+            receivers.push_back(r);
+        }
+    }
+    for (auto& r : receivers) {
+        r->update(on_frame);
+    }
 }
 
 void ScreenReceiver::set_keyframe_callback(std::function<void()> fn) {
-    video_recv_.set_keyframe_callback(std::move(fn));
+    std::scoped_lock lk(video_mutex_);
+    keyframe_cb_ = fn;
+    for (auto& [_, recv] : video_receivers_) {
+        recv->set_keyframe_callback(fn);
+    }
 }
 
 std::string ScreenReceiver::active_peer() const {
-    return video_recv_.active_peer();
+    std::scoped_lock lk(video_mutex_);
+    return current_video_peer_;
 }
+
 bool ScreenReceiver::active() const {
-    return video_recv_.active();
+    std::shared_ptr<VideoReceiver> recv;
+    {
+        std::scoped_lock lk(video_mutex_);
+        recv = current_video_recv_locked();
+    }
+    return recv && recv->active();
 }
+
 std::unordered_set<std::string> ScreenReceiver::active_peers() const {
-    return video_recv_.active_peers();
+    std::scoped_lock lk(video_mutex_);
+    std::unordered_set<std::string> result;
+    for (const auto& [id, r] : video_receivers_) {
+        if (r->active()) {
+            result.insert(id);
+        }
+    }
+    return result;
 }
+
 int ScreenReceiver::measured_kbps() const {
-    return video_recv_.measured_kbps();
+    std::shared_ptr<VideoReceiver> recv;
+    {
+        std::scoped_lock lk(video_mutex_);
+        recv = current_video_recv_locked();
+    }
+    return recv ? recv->measured_kbps() : 0;
 }
+
 VideoReceiver::Stats ScreenReceiver::video_stats() const {
-    return video_recv_.video_stats();
+    std::shared_ptr<VideoReceiver> recv;
+    {
+        std::scoped_lock lk(video_mutex_);
+        recv = current_video_recv_locked();
+    }
+    return recv ? recv->video_stats() : VideoReceiver::Stats{};
 }
+
 AudioReceiver::Stats ScreenReceiver::audio_stats() const {
-    return audio_recv_->stats();
+    std::scoped_lock lk(audio_mutex_);
+    AudioReceiver::Stats agg{};
+    for (const auto& [_, r] : audio_receivers_) {
+        const auto s = r->stats();
+        agg.queue_size += s.queue_size;
+        agg.drop_count += s.drop_count;
+        agg.miss_count += s.miss_count;
+    }
+    return agg;
+}
+
+bool ScreenReceiver::video_primed() const {
+    std::shared_ptr<VideoReceiver> recv;
+    {
+        std::scoped_lock lk(video_mutex_);
+        recv = current_video_recv_locked();
+    }
+    return recv && recv->primed();
+}
+
+bool ScreenReceiver::audio_primed() const {
+    std::scoped_lock lk(audio_mutex_);
+    for (const auto& [_, r] : audio_receivers_) {
+        if (r->primed()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::optional<utils::WallTimestamp> ScreenReceiver::video_front_effective_ts() const {
+    std::shared_ptr<VideoReceiver> recv;
+    {
+        std::scoped_lock lk(video_mutex_);
+        recv = current_video_recv_locked();
+    }
+    return recv ? recv->front_effective_ts() : std::nullopt;
+}
+
+std::optional<utils::WallTimestamp> ScreenReceiver::audio_front_effective_ts() const {
+    std::scoped_lock lk(audio_mutex_);
+    std::optional<utils::WallTimestamp> earliest;
+    for (const auto& [_, r] : audio_receivers_) {
+        auto ts = r->front_effective_ts();
+        if (ts && (!earliest || *ts < *earliest)) {
+            earliest = ts;
+        }
+    }
+    return earliest;
+}
+
+utils::Duration ScreenReceiver::video_frame_duration() const {
+    std::shared_ptr<VideoReceiver> recv;
+    {
+        std::scoped_lock lk(video_mutex_);
+        recv = current_video_recv_locked();
+    }
+    return recv ? recv->front_frame_duration() : utils::Duration{};
+}
+
+size_t ScreenReceiver::evict_video_before(utils::WallTimestamp cutoff) {
+    std::vector<std::shared_ptr<VideoReceiver>> receivers;
+    {
+        std::scoped_lock lk(video_mutex_);
+        receivers.reserve(video_receivers_.size());
+        for (auto& [_, r] : video_receivers_) {
+            receivers.push_back(r);
+        }
+    }
+    size_t total = 0;
+    for (auto& r : receivers) {
+        total += r->evict_before_sender_ts(cutoff);
+    }
+    return total;
+}
+
+int64_t ScreenReceiver::video_front_age_ms() const {
+    std::shared_ptr<VideoReceiver> recv;
+    {
+        std::scoped_lock lk(video_mutex_);
+        recv = current_video_recv_locked();
+    }
+    return recv ? recv->front_age_ms() : -1;
+}
+
+int64_t ScreenReceiver::audio_front_age_ms() const {
+    std::scoped_lock lk(audio_mutex_);
+    int64_t oldest = -1;
+    for (const auto& [_, r] : audio_receivers_) {
+        const auto age = r->front_age_ms();
+        if (age >= 0 && (oldest < 0 || age > oldest)) {
+            oldest = age;
+        }
+    }
+    return oldest;
 }
 
 void ScreenReceiver::evict_old(utils::Duration max_delay) {
-    const size_t vdrop = video_recv_.evict_old(max_delay);
-    const size_t adrop = audio_recv_->evict_old(max_delay);
+    std::vector<std::shared_ptr<VideoReceiver>> vreceivers;
+    {
+        std::scoped_lock lk(video_mutex_);
+        for (auto& [_, r] : video_receivers_) {
+            vreceivers.push_back(r);
+        }
+    }
+    size_t vdrop = 0;
+    for (auto& r : vreceivers) {
+        vdrop += r->evict_old(max_delay);
+    }
+
+    size_t adrop = 0;
+    {
+        std::scoped_lock lk(audio_mutex_);
+        for (const auto& [_, r] : audio_receivers_) {
+            adrop += r->evict_old(max_delay);
+        }
+    }
     if (vdrop > 0 || adrop > 0) {
         LOG_INFO()
             << "[screen-recv] evict_old("
@@ -172,7 +400,32 @@ void ScreenReceiver::evict_old(utils::Duration max_delay) {
     }
 }
 
+void ScreenReceiver::evict_old_video(utils::Duration max_delay) {
+    std::vector<std::shared_ptr<VideoReceiver>> receivers;
+    {
+        std::scoped_lock lk(video_mutex_);
+        for (auto& [_, r] : video_receivers_) {
+            receivers.push_back(r);
+        }
+    }
+    for (auto& r : receivers) {
+        r->evict_old(max_delay);
+    }
+}
+
 void ScreenReceiver::reset() {
-    video_recv_.reset();
-    audio_recv_->reset();
+    {
+        std::scoped_lock lk(video_mutex_);
+        video_receivers_.clear();
+        current_video_peer_.clear();
+    }
+    std::scoped_lock lk(audio_mutex_);
+    audio_receivers_.clear();
+}
+
+void ScreenReceiver::reset_audio() {
+    std::scoped_lock lk(audio_mutex_);
+    for (const auto& [_, r] : audio_receivers_) {
+        r->reset();
+    }
 }
