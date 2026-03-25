@@ -19,7 +19,7 @@ AudioTransport::AudioTransport(Transport& transport)
                 std::scoped_lock lk(recv_mutex_);
                 auto it = voice_recv_.find(peer_id);
                 if (it != voice_recv_.end()) {
-                    it->second->push_packet(peer_id, utils::vector_view<const uint8_t>{data, len});
+                    it->second->push_packet(utils::vector_view<const uint8_t>{data, len});
                 }
             },
     });
@@ -33,7 +33,7 @@ AudioTransport::AudioTransport(Transport& transport)
                 std::scoped_lock lk(recv_mutex_);
                 auto it = screen_audio_recv_.find(peer_id);
                 if (it != screen_audio_recv_.end()) {
-                    it->second->push_packet(peer_id, utils::vector_view<const uint8_t>{data, len});
+                    it->second->push_packet(utils::vector_view<const uint8_t>{data, len});
                 }
             },
     });
@@ -159,6 +159,34 @@ void AudioTransport::set_screen_audio_recv(
 void AudioTransport::unset_screen_audio_recv(const std::string& peer_id) {
     std::scoped_lock lk(recv_mutex_);
     screen_audio_recv_.erase(peer_id);
+}
+
+void AudioTransport::set_screen_audio_peer_volume(const std::string& peer_id, float v) {
+    std::scoped_lock lk(recv_mutex_);
+    auto it = screen_audio_recv_.find(peer_id);
+    if (it != screen_audio_recv_.end()) {
+        it->second->set_volume(v);
+    }
+}
+
+float AudioTransport::screen_audio_peer_volume(const std::string& peer_id) const {
+    std::scoped_lock lk(recv_mutex_);
+    auto it = screen_audio_recv_.find(peer_id);
+    return it != screen_audio_recv_.end() ? it->second->volume() : 1.0f;
+}
+
+void AudioTransport::set_screen_audio_peer_muted(const std::string& peer_id, bool muted) {
+    std::scoped_lock lk(recv_mutex_);
+    auto it = screen_audio_recv_.find(peer_id);
+    if (it != screen_audio_recv_.end()) {
+        it->second->set_muted(muted);
+    }
+}
+
+bool AudioTransport::screen_audio_peer_muted(const std::string& peer_id) const {
+    std::scoped_lock lk(recv_mutex_);
+    auto it = screen_audio_recv_.find(peer_id);
+    return it != screen_audio_recv_.end() ? it->second->muted() : false;
 }
 
 void AudioTransport::add_screen_audio_to_mixer(const std::string& peer_id) {

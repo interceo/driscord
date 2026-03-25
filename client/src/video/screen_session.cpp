@@ -133,5 +133,5 @@ void ScreenSession::reset() {
 }
 
 void ScreenSession::reset_audio() {
-    receiver_.audio_receiver()->reset();
+    receiver_.reset_audio();
 }

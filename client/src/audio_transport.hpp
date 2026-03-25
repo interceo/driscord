@@ -48,6 +48,12 @@ public:
     void add_screen_audio_to_mixer(const std::string& peer_id);
     void remove_screen_audio_from_mixer(const std::string& peer_id);
 
+    // Per-peer screen audio controls
+    void  set_screen_audio_peer_volume(const std::string& peer_id, float v);
+    float screen_audio_peer_volume(const std::string& peer_id) const;
+    void  set_screen_audio_peer_muted(const std::string& peer_id, bool muted);
+    bool  screen_audio_peer_muted(const std::string& peer_id) const;
+
 private:
     Transport& transport_;
     AudioMixer  mixer_;

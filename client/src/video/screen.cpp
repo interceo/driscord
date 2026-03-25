@@ -116,9 +116,13 @@ void ScreenSender::on_audio_captured_(const float* samples, size_t frames, int c
     }
 }
 
+// ---------------------------------------------------------------------------
+// ScreenReceiver
+// ---------------------------------------------------------------------------
+
 ScreenReceiver::ScreenReceiver(int buffer_ms, int /*max_sync_gap_ms*/)
     : video_recv_(buffer_ms, 0)
-    , audio_recv_(std::make_shared<AudioReceiver>(buffer_ms, /*channels=*/2)) {}
+    , audio_jitter_ms_(buffer_ms) {}
 
 void ScreenReceiver::push_video_packet(
     const std::string& peer_id,
@@ -131,7 +135,43 @@ void ScreenReceiver::push_audio_packet(
     const std::string& peer_id,
     const utils::vector_view<const uint8_t> data
 ) {
-    audio_recv_->push_packet(peer_id, data);
+    std::shared_ptr<AudioReceiver> recv;
+    {
+        std::scoped_lock lk(audio_mutex_);
+        auto it = audio_receivers_.find(peer_id);
+        if (it != audio_receivers_.end()) {
+            recv = it->second;
+        }
+    }
+    if (recv) {
+        recv->push_packet(data);
+    }
+}
+
+void ScreenReceiver::add_audio_peer(const std::string& peer_id) {
+    std::scoped_lock lk(audio_mutex_);
+    if (!audio_receivers_.count(peer_id)) {
+        audio_receivers_[peer_id] =
+            std::make_shared<AudioReceiver>(audio_jitter_ms_, /*channels=*/2);
+    }
+}
+
+void ScreenReceiver::remove_audio_peer(const std::string& peer_id) {
+    std::scoped_lock lk(audio_mutex_);
+    audio_receivers_.erase(peer_id);
+}
+
+std::shared_ptr<AudioReceiver> ScreenReceiver::audio_receiver(const std::string& peer_id) {
+    std::scoped_lock lk(audio_mutex_);
+    auto it = audio_receivers_.find(peer_id);
+    return it != audio_receivers_.end() ? it->second : nullptr;
+}
+
+std::shared_ptr<const AudioReceiver>
+ScreenReceiver::audio_receiver(const std::string& peer_id) const {
+    std::scoped_lock lk(audio_mutex_);
+    auto it = audio_receivers_.find(peer_id);
+    return it != audio_receivers_.end() ? it->second : nullptr;
 }
 
 void ScreenReceiver::update(std::function<void(const VideoReceiver::Frame&)> on_frame) {
@@ -145,25 +185,72 @@ void ScreenReceiver::set_keyframe_callback(std::function<void()> fn) {
 std::string ScreenReceiver::active_peer() const {
     return video_recv_.active_peer();
 }
+
 bool ScreenReceiver::active() const {
     return video_recv_.active();
 }
+
 std::unordered_set<std::string> ScreenReceiver::active_peers() const {
     return video_recv_.active_peers();
 }
+
 int ScreenReceiver::measured_kbps() const {
     return video_recv_.measured_kbps();
 }
+
 VideoReceiver::Stats ScreenReceiver::video_stats() const {
     return video_recv_.video_stats();
 }
+
 AudioReceiver::Stats ScreenReceiver::audio_stats() const {
-    return audio_recv_->stats();
+    std::scoped_lock lk(audio_mutex_);
+    AudioReceiver::Stats agg{};
+    for (const auto& [_, r] : audio_receivers_) {
+        const auto s = r->stats();
+        agg.queue_size += s.queue_size;
+        agg.drop_count += s.drop_count;
+        agg.miss_count += s.miss_count;
+    }
+    return agg;
+}
+
+bool ScreenReceiver::audio_primed() const {
+    std::scoped_lock lk(audio_mutex_);
+    for (const auto& [_, r] : audio_receivers_) {
+        if (r->primed()) return true;
+    }
+    return false;
+}
+
+std::optional<utils::WallTimestamp> ScreenReceiver::audio_front_effective_ts() const {
+    std::scoped_lock lk(audio_mutex_);
+    std::optional<utils::WallTimestamp> earliest;
+    for (const auto& [_, r] : audio_receivers_) {
+        auto ts = r->front_effective_ts();
+        if (ts && (!earliest || *ts < *earliest)) earliest = ts;
+    }
+    return earliest;
+}
+
+int64_t ScreenReceiver::audio_front_age_ms() const {
+    std::scoped_lock lk(audio_mutex_);
+    int64_t oldest = -1;
+    for (const auto& [_, r] : audio_receivers_) {
+        const auto age = r->front_age_ms();
+        if (age >= 0 && (oldest < 0 || age > oldest)) oldest = age;
+    }
+    return oldest;
 }
 
 void ScreenReceiver::evict_old(utils::Duration max_delay) {
     const size_t vdrop = video_recv_.evict_old(max_delay);
-    const size_t adrop = audio_recv_->evict_old(max_delay);
+    size_t adrop = 0;
+    {
+        std::scoped_lock lk(audio_mutex_);
+        for (const auto& [_, r] : audio_receivers_) {
+            adrop += r->evict_old(max_delay);
+        }
+    }
     if (vdrop > 0 || adrop > 0) {
         LOG_INFO()
             << "[screen-recv] evict_old("
@@ -174,5 +261,13 @@ void ScreenReceiver::evict_old(utils::Duration max_delay) {
 
 void ScreenReceiver::reset() {
     video_recv_.reset();
-    audio_recv_->reset();
+    std::scoped_lock lk(audio_mutex_);
+    audio_receivers_.clear();
+}
+
+void ScreenReceiver::reset_audio() {
+    std::scoped_lock lk(audio_mutex_);
+    for (const auto& [_, r] : audio_receivers_) {
+        r->reset();
+    }
 }
