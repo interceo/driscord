@@ -1,20 +1,29 @@
 #pragma once
 
 #include "driscord_core.hpp"
-#include "transport_jni.hpp"
-#include "video_transport_jni.hpp"
-#include "screen_session_jni.hpp"
+#include "jni_common.hpp"
 
-#include <optional>
+#include <mutex>
 
-// Global singleton that owns all core state and JNI callback adapters.
+// Global singleton: DriscordCore + all JNI callback slots.
 struct DriscordState {
-    DriscordCore      core;
-    TransportJni      transport_cbs;
-    VideoTransportJni video_cbs;
-    std::optional<ScreenSessionJni> screen_cbs;
+    DriscordCore core;
+
+    // Transport callbacks
+    std::mutex  transport_mtx;
+    JniCallback on_peer_joined;
+    JniCallback on_peer_left;
+
+    // VideoTransport callbacks
+    std::mutex  video_mtx;
+    JniCallback on_streaming_peer;
+    JniCallback on_streaming_peer_removed;
+
+    // ScreenSession callbacks (populated lazily by NativeScreenSession.init)
+    std::mutex  screen_mtx;
+    JniCallback on_frame_cb;
+    JniCallback on_frame_removed_cb;
 
     DriscordState();
-
     static DriscordState& get();
 };

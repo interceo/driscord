@@ -1,67 +1,54 @@
-#include "screen_session_jni.hpp"
 #include "driscord_state.hpp"
 
 #include <nlohmann/json.hpp>
 
 using json = nlohmann::json;
 
-ScreenSessionJni::ScreenSessionJni(ScreenSession& session, DriscordCore& core) {
-    session.set_on_frame([this](const std::string& pid, const uint8_t* rgba, int w, int h) {
-        fire_frame(pid, rgba, w, h);
-    });
-    session.set_on_frame_removed([this, &core](const std::string& pid) {
-        core.on_video_peer_stream_ended(pid);
-        fire_remove_frame(pid);
-    });
-}
-
-void ScreenSessionJni::fire_frame(
-    const std::string& peer_id, const uint8_t* rgba, int w, int h
-) {
-    std::scoped_lock lk(cb_mutex);
-    if (!on_frame_cb.obj) return;
-    auto* env = on_frame_cb.attach();
+static void fire_frame(const std::string& peer_id, const uint8_t* rgba, int w, int h) {
+    auto& s = DriscordState::get();
+    std::scoped_lock lk(s.screen_mtx);
+    if (!s.on_frame_cb.obj) return;
+    auto* env = s.on_frame_cb.attach();
     if (!env) return;
     jstring jpeer    = env->NewStringUTF(peer_id.c_str());
     jbyteArray jdata = env->NewByteArray(w * h * 4);
     env->SetByteArrayRegion(jdata, 0, w * h * 4, reinterpret_cast<const jbyte*>(rgba));
-    env->CallVoidMethod(on_frame_cb.obj, on_frame_cb.mid, jpeer, jdata, (jint)w, (jint)h);
+    env->CallVoidMethod(s.on_frame_cb.obj, s.on_frame_cb.mid, jpeer, jdata, (jint)w, (jint)h);
     env->DeleteLocalRef(jdata);
     env->DeleteLocalRef(jpeer);
 }
 
-void ScreenSessionJni::fire_remove_frame(const std::string& peer_id) {
-    std::scoped_lock lk(cb_mutex);
-    if (!on_frame_removed_cb.obj) return;
-    auto* env = on_frame_removed_cb.attach();
+static void fire_remove_frame(const std::string& peer_id) {
+    auto& s = DriscordState::get();
+    std::scoped_lock lk(s.screen_mtx);
+    if (!s.on_frame_removed_cb.obj) return;
+    auto* env = s.on_frame_removed_cb.attach();
     if (!env) return;
     jstring jpeer = env->NewStringUTF(peer_id.c_str());
-    env->CallVoidMethod(on_frame_removed_cb.obj, on_frame_removed_cb.mid, jpeer);
+    env->CallVoidMethod(s.on_frame_removed_cb.obj, s.on_frame_removed_cb.mid, jpeer);
     env->DeleteLocalRef(jpeer);
 }
 
-// ---------------------------------------------------------------------------
-// JNI entry points
-// ---------------------------------------------------------------------------
-
-#define CORE()   DriscordState::get().core
-#define SS()     (*CORE().screen_session)
-#define SS_CBS() (*DriscordState::get().screen_cbs)
+#define CORE() DriscordState::get().core
+#define SS()   (*CORE().screen_session)
 
 extern "C" {
 
 JNIEXPORT void JNICALL Java_com_driscord_jni_NativeScreenSession_init(
     JNIEnv*, jclass, jint bufMs, jint maxSyncMs
 ) {
-    auto& state = DriscordState::get();
-    state.core.init_screen_session(static_cast<int>(bufMs), static_cast<int>(maxSyncMs));
-    state.screen_cbs.emplace(*state.core.screen_session, state.core);
+    CORE().init_screen_session(static_cast<int>(bufMs), static_cast<int>(maxSyncMs));
+    SS().set_on_frame([](const std::string& pid, const uint8_t* rgba, int w, int h) {
+        fire_frame(pid, rgba, w, h);
+    });
+    SS().set_on_frame_removed([](const std::string& pid) {
+        DriscordState::get().core.on_video_peer_stream_ended(pid);
+        fire_remove_frame(pid);
+    });
 }
 
 JNIEXPORT void JNICALL Java_com_driscord_jni_NativeScreenSession_deinit(JNIEnv*, jclass) {
-    auto& state = DriscordState::get();
-    state.screen_cbs.reset();
-    state.core.deinit_screen_session();
+    CORE().deinit_screen_session();
 }
 
 JNIEXPORT jboolean JNICALL Java_com_driscord_jni_NativeScreenSession_startSharing(
@@ -142,16 +129,16 @@ JNIEXPORT jstring JNICALL Java_com_driscord_jni_NativeScreenSession_stats(JNIEnv
 JNIEXPORT void JNICALL Java_com_driscord_jni_NativeScreenSession_setOnFrame(
     JNIEnv* env, jclass, jobject cb
 ) {
-    auto& s = SS_CBS();
-    std::scoped_lock lk(s.cb_mutex);
+    auto& s = DriscordState::get();
+    std::scoped_lock lk(s.screen_mtx);
     set_callback(env, s.on_frame_cb, cb, "invoke", "(Ljava/lang/String;[BII)V");
 }
 
 JNIEXPORT void JNICALL Java_com_driscord_jni_NativeScreenSession_setOnFrameRemoved(
     JNIEnv* env, jclass, jobject cb
 ) {
-    auto& s = SS_CBS();
-    std::scoped_lock lk(s.cb_mutex);
+    auto& s = DriscordState::get();
+    std::scoped_lock lk(s.screen_mtx);
     set_callback(env, s.on_frame_removed_cb, cb, "invoke", "(Ljava/lang/String;)V");
 }
 
