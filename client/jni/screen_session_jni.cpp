@@ -7,9 +7,16 @@ using json = nlohmann::json;
 static void fire_frame(const std::string& peer_id, const uint8_t* rgba, int w, int h) {
     auto& s = DriscordState::get();
     std::scoped_lock lk(s.screen_mtx);
-    if (!s.on_frame_cb.obj) return;
+
+    if (!s.on_frame_cb.obj) {
+        return;
+    }
+
     auto* env = s.on_frame_cb.attach();
-    if (!env) return;
+    if (!env) {
+        return;
+    }
+
     jstring jpeer    = env->NewStringUTF(peer_id.c_str());
     jbyteArray jdata = env->NewByteArray(w * h * 4);
     env->SetByteArrayRegion(jdata, 0, w * h * 4, reinterpret_cast<const jbyte*>(rgba));
@@ -21,9 +28,15 @@ static void fire_frame(const std::string& peer_id, const uint8_t* rgba, int w, i
 static void fire_remove_frame(const std::string& peer_id) {
     auto& s = DriscordState::get();
     std::scoped_lock lk(s.screen_mtx);
-    if (!s.on_frame_removed_cb.obj) return;
+
+    if (!s.on_frame_removed_cb.obj) {
+        return;
+    }
+
     auto* env = s.on_frame_removed_cb.attach();
-    if (!env) return;
+    if (!env) {
+        return;
+    }
     jstring jpeer = env->NewStringUTF(peer_id.c_str());
     env->CallVoidMethod(s.on_frame_removed_cb.obj, s.on_frame_removed_cb.mid, jpeer);
     env->DeleteLocalRef(jpeer);
