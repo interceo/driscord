@@ -1,17 +1,7 @@
-#include "video_transport_jni.hpp"
 #include "driscord_state.hpp"
 
-VideoTransportJni::VideoTransportJni(VideoTransport& video_transport) {
-    video_transport.on_new_streaming_peer([this](const std::string& peer_id) {
-        fire_string(on_streaming_peer, cb_mutex, peer_id);
-    });
-    video_transport.on_streaming_peer_removed([this](const std::string& peer_id) {
-        fire_string(on_streaming_peer_removed, cb_mutex, peer_id);
-    });
-}
-
-#define CORE() DriscordState::get().core
-#define VT_CBS() DriscordState::get().video_cbs
+#define CORE()  DriscordState::get().core
+#define STATE() DriscordState::get()
 
 extern "C" {
 
@@ -45,18 +35,18 @@ JNIEXPORT void JNICALL
 Java_com_driscord_jni_NativeVideoTransport_setOnNewStreamingPeer(
     JNIEnv* env, jclass, jobject cb
 ) {
-    auto& vt = VT_CBS();
-    std::scoped_lock lk(vt.cb_mutex);
-    set_callback(env, vt.on_streaming_peer, cb, "invoke", "(Ljava/lang/String;)V");
+    auto& s = STATE();
+    std::scoped_lock lk(s.video_mtx);
+    set_callback(env, s.on_streaming_peer, cb, "invoke", "(Ljava/lang/String;)V");
 }
 
 JNIEXPORT void JNICALL
 Java_com_driscord_jni_NativeVideoTransport_setOnStreamingPeerRemoved(
     JNIEnv* env, jclass, jobject cb
 ) {
-    auto& vt = VT_CBS();
-    std::scoped_lock lk(vt.cb_mutex);
-    set_callback(env, vt.on_streaming_peer_removed, cb, "invoke", "(Ljava/lang/String;)V");
+    auto& s = STATE();
+    std::scoped_lock lk(s.video_mtx);
+    set_callback(env, s.on_streaming_peer_removed, cb, "invoke", "(Ljava/lang/String;)V");
 }
 
 }  // extern "C"

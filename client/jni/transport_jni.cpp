@@ -1,21 +1,11 @@
-#include "transport_jni.hpp"
 #include "driscord_state.hpp"
 
 #include <nlohmann/json.hpp>
 
 using json = nlohmann::json;
 
-TransportJni::TransportJni(Transport& transport) {
-    transport.on_peer_joined([this](const std::string& id) {
-        fire_string(on_peer_joined, cb_mutex, id);
-    });
-    transport.on_peer_left([this](const std::string& id) {
-        fire_string(on_peer_left, cb_mutex, id);
-    });
-}
-
-#define CORE() DriscordState::get().core
-#define T_CBS() DriscordState::get().transport_cbs
+#define CORE()  DriscordState::get().core
+#define STATE() DriscordState::get()
 
 extern "C" {
 
@@ -63,16 +53,16 @@ Java_com_driscord_jni_NativeTransport_peers(JNIEnv* env, jclass) {
 
 JNIEXPORT void JNICALL
 Java_com_driscord_jni_NativeTransport_setOnPeerJoined(JNIEnv* env, jclass, jobject cb) {
-    auto& t = T_CBS();
-    std::scoped_lock lk(t.cb_mutex);
-    set_callback(env, t.on_peer_joined, cb, "invoke", "(Ljava/lang/String;)V");
+    auto& s = STATE();
+    std::scoped_lock lk(s.transport_mtx);
+    set_callback(env, s.on_peer_joined, cb, "invoke", "(Ljava/lang/String;)V");
 }
 
 JNIEXPORT void JNICALL
 Java_com_driscord_jni_NativeTransport_setOnPeerLeft(JNIEnv* env, jclass, jobject cb) {
-    auto& t = T_CBS();
-    std::scoped_lock lk(t.cb_mutex);
-    set_callback(env, t.on_peer_left, cb, "invoke", "(Ljava/lang/String;)V");
+    auto& s = STATE();
+    std::scoped_lock lk(s.transport_mtx);
+    set_callback(env, s.on_peer_left, cb, "invoke", "(Ljava/lang/String;)V");
 }
 
 } // extern "C"
