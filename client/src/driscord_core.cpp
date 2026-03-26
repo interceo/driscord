@@ -19,8 +19,9 @@ void DriscordCore::init_screen_session(int buf_ms, int max_sync_ms) {
             screen_session->push_video_packet(peer_id, utils::vector_view<const uint8_t>{data, len});
         },
         [this]() {
-            if (screen_session->sharing())
+            if (screen_session->sharing()) {
                 screen_session->force_keyframe();
+            }
         }
     );
 }
