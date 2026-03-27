@@ -251,6 +251,16 @@ void Transport::on_ws_message(const std::string& raw) {
             if (on_streaming_stopped_) {
                 on_streaming_stopped_(from);
             }
+        } else if (type == "watch_start") {
+            std::string from = msg["from"];
+            if (on_watch_started_) {
+                on_watch_started_(from);
+            }
+        } else if (type == "watch_stop") {
+            std::string from = msg["from"];
+            if (on_watch_stopped_) {
+                on_watch_stopped_(from);
+            }
         }
     } catch (const std::exception& e) {
         LOG_ERROR() << "on_ws_message: " << e.what();
@@ -424,6 +434,18 @@ void Transport::send_streaming_start() {
 void Transport::send_streaming_stop() {
     json msg;
     msg["type"] = "streaming_stop";
+    send_signal(msg);
+}
+
+void Transport::send_watch_start() {
+    json msg;
+    msg["type"] = "watch_start";
+    send_signal(msg);
+}
+
+void Transport::send_watch_stop() {
+    json msg;
+    msg["type"] = "watch_stop";
     send_signal(msg);
 }
 

@@ -9,8 +9,6 @@ namespace {
 
 constexpr uint8_t kKeyframeRequestTag = 0x01;
 constexpr uint8_t kStopStreamTag      = 0x02;
-constexpr uint8_t kSubscribeTag       = 0x03;
-constexpr uint8_t kUnsubscribeTag     = 0x04;
 
 } // namespace
 
@@ -32,22 +30,6 @@ VideoTransport::VideoTransport(Transport& transport)
                     }
                     if (data[0] == kStopStreamTag) {
                         remove_streaming_peer(peer_id);
-                        return;
-                    }
-                    if (data[0] == kSubscribeTag) {
-                        {
-                            std::scoped_lock lk(streaming_mutex_);
-                            video_subscribers_.insert(peer_id);
-                        }
-                        std::scoped_lock lk(sink_mutex_);
-                        if (on_keyframe_needed_) {
-                            on_keyframe_needed_();
-                        }
-                        return;
-                    }
-                    if (data[0] == kUnsubscribeTag) {
-                        std::scoped_lock lk(streaming_mutex_);
-                        video_subscribers_.erase(peer_id);
                         return;
                     }
                 }
@@ -117,12 +99,20 @@ void VideoTransport::send_stop_stream() {
     transport_.send_on_channel("video", &kStopStreamTag, 1);
 }
 
-void VideoTransport::send_subscribe() {
-    transport_.send_on_channel("video", &kSubscribeTag, 1);
+void VideoTransport::add_subscriber(const std::string& peer_id) {
+    {
+        std::scoped_lock lk(streaming_mutex_);
+        video_subscribers_.insert(peer_id);
+    }
+    std::scoped_lock lk(sink_mutex_);
+    if (on_keyframe_needed_) {
+        on_keyframe_needed_();
+    }
 }
 
-void VideoTransport::send_unsubscribe() {
-    transport_.send_on_channel("video", &kUnsubscribeTag, 1);
+void VideoTransport::remove_subscriber(const std::string& peer_id) {
+    std::scoped_lock lk(streaming_mutex_);
+    video_subscribers_.erase(peer_id);
 }
 
 void VideoTransport::on_new_streaming_peer(std::function<void(const std::string&)> cb) {
