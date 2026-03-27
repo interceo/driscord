@@ -28,8 +28,8 @@ public:
     void send_video(const uint8_t* data, size_t len);
     void send_keyframe_request();
     void send_stop_stream();
-    void send_subscribe();
-    void send_unsubscribe();
+    void add_subscriber(const std::string& peer_id);
+    void remove_subscriber(const std::string& peer_id);
 
     // Streaming peer lifecycle — fired when a peer starts/stops sending video.
     void on_new_streaming_peer(std::function<void(const std::string&)> cb);

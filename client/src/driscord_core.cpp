@@ -34,6 +34,12 @@ DriscordCore::DriscordCore()
         std::scoped_lock lk(cb_mtx_);
         if (on_streaming_stopped_cb_) on_streaming_stopped_cb_(id);
     });
+    transport.on_watch_started([this](const std::string& id) {
+        video_transport.add_subscriber(id);
+    });
+    transport.on_watch_stopped([this](const std::string& id) {
+        video_transport.remove_subscriber(id);
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -132,12 +138,12 @@ void DriscordCore::join_stream(const std::string& peer_id) {
     audio_transport.set_screen_audio_recv(peer_id, screen_session->audio_receiver(peer_id));
     audio_transport.add_screen_audio_to_mixer(peer_id);
     video_transport.add_watched_peer(peer_id);
-    video_transport.send_subscribe();
+    transport.send_watch_start();
     video_transport.send_keyframe_request();
 }
 
 void DriscordCore::leave_stream() {
-    video_transport.send_unsubscribe();
+    transport.send_watch_stop();
     video_transport.clear_watched_peers();
     for (const auto& pid : watched_peers_) {
         audio_transport.remove_screen_audio_from_mixer(pid);
