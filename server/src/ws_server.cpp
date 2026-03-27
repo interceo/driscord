@@ -118,6 +118,13 @@ private:
             auto msg = json::parse(raw);
             msg["from"] = id_;
 
+            std::string type = msg.value("type", "");
+            if (type == "streaming_start") {
+                server_->add_streaming_peer(id_);
+            } else if (type == "streaming_stop") {
+                server_->remove_streaming_peer(id_);
+            }
+
             if (msg.contains("to")) {
                 std::string to = msg["to"];
                 server_->send_to(to, msg.dump());
@@ -176,6 +183,7 @@ void WebSocketServer::register_session(const std::string& id, std::shared_ptr<Se
 void WebSocketServer::unregister_session(const std::string& id) {
     std::scoped_lock lk(sessions_mutex_);
     sessions_.erase(id);
+    streaming_peers_.erase(id);
 
     json left;
     left["type"] = "peer_left";
@@ -196,6 +204,11 @@ std::string WebSocketServer::build_welcome(const std::string& new_id) {
         peers.push_back(pid);
     }
     welcome["peers"] = peers;
+    json streaming = json::array();
+    for (auto& sid : streaming_peers_) {
+        streaming.push_back(sid);
+    }
+    welcome["streaming_peers"] = streaming;
     return welcome.dump();
 }
 
@@ -215,6 +228,16 @@ void WebSocketServer::send_to(const std::string& target_id, const std::string& m
     if (it != sessions_.end()) {
         it->second->send(std::make_shared<std::string>(msg));
     }
+}
+
+void WebSocketServer::add_streaming_peer(const std::string& id) {
+    std::scoped_lock lk(sessions_mutex_);
+    streaming_peers_.insert(id);
+}
+
+void WebSocketServer::remove_streaming_peer(const std::string& id) {
+    std::scoped_lock lk(sessions_mutex_);
+    streaming_peers_.erase(id);
 }
 
 void WebSocketServer::do_accept() {
