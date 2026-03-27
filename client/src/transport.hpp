@@ -44,8 +44,18 @@ public:
 
     void on_peer_joined(PeerEventCb cb) { on_peer_joined_ = std::move(cb); }
     void on_peer_left(PeerEventCb cb) { on_peer_left_ = std::move(cb); }
+    void on_streaming_started(PeerEventCb cb) { on_streaming_started_ = std::move(cb); }
+    void on_streaming_stopped(PeerEventCb cb) { on_streaming_stopped_ = std::move(cb); }
+    void on_watch_started(PeerEventCb cb) { on_watch_started_ = std::move(cb); }
+    void on_watch_stopped(PeerEventCb cb) { on_watch_stopped_ = std::move(cb); }
+
+    void send_streaming_start();
+    void send_streaming_stop();
+    void send_watch_start();
+    void send_watch_stop();
 
     void send_on_channel(const std::string& label, const uint8_t* data, size_t len);
+    void send_on_channel_to(const std::string& label, const std::string& peer_id, const uint8_t* data, size_t len);
 
     struct PeerInfo {
         std::string id;
@@ -88,4 +98,8 @@ private:
 
     PeerEventCb on_peer_joined_;
     PeerEventCb on_peer_left_;
+    PeerEventCb on_streaming_started_;
+    PeerEventCb on_streaming_stopped_;
+    PeerEventCb on_watch_started_;
+    PeerEventCb on_watch_stopped_;
 };

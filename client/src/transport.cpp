@@ -134,6 +134,28 @@ void Transport::send_on_channel(const std::string& label, const uint8_t* data, s
     }
 }
 
+void Transport::send_on_channel_to(
+    const std::string& label,
+    const std::string& peer_id,
+    const uint8_t* data,
+    size_t len
+) {
+    std::shared_ptr<rtc::DataChannel> dc;
+    {
+        std::scoped_lock lk(peers_mutex_);
+        auto pit = peers_.find(peer_id);
+        if (pit == peers_.end()) return;
+        auto cit = pit->second.channels.find(label);
+        if (cit == pit->second.channels.end() || !cit->second.dc || !cit->second.open) return;
+        dc = cit->second.dc;
+    }
+    try {
+        dc->send(reinterpret_cast<const std::byte*>(data), len);
+    } catch (const std::exception& e) {
+        LOG_ERROR() << "send_on_channel_to[" << label << "][" << peer_id << "]: " << e.what();
+    }
+}
+
 std::vector<Transport::PeerInfo> Transport::peers() const {
     std::scoped_lock lk(peers_mutex_);
     std::vector<PeerInfo> result;
@@ -167,6 +189,14 @@ void Transport::on_ws_message(const std::string& raw) {
                     create_peer(pid, true);
                     if (on_peer_joined_) {
                         on_peer_joined_(pid);
+                    }
+                }
+            }
+            if (msg.contains("streaming_peers")) {
+                for (auto& sid : msg["streaming_peers"]) {
+                    std::string id = sid;
+                    if (on_streaming_started_) {
+                        on_streaming_started_(id);
                     }
                 }
             }
@@ -211,6 +241,26 @@ void Transport::on_ws_message(const std::string& raw) {
             handle_answer(msg["from"], msg["sdp"]);
         } else if (type == "candidate") {
             handle_candidate(msg["from"], msg["candidate"], msg.value("sdpMid", ""));
+        } else if (type == "streaming_start") {
+            std::string from = msg["from"];
+            if (on_streaming_started_) {
+                on_streaming_started_(from);
+            }
+        } else if (type == "streaming_stop") {
+            std::string from = msg["from"];
+            if (on_streaming_stopped_) {
+                on_streaming_stopped_(from);
+            }
+        } else if (type == "watch_start") {
+            std::string from = msg["from"];
+            if (on_watch_started_) {
+                on_watch_started_(from);
+            }
+        } else if (type == "watch_stop") {
+            std::string from = msg["from"];
+            if (on_watch_stopped_) {
+                on_watch_stopped_(from);
+            }
         }
     } catch (const std::exception& e) {
         LOG_ERROR() << "on_ws_message: " << e.what();
@@ -373,6 +423,30 @@ void Transport::setup_channel(
     if (it != peers_.end()) {
         it->second.channels[label].dc = dc;
     }
+}
+
+void Transport::send_streaming_start() {
+    json msg;
+    msg["type"] = "streaming_start";
+    send_signal(msg);
+}
+
+void Transport::send_streaming_stop() {
+    json msg;
+    msg["type"] = "streaming_stop";
+    send_signal(msg);
+}
+
+void Transport::send_watch_start() {
+    json msg;
+    msg["type"] = "watch_start";
+    send_signal(msg);
+}
+
+void Transport::send_watch_stop() {
+    json msg;
+    msg["type"] = "watch_stop";
+    send_signal(msg);
 }
 
 void Transport::send_signal(const json& msg) {
