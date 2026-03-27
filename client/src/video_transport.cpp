@@ -9,6 +9,8 @@ namespace {
 
 constexpr uint8_t kKeyframeRequestTag = 0x01;
 constexpr uint8_t kStopStreamTag      = 0x02;
+constexpr uint8_t kSubscribeTag       = 0x03;
+constexpr uint8_t kUnsubscribeTag     = 0x04;
 
 } // namespace
 
@@ -32,6 +34,16 @@ VideoTransport::VideoTransport(Transport& transport)
                         remove_streaming_peer(peer_id);
                         return;
                     }
+                    if (data[0] == kSubscribeTag) {
+                        std::scoped_lock lk(streaming_mutex_);
+                        video_subscribers_.insert(peer_id);
+                        return;
+                    }
+                    if (data[0] == kUnsubscribeTag) {
+                        std::scoped_lock lk(streaming_mutex_);
+                        video_subscribers_.erase(peer_id);
+                        return;
+                    }
                 }
                 on_chunk(peer_id, data, len);
             },
@@ -45,13 +57,25 @@ VideoTransport::VideoTransport(Transport& transport)
                     on_keyframe_needed_();
                 }
             },
-        .on_close = [this](const std::string& peer_id) { remove_streaming_peer(peer_id); },
+        .on_close =
+            [this](const std::string& peer_id) {
+                remove_streaming_peer(peer_id);
+                std::scoped_lock lk(streaming_mutex_);
+                video_subscribers_.erase(peer_id);
+            },
     });
 }
 
 void VideoTransport::send_video(const uint8_t* data, size_t len) {
     if (len == 0) {
         return;
+    }
+
+    std::vector<std::string> subscribers;
+    {
+        std::scoped_lock lk(streaming_mutex_);
+        if (video_subscribers_.empty()) return;
+        subscribers.assign(video_subscribers_.begin(), video_subscribers_.end());
     }
 
     const auto
@@ -72,11 +96,10 @@ void VideoTransport::send_video(const uint8_t* data, size_t len) {
         ch.serialize(chunk_buf_.data());
         std::memcpy(chunk_buf_.data() + protocol::ChunkHeader::kWireSize, data + offset, chunk_len);
 
-        transport_.send_on_channel(
-            "video",
-            chunk_buf_.data(),
-            protocol::ChunkHeader::kWireSize + chunk_len
-        );
+        const size_t wire_len = protocol::ChunkHeader::kWireSize + chunk_len;
+        for (const auto& peer_id : subscribers) {
+            transport_.send_on_channel_to("video", peer_id, chunk_buf_.data(), wire_len);
+        }
     }
 }
 
@@ -86,6 +109,14 @@ void VideoTransport::send_keyframe_request() {
 
 void VideoTransport::send_stop_stream() {
     transport_.send_on_channel("video", &kStopStreamTag, 1);
+}
+
+void VideoTransport::send_subscribe() {
+    transport_.send_on_channel("video", &kSubscribeTag, 1);
+}
+
+void VideoTransport::send_unsubscribe() {
+    transport_.send_on_channel("video", &kUnsubscribeTag, 1);
 }
 
 void VideoTransport::on_new_streaming_peer(std::function<void(const std::string&)> cb) {

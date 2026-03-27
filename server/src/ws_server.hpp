@@ -6,6 +6,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace driscord {
@@ -25,6 +26,9 @@ public:
     void broadcast(const std::string& from_id, const std::string& msg);
     void send_to(const std::string& target_id, const std::string& msg);
 
+    void add_streaming_peer(const std::string& id);
+    void remove_streaming_peer(const std::string& id);
+
 private:
     void do_accept();
 
@@ -33,6 +37,7 @@ private:
 
     mutable std::mutex sessions_mutex_;
     std::unordered_map<std::string, std::shared_ptr<Session>> sessions_;
+    std::unordered_set<std::string> streaming_peers_;
 };
 
 }  // namespace driscord

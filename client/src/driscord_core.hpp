@@ -43,6 +43,8 @@ public:
     void set_on_streaming_peer_removed(StringCb cb);
     void set_on_frame(FrameCb cb);
     void set_on_frame_removed(StringCb cb);
+    void set_on_streaming_started(StringCb cb);
+    void set_on_streaming_stopped(StringCb cb);
 
     // -- Transport facade --
     void add_turn_server(const std::string& url, const std::string& user, const std::string& pass);
@@ -123,4 +125,6 @@ private:
     StringCb on_streaming_peer_removed_cb_;
     FrameCb  on_frame_cb_;
     StringCb on_frame_removed_cb_;
+    StringCb on_streaming_started_cb_;
+    StringCb on_streaming_stopped_cb_;
 };
