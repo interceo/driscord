@@ -1,6 +1,6 @@
 package com.driscord.data.audio
 
-import com.driscord.jni.NativeAudioTransport
+import com.driscord.jni.NativeDriscord
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
@@ -24,9 +24,9 @@ class AudioServiceImpl : AudioService {
         scope.launch {
             while (isActive) {
                 withContext(Dispatchers.Main) {
-                    _muted.value = NativeAudioTransport.selfMuted()
-                    _deafened.value = NativeAudioTransport.deafened()
-                    _inputLevel.value = NativeAudioTransport.inputLevel()
+                    _muted.value = NativeDriscord.audioSelfMuted()
+                    _deafened.value = NativeDriscord.audioDeafened()
+                    _inputLevel.value = NativeDriscord.audioInputLevel()
                 }
                 delay(16)
             }
@@ -34,45 +34,45 @@ class AudioServiceImpl : AudioService {
     }
 
     override fun start() {
-        NativeAudioTransport.start()
+        NativeDriscord.audioStart()
     }
 
     override fun stop() {
-        NativeAudioTransport.stop()
+        NativeDriscord.audioStop()
     }
 
     override fun toggleMute() {
-        val next = !NativeAudioTransport.selfMuted()
-        NativeAudioTransport.setSelfMuted(next)
+        val next = !NativeDriscord.audioSelfMuted()
+        NativeDriscord.audioSetSelfMuted(next)
         _muted.value = next
     }
 
     override fun toggleDeafen() {
-        val next = !NativeAudioTransport.deafened()
-        NativeAudioTransport.setDeafened(next)
+        val next = !NativeDriscord.audioDeafened()
+        NativeDriscord.audioSetDeafened(next)
         _deafened.value = next
-        NativeAudioTransport.setSelfMuted(next)
-        _muted.value = NativeAudioTransport.selfMuted()
+        NativeDriscord.audioSetSelfMuted(next)
+        _muted.value = NativeDriscord.audioSelfMuted()
     }
 
     override fun setOutputVolume(vol: Float) {
-        NativeAudioTransport.setMasterVolume(vol)
+        NativeDriscord.audioSetMasterVolume(vol)
         _outputVolume.value = vol
     }
 
     override fun setPeerVolume(peerId: String, vol: Float) {
-        NativeAudioTransport.setPeerVolume(peerId, vol)
+        NativeDriscord.audioSetPeerVolume(peerId, vol)
     }
 
     override fun getPeerVolume(peerId: String): Float =
-        NativeAudioTransport.getPeerVolume(peerId)
+        NativeDriscord.audioGetPeerVolume(peerId)
 
     override fun onPeerJoined(peerId: String, jitterMs: Int) {
-        NativeAudioTransport.onPeerJoined(peerId, jitterMs)
+        NativeDriscord.audioOnPeerJoined(peerId, jitterMs)
     }
 
     override fun onPeerLeft(peerId: String) {
-        NativeAudioTransport.onPeerLeft(peerId)
+        NativeDriscord.audioOnPeerLeft(peerId)
     }
 
     override fun destroy() {
