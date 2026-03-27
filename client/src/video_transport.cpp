@@ -35,8 +35,14 @@ VideoTransport::VideoTransport(Transport& transport)
                         return;
                     }
                     if (data[0] == kSubscribeTag) {
-                        std::scoped_lock lk(streaming_mutex_);
-                        video_subscribers_.insert(peer_id);
+                        {
+                            std::scoped_lock lk(streaming_mutex_);
+                            video_subscribers_.insert(peer_id);
+                        }
+                        std::scoped_lock lk(sink_mutex_);
+                        if (on_keyframe_needed_) {
+                            on_keyframe_needed_();
+                        }
                         return;
                     }
                     if (data[0] == kUnsubscribeTag) {
