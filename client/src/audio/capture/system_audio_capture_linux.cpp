@@ -6,6 +6,7 @@
 #include <thread>
 
 #include <pulse/error.h>
+#include <pulse/pulseaudio.h>
 #include <pulse/simple.h>
 
 #include "log.hpp"
@@ -131,6 +132,50 @@ bool SystemAudioCapture::available() {
 
 std::unique_ptr<SystemAudioCapture> SystemAudioCapture::create() {
     return std::make_unique<SystemAudioCaptureLinux>();
+}
+
+std::vector<AudioCaptureTarget> SystemAudioCapture::list_targets() {
+    std::vector<AudioCaptureTarget> targets;
+
+    static constexpr auto sink_list_callback =
+        [](pa_context* c, const pa_sink_info* i, int is_last, void* userdata) {
+            if (!i) {
+                LOG_ERROR()
+                    << "pa_sink_info_list callback error, pa_sink_info is NULL: "
+                    << pa_context_errno(c);
+                return;
+            }
+
+            if (!userdata) {
+                LOG_ERROR() << "pa_sink_info_list callback error: userdata is null";
+                return;
+            }
+
+            auto* targets = static_cast<std::vector<AudioCaptureTarget>*>(userdata);
+            targets->emplace_back(AudioCaptureTarget{i->name, i->description});
+        };
+
+    pa_mainloop* ml = pa_mainloop_new();
+    if (!ml) {
+        LOG_ERROR() << "pa_mainloop_new failed";
+        return targets;
+    }
+    pa_context* ctx = pa_context_new(pa_mainloop_get_api(ml), "DeviceLister");
+    if (!ctx) {
+        LOG_ERROR() << "pa_context_new failed";
+        pa_mainloop_free(ml);
+        return targets;
+    }
+
+    pa_context_connect(ctx, NULL, PA_CONTEXT_NOFLAGS, NULL);
+
+    pa_operation* o = pa_context_get_sink_info_list(ctx, sink_list_callback, &targets);
+
+    pa_mainloop_run(ml, NULL);
+
+    pa_context_disconnect(ctx);
+    pa_context_unref(ctx);
+    pa_mainloop_free(ml);
 }
 
 #endif // __linux__
