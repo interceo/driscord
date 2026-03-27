@@ -11,16 +11,15 @@ Java_com_driscord_jni_NativeDriscord_captureSystemAudioAvailable(JNIEnv*, jclass
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_driscord_jni_NativeDriscord_captureListTargets(JNIEnv* env, jclass) {
-    return env->NewStringUTF(CORE().capture_list_targets_json().c_str());
+Java_com_driscord_jni_NativeDriscord_captureVideoListTargets(JNIEnv* env, jclass) {
+    return jni_utf8_to_jstring(env, CORE().capture_video_list_targets_json());
 }
 
 JNIEXPORT jbyteArray JNICALL
 Java_com_driscord_jni_NativeDriscord_captureGrabThumbnail(JNIEnv* env, jclass,
         jstring jTargetJson, jint maxW, jint maxH) {
-    const char* raw = env->GetStringUTFChars(jTargetJson, nullptr);
-    auto rgba = CORE().capture_grab_thumbnail(raw, static_cast<int>(maxW), static_cast<int>(maxH));
-    env->ReleaseStringUTFChars(jTargetJson, raw);
+    auto targetJson = jni_jstring_to_utf8(env, jTargetJson);
+    auto rgba = CORE().capture_grab_thumbnail(targetJson, static_cast<int>(maxW), static_cast<int>(maxH));
 
     if (rgba.empty()) return nullptr;
 

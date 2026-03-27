@@ -20,10 +20,9 @@ JNIEXPORT jboolean JNICALL Java_com_driscord_jni_NativeDriscord_screenStartShari
     jstring jTargetJson, jint maxW, jint maxH, jint fps, jint bitrateKbps,
     jint /*gopSize*/, jboolean shareAudio
 ) {
-    const char* raw = env->GetStringUTFChars(jTargetJson, nullptr);
-    bool ok = CORE().screen_start_sharing(raw, static_cast<int>(maxW), static_cast<int>(maxH),
+    auto targetJson = jni_jstring_to_utf8(env, jTargetJson);
+    bool ok = CORE().screen_start_sharing(targetJson, static_cast<int>(maxW), static_cast<int>(maxH),
         static_cast<int>(fps), static_cast<int>(bitrateKbps), shareAudio == JNI_TRUE);
-    env->ReleaseStringUTFChars(jTargetJson, raw);
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 

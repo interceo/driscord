@@ -147,7 +147,7 @@ class VideoServiceImpl(
     override fun getStreamVolume(): Float = NativeDriscord.screenStreamVolume()
 
     override fun listCaptureTargets(): List<CaptureTarget> =
-        json.decodeFromString(NativeDriscord.captureListTargets())
+        json.decodeFromString(NativeDriscord.captureVideoListTargets())
 
     override fun grabThumbnail(target: CaptureTarget): ImageBitmap? {
         val maxW = 320; val maxH = 180
