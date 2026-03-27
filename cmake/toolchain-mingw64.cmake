@@ -80,6 +80,15 @@ set(CMAKE_C_FLAGS_INIT   "${_COMMON_FLAGS_STR}")
 set(CMAKE_CXX_FLAGS_INIT "${_COMMON_FLAGS_STR} -fpermissive")
 
 # ---------------------------------------------------------------------------
+# Prevent pkg-config from finding host (Linux) libraries — their headers
+# (e.g. /usr/include) conflict with the MinGW sysroot.  Point it at the
+# MinGW sysroot instead; if nothing is installed there the fallback
+# find_path / find_library logic in client/CMakeLists.txt will be used.
+# ---------------------------------------------------------------------------
+set(ENV{PKG_CONFIG_LIBDIR}  "${CMAKE_FIND_ROOT_PATH}/lib/pkgconfig")
+set(ENV{PKG_CONFIG_SYSROOT_DIR} "${CMAKE_FIND_ROOT_PATH}")
+
+# ---------------------------------------------------------------------------
 # Preprocessor definitions
 # ---------------------------------------------------------------------------
 add_compile_definitions(

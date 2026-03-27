@@ -5,7 +5,7 @@ import androidx.compose.ui.graphics.asComposeImageBitmap
 import com.driscord.AppConfig
 import com.driscord.domain.model.CaptureTarget
 import com.driscord.domain.model.StreamStats
-import com.driscord.jni.*
+import com.driscord.jni.NativeDriscord
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.Json
@@ -40,44 +40,44 @@ class VideoServiceImpl(
     override val streamStats: StateFlow<StreamStats> = _streamStats.asStateFlow()
 
     override val systemAudioAvailable: Boolean
-        get() = NativeScreenCapture.systemAudioAvailable()
+        get() = NativeDriscord.captureSystemAudioAvailable()
 
     init {
-        NativeScreenSession.init(config.screenBufferMs, config.maxSyncGapMs)
+        NativeDriscord.screenInit(config.screenBufferMs, config.maxSyncGapMs)
 
-        NativeVideoTransport.setOnNewStreamingPeer { peerId ->
+        NativeDriscord.setOnNewStreamingPeer { peerId ->
             scope.launch(Dispatchers.Main) {
                 if (peerId !in _streamingPeers.value)
                     _streamingPeers.value += peerId
                 // Auto-join new peers while already watching.
                 if (_watching.value) {
-                    NativeScreenSession.joinStream(peerId)
+                    NativeDriscord.screenJoinStream(peerId)
                 }
             }
         }
-        NativeVideoTransport.setOnStreamingPeerRemoved { peerId ->
+        NativeDriscord.setOnStreamingPeerRemoved { peerId ->
             scope.launch(Dispatchers.Main) {
                 _streamingPeers.value -= peerId
                 _frames.value -= peerId
             }
         }
-        NativeScreenSession.setOnFrame { peerId, rgba, w, h ->
+        NativeDriscord.setOnFrame { peerId, rgba, w, h ->
             scope.launch(Dispatchers.Main) {
                 _frames.value += (peerId to rgbaToImageBitmap(rgba, w, h))
             }
         }
-        NativeScreenSession.setOnFrameRemoved { peerId ->
+        NativeDriscord.setOnFrameRemoved { peerId ->
             scope.launch(Dispatchers.Main) { _frames.value -= peerId }
         }
 
         // Update loop: screen session tick + stats
         scope.launch {
             while (isActive) {
-                NativeScreenSession.update()
+                NativeDriscord.screenUpdate()
                 withContext(Dispatchers.Main) {
-                    _sharing.value = NativeScreenSession.sharing()
-                    _watching.value = NativeVideoTransport.watching()
-                    _streamStats.value = json.decodeFromString(NativeScreenSession.stats())
+                    _sharing.value = NativeDriscord.screenSharing()
+                    _watching.value = NativeDriscord.videoWatching()
+                    _streamStats.value = json.decodeFromString(NativeDriscord.screenStats())
                 }
                 delay(16)
             }
@@ -85,12 +85,12 @@ class VideoServiceImpl(
     }
 
     override fun joinStream() {
-        _streamingPeers.value.forEach { NativeScreenSession.joinStream(it) }
+        _streamingPeers.value.forEach { NativeDriscord.screenJoinStream(it) }
         _watching.value = true
     }
 
     override fun leaveStream() {
-        NativeScreenSession.leaveStream()
+        NativeDriscord.screenLeaveStream()
         _watching.value = false
     }
 
@@ -110,7 +110,7 @@ class VideoServiceImpl(
             else -> 1920 to 1080
         }
         val targetJson = json.encodeToString(CaptureTarget.serializer(), target)
-        val ok = NativeScreenSession.startSharing(
+        val ok = NativeDriscord.screenStartSharing(
             targetJson, maxW, maxH, fps, bitrateKbps, gopSize, shareAudio,
         )
         if (ok) {
@@ -121,22 +121,22 @@ class VideoServiceImpl(
     }
 
     override fun stopSharing() {
-        NativeScreenSession.stopSharing()
+        NativeDriscord.screenStopSharing()
         _sharing.value = false
         _shareTargetName.value = ""
     }
 
-    override fun setStreamVolume(peerId: String, vol: Float) = NativeScreenSession.setStreamVolume(peerId, vol)
+    override fun setStreamVolume(peerId: String, vol: Float) = NativeDriscord.screenSetStreamVolume(peerId, vol)
 
-    override fun getStreamVolume(): Float = NativeScreenSession.streamVolume()
+    override fun getStreamVolume(): Float = NativeDriscord.screenStreamVolume()
 
     override fun listCaptureTargets(): List<CaptureTarget> =
-        json.decodeFromString(NativeScreenCapture.listTargets())
+        json.decodeFromString(NativeDriscord.captureListTargets())
 
     override fun grabThumbnail(target: CaptureTarget): ImageBitmap? {
         val maxW = 320; val maxH = 180
         val targetJson = json.encodeToString(CaptureTarget.serializer(), target)
-        val rgba = NativeScreenCapture.grabThumbnail(targetJson, maxW, maxH) ?: return null
+        val rgba = NativeDriscord.captureGrabThumbnail(targetJson, maxW, maxH) ?: return null
         val pixels = rgba.size / 4
         val w = maxW.coerceAtMost(pixels)
         val h = if (w > 0) pixels / w else 0
@@ -146,7 +146,7 @@ class VideoServiceImpl(
 
     override fun destroy() {
         scope.cancel()
-        NativeScreenSession.deinit()
+        NativeDriscord.screenDeinit()
     }
 
     companion object {

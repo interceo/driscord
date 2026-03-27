@@ -3,7 +3,7 @@ package com.driscord.data.connection
 import com.driscord.AppConfig
 import com.driscord.domain.model.ConnectionState
 import com.driscord.domain.model.PeerInfo
-import com.driscord.jni.NativeTransport
+import com.driscord.jni.NativeDriscord
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.Json
@@ -30,16 +30,16 @@ class ConnectionServiceImpl(config: AppConfig) : ConnectionService {
 
     init {
         config.turnServers.forEach { ts ->
-            NativeTransport.addTurnServer(ts.url, ts.user, ts.pass)
+            NativeDriscord.addTurnServer(ts.url, ts.user, ts.pass)
         }
 
-        NativeTransport.setOnPeerJoined { peerId ->
+        NativeDriscord.setOnPeerJoined { peerId ->
             scope.launch {
                 _peerJoinedEvents.emit(peerId)
                 withContext(Dispatchers.Main) { refreshPeers() }
             }
         }
-        NativeTransport.setOnPeerLeft { peerId ->
+        NativeDriscord.setOnPeerLeft { peerId ->
             scope.launch {
                 _peerLeftEvents.emit(peerId)
                 withContext(Dispatchers.Main) { refreshPeers() }
@@ -50,12 +50,12 @@ class ConnectionServiceImpl(config: AppConfig) : ConnectionService {
     override fun connect(serverUrl: String) {
         if (_connectionState.value != ConnectionState.Disconnected) return
         _connectionState.value = ConnectionState.Connecting
-        NativeTransport.connect(serverUrl)
+        NativeDriscord.connect(serverUrl)
         scope.launch {
-            while (isActive && !NativeTransport.connected()) delay(100)
-            if (NativeTransport.connected()) {
+            while (isActive && !NativeDriscord.connected()) delay(100)
+            if (NativeDriscord.connected()) {
                 withContext(Dispatchers.Main) {
-                    _localId.value = NativeTransport.localId()
+                    _localId.value = NativeDriscord.localId()
                     _connectionState.value = ConnectionState.Connected
                 }
             }
@@ -63,7 +63,7 @@ class ConnectionServiceImpl(config: AppConfig) : ConnectionService {
     }
 
     override fun disconnect() {
-        NativeTransport.disconnect()
+        NativeDriscord.disconnect()
         _connectionState.value = ConnectionState.Disconnected
         _peers.value = emptyList()
         _localId.value = ""
@@ -74,6 +74,6 @@ class ConnectionServiceImpl(config: AppConfig) : ConnectionService {
     }
 
     private fun refreshPeers() {
-        _peers.value = json.decodeFromString(NativeTransport.peers())
+        _peers.value = json.decodeFromString(NativeDriscord.peers())
     }
 }
