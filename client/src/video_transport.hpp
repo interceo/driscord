@@ -28,6 +28,8 @@ public:
     void send_video(const uint8_t* data, size_t len);
     void send_keyframe_request();
     void send_stop_stream();
+    void send_subscribe();
+    void send_unsubscribe();
 
     // Streaming peer lifecycle — fired when a peer starts/stops sending video.
     void on_new_streaming_peer(std::function<void(const std::string&)> cb);
@@ -54,6 +56,7 @@ private:
 
     std::mutex streaming_mutex_;
     std::set<std::string> seen_streaming_;
+    std::unordered_set<std::string> video_subscribers_;
     std::function<void(const std::string&)> on_new_streaming_peer_;
     std::function<void(const std::string&)> on_streaming_peer_removed_;
 

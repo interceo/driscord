@@ -37,6 +37,10 @@ object NativeDriscord {
 
     @JvmStatic external fun setOnPeerLeft(cb: StringCallback)
 
+    @JvmStatic external fun setOnStreamingStarted(cb: StringCallback)
+
+    @JvmStatic external fun setOnStreamingStopped(cb: StringCallback)
+
     // -- Audio --
 
     @JvmStatic external fun audioSend(data: ByteArray, len: Int)

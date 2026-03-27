@@ -61,6 +61,22 @@ class VideoServiceImpl(
                 _frames.value -= peerId
             }
         }
+        // Signaling-based streaming notifications (immediate, no video data dependency).
+        NativeDriscord.setOnStreamingStarted { peerId ->
+            scope.launch(Dispatchers.Main) {
+                if (peerId !in _streamingPeers.value)
+                    _streamingPeers.value += peerId
+                if (_watching.value) {
+                    NativeDriscord.screenJoinStream(peerId)
+                }
+            }
+        }
+        NativeDriscord.setOnStreamingStopped { peerId ->
+            scope.launch(Dispatchers.Main) {
+                _streamingPeers.value -= peerId
+                _frames.value -= peerId
+            }
+        }
         NativeDriscord.setOnFrame { peerId, rgba, w, h ->
             scope.launch(Dispatchers.Main) {
                 _frames.value += (peerId to rgbaToImageBitmap(rgba, w, h))

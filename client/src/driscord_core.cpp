@@ -26,6 +26,14 @@ DriscordCore::DriscordCore()
         std::scoped_lock lk(cb_mtx_);
         if (on_streaming_peer_removed_cb_) on_streaming_peer_removed_cb_(id);
     });
+    transport.on_streaming_started([this](const std::string& id) {
+        std::scoped_lock lk(cb_mtx_);
+        if (on_streaming_started_cb_) on_streaming_started_cb_(id);
+    });
+    transport.on_streaming_stopped([this](const std::string& id) {
+        std::scoped_lock lk(cb_mtx_);
+        if (on_streaming_stopped_cb_) on_streaming_stopped_cb_(id);
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -60,6 +68,16 @@ void DriscordCore::set_on_frame(FrameCb cb) {
 void DriscordCore::set_on_frame_removed(StringCb cb) {
     std::scoped_lock lk(cb_mtx_);
     on_frame_removed_cb_ = std::move(cb);
+}
+
+void DriscordCore::set_on_streaming_started(StringCb cb) {
+    std::scoped_lock lk(cb_mtx_);
+    on_streaming_started_cb_ = std::move(cb);
+}
+
+void DriscordCore::set_on_streaming_stopped(StringCb cb) {
+    std::scoped_lock lk(cb_mtx_);
+    on_streaming_stopped_cb_ = std::move(cb);
 }
 
 // ---------------------------------------------------------------------------
@@ -114,10 +132,12 @@ void DriscordCore::join_stream(const std::string& peer_id) {
     audio_transport.set_screen_audio_recv(peer_id, screen_session->audio_receiver(peer_id));
     audio_transport.add_screen_audio_to_mixer(peer_id);
     video_transport.add_watched_peer(peer_id);
+    video_transport.send_subscribe();
     video_transport.send_keyframe_request();
 }
 
 void DriscordCore::leave_stream() {
+    video_transport.send_unsubscribe();
     video_transport.clear_watched_peers();
     for (const auto& pid : watched_peers_) {
         audio_transport.remove_screen_audio_from_mixer(pid);
@@ -335,12 +355,17 @@ bool DriscordCore::screen_start_sharing(
     bool share_audio
 ) {
     auto target = CaptureTarget::from_json(json::parse(target_json));
-    return screen_session->start_sharing(target, max_w, max_h, fps, bitrate_kbps, share_audio);
+    bool ok = screen_session->start_sharing(target, max_w, max_h, fps, bitrate_kbps, share_audio);
+    if (ok) {
+        transport.send_streaming_start();
+    }
+    return ok;
 }
 
 void DriscordCore::screen_stop_sharing() {
     screen_session->stop_sharing();
     video_transport.send_stop_stream();
+    transport.send_streaming_stop();
 }
 
 bool DriscordCore::screen_sharing() const {

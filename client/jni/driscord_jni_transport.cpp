@@ -54,4 +54,14 @@ Java_com_driscord_jni_NativeDriscord_setOnPeerLeft(JNIEnv* env, jclass, jobject 
     CORE().set_on_peer_left(make_string_cb(env, cb));
 }
 
+JNIEXPORT void JNICALL
+Java_com_driscord_jni_NativeDriscord_setOnStreamingStarted(JNIEnv* env, jclass, jobject cb) {
+    CORE().set_on_streaming_started(make_string_cb(env, cb));
+}
+
+JNIEXPORT void JNICALL
+Java_com_driscord_jni_NativeDriscord_setOnStreamingStopped(JNIEnv* env, jclass, jobject cb) {
+    CORE().set_on_streaming_stopped(make_string_cb(env, cb));
+}
+
 } // extern "C"
