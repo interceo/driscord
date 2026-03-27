@@ -12,27 +12,39 @@ DriscordCore::DriscordCore()
     , video_transport(transport) {
     transport.on_peer_joined([this](const std::string& id) {
         std::scoped_lock lk(cb_mtx_);
-        if (on_peer_joined_cb_) on_peer_joined_cb_(id);
+        if (on_peer_joined_cb_) {
+            on_peer_joined_cb_(id);
+        }
     });
     transport.on_peer_left([this](const std::string& id) {
         std::scoped_lock lk(cb_mtx_);
-        if (on_peer_left_cb_) on_peer_left_cb_(id);
+        if (on_peer_left_cb_) {
+            on_peer_left_cb_(id);
+        }
     });
     video_transport.on_new_streaming_peer([this](const std::string& id) {
         std::scoped_lock lk(cb_mtx_);
-        if (on_new_streaming_peer_cb_) on_new_streaming_peer_cb_(id);
+        if (on_new_streaming_peer_cb_) {
+            on_new_streaming_peer_cb_(id);
+        }
     });
     video_transport.on_streaming_peer_removed([this](const std::string& id) {
         std::scoped_lock lk(cb_mtx_);
-        if (on_streaming_peer_removed_cb_) on_streaming_peer_removed_cb_(id);
+        if (on_streaming_peer_removed_cb_) {
+            on_streaming_peer_removed_cb_(id);
+        }
     });
     transport.on_streaming_started([this](const std::string& id) {
         std::scoped_lock lk(cb_mtx_);
-        if (on_streaming_started_cb_) on_streaming_started_cb_(id);
+        if (on_streaming_started_cb_) {
+            on_streaming_started_cb_(id);
+        }
     });
     transport.on_streaming_stopped([this](const std::string& id) {
         std::scoped_lock lk(cb_mtx_);
-        if (on_streaming_stopped_cb_) on_streaming_stopped_cb_(id);
+        if (on_streaming_stopped_cb_) {
+            on_streaming_stopped_cb_(id);
+        }
     });
     transport.on_watch_started([this](const std::string& id) {
         video_transport.add_subscriber(id);
@@ -98,16 +110,18 @@ void DriscordCore::init_screen_session(int buf_ms, int max_sync_ms) {
         [this]() { video_transport.send_keyframe_request(); },
         [this](const uint8_t* d, size_t l) { audio_transport.send_screen_audio(d, l); }
     );
-    screen_session->set_on_frame(
-        [this](const std::string& pid, const uint8_t* rgba, int w, int h) {
-            std::scoped_lock lk(cb_mtx_);
-            if (on_frame_cb_) on_frame_cb_(pid, rgba, w, h);
+    screen_session->set_on_frame([this](const std::string& pid, const uint8_t* rgba, int w, int h) {
+        std::scoped_lock lk(cb_mtx_);
+        if (on_frame_cb_) {
+            on_frame_cb_(pid, rgba, w, h);
         }
-    );
+    });
     screen_session->set_on_frame_removed([this](const std::string& pid) {
         on_video_peer_stream_ended(pid);
         std::scoped_lock lk(cb_mtx_);
-        if (on_frame_removed_cb_) on_frame_removed_cb_(pid);
+        if (on_frame_removed_cb_) {
+            on_frame_removed_cb_(pid);
+        }
     });
     video_transport.set_video_sink(
         [this](const std::string& peer_id, const uint8_t* data, size_t len) {
@@ -318,21 +332,30 @@ bool DriscordCore::capture_system_audio_available() const {
     return SystemAudioCapture::available();
 }
 
-std::string DriscordCore::capture_list_targets_json() const {
-    auto targets = ScreenCapture::list_targets();
-    json arr     = json::array();
-    for (auto& t : targets) {
+std::string DriscordCore::capture_audio_list_targets_json() const {
+    const auto targets = SystemAudioCapture::list_targets();
+    json arr           = json::array();
+    for (const auto& it : targets) {
+        arr.push_back({{"id", it.id}, {"name", it.name}});
+    }
+    return arr.dump(-1, ' ', /*ensure_ascii=*/false, nlohmann::json::error_handler_t::replace);
+}
+
+std::string DriscordCore::capture_video_list_targets_json() const {
+    const auto targets = ScreenCapture::list_targets();
+    json arr           = json::array();
+    for (const auto& it : targets) {
         arr.push_back(
-            {{"type", t.type == CaptureTarget::Monitor ? 0 : 1},
-             {"id", t.id},
-             {"name", t.name},
-             {"width", t.width},
-             {"height", t.height},
-             {"x", t.x},
-             {"y", t.y}}
+            {{"type", it.type == CaptureTarget::Monitor ? 0 : 1},
+             {"id", it.id},
+             {"name", it.name},
+             {"width", it.width},
+             {"height", it.height},
+             {"x", it.x},
+             {"y", it.y}}
         );
     }
-    return arr.dump(-1, ' ', /*ensure_ascii=*/true, nlohmann::json::error_handler_t::replace);
+    return arr.dump(-1, ' ', /*ensure_ascii=*/false, nlohmann::json::error_handler_t::replace);
 }
 
 std::vector<uint8_t> DriscordCore::capture_grab_thumbnail(

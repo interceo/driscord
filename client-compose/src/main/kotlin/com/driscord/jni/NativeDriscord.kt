@@ -104,7 +104,7 @@ object NativeDriscord {
     @JvmStatic external fun captureSystemAudioAvailable(): Boolean
 
     /** Returns JSON array of CaptureTarget objects. */
-    @JvmStatic external fun captureListTargets(): String
+    @JvmStatic external fun captureVideoListTargets(): String
 
     /** Returns RGBA bytes, or null if no frame could be grabbed. */
     @JvmStatic external fun captureGrabThumbnail(

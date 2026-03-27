@@ -5,6 +5,21 @@
 #include <cstddef>
 #include <functional>
 #include <memory>
+#include <string>
+#include <vector>
+#include <nlohmann/json.hpp>
+
+struct AudioCaptureTarget {
+    std::string id;    // device identifier (e.g. ALSA device name)
+    std::string name;  // audio device name
+
+    static AudioCaptureTarget from_json(const nlohmann::json& j) {
+        AudioCaptureTarget t;
+        t.id = j.value("id", "");
+        t.name = j.value("name", "");
+        return t;
+    }
+};
 
 class SystemAudioCapture {
 public:
@@ -13,6 +28,7 @@ public:
 
     static std::unique_ptr<SystemAudioCapture> create();
     static bool available();
+    static std::vector<AudioCaptureTarget> list_targets();
 
     virtual ~SystemAudioCapture()        = default;
     virtual bool start(AudioCallback cb) = 0;

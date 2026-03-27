@@ -85,7 +85,8 @@ public:
 
     // -- Capture facade --
     bool capture_system_audio_available() const;
-    std::string capture_list_targets_json() const;
+    std::string capture_audio_list_targets_json() const;
+    std::string capture_video_list_targets_json() const;
     std::vector<uint8_t> capture_grab_thumbnail(
         const std::string& target_json,
         int max_w,
