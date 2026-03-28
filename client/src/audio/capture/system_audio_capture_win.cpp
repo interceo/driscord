@@ -6,6 +6,7 @@
 #include <windows.h>
 #include <mmdeviceapi.h>
 #include <audioclient.h>
+#include <functiondiscoverykeys_devpkey.h>
 // clang-format on
 
 #if __has_include(<audioclientactivationparams.h>)
@@ -329,6 +330,82 @@ private:
     uint32_t silent_count_       = 0;
     uint32_t first_audio_logged_ = 0;
 };
+
+static std::vector<AudioCaptureTarget> enum_endpoints(EDataFlow flow) {
+    std::vector<AudioCaptureTarget> results;
+
+    HRESULT hr          = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    bool co_initialized = SUCCEEDED(hr) || hr == S_FALSE;
+
+    IMMDeviceEnumerator* enumerator = nullptr;
+    hr = CoCreateInstance(
+        __uuidof(MMDeviceEnumerator),
+        nullptr,
+        CLSCTX_ALL,
+        __uuidof(IMMDeviceEnumerator),
+        reinterpret_cast<void**>(&enumerator)
+    );
+    if (FAILED(hr)) {
+        if (co_initialized) CoUninitialize();
+        return results;
+    }
+
+    IMMDeviceCollection* collection = nullptr;
+    hr = enumerator->EnumAudioEndpoints(flow, DEVICE_STATE_ACTIVE, &collection);
+    enumerator->Release();
+    if (FAILED(hr)) {
+        if (co_initialized) CoUninitialize();
+        return results;
+    }
+
+    UINT count = 0;
+    collection->GetCount(&count);
+
+    for (UINT i = 0; i < count; ++i) {
+        IMMDevice* device = nullptr;
+        if (FAILED(collection->Item(i, &device))) continue;
+
+        LPWSTR wid = nullptr;
+        if (FAILED(device->GetId(&wid))) {
+            device->Release();
+            continue;
+        }
+
+        int id_len = WideCharToMultiByte(CP_UTF8, 0, wid, -1, nullptr, 0, nullptr, nullptr);
+        std::string id(id_len > 0 ? id_len - 1 : 0, '\0');
+        WideCharToMultiByte(CP_UTF8, 0, wid, -1, id.data(), id_len, nullptr, nullptr);
+        CoTaskMemFree(wid);
+
+        std::string name;
+        IPropertyStore* props = nullptr;
+        if (SUCCEEDED(device->OpenPropertyStore(STGM_READ, &props))) {
+            PROPVARIANT var;
+            PropVariantInit(&var);
+            if (SUCCEEDED(props->GetValue(PKEY_Device_FriendlyName, &var)) && var.vt == VT_LPWSTR) {
+                int name_len = WideCharToMultiByte(CP_UTF8, 0, var.pwszVal, -1, nullptr, 0, nullptr, nullptr);
+                name.resize(name_len > 0 ? name_len - 1 : 0);
+                WideCharToMultiByte(CP_UTF8, 0, var.pwszVal, -1, name.data(), name_len, nullptr, nullptr);
+            }
+            PropVariantClear(&var);
+            props->Release();
+        }
+
+        results.push_back({std::move(id), std::move(name)});
+        device->Release();
+    }
+
+    collection->Release();
+    if (co_initialized) CoUninitialize();
+    return results;
+}
+
+std::vector<AudioCaptureTarget> SystemAudioCapture::list_sinks() {
+    return enum_endpoints(eRender);
+}
+
+std::vector<AudioCaptureTarget> SystemAudioCapture::list_sources() {
+    return enum_endpoints(eCapture);
+}
 
 bool SystemAudioCapture::available() {
     return true;
