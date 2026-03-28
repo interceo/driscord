@@ -65,6 +65,18 @@ object NativeDriscord {
 
     @JvmStatic external fun audioInputLevel(): Float
 
+    /** Returns JSON array of {id, name} for all capture (mic) devices. */
+    @JvmStatic external fun audioListInputDevices(): String
+
+    /** Set the mic capture device by id (name). Empty string = system default. */
+    @JvmStatic external fun audioSetInputDevice(id: String)
+
+    /** Returns JSON array of {id, name} for all playback (output) devices. */
+    @JvmStatic external fun audioListOutputDevices(): String
+
+    /** Set the audio output device by id (name). Empty string = system default. */
+    @JvmStatic external fun audioSetOutputDevice(id: String)
+
     @JvmStatic external fun audioOnPeerJoined(peer: String, jitterMs: Int)
 
     @JvmStatic external fun audioOnPeerLeft(peer: String)

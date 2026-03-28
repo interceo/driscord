@@ -23,7 +23,7 @@ ScreenSession::ScreenSession(
 }
 
 bool ScreenSession::start_sharing(
-    const CaptureTarget& target,
+    const ScreenCaptureTarget& target,
     const size_t max_w,
     const size_t max_h,
     const size_t fps,

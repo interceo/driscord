@@ -1,5 +1,6 @@
 package com.driscord.presentation.viewmodel
 
+import com.driscord.data.audio.AudioInputDevice
 import com.driscord.data.audio.AudioService
 import com.driscord.data.config.ConfigRepository
 import com.driscord.data.connection.ConnectionService
@@ -58,7 +59,10 @@ class AppViewModel(
     fun onIntent(intent: AppIntent) {
         when (intent) {
             is AppIntent.Connect -> {
+                val cfg = configRepository.config.value
                 connectionService.connect(intent.serverUrl)
+                audioService.setInputDevice(cfg.micDeviceId)
+                audioService.setOutputDevice(cfg.outputDeviceId)
                 audioService.start()
             }
             AppIntent.Disconnect -> {
@@ -90,7 +94,14 @@ class AppViewModel(
             AppIntent.OpenSettings -> _state.update { it.copy(showSettings = true) }
             AppIntent.DismissSettings -> _state.update { it.copy(showSettings = false) }
             is AppIntent.SaveConfig -> {
+                val prev = configRepository.config.value
                 configRepository.save(intent.config)
+                if (intent.config.micDeviceId != prev.micDeviceId) {
+                    audioService.setInputDevice(intent.config.micDeviceId)
+                }
+                if (intent.config.outputDeviceId != prev.outputDeviceId) {
+                    audioService.setOutputDevice(intent.config.outputDeviceId)
+                }
                 _state.update { it.copy(showSettings = false) }
             }
         }
@@ -99,6 +110,8 @@ class AppViewModel(
     // Synchronous getters — вызываются только при открытии меню/диалога, не нужны в state
     fun getPeerVolume(peerId: String): Float = audioService.getPeerVolume(peerId)
     fun getStreamVolume(): Float = videoService.getStreamVolume()
+    fun listInputDevices(): List<AudioInputDevice> = audioService.listInputDevices()
+    fun listOutputDevices(): List<AudioInputDevice> = audioService.listOutputDevices()
     fun listCaptureTargets(): List<CaptureTarget> = videoService.listCaptureTargets()
     fun grabThumbnail(target: CaptureTarget): ImageBitmap? = videoService.grabThumbnail(target)
 

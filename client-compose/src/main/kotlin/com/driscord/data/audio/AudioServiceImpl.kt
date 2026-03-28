@@ -3,6 +3,8 @@ package com.driscord.data.audio
 import com.driscord.jni.NativeDriscord
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 
 class AudioServiceImpl : AudioService {
 
@@ -73,6 +75,30 @@ class AudioServiceImpl : AudioService {
 
     override fun onPeerLeft(peerId: String) {
         NativeDriscord.audioOnPeerLeft(peerId)
+    }
+
+    override fun listInputDevices(): List<AudioInputDevice> {
+        @Serializable data class DeviceJson(val id: String, val name: String)
+        return runCatching {
+            Json.decodeFromString<List<DeviceJson>>(NativeDriscord.audioListInputDevices())
+                .map { AudioInputDevice(it.id, it.name) }
+        }.getOrElse { emptyList() }
+    }
+
+    override fun setInputDevice(id: String) {
+        NativeDriscord.audioSetInputDevice(id)
+    }
+
+    override fun listOutputDevices(): List<AudioInputDevice> {
+        @Serializable data class DeviceJson(val id: String, val name: String)
+        return runCatching {
+            Json.decodeFromString<List<DeviceJson>>(NativeDriscord.audioListOutputDevices())
+                .map { AudioInputDevice(it.id, it.name) }
+        }.getOrElse { emptyList() }
+    }
+
+    override fun setOutputDevice(id: String) {
+        NativeDriscord.audioSetOutputDevice(id)
     }
 
     override fun destroy() {

@@ -258,6 +258,22 @@ float DriscordCore::audio_input_level() const {
     return audio_transport.input_level();
 }
 
+std::string DriscordCore::audio_list_input_devices_json() const {
+    return AudioTransport::list_input_devices_json();
+}
+
+void DriscordCore::audio_set_input_device(std::string id) {
+    audio_transport.set_input_device(std::move(id));
+}
+
+std::string DriscordCore::audio_list_output_devices_json() const {
+    return AudioTransport::list_output_devices_json();
+}
+
+void DriscordCore::audio_set_output_device(std::string id) {
+    audio_transport.set_output_device(std::move(id));
+}
+
 void DriscordCore::audio_on_peer_joined(const std::string& peer, int jitter_ms) {
     audio_transport.on_peer_joined(peer, jitter_ms);
 }
@@ -333,7 +349,7 @@ bool DriscordCore::capture_system_audio_available() const {
 }
 
 std::string DriscordCore::capture_audio_list_targets_json() const {
-    const auto targets = SystemAudioCapture::list_targets();
+    const auto targets = SystemAudioCapture::list_sinks();
     json arr           = json::array();
     for (const auto& it : targets) {
         arr.push_back({{"id", it.id}, {"name", it.name}});
@@ -346,7 +362,7 @@ std::string DriscordCore::capture_video_list_targets_json() const {
     json arr           = json::array();
     for (const auto& it : targets) {
         arr.push_back(
-            {{"type", it.type == CaptureTarget::Monitor ? 0 : 1},
+            {{"type", it.type == ScreenCaptureTarget::Monitor ? 0 : 1},
              {"id", it.id},
              {"name", it.name},
              {"width", it.width},
@@ -363,8 +379,8 @@ std::vector<uint8_t> DriscordCore::capture_grab_thumbnail(
     int max_w,
     int max_h
 ) {
-    auto target = CaptureTarget::from_json(json::parse(target_json));
-    auto frame  = ScreenCapture::grab_thumbnail(target, max_w, max_h);
+    const auto target = ScreenCaptureTarget::from_json(json::parse(target_json));
+    const auto frame  = ScreenCapture::grab_thumbnail(target, max_w, max_h);
     if (frame.data.empty()) {
         return {};
     }
@@ -383,7 +399,7 @@ bool DriscordCore::screen_start_sharing(
     int bitrate_kbps,
     bool share_audio
 ) {
-    auto target = CaptureTarget::from_json(json::parse(target_json));
+    const auto target = ScreenCaptureTarget::from_json(json::parse(target_json));
     bool ok = screen_session->start_sharing(target, max_w, max_h, fps, bitrate_kbps, share_audio);
     if (ok) {
         transport.send_streaming_start();

@@ -16,9 +16,16 @@ public:
     AudioMixer(const AudioMixer&)            = delete;
     AudioMixer& operator=(const AudioMixer&) = delete;
 
+    // Returns JSON array of {id, name} for all playback devices.
+    static std::string list_output_devices_json();
+
     bool start();
     void stop();
     bool running() const { return running_; }
+
+    // Set the playback device by name (empty = default). If already running,
+    // restarts the device immediately without clearing sources.
+    void set_output_device(std::string id);
 
     void add_source(std::shared_ptr<AudioReceiver> src);
     void remove_source(const std::shared_ptr<AudioReceiver>& src);
@@ -38,6 +45,7 @@ private:
     std::vector<std::shared_ptr<AudioReceiver>> sources_;
     std::vector<std::shared_ptr<AudioReceiver>> snapshot_;
 
+    std::string       output_device_id_; // empty = default device
     std::unique_ptr<MaDevice> device_;
     std::atomic<bool> running_{false};
     std::atomic<float> output_volume_{1.0f};
