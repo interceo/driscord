@@ -1,4 +1,5 @@
 import java.nio.file.Paths
+import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 
 plugins {
     kotlin("jvm") version "2.1.20"
@@ -31,6 +32,12 @@ val clientBuildDir: String = (
         ?: Paths.get(buildsRoot, "client-compose").toString()
 )
 
+val nativeLibDir: String = (
+    findProperty("nativeLibDir") as String?
+        ?: System.getenv("DRISCORD_NATIVE_LIB_DIR")
+        ?: Paths.get(rootDir.parent, "build", "client").toString()
+)
+
 layout.buildDirectory.set(file("$buildsRoot/kotlin"))
 
 kotlin {
@@ -49,15 +56,60 @@ dependencies {
 compose.desktop {
     application {
         mainClass = "com.driscord.MainKt"
-        // nativeDistributions убраны — используем fatJar + нативные DLL из C++ билда
-        jvmArgs("-Djava.library.path=${System.getenv("DRISCORD_NATIVE_LIB_DIR") ?: "."}")
+
+        nativeDistributions {
+            includeAllModules = true
+            packageName = "Driscord"
+            packageVersion = "1.0.0"
+            description = "Driscord Voice"
+
+            // Files in appResources/windows/ are placed into the app/ directory
+            // alongside the JARs — $APPDIR points there at runtime.
+            appResourcesRootDir.set(project.layout.projectDirectory.dir("src/main/appResources"))
+
+            // $APPDIR is a jpackage macro expanded to the app/ dir at runtime.
+            jvmArgs("-Djava.library.path=\$APPDIR")
+
+            windows {
+                menuGroup = "Driscord"
+                shortcut = true
+                dirChooser = true
+            }
+        }
+    }
+}
+
+// For `./gradlew run` during development — override java.library.path with local build dir.
+tasks.withType<JavaExec>().configureEach {
+    if (name == "run") {
+        jvmArgs("-Djava.library.path=$nativeLibDir")
     }
 }
 
 // ---------------------------------------------------------------------------
+// copyNativeDlls — stage driscord_jni.dll into appResources before packaging.
+// FFmpeg is linked statically into the DLL, so no extra DLLs are needed.
+// ---------------------------------------------------------------------------
+tasks.register<Copy>("copyNativeDlls") {
+    group = "build"
+    description = "Copies driscord_jni.dll into appResources for native distribution"
+
+    from(nativeLibDir) {
+        include("driscord_jni.dll")
+    }
+    into(project.layout.projectDirectory.dir("src/main/appResources/windows"))
+}
+
+afterEvaluate {
+    listOf("prepareAppResources", "createDistributable", "createReleaseDistributable",
+           "packageExe", "packageMsi", "packageReleaseExe", "packageReleaseMsi")
+        .mapNotNull { tasks.findByName(it) }
+        .forEach { it.dependsOn("copyNativeDlls") }
+}
+
+// ---------------------------------------------------------------------------
 // fatJar — один uber-JAR со всеми Kotlin/Compose зависимостями внутри.
-// Запускается: java -jar driscord.jar  (JRE должна быть на машине пользователя,
-// но это тот же JDK, что нужен для сборки — никакого 500MB runtime bundle)
+// Используется для Linux-билда (build.sh). На Windows используется createDistributable.
 // ---------------------------------------------------------------------------
 tasks.register<Jar>("fatJar") {
     group = "build"

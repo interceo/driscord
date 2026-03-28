@@ -148,11 +148,13 @@ set "GRADLE_USER_HOME=%ROOT%\builds\gradle-home"
 if not exist "%DRISCORD_BUILDS_DIR%" mkdir "%DRISCORD_BUILDS_DIR%"
 
 pushd "%COMPOSE_DIR%"
-:: fatJar — один uber-JAR, никакого bundled JRE, ~30-50 MB
-call gradlew.bat fatJar --quiet -PbuildsDir="%DRISCORD_BUILDS_DIR%"
+:: createDistributable — самодостаточная папка с Driscord.exe + bundled JRE + driscord_jni.dll.
+:: Не требует WiX. Пользователю Java устанавливать не нужно.
+call gradlew.bat createDistributable --quiet -PbuildsDir="%DRISCORD_BUILDS_DIR%"
 if errorlevel 1 ( echo Kotlin build failed. & popd & exit /b 1 )
 popd
-echo     Compose JAR: %DRISCORD_BUILDS_DIR%\dist\driscord.jar
+set "DISTRIB_DIR=%DRISCORD_BUILDS_DIR%\kotlin\compose\binaries\main\app\Driscord"
+echo     Compose distributable: %DISTRIB_DIR%
 
 :: ---------------------------------------------------------------------------
 :: Package into zip archives on Z:\
@@ -167,30 +169,13 @@ mkdir "%STAGING%\client"
 copy /Y "%ROOT%\driscord.json" "%STAGING%\client\" >nul
 if exist "%CLIENT_DIR%\*.dll" copy /Y "%CLIENT_DIR%\*.dll" "%STAGING%\client\" >nul
 
-:: Compose client — driscord.jar + нативные DLL + лаунчер в один zip
-if exist "%STAGING%\compose" rd /s /q "%STAGING%\compose"
-mkdir "%STAGING%\compose"
-
-:: JAR
-if exist "%DRISCORD_BUILDS_DIR%\dist\driscord.jar" (
-    copy /Y "%DRISCORD_BUILDS_DIR%\dist\driscord.jar" "%STAGING%\compose\" >nul
+:: Compose client — самодостаточный дистрибутив (Driscord.exe + bundled JRE + driscord_jni.dll)
+:: Конфиг кладём в app/ рядом с JAR-файлами
+if exist "%DISTRIB_DIR%\app" (
+    copy /Y "%ROOT%\driscord.json" "%DISTRIB_DIR%\app\" >nul
 )
 
-:: Нативные DLL (driscord_jni, ffmpeg, etc.)
-if exist "%BUILD%\client\driscord_jni.dll"  copy /Y "%BUILD%\client\driscord_jni.dll"  "%STAGING%\compose\" >nul 2>&1
-if exist "%CLIENT_DIR%\*.dll"               copy /Y "%CLIENT_DIR%\*.dll"               "%STAGING%\compose\" >nul 2>&1
-
-:: Конфиг
-copy /Y "%ROOT%\driscord.json" "%STAGING%\compose\" >nul
-
-:: Лаунчер — driscord.bat (запускает jar из той же папки)
-(
-    echo @echo off
-    echo cd /d "%%~dp0"
-    echo java -Djava.library.path=. -jar driscord.jar %%*
-) > "%STAGING%\compose\driscord.bat"
-
-powershell -NoProfile -Command "Compress-Archive -Path '%STAGING%\compose\*' -DestinationPath '%ROOT%\builds\driscord_compose.zip' -Force" 2>nul
+powershell -NoProfile -Command "Compress-Archive -Path '%DISTRIB_DIR%' -DestinationPath '%ROOT%\builds\driscord_compose.zip' -Force" 2>nul
 if exist "%ROOT%\builds\driscord_compose.zip" move /Y "%ROOT%\builds\driscord_compose.zip" "Z:\" >nul
 echo     Compose zip: Z:\driscord_compose.zip
 
