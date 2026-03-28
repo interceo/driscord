@@ -1,0 +1,3 @@
+headers = driscord_capi.h
+headerFilter = driscord_capi.h
+package = driscord.capi

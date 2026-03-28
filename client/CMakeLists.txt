@@ -273,3 +273,64 @@ if(JNI_FOUND)
 else()
     message(STATUS "JNI not found — skipping driscord_jni shared library")
 endif()
+
+# ---------------------------------------------------------------------------
+# driscord_capi — plain-C shared library for Kotlin/Native cinterop.
+# No JNI dependency; exposes the same API via function pointers / char*.
+# ---------------------------------------------------------------------------
+add_library(driscord_capi SHARED
+    capi/driscord_capi.cpp
+    jni/driscord_state.cpp
+)
+
+target_include_directories(driscord_capi PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/capi
+    ${CMAKE_CURRENT_SOURCE_DIR}/jni
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/audio
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/video
+    ${CMAKE_SOURCE_DIR}/common
+)
+
+target_link_libraries(driscord_capi PRIVATE
+    driscord_core
+    datachannel-static
+    Opus::opus
+    nlohmann_json::nlohmann_json
+    miniaudio_lib
+    PkgConfig::FFMPEG
+    fmt::fmt
+)
+
+if(APPLE)
+    target_link_libraries(driscord_capi PRIVATE
+        ${AUDIOTOOLBOX_FRAMEWORK}
+        ${COREAUDIO_FRAMEWORK}
+        ${COREFOUNDATION_FRAMEWORK}
+        ${COREGRAPHICS_FRAMEWORK}
+        ${COREMEDIA_FRAMEWORK}
+    )
+    if(SCREENCAPTUREKIT_FRAMEWORK)
+        target_link_libraries(driscord_capi PRIVATE ${SCREENCAPTUREKIT_FRAMEWORK})
+    endif()
+elseif(WIN32)
+    target_link_libraries(driscord_capi PRIVATE
+        d3d11 dxgi gdi32 mfuuid mfplat mf strmiids
+        ole32 wmcodecdspuuid ksuser mmdevapi
+    )
+elseif(UNIX)
+    target_link_libraries(driscord_capi PRIVATE X11::X11 X11::Xrandr)
+    if(PULSE_SIMPLE AND PULSE)
+        target_link_libraries(driscord_capi PRIVATE ${PULSE_SIMPLE} ${PULSE})
+    endif()
+endif()
+
+if(MSVC)
+    target_compile_options(driscord_capi PRIVATE /W4)
+    target_compile_definitions(driscord_capi PRIVATE
+        _WIN32_WINNT=0x0A00 _CRT_SECURE_NO_WARNINGS NOMINMAX)
+else()
+    target_compile_options(driscord_capi PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+message(STATUS "driscord_capi target configured")

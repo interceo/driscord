@@ -1,7 +1,7 @@
 import java.nio.file.Paths
 
 plugins {
-    kotlin("jvm") version "2.1.20"
+    kotlin("multiplatform") version "2.1.20"
     kotlin("plugin.serialization") version "2.1.20"
     id("org.jetbrains.compose") version "1.8.0"
     id("org.jetbrains.kotlin.plugin.compose") version "2.1.20"
@@ -11,13 +11,9 @@ group = "com.driscord"
 version = "1.0.0"
 
 // ---------------------------------------------------------------------------
-// Output directories
-//   buildsRoot      — top-level builds/ folder (gradle cache, kotlin class output)
-//   clientBuildDir  — final staging dir for the distributable client package
-//
-// Override via:
-//   -PbuildsDir=<path>      or  DRISCORD_BUILDS_DIR env var
-//   -PclientBuildDir=<path> or  DRISCORD_CLIENT_BUILD_DIR env var
+// Output directories — same logic as before.
+// Override via -PbuildsDir / DRISCORD_BUILDS_DIR
+//              or -PclientBuildDir / DRISCORD_CLIENT_BUILD_DIR
 // ---------------------------------------------------------------------------
 val buildsRoot: String = (
     findProperty("buildsDir") as String?
@@ -31,33 +27,91 @@ val clientBuildDir: String = (
         ?: Paths.get(buildsRoot, "client-compose").toString()
 )
 
+// Path to the built C++ shared libraries (libdriscord_jni.so / libdriscord_capi.so).
+val nativeLibDir: String =
+    System.getenv("DRISCORD_NATIVE_LIB_DIR")
+        ?: Paths.get(rootDir.parent, "build", "client").toString()
+
 layout.buildDirectory.set(file("$buildsRoot/kotlin"))
 
+// ---------------------------------------------------------------------------
+// Kotlin Multiplatform targets
+// ---------------------------------------------------------------------------
 kotlin {
-    jvmToolchain(21)
-}
+    // ---- JVM target — Compose Desktop (existing fat-JAR build) ----
+    jvm {
+        jvmToolchain(21)
+        compilations.all {
+            kotlinOptions.jvmTarget = "21"
+        }
+    }
 
-dependencies {
-    implementation(compose.desktop.currentOs)
-    implementation(compose.components.resources)
+    // ---- Kotlin/Native — Linux x64 executable ----
+    linuxX64 {
+        compilations["main"].cinterops {
+            create("driscord") {
+                defFile(project.file("src/nativeInterop/cinterop/driscord.def"))
+                // Resolve the C API header relative to the project root
+                includeDirs(project.file("../client/capi"))
+            }
+        }
 
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.10.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0")
-}
+        binaries {
+            executable("driscord") {
+                entryPoint = "com.driscord.main"
+                // Link against libdriscord_capi.so; embed rpath so the binary finds it
+                // at runtime next to the executable (or at the build output dir).
+                linkerOpts(
+                    "-L$nativeLibDir",
+                    "-ldriscord_capi",
+                    "-Wl,-rpath,$nativeLibDir",
+                )
+            }
+        }
+    }
 
-compose.desktop {
-    application {
-        mainClass = "com.driscord.MainKt"
-        // nativeDistributions убраны — используем fatJar + нативные DLL из C++ билда
-        jvmArgs("-Djava.library.path=${System.getenv("DRISCORD_NATIVE_LIB_DIR") ?: "."}")
+    // ---------------------------------------------------------------------------
+    // Source sets
+    // ---------------------------------------------------------------------------
+    sourceSets {
+        val commonMain by getting {
+            dependencies {
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
+                implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0")
+            }
+        }
+
+        val jvmMain by getting {
+            // All existing Kotlin/Compose code lives in src/main/kotlin — keep it there.
+            kotlin.srcDir("src/main/kotlin")
+            resources.srcDirs("src/main/resources")
+
+            dependencies {
+                implementation(compose.desktop.currentOs)
+                implementation(compose.components.resources)
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.10.1")
+            }
+        }
+
+        val linuxX64Main by getting {
+            // Native-specific sources in src/linuxX64Main/kotlin/ (already default)
+        }
     }
 }
 
 // ---------------------------------------------------------------------------
-// fatJar — один uber-JAR со всеми Kotlin/Compose зависимостями внутри.
-// Запускается: java -jar driscord.jar  (JRE должна быть на машине пользователя,
-// но это тот же JDK, что нужен для сборки — никакого 500MB runtime bundle)
+// Compose Desktop application config (JVM target)
+// ---------------------------------------------------------------------------
+compose.desktop {
+    application {
+        mainClass = "com.driscord.MainKt"
+        jvmArgs("-Djava.library.path=$nativeLibDir")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// fatJar — uber-JAR with all JVM runtime dependencies.
+// Produces builds/client-compose/driscord.jar  (runnable with plain `java -jar`).
 // ---------------------------------------------------------------------------
 tasks.register<Jar>("fatJar") {
     group = "build"
@@ -74,12 +128,13 @@ tasks.register<Jar>("fatJar") {
         )
     }
 
-    // Merge all runtime deps into one jar, skip duplicate META-INF signatures
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) })
-    from(sourceSets.main.get().output)
+
+    val jvmCompilation = kotlin.jvm().compilations.getByName("main")
+    dependsOn(jvmCompilation.compileTaskProvider)
+
+    from(jvmCompilation.runtimeDependencyFiles.map { if (it.isDirectory) it else zipTree(it) })
+    from(jvmCompilation.output.allOutputs)
 
     exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
-
-    dependsOn(tasks.named("compileKotlin"))
 }
