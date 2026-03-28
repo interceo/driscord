@@ -67,7 +67,7 @@ compose.desktop {
             // $APPDIR is a jpackage macro pointing to the app/ dir; resources land in $APPDIR\resources.
             appResourcesRootDir.set(project.layout.projectDirectory.dir("src/main/appResources"))
 
-            jvmArgs("-Djava.library.path=\$APPDIR\\resources")
+            jvmArgs("-Djava.library.path=\$APPDIR/resources")
 
             windows {
                 menuGroup = "Driscord"
