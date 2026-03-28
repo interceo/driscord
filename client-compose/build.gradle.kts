@@ -63,12 +63,11 @@ compose.desktop {
             packageVersion = "1.0.0"
             description = "Driscord Voice"
 
-            // Files in appResources/windows/ are placed into the app/ directory
-            // alongside the JARs — $APPDIR points there at runtime.
+            // Files in appResources/windows/ are placed into app/resources/ at runtime.
+            // $APPDIR is a jpackage macro pointing to the app/ dir; resources land in $APPDIR\resources.
             appResourcesRootDir.set(project.layout.projectDirectory.dir("src/main/appResources"))
 
-            // $APPDIR is a jpackage macro expanded to the app/ dir at runtime.
-            jvmArgs("-Djava.library.path=\$APPDIR")
+            jvmArgs("-Djava.library.path=\$APPDIR\\resources")
 
             windows {
                 menuGroup = "Driscord"

@@ -57,7 +57,7 @@ void ScreenSession::push_audio_packet(
     const std::string& peer_id,
     const utils::vector_view<const uint8_t> data
 ) {
-    receiver_.push_audio_packet(peer_id, data);  // peer_id routed inside AudioReceiver
+    receiver_.push_audio_packet(peer_id, data); // peer_id routed inside AudioReceiver
 }
 
 void ScreenSession::update() {
@@ -105,7 +105,7 @@ void ScreenSession::update() {
 
     // Fire on_frame_removed_cb_ for peers that have gone stale.
     const auto active = receiver_.active_peers();
-    for (auto it = last_peers_.begin(); it != last_peers_.end(); ) {
+    for (auto it = last_peers_.begin(); it != last_peers_.end();) {
         if (active.count(*it) == 0) {
             std::scoped_lock lk(cb_mutex_);
             if (on_frame_removed_cb_) {
@@ -139,11 +139,11 @@ void ScreenSession::reset_audio() {
 }
 
 std::string ScreenSession::stats_json() const {
-    auto vs = video_stats();
-    auto as = audio_stats();
+    auto vs          = video_stats();
+    auto as          = audio_stats();
     nlohmann::json j = {
-        {"width",        last_w_},
-        {"height",       last_h_},
+        {"width", last_w_},
+        {"height", last_h_},
         {"measuredKbps", measured_kbps()},
         {"video", {{"queue", vs.queue_size}, {"drops", vs.drop_count}, {"misses", vs.miss_count}}},
         {"audio", {{"queue", as.queue_size}, {"drops", as.drop_count}, {"misses", as.miss_count}}}

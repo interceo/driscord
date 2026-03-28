@@ -27,8 +27,8 @@ std::string AudioSender::list_input_devices_json() {
     }
 
     ma_device_info* devices = nullptr;
-    ma_uint32       count   = 0;
-    nlohmann::json  arr     = nlohmann::json::array();
+    ma_uint32 count         = 0;
+    nlohmann::json arr      = nlohmann::json::array();
 
     if (ma_context_get_devices(&ctx, nullptr, nullptr, &devices, &count) == MA_SUCCESS) {
         for (ma_uint32 i = 0; i < count; ++i) {
@@ -77,8 +77,8 @@ bool AudioSender::start(PacketCallback on_packet) {
     if (!device_id_.empty()) {
         ma_context ctx;
         if (ma_context_init(nullptr, 0, nullptr, &ctx) == MA_SUCCESS) {
-            ma_device_info* devs  = nullptr;
-            ma_uint32       count = 0;
+            ma_device_info* devs = nullptr;
+            ma_uint32 count      = 0;
             if (ma_context_get_devices(&ctx, nullptr, nullptr, &devs, &count) == MA_SUCCESS) {
                 for (ma_uint32 i = 0; i < count; ++i) {
                     if (device_id_ == devs[i].name) {
@@ -194,18 +194,19 @@ void AudioReceiver::push_packet(utils::vector_view<const uint8_t> data) {
         return;
     }
 
-    const auto     ah        = protocol::AudioHeader::deserialize(data.data());
+    const auto ah            = protocol::AudioHeader::deserialize(data.data());
     const uint8_t* opus_data = data.data() + protocol::AudioHeader::kWireSize;
-    const int      opus_len  = static_cast<int>(data.size() - protocol::AudioHeader::kWireSize);
+    const int opus_len       = static_cast<int>(data.size() - protocol::AudioHeader::kWireSize);
 
     std::vector<float> pcm;
     {
         std::scoped_lock lk(decode_mutex_);
-        const int samples =
-            decoder_.decode(opus_data, opus_len, decode_buf_.data(), opus::kFrameSize);
+        const int
+            samples = decoder_.decode(opus_data, opus_len, decode_buf_.data(), opus::kFrameSize);
         if (samples <= 0) {
-            LOG_ERROR() << "[audio-recv/" << id_ << "] decode failed seq=" << ah.seq
-                        << " opus_len=" << opus_len << " result=" << samples;
+            LOG_ERROR()
+                << "[audio-recv/" << id_ << "] decode failed seq=" << ah.seq
+                << " opus_len=" << opus_len << " result=" << samples;
             return;
         }
 
@@ -230,9 +231,9 @@ void AudioReceiver::push_packet(utils::vector_view<const uint8_t> data) {
         LOG_INFO() << "[audio-recv/" << id_ << "] first push seq=" << ah.seq;
     } else if (push_count_ % 30 == 0) {
         const auto st = jitter_.stats();
-        LOG_INFO() << "[audio-recv/" << id_ << "] push#" << push_count_
-                   << " queue=" << st.queue_size << " drops=" << st.drop_count
-                   << " misses=" << st.miss_count;
+        LOG_INFO()
+            << "[audio-recv/" << id_ << "] push#" << push_count_ << " queue=" << st.queue_size
+            << " drops=" << st.drop_count << " misses=" << st.miss_count;
     }
 }
 
