@@ -2,17 +2,31 @@ package com.driscord
 
 import driscord.capi.*
 import kotlinx.cinterop.*
+import platform.posix.free
 
 /**
  * Kotlin/Native wrapper around the C API (libdriscord_capi.so).
  * Mirrors the JVM NativeDriscord object but uses cinterop instead of JNI.
  *
- * Callback design: the C++ core calls back from its own threads.
- * Use [staticCFunction] for top-level C callbacks; forward to Kotlin via
- * global [NativeCallbacks] so that lambdas can capture state.
+ * String ownership: driscord_* functions that return const char* allocate
+ * with strdup() (malloc-based). We convert to Kotlin String immediately and
+ * release via platform.posix.free().
+ *
+ * Callback design: staticCFunction lambdas cannot capture variables, so
+ * Kotlin-side callbacks are stored in the global NativeCallbacks object.
  */
 @OptIn(ExperimentalForeignApi::class)
 object NativeDriscord {
+
+    // ---------------------------------------------------------------------------
+    // Internal helper: convert a malloc'd C string to Kotlin String, then free.
+    // ---------------------------------------------------------------------------
+    private inline fun CPointer<ByteVar>?.consumeString(default: String = ""): String {
+        if (this == null) return default
+        val s = toKString()
+        free(this)
+        return s
+    }
 
     // -- Transport --
 
@@ -22,20 +36,8 @@ object NativeDriscord {
     fun connect(url: String) = driscord_connect(url)
     fun disconnect() = driscord_disconnect()
     fun connected(): Boolean = driscord_connected()
-
-    fun localId(): String = memScoped {
-        val raw = driscord_local_id() ?: return ""
-        val result = raw.toKString()
-        driscord_free_str(raw)
-        result
-    }
-
-    fun peers(): String = memScoped {
-        val raw = driscord_peers() ?: return "[]"
-        val result = raw.toKString()
-        driscord_free_str(raw)
-        result
-    }
+    fun localId(): String = driscord_local_id().consumeString()
+    fun peers(): String = driscord_peers().consumeString("[]")
 
     fun setOnPeerJoined(cb: (String) -> Unit) {
         NativeCallbacks.onPeerJoined = cb
@@ -78,23 +80,11 @@ object NativeDriscord {
     fun audioSetSelfMuted(muted: Boolean) = driscord_audio_set_self_muted(muted)
     fun audioInputLevel(): Float = driscord_audio_input_level()
 
-    fun audioListInputDevices(): String = memScoped {
-        val raw = driscord_audio_list_input_devices() ?: return "[]"
-        val result = raw.toKString()
-        driscord_free_str(raw)
-        result
-    }
-
+    fun audioListInputDevices(): String = driscord_audio_list_input_devices().consumeString("[]")
     fun audioSetInputDevice(id: String) = driscord_audio_set_input_device(id)
-
-    fun audioListOutputDevices(): String = memScoped {
-        val raw = driscord_audio_list_output_devices() ?: return "[]"
-        val result = raw.toKString()
-        driscord_free_str(raw)
-        result
-    }
-
+    fun audioListOutputDevices(): String = driscord_audio_list_output_devices().consumeString("[]")
     fun audioSetOutputDevice(id: String) = driscord_audio_set_output_device(id)
+
     fun audioOnPeerJoined(peer: String, jitterMs: Int) = driscord_audio_on_peer_joined(peer, jitterMs)
     fun audioOnPeerLeft(peer: String) = driscord_audio_on_peer_left(peer)
     fun audioSetPeerVolume(peer: String, vol: Float) = driscord_audio_set_peer_volume(peer, vol)
@@ -131,13 +121,7 @@ object NativeDriscord {
     // -- Capture --
 
     fun captureSystemAudioAvailable(): Boolean = driscord_capture_system_audio_available()
-
-    fun captureVideoListTargets(): String = memScoped {
-        val raw = driscord_capture_video_list_targets() ?: return "[]"
-        val result = raw.toKString()
-        driscord_free_str(raw)
-        result
-    }
+    fun captureVideoListTargets(): String = driscord_capture_video_list_targets().consumeString("[]")
 
     // -- Screen --
 
@@ -156,26 +140,13 @@ object NativeDriscord {
     fun screenSharingAudio(): Boolean = driscord_screen_sharing_audio()
     fun screenForceKeyframe() = driscord_screen_force_keyframe()
     fun screenUpdate() = driscord_screen_update()
-
-    fun screenActivePeer(): String = memScoped {
-        val raw = driscord_screen_active_peer() ?: return ""
-        val result = raw.toKString()
-        driscord_free_str(raw)
-        result
-    }
-
+    fun screenActivePeer(): String = driscord_screen_active_peer().consumeString()
     fun screenActive(): Boolean = driscord_screen_active()
     fun screenReset() = driscord_screen_reset()
     fun screenResetAudioReceiver() = driscord_screen_reset_audio_receiver()
     fun screenSetStreamVolume(peerId: String, vol: Float) = driscord_screen_set_stream_volume(peerId, vol)
     fun screenStreamVolume(): Float = driscord_screen_stream_volume()
-
-    fun screenStats(): String = memScoped {
-        val raw = driscord_screen_stats() ?: return "{}"
-        val result = raw.toKString()
-        driscord_free_str(raw)
-        result
-    }
+    fun screenStats(): String = driscord_screen_stats().consumeString("{}")
 
     fun setOnFrameRemoved(cb: (String) -> Unit) {
         NativeCallbacks.onFrameRemoved = cb

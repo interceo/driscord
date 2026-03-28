@@ -16,11 +16,10 @@ typedef void (*DriscordFrameCb)(const char* peer_id, const uint8_t* rgba, int w,
 
 /* ---------------------------------------------------------------------------
  * Memory management
- * String-returning functions allocate with new[]; free with driscord_free_str().
- * driscord_capture_grab_thumbnail allocates with new[]; free with driscord_free_buf().
+ * String-returning functions allocate with strdup() (malloc-based).
+ * driscord_capture_grab_thumbnail allocates with malloc().
+ * All returned pointers must be freed with the standard C free().
  * --------------------------------------------------------------------------- */
-void driscord_free_str(const char* s);
-void driscord_free_buf(uint8_t* buf);
 
 /* ---------------------------------------------------------------------------
  * Transport

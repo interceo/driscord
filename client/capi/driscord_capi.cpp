@@ -2,6 +2,7 @@
 #include "../jni/driscord_state.hpp"
 
 #include <cstring>
+#include <cstdlib>
 
 #define CORE() DriscordState::get().core
 
@@ -9,23 +10,15 @@
 // Internal helpers
 // ---------------------------------------------------------------------------
 
+// Returns a malloc-based copy — caller frees with free().
 static const char* dup_str(const std::string& s) {
-    char* out = new char[s.size() + 1];
-    std::memcpy(out, s.c_str(), s.size() + 1);
-    return out;
+    return strdup(s.c_str());
 }
 
 static DriscordCore::StringCb wrap_str_cb(DriscordStringCb cb) {
     if (!cb) return nullptr;
     return [cb](const std::string& s) { cb(s.c_str()); };
 }
-
-// ---------------------------------------------------------------------------
-// Memory
-// ---------------------------------------------------------------------------
-
-void driscord_free_str(const char* s) { delete[] s; }
-void driscord_free_buf(uint8_t* buf)  { delete[] buf; }
 
 // ---------------------------------------------------------------------------
 // Transport
@@ -107,7 +100,7 @@ int driscord_capture_grab_thumbnail(const char* target_json, int max_w, int max_
         *out_rgba = nullptr;
         return -1;
     }
-    *out_rgba = new uint8_t[rgba.size()];
+    *out_rgba = static_cast<uint8_t*>(std::malloc(rgba.size()));
     std::memcpy(*out_rgba, rgba.data(), rgba.size());
     return static_cast<int>(rgba.size());
 }

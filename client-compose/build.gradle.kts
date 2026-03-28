@@ -38,13 +38,10 @@ layout.buildDirectory.set(file("$buildsRoot/kotlin"))
 // Kotlin Multiplatform targets
 // ---------------------------------------------------------------------------
 kotlin {
+    jvmToolchain(21)
+
     // ---- JVM target — Compose Desktop (existing fat-JAR build) ----
-    jvm {
-        jvmToolchain(21)
-        compilations.all {
-            kotlinOptions.jvmTarget = "21"
-        }
-    }
+    jvm()
 
     // ---- Kotlin/Native — Linux x64 executable ----
     linuxX64 {
@@ -76,6 +73,9 @@ kotlin {
     sourceSets {
         val commonMain by getting {
             dependencies {
+                // compose.runtime is multiplatform — required so the Compose compiler plugin
+                // compiles cleanly on non-JVM targets even though they don't use any UI.
+                implementation(compose.runtime)
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
                 implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0")
             }
