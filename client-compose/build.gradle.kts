@@ -78,11 +78,12 @@ compose.desktop {
     }
 }
 
-// For `./gradlew run` during development — override java.library.path with local build dir.
-tasks.withType<JavaExec>().configureEach {
-    if (name == "run") {
-        jvmArgs("-Djava.library.path=$nativeLibDir")
-    }
+// For `./gradlew run` during development — set java.library.path to the local build dir.
+// afterEvaluate ensures Compose Desktop has already registered its run task(s).
+afterEvaluate {
+    listOf("run", "runRelease", "runDebug")
+        .mapNotNull { tasks.findByName(it) as? JavaExec }
+        .forEach { it.jvmArgs("-Djava.library.path=$nativeLibDir") }
 }
 
 // ---------------------------------------------------------------------------
