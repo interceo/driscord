@@ -25,9 +25,16 @@ public:
     AudioSender(const AudioSender&)            = delete;
     AudioSender& operator=(const AudioSender&) = delete;
 
+    // Returns JSON array of {id, name} for all capture devices.
+    static std::string list_input_devices_json();
+
     bool start(PacketCallback on_packet);
     void stop();
     bool running() const { return running_; }
+
+    // Set the capture device by name (empty = default). If already running,
+    // restarts capture on the new device immediately.
+    void set_device_id(std::string id);
 
     void set_muted(bool m) { muted_ = m; }
     bool muted() const noexcept { return muted_; }
@@ -37,10 +44,11 @@ public:
 private:
     void on_capture(const float* input, uint32_t frames);
 
-    std::atomic<bool> running_{false};
-    std::atomic<bool> muted_{false};
+    std::atomic<bool>  running_{false};
+    std::atomic<bool>  muted_{false};
     std::atomic<float> input_level_{0.0f};
 
+    std::string    device_id_; // empty = default device
     PacketCallback on_packet_;
 
     std::unique_ptr<OpusEncode> encoder_;

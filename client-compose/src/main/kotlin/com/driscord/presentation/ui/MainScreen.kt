@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import com.driscord.data.audio.AudioInputDevice
 import com.driscord.presentation.viewmodel.AppViewModel
 import com.driscord.ui.ContentBg
 
@@ -20,6 +21,8 @@ fun MainScreen(viewModel: AppViewModel) {
             state = state,
             onIntent = onIntent,
             onGetPeerVolume = viewModel::getPeerVolume,
+            onListInputDevices = viewModel::listInputDevices,
+            onListOutputDevices = viewModel::listOutputDevices,
         )
         ContentPanel(
             modifier = Modifier.weight(1f),

@@ -40,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.driscord.data.audio.AudioInputDevice
 import com.driscord.domain.model.ConnectionState
 import com.driscord.presentation.AppIntent
 import com.driscord.presentation.AppUiState
@@ -64,6 +65,8 @@ fun Sidebar(
     state: AppUiState,
     onIntent: (AppIntent) -> Unit,
     onGetPeerVolume: (String) -> Float,
+    onListInputDevices: () -> List<AudioInputDevice>,
+    onListOutputDevices: () -> List<AudioInputDevice>,
 ) {
     var serverUrl by remember(state.config.serverUrl) { mutableStateOf(state.config.serverUrl) }
     var expandedPeer by remember { mutableStateOf<String?>(null) }
@@ -112,6 +115,8 @@ fun Sidebar(
             config = state.config,
             onDismiss = { onIntent(AppIntent.DismissSettings) },
             onSave = { onIntent(AppIntent.SaveConfig(it)) },
+            onListInputDevices = onListInputDevices,
+            onListOutputDevices = onListOutputDevices,
         )
     }
 }

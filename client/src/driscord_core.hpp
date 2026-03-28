@@ -66,6 +66,10 @@ public:
     bool audio_self_muted() const;
     void audio_set_self_muted(bool m);
     float audio_input_level() const;
+    std::string audio_list_input_devices_json() const;
+    void audio_set_input_device(std::string id);
+    std::string audio_list_output_devices_json() const;
+    void audio_set_output_device(std::string id);
     void audio_on_peer_joined(const std::string& peer, int jitter_ms);
     void audio_on_peer_left(const std::string& peer);
     void audio_set_peer_volume(const std::string& peer, float vol);

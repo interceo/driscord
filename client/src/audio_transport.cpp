@@ -73,6 +73,22 @@ float AudioTransport::input_level() const {
     return sender_.input_level();
 }
 
+std::string AudioTransport::list_input_devices_json() {
+    return AudioSender::list_input_devices_json();
+}
+
+void AudioTransport::set_input_device(std::string id) {
+    sender_.set_device_id(std::move(id));
+}
+
+std::string AudioTransport::list_output_devices_json() {
+    return AudioMixer::list_output_devices_json();
+}
+
+void AudioTransport::set_output_device(std::string id) {
+    mixer_.set_output_device(std::move(id));
+}
+
 void AudioTransport::set_master_volume(float v) {
     mixer_.set_output_volume(v);
 }
