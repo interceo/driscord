@@ -178,4 +178,14 @@ std::unique_ptr<SystemAudioCapture> SystemAudioCapture::create() {
     return std::make_unique<SystemAudioCaptureMac>();
 }
 
+// macOS does not expose loopback device enumeration through a stable API.
+// Return empty lists — ScreenCaptureKit handles audio capture internally.
+std::vector<AudioCaptureTarget> SystemAudioCapture::list_sinks() {
+    return {};
+}
+
+std::vector<AudioCaptureTarget> SystemAudioCapture::list_sources() {
+    return {};
+}
+
 #endif // __APPLE__

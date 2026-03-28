@@ -6,6 +6,8 @@
 #include <windows.h>
 #include <mmdeviceapi.h>
 #include <audioclient.h>
+#include <propsys.h>
+#include <functiondiscoverykeys_devpkey.h>
 // clang-format on
 
 #if __has_include(<audioclientactivationparams.h>)
@@ -336,6 +338,92 @@ bool SystemAudioCapture::available() {
 
 std::unique_ptr<SystemAudioCapture> SystemAudioCapture::create() {
     return std::make_unique<SystemAudioCaptureWin>();
+}
+
+// ---------------------------------------------------------------------------
+// Device enumeration helpers using WASAPI IMMDeviceEnumerator
+// ---------------------------------------------------------------------------
+
+static std::vector<AudioCaptureTarget> enum_endpoints(EDataFlow flow) {
+    std::vector<AudioCaptureTarget> targets;
+
+    HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    bool uninit = SUCCEEDED(hr) || hr == S_FALSE;
+
+    IMMDeviceEnumerator* enumerator = nullptr;
+    hr = CoCreateInstance(
+        __uuidof(MMDeviceEnumerator), nullptr,
+        CLSCTX_ALL, __uuidof(IMMDeviceEnumerator),
+        reinterpret_cast<void**>(&enumerator));
+    if (FAILED(hr)) {
+        if (uninit) CoUninitialize();
+        return targets;
+    }
+
+    IMMDeviceCollection* collection = nullptr;
+    hr = enumerator->EnumAudioEndpoints(flow, DEVICE_STATE_ACTIVE, &collection);
+    enumerator->Release();
+    if (FAILED(hr)) {
+        if (uninit) CoUninitialize();
+        return targets;
+    }
+
+    UINT count = 0;
+    collection->GetCount(&count);
+    for (UINT i = 0; i < count; ++i) {
+        IMMDevice* dev = nullptr;
+        if (FAILED(collection->Item(i, &dev))) continue;
+
+        // Device ID
+        LPWSTR id_w = nullptr;
+        std::string id;
+        if (SUCCEEDED(dev->GetId(&id_w)) && id_w) {
+            int len = WideCharToMultiByte(CP_UTF8, 0, id_w, -1, nullptr, 0, nullptr, nullptr);
+            if (len > 0) {
+                id.resize(len - 1);
+                WideCharToMultiByte(CP_UTF8, 0, id_w, -1, id.data(), len, nullptr, nullptr);
+            }
+            CoTaskMemFree(id_w);
+        }
+
+        // Friendly name via property store
+        std::string name;
+        IPropertyStore* props = nullptr;
+        if (SUCCEEDED(dev->OpenPropertyStore(STGM_READ, &props))) {
+            PROPVARIANT pv;
+            PropVariantInit(&pv);
+            if (SUCCEEDED(props->GetValue(PKEY_Device_FriendlyName, &pv)) &&
+                pv.vt == VT_LPWSTR && pv.pwszVal) {
+                int len = WideCharToMultiByte(CP_UTF8, 0, pv.pwszVal, -1, nullptr, 0, nullptr, nullptr);
+                if (len > 0) {
+                    name.resize(len - 1);
+                    WideCharToMultiByte(CP_UTF8, 0, pv.pwszVal, -1, name.data(), len, nullptr, nullptr);
+                }
+            }
+            PropVariantClear(&pv);
+            props->Release();
+        }
+
+        dev->Release();
+
+        if (!id.empty()) {
+            targets.push_back({std::move(id), std::move(name)});
+        }
+    }
+
+    collection->Release();
+    if (uninit) CoUninitialize();
+    return targets;
+}
+
+std::vector<AudioCaptureTarget> SystemAudioCapture::list_sinks() {
+    // Render (playback) endpoints — these are what WASAPI loopback captures
+    return enum_endpoints(eRender);
+}
+
+std::vector<AudioCaptureTarget> SystemAudioCapture::list_sources() {
+    // Capture (microphone) endpoints
+    return enum_endpoints(eCapture);
 }
 
 #endif // _WIN32
