@@ -36,6 +36,14 @@ public:
     bool self_muted() const;
     float input_level() const;
 
+    // Mic device selection
+    static std::string list_input_devices_json();
+    void set_input_device(std::string id);
+
+    // Output device selection
+    static std::string list_output_devices_json();
+    void set_output_device(std::string id);
+
     // Per-peer voice controls
     void set_peer_volume(const std::string& peer_id, float v);
     float peer_volume(const std::string& peer_id) const;

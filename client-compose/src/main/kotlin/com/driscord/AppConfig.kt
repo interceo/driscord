@@ -27,6 +27,8 @@ data class AppConfig(
     @SerialName("video_bitrate_kbps") val videoBitrateKbps: Int = 8000,
     @SerialName("gop_size") val gopSize: Int = 30,
     @SerialName("voice_jitter_ms") val voiceJitterMs: Int = 80,
+    @SerialName("mic_device_id") val micDeviceId: String = "",
+    @SerialName("output_device_id") val outputDeviceId: String = "",
     @SerialName("screen_buffer_ms") val screenBufferMs: Int = 120,
     @SerialName("max_sync_gap_ms") val maxSyncGapMs: Int = 2000,
     @SerialName("turn_servers") val turnServers: List<TurnServerConfig> = emptyList(),

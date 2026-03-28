@@ -7,6 +7,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -14,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.driscord.AppConfig
+import com.driscord.data.audio.AudioInputDevice
 import com.driscord.ui.*
 
 @Composable
@@ -21,6 +23,8 @@ fun SettingsDialog(
     config: AppConfig,
     onDismiss: () -> Unit,
     onSave: (AppConfig) -> Unit,
+    onListInputDevices: () -> List<AudioInputDevice>,
+    onListOutputDevices: () -> List<AudioInputDevice>,
 ) {
     var serverHost by remember { mutableStateOf(config.serverHost) }
     var serverPort by remember { mutableStateOf(config.serverPort.toString()) }
@@ -30,6 +34,22 @@ fun SettingsDialog(
     var voiceJitter by remember { mutableStateOf(config.voiceJitterMs.toString()) }
     var screenBuffer by remember { mutableStateOf(config.screenBufferMs.toString()) }
     var maxSyncGap by remember { mutableStateOf(config.maxSyncGapMs.toString()) }
+
+    // Load device lists once on open; prepend "Default" (empty id = system default)
+    val inputOptions: List<AudioInputDevice> = remember {
+        listOf(AudioInputDevice("", "Default")) + onListInputDevices()
+    }
+    val outputOptions: List<AudioInputDevice> = remember {
+        listOf(AudioInputDevice("", "Default")) + onListOutputDevices()
+    }
+    var selectedInputIdx by remember(config.micDeviceId, inputOptions) {
+        mutableStateOf(inputOptions.indexOfFirst { it.id == config.micDeviceId }.coerceAtLeast(0))
+    }
+    var selectedOutputIdx by remember(config.outputDeviceId, outputOptions) {
+        mutableStateOf(outputOptions.indexOfFirst { it.id == config.outputDeviceId }.coerceAtLeast(0))
+    }
+    var inputMenuExpanded by remember { mutableStateOf(false) }
+    var outputMenuExpanded by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -49,6 +69,31 @@ fun SettingsDialog(
                 Divider(color = FieldBg)
                 Spacer(Modifier.height(4.dp))
 
+                SettingsGroup("Audio") {
+                    SettingsDropdown(
+                        label = "Microphone",
+                        options = inputOptions.map { it.name },
+                        selectedIndex = selectedInputIdx,
+                        expanded = inputMenuExpanded,
+                        onExpandedChange = { inputMenuExpanded = it },
+                        onSelect = { selectedInputIdx = it; inputMenuExpanded = false },
+                    )
+                    SettingsDropdown(
+                        label = "Output",
+                        options = outputOptions.map { it.name },
+                        selectedIndex = selectedOutputIdx,
+                        expanded = outputMenuExpanded,
+                        onExpandedChange = { outputMenuExpanded = it },
+                        onSelect = { selectedOutputIdx = it; outputMenuExpanded = false },
+                    )
+                }
+
+                SettingsGroup("Advanced") {
+                    SettingsField("Voice Jitter (ms)", voiceJitter) { voiceJitter = it }
+                    SettingsField("Screen Buffer (ms)", screenBuffer) { screenBuffer = it }
+                    SettingsField("Max Sync Gap (ms)", maxSyncGap) { maxSyncGap = it }
+                }
+
                 SettingsGroup("Connection") {
                     SettingsField("Server Host", serverHost) { serverHost = it }
                     SettingsField("Server Port", serverPort) { serverPort = it }
@@ -60,18 +105,9 @@ fun SettingsDialog(
                     SettingsField("Gop size (frames)", gopSize) { gopSize = it }
                 }
 
-                SettingsGroup("Audio") {
-                    SettingsField("Voice Jitter (ms)", voiceJitter) { voiceJitter = it }
-                }
-
-                SettingsGroup("A/V Sync") {
-                    SettingsField("Screen Buffer (ms)", screenBuffer) { screenBuffer = it }
-                    SettingsField("Max Sync Gap (ms)", maxSyncGap) { maxSyncGap = it }
-                }
-
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = "* A/V Sync and Connection settings take effect after restart",
+                    text = "* Advanced, Connection and Video settings take effect after restart",
                     color = TextMuted,
                     fontSize = 10.sp,
                 )
@@ -93,6 +129,8 @@ fun SettingsDialog(
                                     voiceJitterMs    = voiceJitter.toIntOrNull() ?: config.voiceJitterMs,
                                     screenBufferMs   = screenBuffer.toIntOrNull() ?: config.screenBufferMs,
                                     maxSyncGapMs     = maxSyncGap.toIntOrNull() ?: config.maxSyncGapMs,
+                                    micDeviceId      = inputOptions.getOrNull(selectedInputIdx)?.id ?: "",
+                                    outputDeviceId   = outputOptions.getOrNull(selectedOutputIdx)?.id ?: "",
                                 ),
                             )
                             onDismiss()
@@ -125,6 +163,51 @@ private fun SettingsGroup(
         content = content,
     )
     Spacer(Modifier.height(6.dp))
+}
+
+@Composable
+private fun SettingsDropdown(
+    label: String,
+    options: List<String>,
+    selectedIndex: Int,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onSelect: (Int) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, color = TextPrimary, fontSize = 12.sp, modifier = Modifier.weight(1f))
+        Box {
+            OutlinedButton(
+                onClick = { onExpandedChange(true) },
+                shape = RoundedCornerShape(4.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
+                modifier = Modifier.width(110.dp).height(32.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp),
+            ) {
+                Text(
+                    text = options.getOrElse(selectedIndex) { "" },
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { onExpandedChange(false) },
+                modifier = Modifier.background(FieldBgDark),
+            ) {
+                options.forEachIndexed { i, name ->
+                    DropdownMenuItem(onClick = { onSelect(i) }) {
+                        Text(name, color = TextPrimary, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

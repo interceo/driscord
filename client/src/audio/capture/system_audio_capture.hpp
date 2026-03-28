@@ -28,7 +28,12 @@ public:
 
     static std::unique_ptr<SystemAudioCapture> create();
     static bool available();
-    static std::vector<AudioCaptureTarget> list_targets();
+
+    // PA sinks (playback devices) whose monitors can be captured for loopback.
+    static std::vector<AudioCaptureTarget> list_sinks();
+
+    // PA sources that are physical inputs (microphones), excluding sink monitors.
+    static std::vector<AudioCaptureTarget> list_sources();
 
     virtual ~SystemAudioCapture()        = default;
     virtual bool start(AudioCallback cb) = 0;

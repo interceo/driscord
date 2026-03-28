@@ -6,6 +6,8 @@
 #include "utils/protocol.hpp"
 #include "utils/time.hpp"
 
+#include <nlohmann/json.hpp>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -15,6 +17,29 @@ using namespace utils;
 AudioSender::AudioSender() = default;
 AudioSender::~AudioSender() {
     stop();
+}
+
+std::string AudioSender::list_input_devices_json() {
+    ma_context ctx;
+    if (ma_context_init(nullptr, 0, nullptr, &ctx) != MA_SUCCESS) {
+        LOG_ERROR() << "AudioSender::list_input_devices_json: ma_context_init failed";
+        return "[]";
+    }
+
+    ma_device_info* devices = nullptr;
+    ma_uint32       count   = 0;
+    nlohmann::json  arr     = nlohmann::json::array();
+
+    if (ma_context_get_devices(&ctx, nullptr, nullptr, &devices, &count) == MA_SUCCESS) {
+        for (ma_uint32 i = 0; i < count; ++i) {
+            arr.push_back({{"id", devices[i].name}, {"name", devices[i].name}});
+        }
+    } else {
+        LOG_ERROR() << "AudioSender::list_input_devices_json: ma_context_get_devices failed";
+    }
+
+    ma_context_uninit(&ctx);
+    return arr.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }
 
 bool AudioSender::start(PacketCallback on_packet) {
@@ -47,6 +72,30 @@ bool AudioSender::start(PacketCallback on_packet) {
     config.pUserData          = this;
     config.periodSizeInFrames = opus::kFrameSize;
 
+    // If a specific device was requested, find its native device ID by name.
+    ma_device_id selected_id{};
+    if (!device_id_.empty()) {
+        ma_context ctx;
+        if (ma_context_init(nullptr, 0, nullptr, &ctx) == MA_SUCCESS) {
+            ma_device_info* devs  = nullptr;
+            ma_uint32       count = 0;
+            if (ma_context_get_devices(&ctx, nullptr, nullptr, &devs, &count) == MA_SUCCESS) {
+                for (ma_uint32 i = 0; i < count; ++i) {
+                    if (device_id_ == devs[i].name) {
+                        selected_id              = devs[i].id; // copy union before uninit
+                        config.capture.pDeviceID = &selected_id;
+                        LOG_INFO() << "AudioSender: using device '" << device_id_ << "'";
+                        break;
+                    }
+                }
+            }
+            ma_context_uninit(&ctx);
+        }
+        if (!config.capture.pDeviceID) {
+            LOG_WARNING() << "AudioSender: device '" << device_id_ << "' not found, using default";
+        }
+    }
+
     auto dev = std::make_unique<MaDevice>();
     if (!dev->start(config)) {
         LOG_ERROR() << "AudioSender: failed to start audio device";
@@ -64,6 +113,15 @@ bool AudioSender::start(PacketCallback on_packet) {
 
     LOG_INFO() << "AudioSender: started";
     return true;
+}
+
+void AudioSender::set_device_id(std::string id) {
+    device_id_ = std::move(id);
+    if (running_) {
+        auto cb = on_packet_; // preserve callback across restart
+        stop();
+        start(cb);
+    }
 }
 
 void AudioSender::stop() {
