@@ -100,8 +100,8 @@ tasks.register<Copy>("copyNativeDlls") {
 }
 
 afterEvaluate {
-    listOf("createDistributable", "createReleaseDistributable", "packageExe", "packageMsi",
-           "packageReleaseExe", "packageReleaseMsi")
+    listOf("prepareAppResources", "createDistributable", "createReleaseDistributable",
+           "packageExe", "packageMsi", "packageReleaseExe", "packageReleaseMsi")
         .mapNotNull { tasks.findByName(it) }
         .forEach { it.dependsOn("copyNativeDlls") }
 }
