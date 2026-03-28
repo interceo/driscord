@@ -58,6 +58,7 @@ compose.desktop {
         mainClass = "com.driscord.MainKt"
 
         nativeDistributions {
+            includeAllModules = true
             packageName = "Driscord"
             packageVersion = "1.0.0"
             description = "Driscord Voice"
