@@ -1,5 +1,6 @@
 #include "driscord_state.hpp"
 #include "jni_common.hpp"
+#include <string>
 
 #define CORE() DriscordState::get().core
 
@@ -57,6 +58,36 @@ JNIEXPORT void JNICALL Java_com_driscord_jni_NativeDriscord_audioSetSelfMuted(
 
 JNIEXPORT jfloat JNICALL Java_com_driscord_jni_NativeDriscord_audioInputLevel(JNIEnv*, jclass) {
     return CORE().audio_input_level();
+}
+
+JNIEXPORT jstring JNICALL Java_com_driscord_jni_NativeDriscord_audioListInputDevices(
+    JNIEnv* env, jclass
+) {
+    const std::string json = CORE().audio_list_input_devices_json();
+    return env->NewStringUTF(json.c_str());
+}
+
+JNIEXPORT void JNICALL Java_com_driscord_jni_NativeDriscord_audioSetInputDevice(
+    JNIEnv* env, jclass, jstring jId
+) {
+    const char* id = env->GetStringUTFChars(jId, nullptr);
+    CORE().audio_set_input_device(id);
+    env->ReleaseStringUTFChars(jId, id);
+}
+
+JNIEXPORT jstring JNICALL Java_com_driscord_jni_NativeDriscord_audioListOutputDevices(
+    JNIEnv* env, jclass
+) {
+    const std::string json = CORE().audio_list_output_devices_json();
+    return env->NewStringUTF(json.c_str());
+}
+
+JNIEXPORT void JNICALL Java_com_driscord_jni_NativeDriscord_audioSetOutputDevice(
+    JNIEnv* env, jclass, jstring jId
+) {
+    const char* id = env->GetStringUTFChars(jId, nullptr);
+    CORE().audio_set_output_device(id);
+    env->ReleaseStringUTFChars(jId, id);
 }
 
 JNIEXPORT void JNICALL Java_com_driscord_jni_NativeDriscord_audioOnPeerJoined(

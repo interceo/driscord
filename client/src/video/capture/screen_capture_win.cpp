@@ -38,7 +38,7 @@ static std::string wstr_to_utf8(const wchar_t* wstr) {
 // --- target enumeration -----------------------------------------------------
 
 struct MonitorEnumData {
-    std::vector<CaptureTarget>* targets;
+    std::vector<ScreenCaptureTarget>* targets;
     int index;
 };
 
@@ -52,10 +52,10 @@ static BOOL CALLBACK monitor_enum_proc(HMONITOR hmon, HDC, LPRECT, LPARAM lparam
     }
 
     int w = mi.rcMonitor.right - mi.rcMonitor.left;
-    int h = mi.rcMonitor.bottom - mi.rcMonitor.top;
+    int h = mi.rcMonitor.bottom - mi.rcMonitor.top; 
 
-    CaptureTarget t;
-    t.type = CaptureTarget::Monitor;
+    ScreenCaptureTarget t;
+    t.type = ScreenCaptureTarget::Monitor;
     t.id = std::to_string(data->index);
     t.name = "Monitor " + std::to_string(data->index + 1) + " (" + std::to_string(w) + "x" + std::to_string(h) + ")";
     t.width = w;
@@ -69,7 +69,7 @@ static BOOL CALLBACK monitor_enum_proc(HMONITOR hmon, HDC, LPRECT, LPARAM lparam
 }
 
 static BOOL CALLBACK window_enum_proc(HWND hwnd, LPARAM lparam) {
-    auto* targets = reinterpret_cast<std::vector<CaptureTarget>*>(lparam);
+    auto* targets = reinterpret_cast<std::vector<ScreenCaptureTarget>*>(lparam);
 
     if (!IsWindowVisible(hwnd)) {
         return TRUE;
@@ -93,8 +93,8 @@ static BOOL CALLBACK window_enum_proc(HWND hwnd, LPARAM lparam) {
         return TRUE;
     }
 
-    CaptureTarget t;
-    t.type = CaptureTarget::Window;
+    ScreenCaptureTarget t;
+    t.type = ScreenCaptureTarget::Window;
     t.id = std::to_string(reinterpret_cast<uintptr_t>(hwnd));
     t.name = wstr_to_utf8(title) + " (" + std::to_string(w) + "x" + std::to_string(h) + ")";
     t.width = w;
@@ -104,8 +104,8 @@ static BOOL CALLBACK window_enum_proc(HWND hwnd, LPARAM lparam) {
     return TRUE;
 }
 
-std::vector<CaptureTarget> ScreenCapture::list_targets() {
-    std::vector<CaptureTarget> targets;
+std::vector<ScreenCaptureTarget> ScreenCapture::list_targets() {
+    std::vector<ScreenCaptureTarget> targets;
 
     MonitorEnumData mon_data{&targets, 0};
     EnumDisplayMonitors(nullptr, nullptr, monitor_enum_proc, reinterpret_cast<LPARAM>(&mon_data));
@@ -117,14 +117,14 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
 
 // --- thumbnail (BitBlt) -----------------------------------------------------
 
-ScreenCapture::Frame ScreenCapture::grab_thumbnail(const CaptureTarget& target, int max_w, int max_h) {
+ScreenCapture::Frame ScreenCapture::grab_thumbnail(const ScreenCaptureTarget& target, int max_w, int max_h) {
     Frame f;
 
     HDC src_dc = nullptr;
     int src_x = 0, src_y = 0, src_w = 0, src_h = 0;
     HWND hwnd = nullptr;
 
-    if (target.type == CaptureTarget::Window && !target.id.empty()) {
+    if (target.type == ScreenCaptureTarget::Window && !target.id.empty()) {
         try {
             hwnd = reinterpret_cast<HWND>(static_cast<uintptr_t>(std::stoull(target.id)));
         } catch (const std::exception&) {
@@ -205,7 +205,7 @@ class WinScreenCapture : public ScreenCapture {
 public:
     ~WinScreenCapture() override { stop(); }
 
-    bool start(int fps, const CaptureTarget& target, int max_w, int max_h, FrameCallback cb) override {
+    bool start(int fps, const ScreenCaptureTarget& target, int max_w, int max_h, FrameCallback cb) override {
         if (running_) {
             return false;
         }
@@ -216,7 +216,7 @@ public:
         frame_interval_us_ = 1000000 / std::max(fps, 1);
         target_ = target;
 
-        if (target.type == CaptureTarget::Window) {
+        if (target.type == ScreenCaptureTarget::Window) {
             try {
                 hwnd_ = reinterpret_cast<HWND>(static_cast<uintptr_t>(std::stoull(target.id)));
             } catch (const std::exception&) {
@@ -588,7 +588,7 @@ private:
     std::atomic<bool> running_{false};
     FrameCallback callback_;
     std::thread thread_;
-    CaptureTarget target_;
+    ScreenCaptureTarget target_;
     int max_w_ = 1920;
     int max_h_ = 1080;
     int frame_interval_us_ = 16666;

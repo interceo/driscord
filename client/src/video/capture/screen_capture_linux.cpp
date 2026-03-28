@@ -51,8 +51,8 @@ static std::string x11_window_name(Display* dpy, Window win) {
     return {};
 }
 
-std::vector<CaptureTarget> ScreenCapture::list_targets() {
-    std::vector<CaptureTarget> targets;
+std::vector<ScreenCaptureTarget> ScreenCapture::list_targets() {
+    std::vector<ScreenCaptureTarget> targets;
 
     Display* dpy = XOpenDisplay(nullptr);
     if (!dpy) {
@@ -85,8 +85,8 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
             }
             name += " (" + std::to_string(crtc->width) + "x" + std::to_string(crtc->height) + ")";
 
-            CaptureTarget t;
-            t.type = CaptureTarget::Monitor;
+            ScreenCaptureTarget t;
+            t.type = ScreenCaptureTarget::Monitor;
             t.id = std::to_string(i);
             t.name = std::move(name);
             t.width = static_cast<int>(crtc->width);
@@ -103,8 +103,8 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
     if (targets.empty()) {
         XWindowAttributes root_attrs{};
         XGetWindowAttributes(dpy, root, &root_attrs);
-        CaptureTarget t;
-        t.type = CaptureTarget::Monitor;
+        ScreenCaptureTarget t;
+        t.type = ScreenCaptureTarget::Monitor;
         t.id = "0";
         t.name = "Full Desktop (" + std::to_string(root_attrs.width) + "x" + std::to_string(root_attrs.height) + ")";
         t.width = root_attrs.width;
@@ -154,8 +154,8 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
 
             name += " (" + std::to_string(attrs.width) + "x" + std::to_string(attrs.height) + ")";
 
-            CaptureTarget t;
-            t.type = CaptureTarget::Window;
+            ScreenCaptureTarget t;
+            t.type = ScreenCaptureTarget::Window;
             t.id = std::to_string(static_cast<unsigned long>(windows[i]));
             t.name = std::move(name);
             t.width = attrs.width;
@@ -171,7 +171,7 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
 
 // --- thumbnail --------------------------------------------------------------
 
-ScreenCapture::Frame ScreenCapture::grab_thumbnail(const CaptureTarget& target, int max_w, int max_h) {
+ScreenCapture::Frame ScreenCapture::grab_thumbnail(const ScreenCaptureTarget& target, int max_w, int max_h) {
     Frame f;
     Display* dpy = XOpenDisplay(nullptr);
     if (!dpy) {
@@ -184,7 +184,7 @@ ScreenCapture::Frame ScreenCapture::grab_thumbnail(const CaptureTarget& target, 
     int src_x = 0, src_y = 0, src_w = 0, src_h = 0;
     Window grab_win = root;
 
-    if (target.type == CaptureTarget::Window && !target.id.empty()) {
+    if (target.type == ScreenCaptureTarget::Window && !target.id.empty()) {
         try {
             grab_win = static_cast<Window>(std::stoul(target.id));
         } catch (const std::exception&) {
@@ -260,7 +260,7 @@ class LinuxScreenCapture : public ScreenCapture {
 public:
     ~LinuxScreenCapture() override { stop(); }
 
-    bool start(int fps, const CaptureTarget& target, int max_w, int max_h, FrameCallback cb) override {
+    bool start(int fps, const ScreenCaptureTarget& target, int max_w, int max_h, FrameCallback cb) override {
         if (running_) {
             return false;
         }
@@ -287,7 +287,7 @@ public:
         std::string display = display_env ? display_env : ":0";
         std::string url;
 
-        if (target.type == CaptureTarget::Window && !target.id.empty()) {
+        if (target.type == ScreenCaptureTarget::Window && !target.id.empty()) {
             url = display;
             av_dict_set(&opts, "window_id", target.id.c_str(), 0);
             std::string vsize = std::to_string(target.width) + "x" + std::to_string(target.height);

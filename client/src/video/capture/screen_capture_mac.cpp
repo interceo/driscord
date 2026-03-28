@@ -23,9 +23,9 @@ static void check_screen_recording_permission() {
 
 // --- target enumeration -----------------------------------------------------
 
-std::vector<CaptureTarget> ScreenCapture::list_targets() {
+std::vector<ScreenCaptureTarget> ScreenCapture::list_targets() {
     check_screen_recording_permission();
-    std::vector<CaptureTarget> targets;
+    std::vector<ScreenCaptureTarget> targets;
 
     CGDirectDisplayID displays[16];
     uint32_t count = 0;
@@ -37,8 +37,8 @@ std::vector<CaptureTarget> ScreenCapture::list_targets() {
         int w = static_cast<int>(bounds.size.width);
         int h = static_cast<int>(bounds.size.height);
 
-        CaptureTarget t;
-        t.type = CaptureTarget::Monitor;
+        ScreenCaptureTarget t;
+        t.type = ScreenCaptureTarget::Monitor;
         t.id = std::to_string(i);
         t.name = "Display " + std::to_string(i + 1) + " (" + std::to_string(w) + "x" + std::to_string(h) + ")";
         t.width = w;
@@ -67,7 +67,7 @@ static CGDirectDisplayID resolve_display(const std::string& id) {
 
 // --- thumbnail --------------------------------------------------------------
 
-ScreenCapture::Frame ScreenCapture::grab_thumbnail(const CaptureTarget& target, int max_w, int max_h) {
+ScreenCapture::Frame ScreenCapture::grab_thumbnail(const ScreenCaptureTarget& target, int max_w, int max_h) {
     Frame f;
     CGDirectDisplayID did = resolve_display(target.id);
     CGImageRef image = CGDisplayCreateImage(did);
@@ -109,7 +109,7 @@ class MacScreenCapture : public ScreenCapture {
 public:
     ~MacScreenCapture() override { stop(); }
 
-    bool start(int fps, const CaptureTarget& target, int max_w, int max_h, FrameCallback cb) override {
+    bool start(int fps, const ScreenCaptureTarget& target, int max_w, int max_h, FrameCallback cb) override {
         if (running_) {
             return false;
         }

@@ -9,7 +9,7 @@
 
 #include <nlohmann/json.hpp>
 
-struct CaptureTarget {
+struct ScreenCaptureTarget {
     enum Type { Monitor, Window };
 
     Type type = Monitor;
@@ -20,8 +20,8 @@ struct CaptureTarget {
     int x = 0;  // screen offset for monitor region capture
     int y = 0;
 
-    static CaptureTarget from_json(const nlohmann::json& j) {
-        CaptureTarget t;
+    static ScreenCaptureTarget from_json(const nlohmann::json& j) {
+        ScreenCaptureTarget t;
         t.type   = j.value("type", 0) == 0 ? Monitor : Window;
         t.id     = j.value("id",     "");
         t.name   = j.value("name",   "");
@@ -53,11 +53,11 @@ public:
     using FrameCallback = std::function<void(Frame frame)>;
 
     static std::unique_ptr<ScreenCapture> create();
-    static std::vector<CaptureTarget> list_targets();
-    static Frame grab_thumbnail(const CaptureTarget& target, int max_w, int max_h);
+    static std::vector<ScreenCaptureTarget> list_targets();
+    static Frame grab_thumbnail(const ScreenCaptureTarget& target, int max_w, int max_h);
 
     virtual ~ScreenCapture() = default;
-    virtual bool start(int fps, const CaptureTarget& target, int max_w, int max_h, FrameCallback cb) = 0;
+    virtual bool start(int fps, const ScreenCaptureTarget& target, int max_w, int max_h, FrameCallback cb) = 0;
     virtual void stop() = 0;
     virtual bool running() const = 0;
 };
