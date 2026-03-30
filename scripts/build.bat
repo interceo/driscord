@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableDelayedExpansion
 
-set "ROOT=%~dp0.."
+for %%F in ("%~dp0..") do set "ROOT=%%~fF"
 set "BUILD=%ROOT%\build"
 set "COMPOSE_DIR=%ROOT%\client-compose"
 
