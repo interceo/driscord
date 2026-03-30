@@ -60,7 +60,7 @@ if not defined VCPKG_EXE (
 )
 
 :: ---------------------------------------------------------------------------
-:: 1. CMake — server + legacy client + driscord_jni
+:: 1. CMake — server + driscord_jni + driscord_capi
 :: ---------------------------------------------------------------------------
 if not exist "%BUILD%\CMakeCache.txt" (
     echo =^> Configuring CMake...
@@ -148,9 +148,14 @@ set "GRADLE_USER_HOME=%ROOT%\builds\gradle-home"
 if not exist "%DRISCORD_BUILDS_DIR%" mkdir "%DRISCORD_BUILDS_DIR%"
 
 pushd "%COMPOSE_DIR%"
-:: fatJar — один uber-JAR, никакого bundled JRE, ~30-50 MB
+:: fatJar — JVM uber-JAR
 call gradlew.bat fatJar --quiet -PbuildsDir="%DRISCORD_BUILDS_DIR%"
-if errorlevel 1 ( echo Kotlin build failed. & popd & exit /b 1 )
+if errorlevel 1 ( echo fatJar build failed. & popd & exit /b 1 )
+
+:: Kotlin/Native mingwX64 executable
+echo =^> Building Kotlin/Native binary (mingwX64)...
+call gradlew.bat linkDriscordReleaseExecutableMingwX64 --quiet -PbuildsDir="%DRISCORD_BUILDS_DIR%"
+if errorlevel 1 ( echo WARNING: Kotlin/Native build failed ^— skipping. )
 popd
 echo     Compose JAR: %DRISCORD_BUILDS_DIR%\dist\driscord.jar
 
@@ -176,9 +181,14 @@ if exist "%DRISCORD_BUILDS_DIR%\dist\driscord.jar" (
     copy /Y "%DRISCORD_BUILDS_DIR%\dist\driscord.jar" "%STAGING%\compose\" >nul
 )
 
-:: Нативные DLL (driscord_jni, ffmpeg, etc.)
+:: Нативные DLL (driscord_jni, driscord_capi, ffmpeg, etc.)
 if exist "%BUILD%\client\driscord_jni.dll"  copy /Y "%BUILD%\client\driscord_jni.dll"  "%STAGING%\compose\" >nul 2>&1
+if exist "%BUILD%\client\driscord_capi.dll" copy /Y "%BUILD%\client\driscord_capi.dll" "%STAGING%\compose\" >nul 2>&1
 if exist "%CLIENT_DIR%\*.dll"               copy /Y "%CLIENT_DIR%\*.dll"               "%STAGING%\compose\" >nul 2>&1
+
+:: Kotlin/Native binary
+set "NATIVE_EXE=%DRISCORD_BUILDS_DIR%\kotlin\bin\mingwX64\driscordReleaseExecutable\driscord.exe"
+if exist "!NATIVE_EXE!" copy /Y "!NATIVE_EXE!" "%STAGING%\compose\driscord-native.exe" >nul 2>&1
 
 :: Конфиг
 copy /Y "%ROOT%\driscord.json" "%STAGING%\compose\" >nul

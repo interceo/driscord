@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# Build the Driscord Kotlin/Compose client.
+# Build the Driscord Kotlin/Compose + Kotlin/Native client.
 #
 # Produces: builds/client-compose/
-#   driscord.jar              — uber-JAR (platform-independent)
-#   libdriscord_jni.so        — Linux JNI native library
+#   driscord.jar              — uber-JAR (JVM, platform-independent)
+#   libdriscord_jni.so        — Linux JNI native library (for JVM client)
+#   libdriscord_capi.so       — Linux C-API native library (for Kotlin/Native client)
+#   driscord                  — Linux native binary (Kotlin/Native, linuxX64)
 #   driscord_jni.dll          — Windows JNI native library (if --windows passed)
 #   driscord.json             — runtime config
-#   driscord.sh               — Linux launcher
-#   driscord.bat              — Windows launcher
+#   driscord.sh               — Linux JVM launcher
+#   driscord.bat              — Windows JVM launcher
 #
 # Usage:
 #   ./scripts/build_client.sh            # Linux only
@@ -21,20 +23,35 @@ COMPOSE_DIR="$ROOT/client-compose"
 OUT="$ROOT/builds/client-compose"
 BUILDS_DIR="$ROOT/builds"
 
-BUILD_WINDOWS=true
+BUILD_WINDOWS=false
 for arg in "$@"; do
     [ "$arg" = "--windows" ] && BUILD_WINDOWS=true
 done
 
 # ---------------------------------------------------------------------------
-# 1. Linux native JNI library
+# 1. Linux native libraries (JNI + CAPI)
 # ---------------------------------------------------------------------------
 if [ ! -f "$BUILD/build.ninja" ] && [ ! -f "$BUILD/Makefile" ]; then
     echo "==> Configuring CMake (Linux)..."
+    # Explicitly pin to gcc/ar using absolute paths to prevent CMake from
+    # resolving tool names relative to the source directory (e.g. picking up
+    # a stray llvm-lib or treating "ar" as a relative path).
+    GCC_PATH="$(command -v gcc)"
+    GXX_PATH="$(command -v g++)"
+    AR_PATH="$(command -v ar)"
+    RANLIB_PATH="$(command -v ranlib)"
+    CMAKE_EXTRA_FLAGS=(
+        -DCMAKE_C_COMPILER="$GCC_PATH"
+        -DCMAKE_CXX_COMPILER="$GXX_PATH"
+        -DCMAKE_AR="$AR_PATH"
+        -DCMAKE_RANLIB="$RANLIB_PATH"
+    )
     if command -v ninja &>/dev/null; then
-        cmake -S "$ROOT" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release -Wno-dev
+        cmake -S "$ROOT" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release -Wno-dev \
+            "${CMAKE_EXTRA_FLAGS[@]}"
     else
-        cmake -S "$ROOT" -B "$BUILD" -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -Wno-dev
+        cmake -S "$ROOT" -B "$BUILD" -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -Wno-dev \
+            "${CMAKE_EXTRA_FLAGS[@]}"
     fi
 fi
 
@@ -42,6 +59,9 @@ JOBS=$(nproc 2>/dev/null || echo 4)
 echo "==> Building JNI library (Linux, $JOBS jobs)..."
 cmake --build "$BUILD" --target driscord_jni -j"$JOBS" 2>/dev/null || \
     cmake --build "$BUILD" --target driscord_core -j"$JOBS"
+
+echo "==> Building C-API library (Linux, $JOBS jobs)..."
+cmake --build "$BUILD" --target driscord_capi -j"$JOBS"
 
 # ---------------------------------------------------------------------------
 # 2. Windows cross-compiled JNI DLL (optional)
@@ -93,10 +113,10 @@ if $BUILD_WINDOWS; then
 fi
 
 # ---------------------------------------------------------------------------
-# 3. Kotlin/Compose fatJar
+# 3. Kotlin/Compose fatJar  +  Kotlin/Native linuxX64 binary
 # ---------------------------------------------------------------------------
 echo ""
-echo "==> Building Kotlin/Compose client (fatJar)..."
+echo "==> Building Kotlin clients..."
 
 if [ ! -f "$COMPOSE_DIR/gradlew" ]; then
     echo "    gradlew not found — bootstrapping..."
@@ -111,20 +131,59 @@ fi
 export DRISCORD_NATIVE_LIB_DIR="$BUILD/client"
 export GRADLE_USER_HOME="$BUILDS_DIR/gradle-home"
 
-# We output the jar directly to the staging dir via clientBuildDir property
-(cd "$COMPOSE_DIR" && ./gradlew fatJar --quiet \
-    -PbuildsDir="$BUILDS_DIR" \
-    -PclientBuildDir="$OUT")
+GRADLE_PROPS=(-PbuildsDir="$BUILDS_DIR" -PclientBuildDir="$OUT")
+
+echo "    [3a] fatJar (JVM)..."
+(cd "$COMPOSE_DIR" && ./gradlew fatJar --quiet "${GRADLE_PROPS[@]}")
+
+echo "    [3b] Kotlin/Native binary..."
+OS="$(uname -s)"
+ARCH="$(uname -m)"
+if [ "$OS" = "Linux" ]; then
+    NATIVE_TASK="linkDriscordReleaseExecutableLinuxX64"
+elif [ "$OS" = "Darwin" ] && [ "$ARCH" = "arm64" ]; then
+    NATIVE_TASK="linkDriscordReleaseExecutableMacosArm64"
+elif [ "$OS" = "Darwin" ]; then
+    NATIVE_TASK="linkDriscordReleaseExecutableMacosX64"
+else
+    NATIVE_TASK=""
+fi
+
+if [ -n "$NATIVE_TASK" ]; then
+    (cd "$COMPOSE_DIR" && ./gradlew "$NATIVE_TASK" --quiet "${GRADLE_PROPS[@]}") || \
+        echo "    WARNING: Kotlin/Native build failed — skipping native binary."
+else
+    echo "    WARNING: Unknown OS ($OS/$ARCH), skipping native binary."
+fi
 
 # ---------------------------------------------------------------------------
 # 4. Stage everything → builds/client-compose/
 # ---------------------------------------------------------------------------
 mkdir -p "$OUT"
 
-# Native Linux library
+# Native Linux libraries
 if ls "$BUILD/client/libdriscord_jni."* &>/dev/null 2>&1; then
     cp "$BUILD/client/libdriscord_jni."* "$OUT/"
 fi
+if ls "$BUILD/client/libdriscord_capi."* &>/dev/null 2>&1; then
+    cp "$BUILD/client/libdriscord_capi."* "$OUT/"
+fi
+
+# Kotlin/Native binary (platform-specific)
+for BIN_DIR in \
+    "$BUILDS_DIR/kotlin/bin/linuxX64/driscordReleaseExecutable" \
+    "$BUILDS_DIR/kotlin/bin/macosX64/driscordReleaseExecutable" \
+    "$BUILDS_DIR/kotlin/bin/macosArm64/driscordReleaseExecutable"
+do
+    for EXT in .kexe ""; do
+        NATIVE_EXE="$BIN_DIR/driscord$EXT"
+        if [ -f "$NATIVE_EXE" ]; then
+            cp "$NATIVE_EXE" "$OUT/driscord-native"
+            chmod +x "$OUT/driscord-native"
+            break 2
+        fi
+    done
+done
 
 # Native Windows DLL (if built)
 if $BUILD_WINDOWS && ls "$BUILD_WIN/client/driscord_jni."* &>/dev/null 2>&1; then
@@ -154,4 +213,4 @@ LAUNCHER
 
 echo ""
 echo "==> Client build ready: $OUT"
-ls -lh "$OUT"
+ls -lh "$OUT" 2>/dev/null || true

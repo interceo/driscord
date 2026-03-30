@@ -1,48 +1,71 @@
 #!/usr/bin/env bash
-# Launch the Kotlin/Compose Desktop client.
-# Builds the native JNI library first if it is not found.
+# Launch the Driscord native binary (Kotlin/Native).
+# Detects the current platform, finds the binary, and runs it.
+# Builds C++ + Kotlin/Native automatically if the binary is not found.
+#
+# Usage:
+#   ./scripts/run.sh [server-url]
+#   ./scripts/run.sh ws://localhost:9001
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BUILD="$ROOT/build"
-COMPOSE_DIR="$ROOT/client-compose"
+BUILDS="$ROOT/builds/kotlin"
 
-# Locate the shared library (Linux .so / macOS .dylib)
-find_native_lib() {
-    local candidates=(
-        "$BUILD/client/libdriscord_jni.so"
-        "$BUILD/client/libdriscord_jni.dylib"
-    )
-    for f in "${candidates[@]}"; do
-        if [ -f "$f" ]; then
-            dirname "$f"
-            return 0
+# ---------------------------------------------------------------------------
+# Detect platform → KMP target name and binary extension
+# ---------------------------------------------------------------------------
+OS="$(uname -s)"
+ARCH="$(uname -m)"
+
+case "$OS" in
+    Linux)
+        TARGET="linuxX64"
+        EXT=".kexe"
+        NATIVE_LIB="$ROOT/build/client/libdriscord_capi.so"
+        ;;
+    Darwin)
+        if [ "$ARCH" = "arm64" ]; then
+            TARGET="macosArm64"
+        else
+            TARGET="macosX64"
         fi
-    done
-    return 1
-}
-
-if ! NATIVE_DIR=$(find_native_lib); then
-    echo "==> JNI library not found — building C++ first..."
-    bash "$(dirname "$0")/build.sh"
-    NATIVE_DIR=$(find_native_lib) || {
-        echo "ERROR: libdriscord_jni not found even after build."
-        echo "  Make sure JNI headers are available (install openjdk-dev / jdk-devel)."
+        EXT=".kexe"
+        NATIVE_LIB="$ROOT/build/client/libdriscord_capi.dylib"
+        ;;
+    *)
+        echo "ERROR: Unsupported OS: $OS. Use run.bat on Windows."
         exit 1
-    }
+        ;;
+esac
+
+BINARY="$BUILDS/bin/$TARGET/driscordReleaseExecutable/driscord$EXT"
+
+# ---------------------------------------------------------------------------
+# Auto-build if binary or native lib is missing
+# ---------------------------------------------------------------------------
+if [ ! -f "$BINARY" ] || [ ! -f "$NATIVE_LIB" ]; then
+    echo "==> Native binary not found — building..."
+    bash "$(dirname "$0")/build_client.sh"
 fi
 
-if [ ! -f "$COMPOSE_DIR/gradlew" ]; then
-    echo "==> gradlew not found — bootstrapping Gradle wrapper..."
-    if ! command -v gradle &>/dev/null; then
-        echo "ERROR: Gradle is not installed. Run 'cd $COMPOSE_DIR && gradle wrapper' manually."
-        exit 1
-    fi
-    (cd "$COMPOSE_DIR" && gradle wrapper --quiet)
-    chmod +x "$COMPOSE_DIR/gradlew"
+if [ ! -f "$BINARY" ]; then
+    echo "ERROR: Build succeeded but binary not found at:"
+    echo "  $BINARY"
+    exit 1
 fi
 
-echo "==> Launching Driscord (Compose) ..."
-echo "    Native lib dir: $NATIVE_DIR"
-export DRISCORD_NATIVE_LIB_DIR="$NATIVE_DIR"
-exec "$COMPOSE_DIR/gradlew" -p "$COMPOSE_DIR" run
+# ---------------------------------------------------------------------------
+# Run
+# ---------------------------------------------------------------------------
+LIB_DIR="$(dirname "$NATIVE_LIB")"
+echo "==> Launching Driscord (Kotlin/Native $TARGET)"
+echo "    Binary : $BINARY"
+echo "    LibDir : $LIB_DIR"
+
+# Prepend the library directory to the dynamic loader search path
+case "$OS" in
+    Linux)  export LD_LIBRARY_PATH="${LIB_DIR}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ;;
+    Darwin) export DYLD_LIBRARY_PATH="${LIB_DIR}${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}" ;;
+esac
+
+exec "$BINARY" "$@"
