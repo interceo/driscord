@@ -175,9 +175,44 @@ if exist "%DISTRIB_DIR%\app" (
     copy /Y "%ROOT%\driscord.json" "%DISTRIB_DIR%\app\" >nul
 )
 
+:: ---------------------------------------------------------------------------
+:: Package Compose distributable as a single portable EXE via Warp Packer.
+:: Warp caches the unpacked app in %LOCALAPPDATA%\warp\packages\<hash>,
+:: so repeated launches are instant without re-extraction.
+:: Falls back to a plain zip if warp-packer cannot be obtained.
+:: ---------------------------------------------------------------------------
+set "WARP_EXE="
+
+:: 1. Check PATH / known locations
+where warp-packer >nul 2>&1
+if not errorlevel 1 ( set "WARP_EXE=warp-packer" & goto warp_found )
+if exist "%BUILD%\warp-packer.exe" ( set "WARP_EXE=%BUILD%\warp-packer.exe" & goto warp_found )
+
+:: 2. Auto-download warp-packer from GitHub releases into the build dir
+echo =^> warp-packer not found, downloading...
+set "WARP_URL=https://github.com/dgiagio/warp/releases/download/v0.3.0/windows-x64.warp-packer.exe"
+powershell -NoProfile -Command ^
+    "try { Invoke-WebRequest -Uri '%WARP_URL%' -OutFile '%BUILD%\warp-packer.exe' -UseBasicParsing -ErrorAction Stop; exit 0 } catch { exit 1 }"
+if errorlevel 1 ( echo     Download failed, falling back to zip. & goto warp_fallback )
+set "WARP_EXE=%BUILD%\warp-packer.exe"
+
+:warp_found
+echo =^> Packing single-exe distributable with Warp Packer...
+set "OUT_EXE=%ROOT%\builds\driscord.exe"
+"%WARP_EXE%" --arch windows-x64 --input_dir "%DISTRIB_DIR%" --exec "Driscord.exe" --output "%OUT_EXE%"
+if errorlevel 1 ( echo     warp-packer failed, falling back to zip. & goto warp_fallback )
+
+echo     Single exe: %OUT_EXE%
+if exist "Z:\" ( move /Y "%OUT_EXE%" "Z:\" >nul & echo     Single exe: Z:\driscord.exe )
+goto warp_done
+
+:warp_fallback
+echo =^> Falling back to zip archive...
 powershell -NoProfile -Command "Compress-Archive -Path '%DISTRIB_DIR%' -DestinationPath '%ROOT%\builds\driscord_compose.zip' -Force" 2>nul
 if exist "%ROOT%\builds\driscord_compose.zip" move /Y "%ROOT%\builds\driscord_compose.zip" "Z:\" >nul
 echo     Compose zip: Z:\driscord_compose.zip
+
+:warp_done
 
 :: Server
 if exist "%STAGING%\server" rd /s /q "%STAGING%\server"
