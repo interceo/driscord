@@ -30,8 +30,10 @@ public:
             next_seq_    = seq;
             initialized_ = true;
         } else if (seq < next_seq_) [[unlikely]] {
-            if (popped_) return false;  // already consumed past this
-            next_seq_ = seq;            // lower seq arrived, adjust start
+            if (popped_) {
+                return false; // already consumed past this
+            }
+            next_seq_ = seq; // lower seq arrived, adjust start
         }
 
         auto& slot = slots_[seq & kMask];

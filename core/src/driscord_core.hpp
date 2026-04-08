@@ -128,7 +128,7 @@ private:
     StringCb on_peer_left_cb_;
     StringCb on_new_streaming_peer_cb_;
     StringCb on_streaming_peer_removed_cb_;
-    FrameCb  on_frame_cb_;
+    FrameCb on_frame_cb_;
     StringCb on_frame_removed_cb_;
     StringCb on_streaming_started_cb_;
     StringCb on_streaming_stopped_cb_;

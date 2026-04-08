@@ -44,11 +44,11 @@ public:
 private:
     void on_capture(const float* input, uint32_t frames);
 
-    std::atomic<bool>  running_{false};
-    std::atomic<bool>  muted_{false};
+    std::atomic<bool> running_{false};
+    std::atomic<bool> muted_{false};
     std::atomic<float> input_level_{0.0f};
 
-    std::string    device_id_; // empty = default device
+    std::string device_id_; // empty = default device
     PacketCallback on_packet_;
 
     std::unique_ptr<OpusEncode> encoder_;
@@ -100,7 +100,7 @@ public:
     void reset();
 
     struct Stats {
-        size_t   queue_size = 0;
+        size_t queue_size   = 0;
         uint64_t drop_count = 0;
         uint64_t miss_count = 0;
     };
@@ -108,19 +108,19 @@ public:
 
 private:
     mutable std::mutex decode_mutex_;
-    OpusDecode         decoder_;
-    AudioJitter        jitter_;
+    OpusDecode decoder_;
+    AudioJitter jitter_;
     std::vector<float> decode_buf_;
     std::vector<float> mono_buf_;
-    uint64_t           push_count_ = 0;
+    uint64_t push_count_ = 0;
 
     int channels_;
     int sample_rate_;
 
     std::atomic<float> volume_{1.0f};
-    std::atomic<bool>  muted_{false};
+    std::atomic<bool> muted_{false};
 
-    uint64_t      id_ = 0;
+    uint64_t id_        = 0;
     uint64_t pop_count_ = 0;
 
     static std::atomic<uint64_t> next_id_;

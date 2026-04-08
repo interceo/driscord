@@ -25,7 +25,11 @@ void Transport::register_channel(ChannelSpec spec) {
     channel_specs_.push_back(std::move(spec));
 }
 
-void Transport::add_turn_server(const std::string& url, const std::string& user, const std::string& pass) {
+void Transport::add_turn_server(
+    const std::string& url,
+    const std::string& user,
+    const std::string& pass
+) {
     auto relay_type  = rtc::IceServer::RelayType::TurnUdp;
     std::string host = url;
 
@@ -144,9 +148,13 @@ void Transport::send_on_channel_to(
     {
         std::scoped_lock lk(peers_mutex_);
         auto pit = peers_.find(peer_id);
-        if (pit == peers_.end()) return;
+        if (pit == peers_.end()) {
+            return;
+        }
         auto cit = pit->second.channels.find(label);
-        if (cit == pit->second.channels.end() || !cit->second.dc || !cit->second.open) return;
+        if (cit == pit->second.channels.end() || !cit->second.dc || !cit->second.open) {
+            return;
+        }
         dc = cit->second.dc;
     }
     try {
@@ -165,9 +173,13 @@ void Transport::send_on_channel_to(
     {
         std::scoped_lock lk(peers_mutex_);
         auto pit = peers_.find(peer_id);
-        if (pit == peers_.end()) return;
+        if (pit == peers_.end()) {
+            return;
+        }
         auto cit = pit->second.channels.find(label);
-        if (cit == pit->second.channels.end() || !cit->second.dc || !cit->second.open) return;
+        if (cit == pit->second.channels.end() || !cit->second.dc || !cit->second.open) {
+            return;
+        }
         dc = cit->second.dc;
     }
     try {
@@ -364,7 +376,11 @@ void Transport::handle_answer(const std::string& from, const std::string& sdp) {
     }
 }
 
-void Transport::handle_candidate(const std::string& from, const std::string& candidate, const std::string& mid) {
+void Transport::handle_candidate(
+    const std::string& from,
+    const std::string& candidate,
+    const std::string& mid
+) {
     LOG_INFO() << "remote ICE candidate from " << from << ": " << candidate;
     std::scoped_lock lk(peers_mutex_);
     auto it = peers_.find(from);

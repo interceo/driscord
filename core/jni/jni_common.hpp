@@ -1,7 +1,7 @@
 #pragma once
 
-#include <jni.h>
 #include <functional>
+#include <jni.h>
 #include <memory>
 #include <string>
 #include <vector>
@@ -12,35 +12,42 @@
 // ---------------------------------------------------------------------------
 
 struct JniRef {
-    JavaVM*   jvm = nullptr;
-    jobject   obj = nullptr;
+    JavaVM* jvm   = nullptr;
+    jobject obj   = nullptr;
     jmethodID mid = nullptr;
 
     JniRef() = default;
 
     JniRef(JNIEnv* env, jobject listener, const char* method, const char* sig) {
-        if (!listener) return;
+        if (!listener) {
+            return;
+        }
         env->GetJavaVM(&jvm);
         obj = env->NewGlobalRef(listener);
         mid = env->GetMethodID(env->GetObjectClass(listener), method, sig);
     }
 
     ~JniRef() {
-        if (!obj || !jvm) return;
+        if (!obj || !jvm) {
+            return;
+        }
         JNIEnv* env = nullptr;
         if (jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) == JNI_OK) {
             env->DeleteGlobalRef(obj);
         }
     }
 
-    JniRef(const JniRef&) = delete;
+    JniRef(const JniRef&)            = delete;
     JniRef& operator=(const JniRef&) = delete;
 
     JNIEnv* attach() const {
-        if (!jvm) return nullptr;
+        if (!jvm) {
+            return nullptr;
+        }
         JNIEnv* env = nullptr;
-        if (jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) == JNI_EDETACHED)
+        if (jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) == JNI_EDETACHED) {
             jvm->AttachCurrentThreadAsDaemon(reinterpret_cast<void**>(&env), nullptr);
+        }
         return env;
     }
 };
@@ -57,28 +64,35 @@ inline jstring jni_utf8_to_jstring(JNIEnv* env, const std::string& utf8) {
     size_t i = 0;
     while (i < utf8.size()) {
         uint32_t cp = 0;
-        auto c = static_cast<unsigned char>(utf8[i]);
+        auto c      = static_cast<unsigned char>(utf8[i]);
         if (c < 0x80) {
-            cp = c; i += 1;
+            cp = c;
+            i += 1;
         } else if ((c >> 5) == 0x06) {
-            if (i + 1 >= utf8.size()) break;
-            cp = (c & 0x1F) << 6 | (static_cast<unsigned char>(utf8[i+1]) & 0x3F);
+            if (i + 1 >= utf8.size()) {
+                break;
+            }
+            cp = (c & 0x1F) << 6 | (static_cast<unsigned char>(utf8[i + 1]) & 0x3F);
             i += 2;
         } else if ((c >> 4) == 0x0E) {
-            if (i + 2 >= utf8.size()) break;
-            cp = (c & 0x0F) << 12
-               | (static_cast<unsigned char>(utf8[i+1]) & 0x3F) << 6
-               | (static_cast<unsigned char>(utf8[i+2]) & 0x3F);
+            if (i + 2 >= utf8.size()) {
+                break;
+            }
+            cp = (c & 0x0F) << 12 | (static_cast<unsigned char>(utf8[i + 1]) & 0x3F) << 6 |
+                 (static_cast<unsigned char>(utf8[i + 2]) & 0x3F);
             i += 3;
         } else if ((c >> 3) == 0x1E) {
-            if (i + 3 >= utf8.size()) break;
-            cp = (c & 0x07) << 18
-               | (static_cast<unsigned char>(utf8[i+1]) & 0x3F) << 12
-               | (static_cast<unsigned char>(utf8[i+2]) & 0x3F) << 6
-               | (static_cast<unsigned char>(utf8[i+3]) & 0x3F);
+            if (i + 3 >= utf8.size()) {
+                break;
+            }
+            cp = (c & 0x07) << 18 | (static_cast<unsigned char>(utf8[i + 1]) & 0x3F) << 12 |
+                 (static_cast<unsigned char>(utf8[i + 2]) & 0x3F) << 6 |
+                 (static_cast<unsigned char>(utf8[i + 3]) & 0x3F);
             i += 4;
         } else {
-            utf16.push_back(0xFFFD); i += 1; continue;
+            utf16.push_back(0xFFFD);
+            i += 1;
+            continue;
         }
         if (cp <= 0xFFFF) {
             utf16.push_back(static_cast<jchar>(cp));
@@ -99,21 +113,23 @@ inline jstring jni_utf8_to_jstring(JNIEnv* env, const std::string& utf8) {
 // ---------------------------------------------------------------------------
 
 inline std::string jni_jstring_to_utf8(JNIEnv* env, jstring js) {
-    if (!js) return {};
+    if (!js) {
+        return {};
+    }
     const jchar* chars = env->GetStringChars(js, nullptr);
-    jsize len = env->GetStringLength(js);
+    jsize len          = env->GetStringLength(js);
 
     std::string utf8;
     utf8.reserve(static_cast<size_t>(len) * 3);
 
-    for (jsize i = 0; i < len; ) {
+    for (jsize i = 0; i < len;) {
         uint32_t cp;
         jchar c = chars[i++];
         if (c >= 0xD800 && c <= 0xDBFF && i < len) {
             jchar c2 = chars[i];
             if (c2 >= 0xDC00 && c2 <= 0xDFFF) {
-                cp = 0x10000u + ((static_cast<uint32_t>(c) - 0xD800u) << 10)
-                              +  (static_cast<uint32_t>(c2) - 0xDC00u);
+                cp = 0x10000u + ((static_cast<uint32_t>(c) - 0xD800u) << 10) +
+                     (static_cast<uint32_t>(c2) - 0xDC00u);
                 ++i;
             } else {
                 cp = 0xFFFD;
@@ -151,13 +167,16 @@ inline std::string jni_jstring_to_utf8(JNIEnv* env, jstring js) {
 // replaced or destroyed.
 // ---------------------------------------------------------------------------
 
-inline std::function<void(const std::string&)>
-make_string_cb(JNIEnv* env, jobject listener) {
-    if (!listener) return nullptr;
+inline std::function<void(const std::string&)> make_string_cb(JNIEnv* env, jobject listener) {
+    if (!listener) {
+        return nullptr;
+    }
     auto ref = std::make_shared<JniRef>(env, listener, "invoke", "(Ljava/lang/String;)V");
     return [ref](const std::string& s) {
         auto* e = ref->attach();
-        if (!e) return;
+        if (!e) {
+            return;
+        }
         jstring js = jni_utf8_to_jstring(e, s);
         e->CallVoidMethod(ref->obj, ref->mid, js);
         e->DeleteLocalRef(js);

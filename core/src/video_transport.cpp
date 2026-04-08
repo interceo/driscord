@@ -62,13 +62,14 @@ void VideoTransport::send_video(const uint8_t* data, size_t len) {
     std::vector<std::string> subscribers;
     {
         std::scoped_lock lk(streaming_mutex_);
-        if (video_subscribers_.empty()) return;
+        if (video_subscribers_.empty()) {
+            return;
+        }
         subscribers.assign(video_subscribers_.begin(), video_subscribers_.end());
     }
 
     const uint64_t frame_id = next_frame_id_++;
-    const auto total =
-        static_cast<uint16_t>((len + kChunkPayloadSize - 1) / kChunkPayloadSize);
+    const auto total = static_cast<uint16_t>((len + kChunkPayloadSize - 1) / kChunkPayloadSize);
 
     for (uint16_t i = 0; i < total; ++i) {
         const size_t offset    = static_cast<size_t>(i) * kChunkPayloadSize;
@@ -77,14 +78,17 @@ void VideoTransport::send_video(const uint8_t* data, size_t len) {
 
         // Build wire packet: header + payload
         rtc::binary pkt(wire_len);
-        protocol::ChunkHeader{frame_id, i, total}
-            .serialize(reinterpret_cast<uint8_t*>(pkt.data()));
+        protocol::ChunkHeader{frame_id, i, total}.serialize(reinterpret_cast<uint8_t*>(pkt.data()));
         std::memcpy(pkt.data() + protocol::ChunkHeader::kWireSize, data + offset, chunk_len);
 
         // Move to last subscriber, copy to the rest
         for (size_t s = 0; s + 1 < subscribers.size(); ++s) {
-            transport_.send_on_channel_to("video", subscribers[s],
-                reinterpret_cast<const uint8_t*>(pkt.data()), wire_len);
+            transport_.send_on_channel_to(
+                "video",
+                subscribers[s],
+                reinterpret_cast<const uint8_t*>(pkt.data()),
+                wire_len
+            );
         }
         transport_.send_on_channel_to("video", subscribers.back(), std::move(pkt));
     }
@@ -169,7 +173,12 @@ void VideoTransport::clear_video_sink() {
     on_keyframe_needed_ = nullptr;
 }
 
-void VideoTransport::on_assembled(const std::string& peer_id, const uint8_t* data, size_t len, uint64_t frame_id) {
+void VideoTransport::on_assembled(
+    const std::string& peer_id,
+    const uint8_t* data,
+    size_t len,
+    uint64_t frame_id
+) {
     {
         std::function<void(const std::string&)> cb;
         bool is_new;
@@ -191,12 +200,8 @@ void VideoTransport::on_assembled(const std::string& peer_id, const uint8_t* dat
 }
 
 void VideoTransport::on_chunk(const std::string& peer_id, const uint8_t* data, size_t len) {
-    auto [it, _] = peer_assembly_.try_emplace(
-        peer_id, kChunkPayloadSize, 8, kMaxChunksPerFrame
-    );
-    it->second.push(data, len,
-        [&](uint64_t frame_id, const uint8_t* frame_data, size_t frame_len) {
-            on_assembled(peer_id, frame_data, frame_len, frame_id);
-        }
-    );
+    auto [it, _] = peer_assembly_.try_emplace(peer_id, kChunkPayloadSize, 8, kMaxChunksPerFrame);
+    it->second.push(data, len, [&](uint64_t frame_id, const uint8_t* frame_data, size_t frame_len) {
+        on_assembled(peer_id, frame_data, frame_len, frame_id);
+    });
 }

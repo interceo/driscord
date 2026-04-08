@@ -12,7 +12,8 @@
 
 class Transport {
 public:
-    using PacketCb    = std::function<void(const std::string& peer_id, const uint8_t* data, size_t len)>;
+    using PacketCb = std::function<
+        void(const std::string& peer_id, const uint8_t* data, size_t len)>;
     using PeerEventCb = std::function<void(const std::string& peer_id)>;
 
     struct ChannelSpec {
@@ -55,10 +56,19 @@ public:
     void send_watch_stop();
 
     void send_on_channel(const std::string& label, const uint8_t* data, size_t len);
-    void send_on_channel_to(const std::string& label, const std::string& peer_id, const uint8_t* data, size_t len);
+    void send_on_channel_to(
+        const std::string& label,
+        const std::string& peer_id,
+        const uint8_t* data,
+        size_t len
+    );
 
     // Move-based overload: transfers ownership to libdatachannel, avoids internal copy.
-    void send_on_channel_to(const std::string& label, const std::string& peer_id, rtc::binary&& data);
+    void send_on_channel_to(
+        const std::string& label,
+        const std::string& peer_id,
+        rtc::binary&& data
+    );
 
     struct PeerInfo {
         std::string id;
@@ -81,8 +91,16 @@ private:
     void create_peer(const std::string& peer_id, bool create_offer);
     void handle_offer(const std::string& from, const std::string& sdp);
     void handle_answer(const std::string& from, const std::string& sdp);
-    void handle_candidate(const std::string& from, const std::string& candidate, const std::string& mid);
-    void setup_channel(const std::string& peer_id, const std::string& label, std::shared_ptr<rtc::DataChannel> dc);
+    void handle_candidate(
+        const std::string& from,
+        const std::string& candidate,
+        const std::string& mid
+    );
+    void setup_channel(
+        const std::string& peer_id,
+        const std::string& label,
+        std::shared_ptr<rtc::DataChannel> dc
+    );
     void send_signal(const nlohmann::json& msg);
 
     mutable std::mutex ws_mutex_;

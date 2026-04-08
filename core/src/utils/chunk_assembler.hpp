@@ -18,8 +18,7 @@ void chunk_frame(
     size_t max_payload,
     EmitFn&& emit
 ) {
-    const auto total =
-        static_cast<uint16_t>((len + max_payload - 1) / max_payload);
+    const auto total = static_cast<uint16_t>((len + max_payload - 1) / max_payload);
 
     std::vector<uint8_t> buf(protocol::ChunkHeader::kWireSize + max_payload);
 
@@ -45,7 +44,7 @@ public:
 
     explicit ChunkAssembler(
         size_t max_payload,
-        size_t max_frames = 8,
+        size_t max_frames             = 8,
         uint16_t max_chunks_per_frame = 512
     )
         : max_payload_(max_payload)

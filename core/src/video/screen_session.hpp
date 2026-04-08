@@ -47,7 +47,10 @@ public:
         const utils::vector_view<const uint8_t> data,
         uint64_t frame_id
     );
-    void push_audio_packet(const std::string& peer_id, const utils::vector_view<const uint8_t> data);
+    void push_audio_packet(
+        const std::string& peer_id,
+        const utils::vector_view<const uint8_t> data
+    );
 
     void update();
 

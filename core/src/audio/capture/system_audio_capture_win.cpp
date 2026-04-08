@@ -41,7 +41,8 @@ public:
         return c;
     }
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
-        if (riid == __uuidof(IUnknown) || riid == __uuidof(IActivateAudioInterfaceCompletionHandler)) {
+        if (riid == __uuidof(IUnknown) ||
+            riid == __uuidof(IActivateAudioInterfaceCompletionHandler)) {
             *ppv = static_cast<IActivateAudioInterfaceCompletionHandler*>(this);
             AddRef();
             return S_OK;
@@ -50,7 +51,8 @@ public:
         return E_NOINTERFACE;
     }
 
-    HRESULT STDMETHODCALLTYPE ActivateCompleted(IActivateAudioInterfaceAsyncOperation* op) override {
+    HRESULT STDMETHODCALLTYPE
+    ActivateCompleted(IActivateAudioInterfaceAsyncOperation* op) override {
         op->GetActivateResult(&activate_hr_, &activated_);
         SetEvent(event_);
         return S_OK;
@@ -99,7 +101,10 @@ public:
             LOG_INFO() << "system audio: using standard WASAPI loopback";
         }
 
-        hr = audio_client_->GetService(__uuidof(IAudioCaptureClient), reinterpret_cast<void**>(&capture_client_));
+        hr = audio_client_->GetService(
+            __uuidof(IAudioCaptureClient),
+            reinterpret_cast<void**>(&capture_client_)
+        );
         if (FAILED(hr)) {
             LOG_ERROR() << "GetService(IAudioCaptureClient) failed: " << std::hex << hr;
             cleanup_client();
@@ -142,9 +147,10 @@ private:
 #if DRIST_HAS_PROCESS_LOOPBACK
     bool try_process_loopback() {
         AUDIOCLIENT_ACTIVATION_PARAMS params{};
-        params.ActivationType                            = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK;
-        params.ProcessLoopbackParams.TargetProcessId     = GetCurrentProcessId();
-        params.ProcessLoopbackParams.ProcessLoopbackMode = PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE;
+        params.ActivationType                        = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK;
+        params.ProcessLoopbackParams.TargetProcessId = GetCurrentProcessId();
+        params.ProcessLoopbackParams
+            .ProcessLoopbackMode = PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE;
 
         PROPVARIANT pv{};
         pv.vt             = VT_BLOB;
@@ -187,7 +193,8 @@ private:
         }
 
         IUnknown* iface = handler->interface_ptr();
-        hr              = iface->QueryInterface(__uuidof(IAudioClient), reinterpret_cast<void**>(&audio_client_));
+        hr =
+            iface->QueryInterface(__uuidof(IAudioClient), reinterpret_cast<void**>(&audio_client_));
         handler->Release();
         if (op) {
             op->Release();
@@ -223,7 +230,12 @@ private:
             return false;
         }
 
-        hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, reinterpret_cast<void**>(&audio_client_));
+        hr = device->Activate(
+            __uuidof(IAudioClient),
+            CLSCTX_ALL,
+            nullptr,
+            reinterpret_cast<void**>(&audio_client_)
+        );
         device->Release();
         if (FAILED(hr)) {
             LOG_ERROR() << "Activate(IAudioClient) failed: " << std::hex << hr;
@@ -245,7 +257,8 @@ private:
         REFERENCE_TIME duration = 200000; // 20ms
         HRESULT hr              = audio_client_->Initialize(
             AUDCLNT_SHAREMODE_SHARED,
-            extra_flags | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+            extra_flags | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
+                AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
             duration,
             0,
             &desired,
@@ -301,9 +314,14 @@ private:
                         if (first_audio_logged_ == 0) {
                             first_audio_logged_ = 1;
                             LOG_INFO()
-                                << "system audio: first non-silent buffer after " << silent_count_ << " silent buffers";
+                                << "system audio: first non-silent buffer after " << silent_count_
+                                << " silent buffers";
                         }
-                        callback_(reinterpret_cast<const float*>(data), static_cast<size_t>(num_frames), kChannels);
+                        callback_(
+                            reinterpret_cast<const float*>(data),
+                            static_cast<size_t>(num_frames),
+                            kChannels
+                        );
                     }
                 }
 

@@ -32,11 +32,15 @@ inline WallTimestamp WallNow() {
 }
 
 inline uint64_t WallToMs(const Timestamp ts) {
-    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(ts.time_since_epoch()).count());
+    return static_cast<
+        uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(ts.time_since_epoch())
+                      .count());
 }
 
 inline uint64_t WallToMs(const WallTimestamp ts) {
-    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(ts.time_since_epoch()).count());
+    return static_cast<
+        uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(ts.time_since_epoch())
+                      .count());
 }
 
 inline WallTimestamp WallFromMs(const uint64_t ms) {

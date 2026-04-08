@@ -75,7 +75,10 @@ public:
         const utils::vector_view<const uint8_t> data,
         uint64_t frame_id
     );
-    void push_audio_packet(const std::string& peer_id, const utils::vector_view<const uint8_t> data);
+    void push_audio_packet(
+        const std::string& peer_id,
+        const utils::vector_view<const uint8_t> data
+    );
 
     // Per-peer audio receiver lifecycle. Must be called before push_audio_packet for that peer.
     void add_audio_peer(const std::string& peer_id);

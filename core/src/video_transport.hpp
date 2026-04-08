@@ -14,13 +14,13 @@
 
 class VideoTransport {
 public:
-    using PacketCb    = Transport::PacketCb;
-    using Callback    = std::function<void()>;
+    using PacketCb      = Transport::PacketCb;
+    using Callback      = std::function<void()>;
     using VideoPacketCb = std::function<void(const std::string&, const uint8_t*, size_t, uint64_t)>;
     using KeyframeCb    = Callback;
 
     // Keep well under PMTU (~1400 bytes after DTLS/SCTP/UDP/IP headers).
-    static constexpr size_t   kChunkPayloadSize = 1100;
+    static constexpr size_t kChunkPayloadSize = 1100;
     // 512 chunks * 1100 bytes = ~560 KB max per frame; rejects malformed/malicious packets.
     static constexpr uint16_t kMaxChunksPerFrame = 512;
 
@@ -49,7 +49,12 @@ public:
 
 private:
     void on_chunk(const std::string& peer_id, const uint8_t* data, size_t len);
-    void on_assembled(const std::string& peer_id, const uint8_t* data, size_t len, uint64_t frame_id);
+    void on_assembled(
+        const std::string& peer_id,
+        const uint8_t* data,
+        size_t len,
+        uint64_t frame_id
+    );
 
     Transport& transport_;
 

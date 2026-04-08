@@ -10,8 +10,7 @@ Java_com_driscord_jni_NativeDriscord_videoSetWatching(JNIEnv*, jclass, jboolean 
     CORE().video_set_watching(watching == JNI_TRUE);
 }
 
-JNIEXPORT jboolean JNICALL
-Java_com_driscord_jni_NativeDriscord_videoWatching(JNIEnv*, jclass) {
+JNIEXPORT jboolean JNICALL Java_com_driscord_jni_NativeDriscord_videoWatching(JNIEnv*, jclass) {
     return CORE().video_watching() ? JNI_TRUE : JNI_FALSE;
 }
 

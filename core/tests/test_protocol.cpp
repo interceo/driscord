@@ -37,7 +37,7 @@ TEST(AudioHeader, ZeroValues) {
 
 TEST(AudioHeader, MaxSeq) {
     protocol::AudioHeader src;
-    src.seq = UINT64_MAX;
+    src.seq       = UINT64_MAX;
     src.sender_ts = utils::WallFromMs(0);
 
     uint8_t buf[protocol::AudioHeader::kWireSize]{};

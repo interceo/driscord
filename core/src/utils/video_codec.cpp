@@ -86,9 +86,9 @@ static const AVCodec* pick_h264_encoder() {
 
 static void setup_rate_control(AVCodecContext* ctx, int bitrate_kbps, std::string_view enc_name) {
     const int64_t bitrate_bps = static_cast<int64_t>(bitrate_kbps) * 1000;
-    ctx->bit_rate       = bitrate_bps;
-    ctx->rc_max_rate    = bitrate_bps;
-    ctx->rc_buffer_size = static_cast<int>(bitrate_bps * 2);
+    ctx->bit_rate             = bitrate_bps;
+    ctx->rc_max_rate          = bitrate_bps;
+    ctx->rc_buffer_size       = static_cast<int>(bitrate_bps * 2);
 
     if (enc_name.find("videotoolbox") != std::string_view::npos) {
         av_opt_set(ctx->priv_data, "allow_sw", "true", 0);
@@ -148,11 +148,18 @@ static void setup_common_ctx(AVCodecContext* ctx, int width, int height, int fps
     ctx->gop_size     = fps;
     ctx->max_b_frames = 0;
     ctx->thread_count = optimal_thread_count();
-    ctx->thread_type  = FF_THREAD_SLICE; // FF_THREAD_FRAME adds latency = thread_count-1 frames, incompatible with LOW_DELAY
+    ctx->thread_type  = FF_THREAD_SLICE; // FF_THREAD_FRAME adds latency = thread_count-1 frames,
+                                         // incompatible with LOW_DELAY
     ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
 }
 
-static ff::CodecContextPtr try_open_encoder(const AVCodec* codec, int width, int height, int fps, int bitrate_kbps) {
+static ff::CodecContextPtr try_open_encoder(
+    const AVCodec* codec,
+    int width,
+    int height,
+    int fps,
+    int bitrate_kbps
+) {
     ff::CodecContextPtr ctx{avcodec_alloc_context3(codec)};
     if (!ctx) {
         LOG_ERROR() << "avcodec_alloc_context3 failed for " << codec->name;
@@ -172,18 +179,25 @@ static ff::CodecContextPtr try_open_encoder(const AVCodec* codec, int width, int
 
 // --- VideoEncoder -----------------------------------------------------------
 
-bool VideoEncoder::init(const size_t width, const size_t height, const size_t fps, const size_t base_bitrate_kbps) {
+bool VideoEncoder::init(
+    const size_t width,
+    const size_t height,
+    const size_t fps,
+    const size_t base_bitrate_kbps
+) {
     const int w            = static_cast<int>(width);
     const int h            = static_cast<int>(height);
     const int f            = static_cast<int>(fps);
     const int base_bitrate = static_cast<int>(base_bitrate_kbps);
 
-    if (w == state_.width && h == state_.height && f == state_.fps && base_bitrate == state_.base_bitrate_kbps) {
+    if (w == state_.width && h == state_.height && f == state_.fps &&
+        base_bitrate == state_.base_bitrate_kbps) {
         return true;
     }
 
     if ((w & 1) != 0 || (h & 1) != 0 || !w || !h) {
-        LOG_ERROR() << "video encoder: dimensions must be even and non-zero (" << w << "x" << h << ")";
+        LOG_ERROR()
+            << "video encoder: dimensions must be even and non-zero (" << w << "x" << h << ")";
         return false;
     }
 
@@ -253,9 +267,18 @@ bool VideoEncoder::init(const size_t width, const size_t height, const size_t fp
         return false;
     }
 
-    auto sws = ff::SwsContextPtr{
-        sws_getContext(w, h, AV_PIX_FMT_BGRA, w, h, AV_PIX_FMT_YUV420P, SWS_FAST_BILINEAR, nullptr, nullptr, nullptr)
-    };
+    auto sws = ff::SwsContextPtr{sws_getContext(
+        w,
+        h,
+        AV_PIX_FMT_BGRA,
+        w,
+        h,
+        AV_PIX_FMT_YUV420P,
+        SWS_FAST_BILINEAR,
+        nullptr,
+        nullptr,
+        nullptr
+    )};
     if (!sws) {
         LOG_ERROR() << "sws_getContext (encoder) failed";
         return false;
@@ -293,7 +316,11 @@ void VideoEncoder::shutdown() {
     state_ = {};
 }
 
-const std::vector<uint8_t>& VideoEncoder::encode(const std::vector<uint8_t>& bgra, int width, int height) {
+const std::vector<uint8_t>& VideoEncoder::encode(
+    const std::vector<uint8_t>& bgra,
+    int width,
+    int height
+) {
     encode_buf_.clear();
 
     if (!ctx_ || width != state_.width || height != state_.height) {
@@ -379,7 +406,13 @@ void VideoDecoder::shutdown() {
     last_h_ = 0;
 }
 
-bool VideoDecoder::decode(const uint8_t* data, size_t len, std::vector<uint8_t>& rgba_out, int& out_w, int& out_h) {
+bool VideoDecoder::decode(
+    const uint8_t* data,
+    size_t len,
+    std::vector<uint8_t>& rgba_out,
+    int& out_w,
+    int& out_h
+) {
     if (!ctx_) {
         return false;
     }

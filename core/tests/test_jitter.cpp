@@ -50,7 +50,9 @@ TEST(JitterBuffer, SequentialPushPop) {
     std::vector<int> got;
     for (int i = 0; i < 20; ++i) {
         auto v = buf.pop();
-        if (v) got.push_back(*v);
+        if (v) {
+            got.push_back(*v);
+        }
     }
 
     // Should have received all 10 in order
@@ -215,7 +217,9 @@ TEST(JitterBuffer, ConcurrentOneProducerOneConsumer) {
     std::thread producer([&] {
         for (int i = 0; i < N; ++i) {
             buf.push(i, std::make_unique<int>(i));
-            if (i % 50 == 0) std::this_thread::sleep_for(1ms);
+            if (i % 50 == 0) {
+                std::this_thread::sleep_for(1ms);
+            }
         }
     });
 
@@ -240,7 +244,7 @@ TEST(JitterBuffer, ConcurrentOneProducerOneConsumer) {
 // 12. N producers + 1 consumer
 TEST(JitterBuffer, ConcurrentMultiProducerOneConsumer) {
     JBuf buf(5ms);
-    constexpr int PRODUCERS = 4;
+    constexpr int PRODUCERS    = 4;
     constexpr int PER_PRODUCER = 50; // Total 200 — must fit in ring capacity (256)
 
     std::vector<std::thread> producers;
@@ -266,7 +270,9 @@ TEST(JitterBuffer, ConcurrentMultiProducerOneConsumer) {
         }
     });
 
-    for (auto& t : producers) t.join();
+    for (auto& t : producers) {
+        t.join();
+    }
     consumer.join();
 
     EXPECT_GT(received.load(), 0);
@@ -275,13 +281,15 @@ TEST(JitterBuffer, ConcurrentMultiProducerOneConsumer) {
 // 13. 1 producer + N consumers
 TEST(JitterBuffer, ConcurrentOneProducerMultiConsumer) {
     JBuf buf(5ms);
-    constexpr int N = 500;
+    constexpr int N         = 500;
     constexpr int CONSUMERS = 4;
 
     std::thread producer([&] {
         for (int i = 0; i < N; ++i) {
             buf.push(i, std::make_unique<int>(i));
-            if (i % 20 == 0) std::this_thread::sleep_for(500us);
+            if (i % 20 == 0) {
+                std::this_thread::sleep_for(500us);
+            }
         }
     });
 
@@ -302,7 +310,9 @@ TEST(JitterBuffer, ConcurrentOneProducerMultiConsumer) {
     }
 
     producer.join();
-    for (auto& t : consumers) t.join();
+    for (auto& t : consumers) {
+        t.join();
+    }
 
     // Each packet should be consumed at most once
     EXPECT_GT(total_received.load(), 0);
@@ -341,7 +351,7 @@ TEST(JitterBuffer, ConcurrentPushEvict) {
 TEST(JitterBuffer, StressTest) {
     JBuf buf(5ms);
     constexpr int THREADS = 6;
-    constexpr int OPS = 500;
+    constexpr int OPS     = 500;
     std::atomic<bool> start{false};
     std::atomic<uint64_t> seq_counter{0};
 
@@ -354,21 +364,21 @@ TEST(JitterBuffer, StressTest) {
         for (int i = 0; i < OPS; ++i) {
             int op = rng() % 5;
             switch (op) {
-                case 0:
-                case 1: {
-                    uint64_t s = seq_counter.fetch_add(1, std::memory_order_relaxed);
-                    buf.push(s, std::make_unique<int>(static_cast<int>(s)));
-                    break;
-                }
-                case 2:
-                    buf.pop();
-                    break;
-                case 3:
-                    buf.evict_old(100ms);
-                    break;
-                case 4:
-                    buf.stats();
-                    break;
+            case 0:
+            case 1: {
+                uint64_t s = seq_counter.fetch_add(1, std::memory_order_relaxed);
+                buf.push(s, std::make_unique<int>(static_cast<int>(s)));
+                break;
+            }
+            case 2:
+                buf.pop();
+                break;
+            case 3:
+                buf.evict_old(100ms);
+                break;
+            case 4:
+                buf.stats();
+                break;
             }
         }
     };
@@ -379,7 +389,9 @@ TEST(JitterBuffer, StressTest) {
     }
 
     start.store(true, std::memory_order_release);
-    for (auto& t : threads) t.join();
+    for (auto& t : threads) {
+        t.join();
+    }
 
     // No crash = success
     SUCCEED();
@@ -402,7 +414,9 @@ TEST(Jitter, ExplicitSequencing) {
     std::vector<int> got;
     for (int i = 0; i < 5; ++i) {
         auto f = j.pop();
-        if (f) got.push_back(f->id);
+        if (f) {
+            got.push_back(f->id);
+        }
     }
 
     ASSERT_EQ(got.size(), 3u);
@@ -414,7 +428,7 @@ TEST(Jitter, ExplicitSequencing) {
 // 17. Empty frame ignored
 TEST(Jitter, EmptyFrameIgnored) {
     JitterT j(5ms);
-    j.push(0, TestFrame{});  // default id=-1, empty() returns true
+    j.push(0, TestFrame{}); // default id=-1, empty() returns true
     EXPECT_EQ(j.queue_size(), 0u);
 }
 
@@ -444,7 +458,7 @@ TEST(Jitter, FrontEffectiveTs) {
     ASSERT_TRUE(ts.has_value());
 
     auto expected = now + 50ms;
-    auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(*ts - expected).count();
+    auto diff     = std::chrono::duration_cast<std::chrono::milliseconds>(*ts - expected).count();
     EXPECT_LE(std::abs(diff), 1);
 }
 
@@ -458,7 +472,9 @@ TEST(Jitter, ConcurrentProducerConsumer) {
         auto base = utils::WallNow();
         for (int i = 0; i < N; ++i) {
             j.push(i, TestFrame{i, base + std::chrono::milliseconds(i)});
-            if (i % 50 == 0) std::this_thread::sleep_for(1ms);
+            if (i % 50 == 0) {
+                std::this_thread::sleep_for(1ms);
+            }
         }
     });
 
@@ -493,7 +509,9 @@ TEST(Jitter, OutOfOrderSeq) {
     std::vector<int> got;
     for (int i = 0; i < 5; ++i) {
         auto f = j.pop();
-        if (f) got.push_back(f->id);
+        if (f) {
+            got.push_back(f->id);
+        }
     }
 
     ASSERT_EQ(got.size(), 3u);
