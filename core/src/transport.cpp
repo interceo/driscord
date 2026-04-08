@@ -4,40 +4,51 @@
 
 using json = nlohmann::json;
 
-Transport::Transport() {
-    rtc_config_.iceServers.push_back(rtc::IceServer("stun:stun.l.google.com:19302"));
-    rtc_config_.iceServers.push_back(rtc::IceServer("stun:stun1.l.google.com:19302"));
-    rtc_config_.iceServers.push_back(rtc::IceServer("stun:stun2.l.google.com:19302"));
-    rtc_config_.iceServers.push_back(rtc::IceServer("stun:stun.cloudflare.com:3478"));
-    // Each video frame is chunked to 60 KB at the application level (VideoTransport),
-    // so SCTP never sees messages larger than ~61 KB. 128 KB gives enough headroom.
+Transport::Transport()
+{
+    rtc_config_.iceServers.push_back(
+        rtc::IceServer("stun:stun.l.google.com:19302"));
+    rtc_config_.iceServers.push_back(
+        rtc::IceServer("stun:stun1.l.google.com:19302"));
+    rtc_config_.iceServers.push_back(
+        rtc::IceServer("stun:stun2.l.google.com:19302"));
+    rtc_config_.iceServers.push_back(
+        rtc::IceServer("stun:stun.cloudflare.com:3478"));
+    // Each video frame is chunked to 60 KB at the application level
+    // (VideoTransport), so SCTP never sees messages larger than ~61 KB. 128 KB
+    // gives enough headroom.
     rtc_config_.maxMessageSize = 128 * 1024; // 128 KB
 }
 
-Transport::~Transport() {
+Transport::~Transport()
+{
     disconnect();
 }
 
-void Transport::register_channel(ChannelSpec spec) {
+void Transport::register_channel(ChannelSpec spec)
+{
     if (primary_channel_.empty()) {
         primary_channel_ = spec.label;
     }
     channel_specs_.push_back(std::move(spec));
 }
 
-void Transport::add_turn_server(const std::string& url, const std::string& user, const std::string& pass) {
-    auto relay_type  = rtc::IceServer::RelayType::TurnUdp;
+void Transport::add_turn_server(const std::string& url,
+    const std::string& user,
+    const std::string& pass)
+{
+    auto relay_type = rtc::IceServer::RelayType::TurnUdp;
     std::string host = url;
 
     if (host.rfind("turns:", 0) == 0) {
-        host       = host.substr(6);
+        host = host.substr(6);
         relay_type = rtc::IceServer::RelayType::TurnTls;
     } else if (host.rfind("turn:", 0) == 0) {
         host = host.substr(5);
     }
 
     uint16_t port = 3478;
-    auto colon    = host.rfind(':');
+    auto colon = host.rfind(':');
     if (colon != std::string::npos) {
         try {
             port = static_cast<uint16_t>(std::stoi(host.substr(colon + 1)));
@@ -48,11 +59,13 @@ void Transport::add_turn_server(const std::string& url, const std::string& user,
         host = host.substr(0, colon);
     }
 
-    rtc_config_.iceServers.push_back(rtc::IceServer(host, port, user, pass, relay_type));
+    rtc_config_.iceServers.push_back(
+        rtc::IceServer(host, port, user, pass, relay_type));
     LOG_INFO() << "TURN server added: " << host << ":" << port;
 }
 
-void Transport::connect(const std::string& ws_url) {
+void Transport::connect(const std::string& ws_url)
+{
     disconnect();
     ws_url_ = ws_url;
 
@@ -82,7 +95,8 @@ void Transport::connect(const std::string& ws_url) {
     ws_ = std::move(ws);
 }
 
-void Transport::disconnect() {
+void Transport::disconnect()
+{
     std::unordered_map<std::string, PeerState> local_peers;
     {
         std::scoped_lock lk(peers_mutex_);
@@ -105,7 +119,7 @@ void Transport::disconnect() {
     std::shared_ptr<rtc::WebSocket> ws;
     {
         std::scoped_lock lk(ws_mutex_);
-        ws            = std::move(ws_);
+        ws = std::move(ws_);
         ws_connected_ = false;
     }
     if (ws) {
@@ -114,7 +128,10 @@ void Transport::disconnect() {
     local_id_.clear();
 }
 
-void Transport::send_on_channel(const std::string& label, const uint8_t* data, size_t len) {
+void Transport::send_on_channel(const std::string& label,
+    const uint8_t* data,
+    size_t len)
+{
     std::vector<std::shared_ptr<rtc::DataChannel>> targets;
     {
         std::scoped_lock lk(peers_mutex_);
@@ -134,56 +151,66 @@ void Transport::send_on_channel(const std::string& label, const uint8_t* data, s
     }
 }
 
-void Transport::send_on_channel_to(
-    const std::string& label,
+void Transport::send_on_channel_to(const std::string& label,
     const std::string& peer_id,
     const uint8_t* data,
-    size_t len
-) {
+    size_t len)
+{
     std::shared_ptr<rtc::DataChannel> dc;
     {
         std::scoped_lock lk(peers_mutex_);
         auto pit = peers_.find(peer_id);
-        if (pit == peers_.end()) return;
+        if (pit == peers_.end()) {
+            return;
+        }
         auto cit = pit->second.channels.find(label);
-        if (cit == pit->second.channels.end() || !cit->second.dc || !cit->second.open) return;
+        if (cit == pit->second.channels.end() || !cit->second.dc || !cit->second.open) {
+            return;
+        }
         dc = cit->second.dc;
     }
     try {
         dc->send(reinterpret_cast<const std::byte*>(data), len);
     } catch (const std::exception& e) {
-        LOG_ERROR() << "send_on_channel_to[" << label << "][" << peer_id << "]: " << e.what();
+        LOG_ERROR() << "send_on_channel_to[" << label << "][" << peer_id
+                    << "]: " << e.what();
     }
 }
 
-void Transport::send_on_channel_to(
-    const std::string& label,
+void Transport::send_on_channel_to(const std::string& label,
     const std::string& peer_id,
-    rtc::binary&& data
-) {
+    rtc::binary&& data)
+{
     std::shared_ptr<rtc::DataChannel> dc;
     {
         std::scoped_lock lk(peers_mutex_);
         auto pit = peers_.find(peer_id);
-        if (pit == peers_.end()) return;
+        if (pit == peers_.end()) {
+            return;
+        }
         auto cit = pit->second.channels.find(label);
-        if (cit == pit->second.channels.end() || !cit->second.dc || !cit->second.open) return;
+        if (cit == pit->second.channels.end() || !cit->second.dc || !cit->second.open) {
+            return;
+        }
         dc = cit->second.dc;
     }
     try {
         dc->send(std::move(data));
     } catch (const std::exception& e) {
-        LOG_ERROR() << "send_on_channel_to[" << label << "][" << peer_id << "]: " << e.what();
+        LOG_ERROR() << "send_on_channel_to[" << label << "][" << peer_id
+                    << "]: " << e.what();
     }
 }
 
-std::vector<Transport::PeerInfo> Transport::peers() const {
+std::vector<Transport::PeerInfo> Transport::peers() const
+{
     std::scoped_lock lk(peers_mutex_);
     std::vector<PeerInfo> result;
     result.reserve(peers_.size());
     for (auto& [id, state] : peers_) {
         bool primary_open = false;
-        if (auto it = state.channels.find(primary_channel_); it != state.channels.end()) {
+        if (auto it = state.channels.find(primary_channel_);
+            it != state.channels.end()) {
             primary_open = it->second.open;
         }
         result.emplace_back(id, primary_open);
@@ -191,9 +218,10 @@ std::vector<Transport::PeerInfo> Transport::peers() const {
     return result;
 }
 
-void Transport::on_ws_message(const std::string& raw) {
+void Transport::on_ws_message(const std::string& raw)
+{
     try {
-        auto msg         = json::parse(raw);
+        auto msg = json::parse(raw);
         std::string type = msg.value("type", "");
 
         if (type == "welcome") {
@@ -227,7 +255,7 @@ void Transport::on_ws_message(const std::string& raw) {
             {
                 // Pre-register peer so peers() returns it before offer arrives
                 std::scoped_lock lk(peers_mutex_);
-                peers_.emplace(peer_id, PeerState{});
+                peers_.emplace(peer_id, PeerState { });
             }
             if (on_peer_joined_) {
                 on_peer_joined_(peer_id);
@@ -288,30 +316,33 @@ void Transport::on_ws_message(const std::string& raw) {
     }
 }
 
-void Transport::create_peer(const std::string& peer_id, bool create_offer) {
+void Transport::create_peer(const std::string& peer_id, bool create_offer)
+{
     auto pc = std::make_shared<rtc::PeerConnection>(rtc_config_);
 
     pc->onLocalDescription([this, peer_id](rtc::Description desc) {
         json msg;
         msg["type"] = desc.typeString();
-        msg["to"]   = peer_id;
-        msg["sdp"]  = std::string(desc);
+        msg["to"] = peer_id;
+        msg["sdp"] = std::string(desc);
         send_signal(msg);
     });
 
     pc->onLocalCandidate([this, peer_id](rtc::Candidate cand) {
         LOG_INFO() << "ICE candidate for " << peer_id << ": " << std::string(cand);
         json msg;
-        msg["type"]      = "candidate";
-        msg["to"]        = peer_id;
+        msg["type"] = "candidate";
+        msg["to"] = peer_id;
         msg["candidate"] = std::string(cand);
-        msg["sdpMid"]    = cand.mid();
+        msg["sdpMid"] = cand.mid();
         send_signal(msg);
     });
 
-    pc->onGatheringStateChange([peer_id](rtc::PeerConnection::GatheringState state) {
-        LOG_INFO() << "peer " << peer_id << " ICE gathering: " << static_cast<int>(state);
-    });
+    pc->onGatheringStateChange(
+        [peer_id](rtc::PeerConnection::GatheringState state) {
+            LOG_INFO() << "peer " << peer_id
+                       << " ICE gathering: " << static_cast<int>(state);
+        });
 
     pc->onDataChannel([this, peer_id](std::shared_ptr<rtc::DataChannel> dc) {
         const std::string label = dc->label();
@@ -333,7 +364,7 @@ void Transport::create_peer(const std::string& peer_id, bool create_offer) {
             if (spec.max_retransmits >= 0) {
                 init.reliability.maxRetransmits = spec.max_retransmits;
             }
-            auto dc                       = pc->createDataChannel(spec.label, init);
+            auto dc = pc->createDataChannel(spec.label, init);
             state.channels[spec.label].dc = dc;
             setup_channel(peer_id, spec.label, dc);
         }
@@ -343,28 +374,35 @@ void Transport::create_peer(const std::string& peer_id, bool create_offer) {
     peers_[peer_id] = std::move(state);
 }
 
-void Transport::handle_offer(const std::string& from, const std::string& sdp) {
+void Transport::handle_offer(const std::string& from, const std::string& sdp)
+{
     LOG_INFO() << "received offer from " << from;
     create_peer(from, false);
 
     std::scoped_lock lk(peers_mutex_);
     auto it = peers_.find(from);
     if (it != peers_.end()) {
-        it->second.pc->setRemoteDescription(rtc::Description(sdp, rtc::Description::Type::Offer));
+        it->second.pc->setRemoteDescription(
+            rtc::Description(sdp, rtc::Description::Type::Offer));
     }
 }
 
-void Transport::handle_answer(const std::string& from, const std::string& sdp) {
+void Transport::handle_answer(const std::string& from, const std::string& sdp)
+{
     LOG_INFO() << "received answer from " << from;
 
     std::scoped_lock lk(peers_mutex_);
     auto it = peers_.find(from);
     if (it != peers_.end()) {
-        it->second.pc->setRemoteDescription(rtc::Description(sdp, rtc::Description::Type::Answer));
+        it->second.pc->setRemoteDescription(
+            rtc::Description(sdp, rtc::Description::Type::Answer));
     }
 }
 
-void Transport::handle_candidate(const std::string& from, const std::string& candidate, const std::string& mid) {
+void Transport::handle_candidate(const std::string& from,
+    const std::string& candidate,
+    const std::string& mid)
+{
     LOG_INFO() << "remote ICE candidate from " << from << ": " << candidate;
     std::scoped_lock lk(peers_mutex_);
     auto it = peers_.find(from);
@@ -373,11 +411,10 @@ void Transport::handle_candidate(const std::string& from, const std::string& can
     }
 }
 
-void Transport::setup_channel(
-    const std::string& peer_id,
+void Transport::setup_channel(const std::string& peer_id,
     const std::string& label,
-    std::shared_ptr<rtc::DataChannel> dc
-) {
+    std::shared_ptr<rtc::DataChannel> dc)
+{
     // Find the registered spec for this label.
     PacketCb on_data;
     PeerEventCb on_open_cb;
@@ -386,10 +423,10 @@ void Transport::setup_channel(
 
     for (const auto& spec : channel_specs_) {
         if (spec.label == label) {
-            on_data     = spec.on_data;
-            on_open_cb  = spec.on_open;
+            on_data = spec.on_data;
+            on_open_cb = spec.on_open;
             on_close_cb = spec.on_close;
-            found       = true;
+            found = true;
             break;
         }
     }
@@ -430,7 +467,8 @@ void Transport::setup_channel(
     dc->onMessage([on_data, peer_id](auto msg) {
         if (auto* data = std::get_if<rtc::binary>(&msg)) {
             if (on_data) {
-                on_data(peer_id, reinterpret_cast<const uint8_t*>(data->data()), data->size());
+                on_data(peer_id, reinterpret_cast<const uint8_t*>(data->data()),
+                    data->size());
             }
         }
     });
@@ -446,31 +484,36 @@ void Transport::setup_channel(
     }
 }
 
-void Transport::send_streaming_start() {
+void Transport::send_streaming_start()
+{
     json msg;
     msg["type"] = "streaming_start";
     send_signal(msg);
 }
 
-void Transport::send_streaming_stop() {
+void Transport::send_streaming_stop()
+{
     json msg;
     msg["type"] = "streaming_stop";
     send_signal(msg);
 }
 
-void Transport::send_watch_start() {
+void Transport::send_watch_start()
+{
     json msg;
     msg["type"] = "watch_start";
     send_signal(msg);
 }
 
-void Transport::send_watch_stop() {
+void Transport::send_watch_stop()
+{
     json msg;
     msg["type"] = "watch_stop";
     send_signal(msg);
 }
 
-void Transport::send_signal(const json& msg) {
+void Transport::send_signal(const json& msg)
+{
     std::scoped_lock lk(ws_mutex_);
     if (ws_ && ws_connected_) {
         ws_->send(msg.dump());

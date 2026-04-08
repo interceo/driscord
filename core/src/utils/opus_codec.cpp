@@ -6,16 +6,16 @@
 
 // --- OpusEncode --------------------------------------------------------------
 
-OpusEncode::~OpusEncode() {
+OpusEncode::~OpusEncode()
+{
     shutdown();
 }
 
-bool OpusEncode::init(
-    const size_t sample_rate,
+bool OpusEncode::init(const size_t sample_rate,
     const size_t channels,
     const size_t bitrate,
-    const size_t application
-) {
+    const size_t application)
+{
     shutdown();
 
     int err;
@@ -27,31 +27,32 @@ bool OpusEncode::init(
     }
 
     if (opus_encoder_ctl(encoder_, OPUS_SET_BITRATE(bitrate)) != OPUS_OK) {
-        LOG_ERROR() << "opus_encoder_ctl (OPUS_SET_BITRATE) failed: " << opus_strerror(err);
+        LOG_ERROR() << "opus_encoder_ctl (OPUS_SET_BITRATE) failed: "
+                    << opus_strerror(err);
         shutdown();
         return false;
     }
 
     sample_rate_ = sample_rate;
-    channels_    = channels;
+    channels_ = channels;
     return true;
 }
 
-void OpusEncode::shutdown() {
+void OpusEncode::shutdown()
+{
     if (encoder_) {
         opus_encoder_destroy(encoder_);
         encoder_ = nullptr;
     }
     sample_rate_ = 0;
-    channels_    = 0;
+    channels_ = 0;
 }
 
-int OpusEncode::encode(
-    const float* pcm,
+int OpusEncode::encode(const float* pcm,
     const size_t frame_size,
     uint8_t* output,
-    const size_t max_output
-) {
+    const size_t max_output)
+{
     if (!encoder_) {
         return -1;
     }
@@ -60,11 +61,13 @@ int OpusEncode::encode(
 
 // --- OpusDecode --------------------------------------------------------------
 
-OpusDecode::~OpusDecode() {
+OpusDecode::~OpusDecode()
+{
     shutdown();
 }
 
-bool OpusDecode::init(int sample_rate, int channels) {
+bool OpusDecode::init(int sample_rate, int channels)
+{
     shutdown();
 
     int err;
@@ -75,25 +78,25 @@ bool OpusDecode::init(int sample_rate, int channels) {
         return false;
     }
     sample_rate_ = sample_rate;
-    channels_    = channels;
+    channels_ = channels;
     return true;
 }
 
-void OpusDecode::shutdown() {
+void OpusDecode::shutdown()
+{
     if (decoder_) {
         opus_decoder_destroy(decoder_);
         decoder_ = nullptr;
     }
     sample_rate_ = 0;
-    channels_    = 0;
+    channels_ = 0;
 }
 
-int OpusDecode::decode(
-    const uint8_t* data,
+int OpusDecode::decode(const uint8_t* data,
     const size_t len,
     float* output,
-    const size_t max_samples
-) {
+    const size_t max_samples)
+{
     if (!decoder_) {
         return -1;
     }

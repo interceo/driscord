@@ -51,23 +51,25 @@ public:
     bool peer_muted(const std::string& peer_id) const;
 
     // Screen audio
-    void set_screen_audio_recv(const std::string& peer_id, std::shared_ptr<AudioReceiver> recv);
+    void set_screen_audio_recv(const std::string& peer_id,
+        std::shared_ptr<AudioReceiver> recv);
     void unset_screen_audio_recv(const std::string& peer_id);
     void add_screen_audio_to_mixer(const std::string& peer_id);
     void remove_screen_audio_from_mixer(const std::string& peer_id);
 
     // Per-peer screen audio controls
-    void  set_screen_audio_peer_volume(const std::string& peer_id, float v);
+    void set_screen_audio_peer_volume(const std::string& peer_id, float v);
     float screen_audio_peer_volume(const std::string& peer_id) const;
-    void  set_screen_audio_peer_muted(const std::string& peer_id, bool muted);
-    bool  screen_audio_peer_muted(const std::string& peer_id) const;
+    void set_screen_audio_peer_muted(const std::string& peer_id, bool muted);
+    bool screen_audio_peer_muted(const std::string& peer_id) const;
 
 private:
     Transport& transport_;
-    AudioMixer  mixer_;
+    AudioMixer mixer_;
     AudioSender sender_;
 
     mutable std::mutex recv_mutex_;
     std::unordered_map<std::string, std::shared_ptr<AudioReceiver>> voice_recv_;
-    std::unordered_map<std::string, std::shared_ptr<AudioReceiver>> screen_audio_recv_;
+    std::unordered_map<std::string, std::shared_ptr<AudioReceiver>>
+        screen_audio_recv_;
 };

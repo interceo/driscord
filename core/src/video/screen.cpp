@@ -6,28 +6,29 @@
 #include <algorithm>
 #include <cstring>
 
-ScreenSender::~ScreenSender() {
+ScreenSender::~ScreenSender()
+{
     stop_sharing();
 }
 
-bool ScreenSender::start_sharing(
-    const ScreenCaptureTarget& target,
+bool ScreenSender::start_sharing(const ScreenCaptureTarget& target,
     const size_t max_w,
     const size_t max_h,
     const size_t fps,
     const size_t bitrate_kbps,
     bool share_audio,
     SendCb on_video,
-    SendCb on_screen_audio
-) {
+    SendCb on_screen_audio)
+{
     if (!video_sender_.start(fps, bitrate_kbps, std::move(on_video))) {
         return false;
     }
 
     screen_capture_ = ScreenCapture::create();
-    if (!screen_capture_->start(fps, target, max_w, max_h, [this](ScreenCapture::Frame frame) {
-            video_sender_.push_frame(std::move(frame));
-        })) {
+    if (!screen_capture_->start(fps, target, max_w, max_h,
+            [this](ScreenCapture::Frame frame) {
+                video_sender_.push_frame(std::move(frame));
+            })) {
         video_sender_.stop();
         screen_capture_.reset();
         return false;
@@ -35,25 +36,19 @@ bool ScreenSender::start_sharing(
 
     if (share_audio && on_screen_audio && SystemAudioCapture::available()) {
         auto enc = std::make_unique<OpusEncode>();
-        if (enc->init(
-                opus::kSampleRate,
-                SystemAudioCapture::kChannels,
-                128000,
+        if (enc->init(opus::kSampleRate, SystemAudioCapture::kChannels, 128000,
                 2049 /*OPUS_APPLICATION_AUDIO*/
-            )) {
+                )) {
             auto cap = SystemAudioCapture::create();
             if (cap && cap->start([this](const float* s, size_t f, int c) {
                     on_audio_captured_(s, f, c);
                 })) {
                 screen_audio_encoder_ = std::move(enc);
                 system_audio_capture_ = std::move(cap);
-                on_screen_audio_      = std::move(on_screen_audio);
-                screen_audio_buf_.assign(
-                    static_cast<size_t>(opus::kFrameSize) * SystemAudioCapture::kChannels,
-                    0.0f
-                );
-                screen_audio_encode_buf_
-                    .resize(protocol::AudioHeader::kWireSize + opus::kMaxPacket);
+                on_screen_audio_ = std::move(on_screen_audio);
+                screen_audio_buf_.assign(static_cast<size_t>(opus::kFrameSize) * SystemAudioCapture::kChannels,
+                    0.0f);
+                screen_audio_encode_buf_.resize(protocol::AudioHeader::kWireSize + opus::kMaxPacket);
                 screen_audio_pos_ = 0;
                 screen_audio_seq_ = 0;
             }
@@ -63,13 +58,14 @@ bool ScreenSender::start_sharing(
     return true;
 }
 
-void ScreenSender::stop_sharing() {
+void ScreenSender::stop_sharing()
+{
     if (system_audio_capture_) {
         system_audio_capture_->stop();
         system_audio_capture_.reset();
     }
     screen_audio_encoder_.reset();
-    on_screen_audio_  = nullptr;
+    on_screen_audio_ = nullptr;
     screen_audio_pos_ = 0;
     screen_audio_seq_ = 0;
 
@@ -80,36 +76,38 @@ void ScreenSender::stop_sharing() {
     video_sender_.stop();
 }
 
-void ScreenSender::on_audio_captured_(const float* samples, size_t frames, int channels) {
+void ScreenSender::on_audio_captured_(const float* samples,
+    size_t frames,
+    int channels)
+{
     if (!screen_audio_encoder_ || !on_screen_audio_) {
         return;
     }
-    constexpr int kCh         = SystemAudioCapture::kChannels;
+    constexpr int kCh = SystemAudioCapture::kChannels;
     const size_t stereo_frame = static_cast<size_t>(opus::kFrameSize) * kCh;
-    size_t consumed           = 0;
+    size_t consumed = 0;
     while (consumed < frames) {
         size_t remaining = static_cast<size_t>(opus::kFrameSize) - screen_audio_pos_ / kCh;
-        size_t to_copy   = std::min(remaining, frames - consumed);
+        size_t to_copy = std::min(remaining, frames - consumed);
         for (size_t i = 0; i < to_copy; ++i) {
-            size_t src                 = (consumed + i) * channels;
-            size_t dst                 = screen_audio_pos_ + i * kCh;
-            screen_audio_buf_[dst]     = samples[src];
+            size_t src = (consumed + i) * channels;
+            size_t dst = screen_audio_pos_ + i * kCh;
+            screen_audio_buf_[dst] = samples[src];
             screen_audio_buf_[dst + 1] = (channels >= 2) ? samples[src + 1] : samples[src];
         }
         screen_audio_pos_ += to_copy * kCh;
         consumed += to_copy;
         if (screen_audio_pos_ >= stereo_frame) {
             uint8_t* out = screen_audio_encode_buf_.data() + protocol::AudioHeader::kWireSize;
-            int bytes =
-                screen_audio_encoder_
-                    ->encode(screen_audio_buf_.data(), opus::kFrameSize, out, opus::kMaxPacket);
+            int bytes = screen_audio_encoder_->encode(
+                screen_audio_buf_.data(), opus::kFrameSize, out, opus::kMaxPacket);
             if (bytes > 0) {
-                protocol::AudioHeader ah{.seq = screen_audio_seq_++, .sender_ts = utils::WallNow()};
+                protocol::AudioHeader ah { .seq = screen_audio_seq_++,
+                    .sender_ts = utils::WallNow() };
                 ah.serialize(screen_audio_encode_buf_.data());
                 on_screen_audio_(
                     screen_audio_encode_buf_.data(),
-                    protocol::AudioHeader::kWireSize + static_cast<size_t>(bytes)
-                );
+                    protocol::AudioHeader::kWireSize + static_cast<size_t>(bytes));
             }
             screen_audio_pos_ = 0;
         }
@@ -122,14 +120,19 @@ void ScreenSender::on_audio_captured_(const float* samples, size_t frames, int c
 
 ScreenReceiver::ScreenReceiver(int buffer_ms, int /*max_sync_gap_ms*/)
     : video_buffer_ms_(buffer_ms)
-    , audio_jitter_ms_(buffer_ms) {}
+    , audio_jitter_ms_(buffer_ms)
+{
+}
 
-std::shared_ptr<VideoReceiver> ScreenReceiver::current_video_recv_locked() const {
+std::shared_ptr<VideoReceiver> ScreenReceiver::current_video_recv_locked()
+    const
+{
     auto it = video_receivers_.find(current_video_peer_);
     return it != video_receivers_.end() ? it->second : nullptr;
 }
 
-void ScreenReceiver::add_video_peer(const std::string& peer_id) {
+void ScreenReceiver::add_video_peer(const std::string& peer_id)
+{
     std::scoped_lock lk(video_mutex_);
     if (!video_receivers_.count(peer_id)) {
         auto recv = std::make_shared<VideoReceiver>(peer_id, video_buffer_ms_);
@@ -140,7 +143,8 @@ void ScreenReceiver::add_video_peer(const std::string& peer_id) {
     }
 }
 
-void ScreenReceiver::remove_video_peer(const std::string& peer_id) {
+void ScreenReceiver::remove_video_peer(const std::string& peer_id)
+{
     std::scoped_lock lk(video_mutex_);
     video_receivers_.erase(peer_id);
     if (current_video_peer_ == peer_id) {
@@ -151,14 +155,14 @@ void ScreenReceiver::remove_video_peer(const std::string& peer_id) {
 void ScreenReceiver::push_video_packet(
     const std::string& peer_id,
     const utils::vector_view<const uint8_t> data,
-    uint64_t frame_id
-) {
+    uint64_t frame_id)
+{
     std::shared_ptr<VideoReceiver> recv;
     {
         std::scoped_lock lk(video_mutex_);
         auto it = video_receivers_.find(peer_id);
         if (it != video_receivers_.end()) {
-            recv                = it->second;
+            recv = it->second;
             current_video_peer_ = peer_id;
         }
     }
@@ -169,8 +173,8 @@ void ScreenReceiver::push_video_packet(
 
 void ScreenReceiver::push_audio_packet(
     const std::string& peer_id,
-    const utils::vector_view<const uint8_t> data
-) {
+    const utils::vector_view<const uint8_t> data)
+{
     std::shared_ptr<AudioReceiver> recv;
     {
         std::scoped_lock lk(audio_mutex_);
@@ -184,34 +188,39 @@ void ScreenReceiver::push_audio_packet(
     }
 }
 
-void ScreenReceiver::add_audio_peer(const std::string& peer_id) {
+void ScreenReceiver::add_audio_peer(const std::string& peer_id)
+{
     std::scoped_lock lk(audio_mutex_);
     if (!audio_receivers_.count(peer_id)) {
-        audio_receivers_[peer_id] = std::make_shared<
-            AudioReceiver>(audio_jitter_ms_, /*channels=*/2);
+        audio_receivers_[peer_id] = std::make_shared<AudioReceiver>(audio_jitter_ms_, /*channels=*/2);
     }
 }
 
-void ScreenReceiver::remove_audio_peer(const std::string& peer_id) {
+void ScreenReceiver::remove_audio_peer(const std::string& peer_id)
+{
     std::scoped_lock lk(audio_mutex_);
     audio_receivers_.erase(peer_id);
 }
 
-std::shared_ptr<AudioReceiver> ScreenReceiver::audio_receiver(const std::string& peer_id) {
+std::shared_ptr<AudioReceiver> ScreenReceiver::audio_receiver(
+    const std::string& peer_id)
+{
     std::scoped_lock lk(audio_mutex_);
     auto it = audio_receivers_.find(peer_id);
     return it != audio_receivers_.end() ? it->second : nullptr;
 }
 
 std::shared_ptr<const AudioReceiver> ScreenReceiver::audio_receiver(
-    const std::string& peer_id
-) const {
+    const std::string& peer_id) const
+{
     std::scoped_lock lk(audio_mutex_);
     auto it = audio_receivers_.find(peer_id);
     return it != audio_receivers_.end() ? it->second : nullptr;
 }
 
-void ScreenReceiver::update(std::function<void(const VideoReceiver::Frame&)> on_frame) {
+void ScreenReceiver::update(
+    std::function<void(const VideoReceiver::Frame&)> on_frame)
+{
     std::vector<std::shared_ptr<VideoReceiver>> receivers;
     {
         std::scoped_lock lk(video_mutex_);
@@ -224,7 +233,8 @@ void ScreenReceiver::update(std::function<void(const VideoReceiver::Frame&)> on_
     }
 }
 
-void ScreenReceiver::set_keyframe_callback(std::function<void()> fn) {
+void ScreenReceiver::set_keyframe_callback(std::function<void()> fn)
+{
     std::scoped_lock lk(video_mutex_);
     keyframe_cb_ = fn;
     for (auto& [_, recv] : video_receivers_) {
@@ -232,12 +242,14 @@ void ScreenReceiver::set_keyframe_callback(std::function<void()> fn) {
     }
 }
 
-std::string ScreenReceiver::active_peer() const {
+std::string ScreenReceiver::active_peer() const
+{
     std::scoped_lock lk(video_mutex_);
     return current_video_peer_;
 }
 
-bool ScreenReceiver::active() const {
+bool ScreenReceiver::active() const
+{
     std::shared_ptr<VideoReceiver> recv;
     {
         std::scoped_lock lk(video_mutex_);
@@ -246,7 +258,8 @@ bool ScreenReceiver::active() const {
     return recv && recv->active();
 }
 
-std::unordered_set<std::string> ScreenReceiver::active_peers() const {
+std::unordered_set<std::string> ScreenReceiver::active_peers() const
+{
     std::scoped_lock lk(video_mutex_);
     std::unordered_set<std::string> result;
     for (const auto& [id, r] : video_receivers_) {
@@ -257,7 +270,8 @@ std::unordered_set<std::string> ScreenReceiver::active_peers() const {
     return result;
 }
 
-int ScreenReceiver::measured_kbps() const {
+int ScreenReceiver::measured_kbps() const
+{
     std::shared_ptr<VideoReceiver> recv;
     {
         std::scoped_lock lk(video_mutex_);
@@ -266,18 +280,20 @@ int ScreenReceiver::measured_kbps() const {
     return recv ? recv->measured_kbps() : 0;
 }
 
-VideoReceiver::Stats ScreenReceiver::video_stats() const {
+VideoReceiver::Stats ScreenReceiver::video_stats() const
+{
     std::shared_ptr<VideoReceiver> recv;
     {
         std::scoped_lock lk(video_mutex_);
         recv = current_video_recv_locked();
     }
-    return recv ? recv->video_stats() : VideoReceiver::Stats{};
+    return recv ? recv->video_stats() : VideoReceiver::Stats { };
 }
 
-AudioReceiver::Stats ScreenReceiver::audio_stats() const {
+AudioReceiver::Stats ScreenReceiver::audio_stats() const
+{
     std::scoped_lock lk(audio_mutex_);
-    AudioReceiver::Stats agg{};
+    AudioReceiver::Stats agg { };
     for (const auto& [_, r] : audio_receivers_) {
         const auto s = r->stats();
         agg.queue_size += s.queue_size;
@@ -287,7 +303,8 @@ AudioReceiver::Stats ScreenReceiver::audio_stats() const {
     return agg;
 }
 
-bool ScreenReceiver::video_primed() const {
+bool ScreenReceiver::video_primed() const
+{
     std::shared_ptr<VideoReceiver> recv;
     {
         std::scoped_lock lk(video_mutex_);
@@ -296,7 +313,8 @@ bool ScreenReceiver::video_primed() const {
     return recv && recv->primed();
 }
 
-bool ScreenReceiver::audio_primed() const {
+bool ScreenReceiver::audio_primed() const
+{
     std::scoped_lock lk(audio_mutex_);
     for (const auto& [_, r] : audio_receivers_) {
         if (r->primed()) {
@@ -306,7 +324,9 @@ bool ScreenReceiver::audio_primed() const {
     return false;
 }
 
-std::optional<utils::WallTimestamp> ScreenReceiver::video_front_effective_ts() const {
+std::optional<utils::WallTimestamp> ScreenReceiver::video_front_effective_ts()
+    const
+{
     std::shared_ptr<VideoReceiver> recv;
     {
         std::scoped_lock lk(video_mutex_);
@@ -315,7 +335,9 @@ std::optional<utils::WallTimestamp> ScreenReceiver::video_front_effective_ts() c
     return recv ? recv->front_effective_ts() : std::nullopt;
 }
 
-std::optional<utils::WallTimestamp> ScreenReceiver::audio_front_effective_ts() const {
+std::optional<utils::WallTimestamp> ScreenReceiver::audio_front_effective_ts()
+    const
+{
     std::scoped_lock lk(audio_mutex_);
     std::optional<utils::WallTimestamp> earliest;
     for (const auto& [_, r] : audio_receivers_) {
@@ -327,16 +349,18 @@ std::optional<utils::WallTimestamp> ScreenReceiver::audio_front_effective_ts() c
     return earliest;
 }
 
-utils::Duration ScreenReceiver::video_frame_duration() const {
+utils::Duration ScreenReceiver::video_frame_duration() const
+{
     std::shared_ptr<VideoReceiver> recv;
     {
         std::scoped_lock lk(video_mutex_);
         recv = current_video_recv_locked();
     }
-    return recv ? recv->front_frame_duration() : utils::Duration{};
+    return recv ? recv->front_frame_duration() : utils::Duration { };
 }
 
-size_t ScreenReceiver::evict_video_before(utils::WallTimestamp cutoff) {
+size_t ScreenReceiver::evict_video_before(utils::WallTimestamp cutoff)
+{
     std::vector<std::shared_ptr<VideoReceiver>> receivers;
     {
         std::scoped_lock lk(video_mutex_);
@@ -352,7 +376,8 @@ size_t ScreenReceiver::evict_video_before(utils::WallTimestamp cutoff) {
     return total;
 }
 
-int64_t ScreenReceiver::video_front_age_ms() const {
+int64_t ScreenReceiver::video_front_age_ms() const
+{
     std::shared_ptr<VideoReceiver> recv;
     {
         std::scoped_lock lk(video_mutex_);
@@ -361,7 +386,8 @@ int64_t ScreenReceiver::video_front_age_ms() const {
     return recv ? recv->front_age_ms() : -1;
 }
 
-int64_t ScreenReceiver::audio_front_age_ms() const {
+int64_t ScreenReceiver::audio_front_age_ms() const
+{
     std::scoped_lock lk(audio_mutex_);
     int64_t oldest = -1;
     for (const auto& [_, r] : audio_receivers_) {
@@ -373,7 +399,8 @@ int64_t ScreenReceiver::audio_front_age_ms() const {
     return oldest;
 }
 
-void ScreenReceiver::evict_old(utils::Duration max_delay) {
+void ScreenReceiver::evict_old(utils::Duration max_delay)
+{
     std::vector<std::shared_ptr<VideoReceiver>> vreceivers;
     {
         std::scoped_lock lk(video_mutex_);
@@ -394,14 +421,17 @@ void ScreenReceiver::evict_old(utils::Duration max_delay) {
         }
     }
     if (vdrop > 0 || adrop > 0) {
-        LOG_INFO()
-            << "[screen-recv] evict_old("
-            << std::chrono::duration_cast<std::chrono::milliseconds>(max_delay).count() << "ms)"
-            << " video=" << vdrop << " audio=" << adrop;
+        LOG_INFO() << "[screen-recv] evict_old("
+                   << std::chrono::duration_cast<std::chrono::milliseconds>(
+                          max_delay)
+                          .count()
+                   << "ms)"
+                   << " video=" << vdrop << " audio=" << adrop;
     }
 }
 
-void ScreenReceiver::evict_old_video(utils::Duration max_delay) {
+void ScreenReceiver::evict_old_video(utils::Duration max_delay)
+{
     std::vector<std::shared_ptr<VideoReceiver>> receivers;
     {
         std::scoped_lock lk(video_mutex_);
@@ -414,7 +444,8 @@ void ScreenReceiver::evict_old_video(utils::Duration max_delay) {
     }
 }
 
-void ScreenReceiver::reset() {
+void ScreenReceiver::reset()
+{
     {
         std::scoped_lock lk(video_mutex_);
         video_receivers_.clear();
@@ -424,7 +455,8 @@ void ScreenReceiver::reset() {
     audio_receivers_.clear();
 }
 
-void ScreenReceiver::reset_audio() {
+void ScreenReceiver::reset_audio()
+{
     std::scoped_lock lk(audio_mutex_);
     for (const auto& [_, r] : audio_receivers_) {
         r->reset();

@@ -16,22 +16,24 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#include <Windows.h>
 #include <d3d11.h>
 #include <dxgi1_2.h>
-#include <Windows.h>
 
 // --- helpers ----------------------------------------------------------------
 
-static std::string wstr_to_utf8(const wchar_t* wstr) {
+static std::string wstr_to_utf8(const wchar_t* wstr)
+{
     if (!wstr || !*wstr) {
-        return {};
+        return { };
     }
     int len = WideCharToMultiByte(CP_UTF8, 0, wstr, -1, nullptr, 0, nullptr, nullptr);
     if (len <= 0) {
-        return {};
+        return { };
     }
     std::string result(static_cast<size_t>(len - 1), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, wstr, -1, result.data(), len, nullptr, nullptr);
+    WideCharToMultiByte(CP_UTF8, 0, wstr, -1, result.data(), len, nullptr,
+        nullptr);
     return result;
 }
 
@@ -42,17 +44,21 @@ struct MonitorEnumData {
     int index;
 };
 
-static BOOL CALLBACK monitor_enum_proc(HMONITOR hmon, HDC, LPRECT, LPARAM lparam) {
+static BOOL CALLBACK monitor_enum_proc(HMONITOR hmon,
+    HDC,
+    LPRECT,
+    LPARAM lparam)
+{
     auto* data = reinterpret_cast<MonitorEnumData*>(lparam);
 
-    MONITORINFOEXW mi{};
+    MONITORINFOEXW mi { };
     mi.cbSize = sizeof(mi);
     if (!GetMonitorInfoW(hmon, &mi)) {
         return TRUE;
     }
 
     int w = mi.rcMonitor.right - mi.rcMonitor.left;
-    int h = mi.rcMonitor.bottom - mi.rcMonitor.top; 
+    int h = mi.rcMonitor.bottom - mi.rcMonitor.top;
 
     ScreenCaptureTarget t;
     t.type = ScreenCaptureTarget::Monitor;
@@ -68,19 +74,20 @@ static BOOL CALLBACK monitor_enum_proc(HMONITOR hmon, HDC, LPRECT, LPARAM lparam
     return TRUE;
 }
 
-static BOOL CALLBACK window_enum_proc(HWND hwnd, LPARAM lparam) {
+static BOOL CALLBACK window_enum_proc(HWND hwnd, LPARAM lparam)
+{
     auto* targets = reinterpret_cast<std::vector<ScreenCaptureTarget>*>(lparam);
 
     if (!IsWindowVisible(hwnd)) {
         return TRUE;
     }
 
-    wchar_t title[256]{};
+    wchar_t title[256] { };
     if (GetWindowTextW(hwnd, title, 256) <= 0) {
         return TRUE;
     }
 
-    RECT rect{};
+    RECT rect { };
     GetClientRect(hwnd, &rect);
     int w = rect.right - rect.left;
     int h = rect.bottom - rect.top;
@@ -104,11 +111,13 @@ static BOOL CALLBACK window_enum_proc(HWND hwnd, LPARAM lparam) {
     return TRUE;
 }
 
-std::vector<ScreenCaptureTarget> ScreenCapture::list_targets() {
+std::vector<ScreenCaptureTarget> ScreenCapture::list_targets()
+{
     std::vector<ScreenCaptureTarget> targets;
 
-    MonitorEnumData mon_data{&targets, 0};
-    EnumDisplayMonitors(nullptr, nullptr, monitor_enum_proc, reinterpret_cast<LPARAM>(&mon_data));
+    MonitorEnumData mon_data { &targets, 0 };
+    EnumDisplayMonitors(nullptr, nullptr, monitor_enum_proc,
+        reinterpret_cast<LPARAM>(&mon_data));
 
     EnumWindows(window_enum_proc, reinterpret_cast<LPARAM>(&targets));
 
@@ -117,7 +126,11 @@ std::vector<ScreenCaptureTarget> ScreenCapture::list_targets() {
 
 // --- thumbnail (BitBlt) -----------------------------------------------------
 
-ScreenCapture::Frame ScreenCapture::grab_thumbnail(const ScreenCaptureTarget& target, int max_w, int max_h) {
+ScreenCapture::Frame ScreenCapture::grab_thumbnail(
+    const ScreenCaptureTarget& target,
+    int max_w,
+    int max_h)
+{
     Frame f;
 
     HDC src_dc = nullptr;
@@ -126,7 +139,8 @@ ScreenCapture::Frame ScreenCapture::grab_thumbnail(const ScreenCaptureTarget& ta
 
     if (target.type == ScreenCaptureTarget::Window && !target.id.empty()) {
         try {
-            hwnd = reinterpret_cast<HWND>(static_cast<uintptr_t>(std::stoull(target.id)));
+            hwnd = reinterpret_cast<HWND>(
+                static_cast<uintptr_t>(std::stoull(target.id)));
         } catch (const std::exception&) {
             return f;
         }
@@ -134,7 +148,7 @@ ScreenCapture::Frame ScreenCapture::grab_thumbnail(const ScreenCaptureTarget& ta
             return f;
         }
 
-        RECT rect{};
+        RECT rect { };
         GetClientRect(hwnd, &rect);
         src_w = rect.right - rect.left;
         src_h = rect.bottom - rect.top;
@@ -160,24 +174,17 @@ ScreenCapture::Frame ScreenCapture::grab_thumbnail(const ScreenCaptureTarget& ta
 
     BitBlt(mem_dc, 0, 0, src_w, src_h, src_dc, src_x, src_y, SRCCOPY);
 
-    BITMAPINFOHEADER bi{};
+    BITMAPINFOHEADER bi { };
     bi.biSize = sizeof(bi);
     bi.biWidth = src_w;
-    bi.biHeight = -src_h;  // top-down
+    bi.biHeight = -src_h; // top-down
     bi.biPlanes = 1;
     bi.biBitCount = 32;
     bi.biCompression = BI_RGB;
 
     std::vector<uint8_t> bgra(static_cast<size_t>(src_w) * src_h * 4);
-    GetDIBits(
-        mem_dc,
-        bmp,
-        0,
-        static_cast<UINT>(src_h),
-        bgra.data(),
-        reinterpret_cast<BITMAPINFO*>(&bi),
-        DIB_RGB_COLORS
-    );
+    GetDIBits(mem_dc, bmp, 0, static_cast<UINT>(src_h), bgra.data(),
+        reinterpret_cast<BITMAPINFO*>(&bi), DIB_RGB_COLORS);
 
     SelectObject(mem_dc, old_bmp);
     DeleteObject(bmp);
@@ -205,7 +212,12 @@ class WinScreenCapture : public ScreenCapture {
 public:
     ~WinScreenCapture() override { stop(); }
 
-    bool start(int fps, const ScreenCaptureTarget& target, int max_w, int max_h, FrameCallback cb) override {
+    bool start(int fps,
+        const ScreenCaptureTarget& target,
+        int max_w,
+        int max_h,
+        FrameCallback cb) override
+    {
         if (running_) {
             return false;
         }
@@ -218,7 +230,8 @@ public:
 
         if (target.type == ScreenCaptureTarget::Window) {
             try {
-                hwnd_ = reinterpret_cast<HWND>(static_cast<uintptr_t>(std::stoull(target.id)));
+                hwnd_ = reinterpret_cast<HWND>(
+                    static_cast<uintptr_t>(std::stoull(target.id)));
             } catch (const std::exception&) {
                 LOG_ERROR() << "invalid window id: " << target.id;
                 return false;
@@ -229,7 +242,8 @@ public:
             }
             running_ = true;
             thread_ = std::thread(&WinScreenCapture::bitblt_capture_loop, this);
-            LOG_INFO() << "screen capture started (BitBlt window) @ " << fps << " fps";
+            LOG_INFO() << "screen capture started (BitBlt window) @ " << fps
+                       << " fps";
         } else {
             if (!init_dxgi()) {
                 LOG_ERROR() << "failed to init DXGI desktop duplication";
@@ -237,12 +251,14 @@ public:
             }
             running_ = true;
             thread_ = std::thread(&WinScreenCapture::dxgi_capture_loop, this);
-            LOG_INFO() << "screen capture started (DXGI) " << capture_w_ << "x" << capture_h_ << " @ " << fps << " fps";
+            LOG_INFO() << "screen capture started (DXGI) " << capture_w_ << "x"
+                       << capture_h_ << " @ " << fps << " fps";
         }
         return true;
     }
 
-    void stop() override {
+    void stop() override
+    {
         if (!running_.exchange(false)) {
             return;
         }
@@ -258,35 +274,18 @@ public:
 private:
     // --- DXGI init / cleanup ------------------------------------------------
 
-    bool init_dxgi() {
-        D3D_FEATURE_LEVEL feature_levels[] = {D3D_FEATURE_LEVEL_11_0};
-        D3D_FEATURE_LEVEL feature_level{};
+    bool init_dxgi()
+    {
+        D3D_FEATURE_LEVEL feature_levels[] = { D3D_FEATURE_LEVEL_11_0 };
+        D3D_FEATURE_LEVEL feature_level { };
 
-        HRESULT hr = D3D11CreateDevice(
-            nullptr,
-            D3D_DRIVER_TYPE_HARDWARE,
-            nullptr,
-            0,
-            feature_levels,
-            1,
-            D3D11_SDK_VERSION,
-            &device_,
-            &feature_level,
-            &context_
-        );
+        HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
+            0, feature_levels, 1, D3D11_SDK_VERSION,
+            &device_, &feature_level, &context_);
         if (FAILED(hr)) {
-            hr = D3D11CreateDevice(
-                nullptr,
-                D3D_DRIVER_TYPE_WARP,
-                nullptr,
-                0,
-                feature_levels,
-                1,
-                D3D11_SDK_VERSION,
-                &device_,
-                &feature_level,
-                &context_
-            );
+            hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0,
+                feature_levels, 1, D3D11_SDK_VERSION, &device_,
+                &feature_level, &context_);
         }
         if (FAILED(hr)) {
             LOG_ERROR() << "D3D11CreateDevice failed: 0x" << std::hex << hr;
@@ -294,7 +293,8 @@ private:
         }
 
         IDXGIDevice* dxgi_device = nullptr;
-        hr = device_->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgi_device));
+        hr = device_->QueryInterface(__uuidof(IDXGIDevice),
+            reinterpret_cast<void**>(&dxgi_device));
         if (FAILED(hr)) {
             LOG_ERROR() << "QueryInterface(IDXGIDevice) failed";
             return false;
@@ -316,13 +316,14 @@ private:
             return false;
         }
 
-        DXGI_OUTPUT_DESC output_desc{};
+        DXGI_OUTPUT_DESC output_desc { };
         output->GetDesc(&output_desc);
         capture_w_ = output_desc.DesktopCoordinates.right - output_desc.DesktopCoordinates.left;
         capture_h_ = output_desc.DesktopCoordinates.bottom - output_desc.DesktopCoordinates.top;
 
         IDXGIOutput1* output1 = nullptr;
-        hr = output->QueryInterface(__uuidof(IDXGIOutput1), reinterpret_cast<void**>(&output1));
+        hr = output->QueryInterface(__uuidof(IDXGIOutput1),
+            reinterpret_cast<void**>(&output1));
         output->Release();
         if (FAILED(hr)) {
             LOG_ERROR() << "QueryInterface(IDXGIOutput1) failed";
@@ -336,7 +337,7 @@ private:
             return false;
         }
 
-        D3D11_TEXTURE2D_DESC staging_desc{};
+        D3D11_TEXTURE2D_DESC staging_desc { };
         staging_desc.Width = static_cast<UINT>(capture_w_);
         staging_desc.Height = static_cast<UINT>(capture_h_);
         staging_desc.MipLevels = 1;
@@ -356,7 +357,8 @@ private:
         return true;
     }
 
-    IDXGIOutput* find_output(IDXGIAdapter* adapter) {
+    IDXGIOutput* find_output(IDXGIAdapter* adapter)
+    {
         IDXGIOutput* best = nullptr;
 
         for (UINT i = 0;; ++i) {
@@ -365,7 +367,7 @@ private:
                 break;
             }
 
-            DXGI_OUTPUT_DESC desc{};
+            DXGI_OUTPUT_DESC desc { };
             out->GetDesc(&desc);
 
             int ox = desc.DesktopCoordinates.left;
@@ -384,10 +386,11 @@ private:
                 out->Release();
             }
         }
-        return best;  // fallback to first output
+        return best; // fallback to first output
     }
 
-    void cleanup_dxgi() {
+    void cleanup_dxgi()
+    {
         if (staging_tex_) {
             staging_tex_->Release();
             staging_tex_ = nullptr;
@@ -410,12 +413,13 @@ private:
 
     // --- capture loops ------------------------------------------------------
 
-    void dxgi_capture_loop() {
+    void dxgi_capture_loop()
+    {
         while (running_) {
             auto t0 = std::chrono::steady_clock::now();
 
             IDXGIResource* resource = nullptr;
-            DXGI_OUTDUPL_FRAME_INFO frame_info{};
+            DXGI_OUTDUPL_FRAME_INFO frame_info { };
 
             HRESULT hr = duplication_->AcquireNextFrame(100, &frame_info, &resource);
             if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
@@ -434,22 +438,20 @@ private:
             }
 
             ID3D11Texture2D* frame_tex = nullptr;
-            hr = resource->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&frame_tex));
+            hr = resource->QueryInterface(__uuidof(ID3D11Texture2D),
+                reinterpret_cast<void**>(&frame_tex));
             resource->Release();
 
             if (SUCCEEDED(hr) && running_) {
                 context_->CopyResource(staging_tex_, frame_tex);
                 frame_tex->Release();
 
-                D3D11_MAPPED_SUBRESOURCE mapped{};
+                D3D11_MAPPED_SUBRESOURCE mapped { };
                 hr = context_->Map(staging_tex_, 0, D3D11_MAP_READ, 0, &mapped);
                 if (SUCCEEDED(hr)) {
-                    deliver_dxgi_frame(
-                        static_cast<const uint8_t*>(mapped.pData),
-                        static_cast<int>(mapped.RowPitch),
-                        capture_w_,
-                        capture_h_
-                    );
+                    deliver_dxgi_frame(static_cast<const uint8_t*>(mapped.pData),
+                        static_cast<int>(mapped.RowPitch), capture_w_,
+                        capture_h_);
                     context_->Unmap(staging_tex_, 0);
                 }
             } else if (frame_tex) {
@@ -466,7 +468,8 @@ private:
         }
     }
 
-    void bitblt_capture_loop() {
+    void bitblt_capture_loop()
+    {
         while (running_) {
             auto t0 = std::chrono::steady_clock::now();
 
@@ -476,7 +479,7 @@ private:
                 break;
             }
 
-            RECT rect{};
+            RECT rect { };
             GetClientRect(hwnd_, &rect);
             int w = rect.right - rect.left;
             int h = rect.bottom - rect.top;
@@ -490,7 +493,7 @@ private:
 
                     BitBlt(mem_dc, 0, 0, w, h, wnd_dc, 0, 0, SRCCOPY);
 
-                    BITMAPINFOHEADER bi{};
+                    BITMAPINFOHEADER bi { };
                     bi.biSize = sizeof(bi);
                     bi.biWidth = w;
                     bi.biHeight = -h;
@@ -499,15 +502,8 @@ private:
                     bi.biCompression = BI_RGB;
 
                     std::vector<uint8_t> bgra(static_cast<size_t>(w) * h * 4);
-                    GetDIBits(
-                        mem_dc,
-                        bmp,
-                        0,
-                        static_cast<UINT>(h),
-                        bgra.data(),
-                        reinterpret_cast<BITMAPINFO*>(&bi),
-                        DIB_RGB_COLORS
-                    );
+                    GetDIBits(mem_dc, bmp, 0, static_cast<UINT>(h), bgra.data(),
+                        reinterpret_cast<BITMAPINFO*>(&bi), DIB_RGB_COLORS);
 
                     SelectObject(mem_dc, old);
                     DeleteObject(bmp);
@@ -542,7 +538,8 @@ private:
         }
     }
 
-    void deliver_dxgi_frame(const uint8_t* data, int row_pitch, int w, int h) {
+    void deliver_dxgi_frame(const uint8_t* data, int row_pitch, int w, int h)
+    {
         int ow, oh;
         compute_output_size(w, h, max_w_, max_h_, ow, oh);
 
@@ -558,11 +555,8 @@ private:
                 std::memcpy(out.data.data(), data, out.data.size());
             } else {
                 for (int y = 0; y < h; ++y) {
-                    std::memcpy(
-                        out.data.data() + y * src_stride,
-                        data + y * row_pitch,
-                        static_cast<size_t>(src_stride)
-                    );
+                    std::memcpy(out.data.data() + y * src_stride, data + y * row_pitch,
+                        static_cast<size_t>(src_stride));
                 }
             }
         } else {
@@ -571,7 +565,8 @@ private:
                 std::memcpy(full.data(), data, full.size());
             } else {
                 for (int y = 0; y < h; ++y) {
-                    std::memcpy(full.data() + y * src_stride, data + y * row_pitch, static_cast<size_t>(src_stride));
+                    std::memcpy(full.data() + y * src_stride, data + y * row_pitch,
+                        static_cast<size_t>(src_stride));
                 }
             }
             out.data.resize(static_cast<size_t>(ow) * oh * 4);
@@ -585,7 +580,7 @@ private:
 
     // --- state --------------------------------------------------------------
 
-    std::atomic<bool> running_{false};
+    std::atomic<bool> running_ { false };
     FrameCallback callback_;
     std::thread thread_;
     ScreenCaptureTarget target_;
@@ -605,4 +600,7 @@ private:
     HWND hwnd_ = nullptr;
 };
 
-std::unique_ptr<ScreenCapture> ScreenCapture::create() { return std::make_unique<WinScreenCapture>(); }
+std::unique_ptr<ScreenCapture> ScreenCapture::create()
+{
+    return std::make_unique<WinScreenCapture>();
+}

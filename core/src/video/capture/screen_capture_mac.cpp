@@ -11,19 +11,21 @@
 
 #include <CoreGraphics/CoreGraphics.h>
 
-static void check_screen_recording_permission() {
+static void check_screen_recording_permission()
+{
     if (!CGPreflightScreenCaptureAccess()) {
-        LOG_WARNING()
-            << "screen recording permission not granted — "
-               "grant it in System Settings > Privacy & Security > Screen Recording, "
-               "then RESTART the app";
+        LOG_WARNING() << "screen recording permission not granted — "
+                         "grant it in System Settings > Privacy & Security > "
+                         "Screen Recording, "
+                         "then RESTART the app";
         CGRequestScreenCaptureAccess();
     }
 }
 
 // --- target enumeration -----------------------------------------------------
 
-std::vector<ScreenCaptureTarget> ScreenCapture::list_targets() {
+std::vector<ScreenCaptureTarget> ScreenCapture::list_targets()
+{
     check_screen_recording_permission();
     std::vector<ScreenCaptureTarget> targets;
 
@@ -50,7 +52,8 @@ std::vector<ScreenCaptureTarget> ScreenCapture::list_targets() {
 
 // --- helpers ----------------------------------------------------------------
 
-static CGDirectDisplayID resolve_display(const std::string& id) {
+static CGDirectDisplayID resolve_display(const std::string& id)
+{
     CGDirectDisplayID displays[16];
     uint32_t count = 0;
     CGGetActiveDisplayList(16, displays, &count);
@@ -67,7 +70,11 @@ static CGDirectDisplayID resolve_display(const std::string& id) {
 
 // --- thumbnail --------------------------------------------------------------
 
-ScreenCapture::Frame ScreenCapture::grab_thumbnail(const ScreenCaptureTarget& target, int max_w, int max_h) {
+ScreenCapture::Frame ScreenCapture::grab_thumbnail(
+    const ScreenCaptureTarget& target,
+    int max_w,
+    int max_h)
+{
     Frame f;
     CGDirectDisplayID did = resolve_display(target.id);
     CGImageRef image = CGDisplayCreateImage(did);
@@ -87,15 +94,8 @@ ScreenCapture::Frame ScreenCapture::grab_thumbnail(const ScreenCaptureTarget& ta
     f.data.resize(static_cast<size_t>(ow) * oh * 4);
 
     CGContextRef ctx = CGBitmapContextCreate(
-        f.data.data(),
-        ow,
-        oh,
-        8,
-        ow * 4,
-        cs,
-        static_cast<CGBitmapInfo>(kCGBitmapByteOrder32Little) |
-            static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst)
-    );
+        f.data.data(), ow, oh, 8, ow * 4, cs,
+        static_cast<CGBitmapInfo>(kCGBitmapByteOrder32Little) | static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst));
     CGContextDrawImage(ctx, CGRectMake(0, 0, ow, oh), image);
     CGContextRelease(ctx);
     CGColorSpaceRelease(cs);
@@ -109,7 +109,12 @@ class MacScreenCapture : public ScreenCapture {
 public:
     ~MacScreenCapture() override { stop(); }
 
-    bool start(int fps, const ScreenCaptureTarget& target, int max_w, int max_h, FrameCallback cb) override {
+    bool start(int fps,
+        const ScreenCaptureTarget& target,
+        int max_w,
+        int max_h,
+        FrameCallback cb) override
+    {
         if (running_) {
             return false;
         }
@@ -128,7 +133,8 @@ public:
         return true;
     }
 
-    void stop() override {
+    void stop() override
+    {
         if (!running_.exchange(false)) {
             return;
         }
@@ -142,7 +148,8 @@ public:
     bool running() const override { return running_; }
 
 private:
-    void capture_loop() {
+    void capture_loop()
+    {
         while (running_) {
             auto t0 = std::chrono::steady_clock::now();
 
@@ -160,7 +167,8 @@ private:
         }
     }
 
-    void deliver_frame(CGImageRef image) {
+    void deliver_frame(CGImageRef image)
+    {
         int src_w = static_cast<int>(CGImageGetWidth(image));
         int src_h = static_cast<int>(CGImageGetHeight(image));
 
@@ -177,15 +185,8 @@ private:
         out.data.resize(static_cast<size_t>(ow) * oh * 4);
 
         CGContextRef ctx = CGBitmapContextCreate(
-            out.data.data(),
-            ow,
-            oh,
-            8,
-            ow * 4,
-            cached_cs_,
-            static_cast<CGBitmapInfo>(kCGBitmapByteOrder32Little) |
-                static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst)
-        );
+            out.data.data(), ow, oh, 8, ow * 4, cached_cs_,
+            static_cast<CGBitmapInfo>(kCGBitmapByteOrder32Little) | static_cast<CGBitmapInfo>(kCGImageAlphaPremultipliedFirst));
         CGContextDrawImage(ctx, CGRectMake(0, 0, ow, oh), image);
         CGContextRelease(ctx);
 
@@ -194,14 +195,15 @@ private:
         }
     }
 
-    void release_cached_cs() {
+    void release_cached_cs()
+    {
         if (cached_cs_) {
             CGColorSpaceRelease(cached_cs_);
             cached_cs_ = nullptr;
         }
     }
 
-    std::atomic<bool> running_{false};
+    std::atomic<bool> running_ { false };
     FrameCallback callback_;
     std::thread thread_;
     int max_w_ = 1920;
@@ -213,4 +215,7 @@ private:
     CGColorSpaceRef cached_cs_ = nullptr;
 };
 
-std::unique_ptr<ScreenCapture> ScreenCapture::create() { return std::make_unique<MacScreenCapture>(); }
+std::unique_ptr<ScreenCapture> ScreenCapture::create()
+{
+    return std::make_unique<MacScreenCapture>();
+}

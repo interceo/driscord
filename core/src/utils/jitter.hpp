@@ -12,31 +12,33 @@
 
 namespace utils {
 
-template <typename T> class JitterBuffer {
+template <typename T>
+class JitterBuffer {
 public:
     using Ptr = std::unique_ptr<T>;
 
     struct Packet {
-        Ptr data{};
-        utils::Timestamp arrival{};
+        Ptr data { };
+        utils::Timestamp arrival { };
     };
 
     struct Stats {
-        bool primed         = false;
-        size_t queue_size   = 0;
+        bool primed = false;
+        size_t queue_size = 0;
         uint64_t drop_count = 0;
         uint64_t miss_count = 0;
     };
 
     explicit JitterBuffer(const utils::Duration target_delay)
         : target_delay_(
-              std::max(
-                  std::chrono::milliseconds(1),
-                  std::chrono::duration_cast<std::chrono::milliseconds>(target_delay)
-              )
-          ) {}
+              std::max(std::chrono::milliseconds(1),
+                  std::chrono::duration_cast<std::chrono::milliseconds>(
+                      target_delay)))
+    {
+    }
 
-    void push(const uint64_t seq, Ptr&& data) {
+    void push(const uint64_t seq, Ptr&& data)
+    {
         std::scoped_lock lk(mutex_);
 
         const auto now = utils::Now();
@@ -44,12 +46,13 @@ public:
             first_push_time_ = now;
         }
 
-        if (!ring_.push(seq, Packet{std::move(data), now})) {
+        if (!ring_.push(seq, Packet { std::move(data), now })) {
             ++drop_count_;
         }
     }
 
-    Ptr pop() noexcept {
+    Ptr pop() noexcept
+    {
         std::unique_lock lk(mutex_, std::try_to_lock);
         if (!lk.owns_lock()) [[unlikely]] {
             return nullptr;
@@ -88,7 +91,8 @@ public:
         return std::move(result.data.data);
     }
 
-    size_t evict_old(const utils::Duration max_delay) {
+    size_t evict_old(const utils::Duration max_delay)
+    {
         std::scoped_lock lk(mutex_);
         size_t dropped = 0;
         while (true) {
@@ -106,7 +110,9 @@ public:
         return dropped;
     }
 
-    template <typename Pred> size_t evict_if(Pred&& pred) {
+    template <typename Pred>
+    size_t evict_if(Pred&& pred)
+    {
         std::scoped_lock lk(mutex_);
         size_t dropped = 0;
         while (true) {
@@ -125,7 +131,9 @@ public:
     }
 
     template <typename F>
-    auto with_front(F&& fn) const -> std::optional<std::invoke_result_t<F, const T&>> {
+    auto with_front(F&& fn) const
+        -> std::optional<std::invoke_result_t<F, const T&>>
+    {
         std::scoped_lock lk(mutex_);
         auto peek = ring_.peek_next();
         if (!peek) {
@@ -136,38 +144,43 @@ public:
 
     utils::Duration target_delay() const { return target_delay_; }
 
-    int64_t front_age_ms() const {
+    int64_t front_age_ms() const
+    {
         std::scoped_lock lk(mutex_);
         auto peek = ring_.peek_next();
         if (!peek) {
             return -1;
         }
-        return std::chrono::duration_cast<
-                   std::chrono::milliseconds>(utils::Elapsed(peek->data->arrival))
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+            utils::Elapsed(peek->data->arrival))
             .count();
     }
 
-    bool primed() const {
+    bool primed() const
+    {
         std::scoped_lock lk(mutex_);
         return primed_;
     }
 
-    size_t queue_size() const {
+    size_t queue_size() const
+    {
         std::scoped_lock lk(mutex_);
         return ring_.size();
     }
 
-    void reset() {
+    void reset()
+    {
         std::scoped_lock lk(mutex_);
         ring_.reset();
         primed_ = false;
         first_push_time_.reset();
         played_count_ = 0;
-        drop_count_   = 0;
-        miss_count_   = 0;
+        drop_count_ = 0;
+        miss_count_ = 0;
     }
 
-    Stats stats() const {
+    Stats stats() const
+    {
         std::scoped_lock lk(mutex_);
         return {
             primed_,
@@ -187,20 +200,24 @@ private:
     std::optional<utils::Timestamp> first_push_time_;
 
     uint64_t played_count_ = 0;
-    uint64_t drop_count_   = 0;
-    uint64_t miss_count_   = 0;
+    uint64_t drop_count_ = 0;
+    uint64_t miss_count_ = 0;
 };
 
-template <typename Frame> class Jitter {
+template <typename Frame>
+class Jitter {
 public:
     using JitterBuf = JitterBuffer<Frame>;
-    using Stats     = JitterBuf::Stats;
-    using Ptr       = JitterBuf::Ptr;
+    using Stats = JitterBuf::Stats;
+    using Ptr = JitterBuf::Ptr;
 
     explicit Jitter(const utils::Duration target_delay)
-        : buf_(target_delay) {}
+        : buf_(target_delay)
+    {
+    }
 
-    void push(uint64_t seq, Frame&& frame) {
+    void push(uint64_t seq, Frame&& frame)
+    {
         if (frame.empty()) {
             return;
         }
@@ -209,21 +226,30 @@ public:
 
     Ptr pop() { return buf_.pop(); }
 
-    size_t evict_old(const utils::Duration max_delay) { return buf_.evict_old(max_delay); }
-
-    size_t evict_before_sender_ts(const utils::WallTimestamp cutoff) {
-        return buf_.evict_if([cutoff](const Frame& f) { return f.sender_ts < cutoff; });
+    size_t evict_old(const utils::Duration max_delay)
+    {
+        return buf_.evict_old(max_delay);
     }
 
-    std::optional<utils::WallTimestamp> front_effective_ts() const {
-        const auto td = std::chrono::duration_cast<std::chrono::milliseconds>(buf_.target_delay());
+    size_t evict_before_sender_ts(const utils::WallTimestamp cutoff)
+    {
+        return buf_.evict_if(
+            [cutoff](const Frame& f) { return f.sender_ts < cutoff; });
+    }
+
+    std::optional<utils::WallTimestamp> front_effective_ts() const
+    {
+        const auto td = std::chrono::duration_cast<std::chrono::milliseconds>(
+            buf_.target_delay());
         return buf_.with_front([td](const Frame& f) -> utils::WallTimestamp {
             return f.sender_ts + td;
         });
     }
 
     template <typename F>
-    auto with_front(F&& fn) const -> std::optional<std::invoke_result_t<F, const Frame&>> {
+    auto with_front(F&& fn) const
+        -> std::optional<std::invoke_result_t<F, const Frame&>>
+    {
         return buf_.with_front(std::forward<F>(fn));
     }
 

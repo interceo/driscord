@@ -14,14 +14,15 @@
 
 class VideoTransport {
 public:
-    using PacketCb    = Transport::PacketCb;
-    using Callback    = std::function<void()>;
+    using PacketCb = Transport::PacketCb;
+    using Callback = std::function<void()>;
     using VideoPacketCb = std::function<void(const std::string&, const uint8_t*, size_t, uint64_t)>;
-    using KeyframeCb    = Callback;
+    using KeyframeCb = Callback;
 
     // Keep well under PMTU (~1400 bytes after DTLS/SCTP/UDP/IP headers).
-    static constexpr size_t   kChunkPayloadSize = 1100;
-    // 512 chunks * 1100 bytes = ~560 KB max per frame; rejects malformed/malicious packets.
+    static constexpr size_t kChunkPayloadSize = 1100;
+    // 512 chunks * 1100 bytes = ~560 KB max per frame; rejects
+    // malformed/malicious packets.
     static constexpr uint16_t kMaxChunksPerFrame = 512;
 
     explicit VideoTransport(Transport& transport);
@@ -37,7 +38,8 @@ public:
     void on_streaming_peer_removed(std::function<void(const std::string&)> cb);
     void remove_streaming_peer(const std::string& peer_id);
 
-    // Watching gate — only routes incoming video from explicitly added peers to the sink.
+    // Watching gate — only routes incoming video from explicitly added peers to
+    // the sink.
     void add_watched_peer(const std::string& peer_id);
     void remove_watched_peer(const std::string& peer_id);
     void clear_watched_peers();
@@ -49,7 +51,10 @@ public:
 
 private:
     void on_chunk(const std::string& peer_id, const uint8_t* data, size_t len);
-    void on_assembled(const std::string& peer_id, const uint8_t* data, size_t len, uint64_t frame_id);
+    void on_assembled(const std::string& peer_id,
+        const uint8_t* data,
+        size_t len,
+        uint64_t frame_id);
 
     Transport& transport_;
 
