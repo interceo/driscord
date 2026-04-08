@@ -1,15 +1,15 @@
 rootProject.name = "driscord-compose"
 
 // ---------------------------------------------------------------------------
-// Redirect Gradle dependency/plugin caches into the project's builds folder.
-// On Windows the workspace is mounted at Z:\, so builds lands at Z:\builds.
+// Redirect Gradle dependency/plugin caches into the project's .builds folder.
+// On Windows the workspace is mounted at Z:\, so .builds lands at Z:\.builds.
 // Override via DRISCORD_BUILDS_DIR env var or -PbuildsDir=<path>.
 // ---------------------------------------------------------------------------
 val buildsRoot: String =
     (extra.properties["buildsDir"] as String?)
         ?: System.getenv("DRISCORD_BUILDS_DIR")
         ?: rootDir.parentFile.parentFile // settings file lives in client-compose/
-            .resolve("builds")
+            .resolve(".builds")
             .absolutePath
 
 pluginManagement {
