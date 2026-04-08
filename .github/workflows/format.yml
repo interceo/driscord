@@ -22,4 +22,4 @@ jobs:
       - name: Check formatting
         run: |
           find core/ server/ \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' -o -name '*.mm' \) \
-            | xargs clang-format-18 --dry-run --Werror --style=WebKit
+            | xargs clang-format-18 --dry-run --Werror --style=.clang-format
