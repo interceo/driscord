@@ -134,7 +134,7 @@ void VideoReceiver::set_keyframe_callback(std::function<void()> fn) {
     on_keyframe_needed_ = std::move(fn);
 }
 
-void VideoReceiver::push_video_packet(const utils::vector_view<const uint8_t> data) {
+void VideoReceiver::push_video_packet(const utils::vector_view<const uint8_t> data, uint64_t frame_id) {
     if (data.size() <= protocol::VideoHeader::kWireSize) {
         return;
     }
@@ -171,6 +171,7 @@ void VideoReceiver::push_video_packet(const utils::vector_view<const uint8_t> da
     if (decoder_.decode(encoded, encoded_len, rgba, w, h)) {
         decode_failures_ = 0;
         jitter_.push(
+            frame_id,
             Frame{
                 .rgba           = std::move(rgba),
                 .width          = w,

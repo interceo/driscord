@@ -66,28 +66,27 @@ void VideoTransport::send_video(const uint8_t* data, size_t len) {
         subscribers.assign(video_subscribers_.begin(), video_subscribers_.end());
     }
 
-    const auto
-        total_chunks = static_cast<uint16_t>((len + kChunkPayloadSize - 1) / kChunkPayloadSize);
     const uint64_t frame_id = next_frame_id_++;
+    const auto total =
+        static_cast<uint16_t>((len + kChunkPayloadSize - 1) / kChunkPayloadSize);
 
-    chunk_buf_.resize(protocol::ChunkHeader::kWireSize + kChunkPayloadSize);
-
-    for (uint16_t i = 0; i < total_chunks; ++i) {
+    for (uint16_t i = 0; i < total; ++i) {
         const size_t offset    = static_cast<size_t>(i) * kChunkPayloadSize;
         const size_t chunk_len = std::min(kChunkPayloadSize, len - offset);
+        const size_t wire_len  = protocol::ChunkHeader::kWireSize + chunk_len;
 
-        protocol::ChunkHeader ch{
-            .frame_id     = frame_id,
-            .chunk_idx    = i,
-            .total_chunks = total_chunks,
-        };
-        ch.serialize(chunk_buf_.data());
-        std::memcpy(chunk_buf_.data() + protocol::ChunkHeader::kWireSize, data + offset, chunk_len);
+        // Build wire packet: header + payload
+        rtc::binary pkt(wire_len);
+        protocol::ChunkHeader{frame_id, i, total}
+            .serialize(reinterpret_cast<uint8_t*>(pkt.data()));
+        std::memcpy(pkt.data() + protocol::ChunkHeader::kWireSize, data + offset, chunk_len);
 
-        const size_t wire_len = protocol::ChunkHeader::kWireSize + chunk_len;
-        for (const auto& peer_id : subscribers) {
-            transport_.send_on_channel_to("video", peer_id, chunk_buf_.data(), wire_len);
+        // Move to last subscriber, copy to the rest
+        for (size_t s = 0; s + 1 < subscribers.size(); ++s) {
+            transport_.send_on_channel_to("video", subscribers[s],
+                reinterpret_cast<const uint8_t*>(pkt.data()), wire_len);
         }
+        transport_.send_on_channel_to("video", subscribers.back(), std::move(pkt));
     }
 }
 
@@ -170,7 +169,7 @@ void VideoTransport::clear_video_sink() {
     on_keyframe_needed_ = nullptr;
 }
 
-void VideoTransport::on_assembled(const std::string& peer_id, const uint8_t* data, size_t len) {
+void VideoTransport::on_assembled(const std::string& peer_id, const uint8_t* data, size_t len, uint64_t frame_id) {
     {
         std::function<void(const std::string&)> cb;
         bool is_new;
@@ -186,65 +185,18 @@ void VideoTransport::on_assembled(const std::string& peer_id, const uint8_t* dat
     {
         std::scoped_lock lk(sink_mutex_);
         if (on_video_sink_ && watched_peers_.count(peer_id) > 0) {
-            on_video_sink_(peer_id, data, len);
+            on_video_sink_(peer_id, data, len, frame_id);
         }
     }
 }
 
 void VideoTransport::on_chunk(const std::string& peer_id, const uint8_t* data, size_t len) {
-    if (len <= protocol::ChunkHeader::kWireSize) {
-        return;
-    }
-
-    const auto ch = protocol::ChunkHeader::deserialize(data);
-    if (ch.total_chunks == 0 || ch.chunk_idx >= ch.total_chunks) {
-        return;
-    }
-    if (ch.total_chunks > kMaxChunksPerFrame) {
-        return;
-    }
-
-    const uint8_t* payload   = data + protocol::ChunkHeader::kWireSize;
-    const size_t payload_len = len - protocol::ChunkHeader::kWireSize;
-
-    auto& peer_map = peer_assembly_[peer_id];
-    auto& fa       = peer_map[ch.frame_id];
-    if (fa.total == 0) {
-        for (auto it = peer_map.begin(); it != peer_map.end();) {
-            if (it->first + kMaxAssemblyFrames < ch.frame_id) {
-                it = peer_map.erase(it);
-            } else {
-                ++it;
-            }
+    auto [it, _] = peer_assembly_.try_emplace(
+        peer_id, kChunkPayloadSize, 8, kMaxChunksPerFrame
+    );
+    it->second.push(data, len,
+        [&](uint64_t frame_id, const uint8_t* frame_data, size_t frame_len) {
+            on_assembled(peer_id, frame_data, frame_len, frame_id);
         }
-        fa.total = ch.total_chunks;
-        fa.buffer.resize(static_cast<size_t>(ch.total_chunks) * kChunkPayloadSize);
-        fa.received.assign(ch.total_chunks, false);
-    }
-
-    if (fa.total != ch.total_chunks) {
-        return;
-    }
-
-    if (!fa.received[ch.chunk_idx]) {
-        std::memcpy(
-            fa.buffer.data() + static_cast<size_t>(ch.chunk_idx) * kChunkPayloadSize,
-            payload,
-            payload_len
-        );
-        fa.received[ch.chunk_idx] = true;
-        ++fa.received_count;
-        fa.actual_size = std::max(
-            fa.actual_size,
-            static_cast<size_t>(ch.chunk_idx) * kChunkPayloadSize + payload_len
-        );
-    }
-
-    if (fa.received_count < fa.total) {
-        return;
-    }
-
-    fa.buffer.resize(fa.actual_size);
-    on_assembled(peer_id, fa.buffer.data(), fa.actual_size);
-    peer_map.erase(ch.frame_id);
+    );
 }

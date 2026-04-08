@@ -124,9 +124,9 @@ void DriscordCore::init_screen_session(int buf_ms, int max_sync_ms) {
         }
     });
     video_transport.set_video_sink(
-        [this](const std::string& peer_id, const uint8_t* data, size_t len) {
+        [this](const std::string& peer_id, const uint8_t* data, size_t len, uint64_t frame_id) {
             screen_session
-                ->push_video_packet(peer_id, utils::vector_view<const uint8_t>{data, len});
+                ->push_video_packet(peer_id, utils::vector_view<const uint8_t>{data, len}, frame_id);
         },
         [this]() {
             if (screen_session->sharing()) {

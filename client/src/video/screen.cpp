@@ -150,7 +150,8 @@ void ScreenReceiver::remove_video_peer(const std::string& peer_id) {
 
 void ScreenReceiver::push_video_packet(
     const std::string& peer_id,
-    const utils::vector_view<const uint8_t> data
+    const utils::vector_view<const uint8_t> data,
+    uint64_t frame_id
 ) {
     std::shared_ptr<VideoReceiver> recv;
     {
@@ -162,7 +163,7 @@ void ScreenReceiver::push_video_packet(
         }
     }
     if (recv) {
-        recv->push_video_packet(data);
+        recv->push_video_packet(data, frame_id);
     }
 }
 

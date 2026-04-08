@@ -31,7 +31,16 @@ if(BUILD_SERVER)
     add_subdirectory(server)
 endif()
 
-add_subdirectory(client)
+option(BUILD_CLIENT "Build the client library" ON)
+if(BUILD_CLIENT)
+    add_subdirectory(client)
+endif()
+
+option(BUILD_TESTS "Build tests" OFF)
+if(BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif()
 
 option(BUILD_BENCHMARKS "Build benchmarks" OFF)
 if(BUILD_BENCHMARKS)
