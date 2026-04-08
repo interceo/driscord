@@ -6,6 +6,7 @@
 #   ./scripts/run.sh --debug              # run client (debug build)
 #   ./scripts/run.sh --server             # run server (release)
 #   ./scripts/run.sh --server --debug     # run server (debug)
+#   ./scripts/run.sh --api                # run API server
 #   ./scripts/run.sh --gdb                # run client under GDB
 set -euo pipefail
 
@@ -14,14 +15,15 @@ COMPOSE_DIR="$ROOT/client-compose"
 
 # --- Parse flags ---
 BUILD_TYPE="release"
-MODE="client"
+TARGET="client"
 GDB_MODE=0
 
 for arg in "$@"; do
     case "$arg" in
         --debug)   BUILD_TYPE="debug" ;;
         --release) BUILD_TYPE="release" ;;
-        --server)  MODE="server" ;;
+        --server)  TARGET="server" ;;
+        --api)     TARGET="api" ;;
         --gdb)     GDB_MODE=1 ;;
     esac
 done
@@ -29,7 +31,7 @@ done
 BUILD="$ROOT/.builds/cmake/linux-$BUILD_TYPE"
 
 # ===== SERVER =====
-if [ "$MODE" = "server" ]; then
+if [ "$TARGET" = "server" ]; then
     SERVER_BIN="$ROOT/.builds/server/$BUILD_TYPE/driscord_server"
     if [ ! -f "$SERVER_BIN" ]; then
         echo "==> Server binary not found — building..."
@@ -39,6 +41,18 @@ if [ "$MODE" = "server" ]; then
     fi
     echo "==> Launching server ($BUILD_TYPE)..."
     exec "$SERVER_BIN" "$@"
+fi
+
+# ===== API =====
+if [ "$TARGET" = "api" ]; then
+    API_DIR="$ROOT/backend/api"
+    VENV_DIR="$API_DIR/.venv"
+    if [ ! -d "$VENV_DIR" ]; then
+        echo "==> Venv not found — building API first..."
+        bash "$(dirname "$0")/build.sh" --api
+    fi
+    echo "==> Launching API server..."
+    exec "$VENV_DIR/bin/uvicorn" main:app --host 0.0.0.0 --port 8000 --app-dir "$API_DIR" "$@"
 fi
 
 # ===== CLIENT =====
