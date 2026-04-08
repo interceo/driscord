@@ -57,6 +57,9 @@ public:
     void send_on_channel(const std::string& label, const uint8_t* data, size_t len);
     void send_on_channel_to(const std::string& label, const std::string& peer_id, const uint8_t* data, size_t len);
 
+    // Move-based overload: transfers ownership to libdatachannel, avoids internal copy.
+    void send_on_channel_to(const std::string& label, const std::string& peer_id, rtc::binary&& data);
+
     struct PeerInfo {
         std::string id;
         bool primary_open = false;

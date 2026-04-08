@@ -223,7 +223,7 @@ void AudioReceiver::push_packet(utils::vector_view<const uint8_t> data) {
         }
     }
 
-    jitter_.push(PcmFrame{.samples = std::move(pcm), .sender_ts = ah.sender_ts});
+    jitter_.push(ah.seq, PcmFrame{.samples = std::move(pcm), .sender_ts = ah.sender_ts});
 
     ++push_count_;
     if (push_count_ == 1) {

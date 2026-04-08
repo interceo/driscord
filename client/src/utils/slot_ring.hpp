@@ -26,13 +26,12 @@ public:
     };
 
     template <class U> inline bool push(const uint64_t seq, U&& data) {
-        if (initialized_ && seq < next_seq_) [[unlikely]] {
-            return false;
-        }
-
         if (!initialized_) [[unlikely]] {
             next_seq_    = seq;
             initialized_ = true;
+        } else if (seq < next_seq_) [[unlikely]] {
+            if (popped_) return false;  // already consumed past this
+            next_seq_ = seq;            // lower seq arrived, adjust start
         }
 
         auto& slot = slots_[seq & kMask];
@@ -73,6 +72,7 @@ public:
     }
 
     PopResult consume_peeked(const size_t skipped) {
+        popped_ = true;
         next_seq_ += skipped;
 
         auto& slot = slots_[next_seq_ & kMask];
@@ -102,6 +102,7 @@ public:
 
     void advance_seq() {
         if (initialized_) {
+            popped_ = true;
             ++next_seq_;
         }
     }
@@ -119,6 +120,7 @@ public:
         next_seq_    = 0;
         size_        = 0;
         initialized_ = false;
+        popped_      = false;
     }
 
     template <typename F> void for_each_occupied(F&& fn) const {
@@ -132,7 +134,8 @@ public:
 private:
     std::array<Slot, Capacity> slots_;
 
-    uint64_t next_seq_ = 0;
-    size_t size_       = 0;
-    bool initialized_  = false;
+    alignas(64) uint64_t next_seq_ = 0;
+    alignas(64) size_t size_       = 0;
+    alignas(64) bool initialized_  = false;
+    alignas(64) bool popped_       = false;
 };

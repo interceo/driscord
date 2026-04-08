@@ -1,7 +1,7 @@
 #pragma once
 
-#include "log.hpp"
 #include "slot_ring.hpp"
+#include "spinlock.hpp"
 #include "time.hpp"
 
 #include <chrono>
@@ -178,7 +178,7 @@ public:
     }
 
 private:
-    mutable std::mutex mutex_;
+    mutable utils::SpinLock mutex_;
     mutable SlotRing<Packet> ring_;
 
     bool primed_ = false;
@@ -200,16 +200,14 @@ public:
     explicit Jitter(const utils::Duration target_delay)
         : buf_(target_delay) {}
 
-    void push(Frame&& frame) {
+    void push(uint64_t seq, Frame&& frame) {
         if (frame.empty()) {
             return;
         }
-        buf_.push(seq_++, std::make_unique<Frame>(std::move(frame)));
+        buf_.push(seq, std::make_unique<Frame>(std::move(frame)));
     }
 
-    Ptr pop() {
-        return buf_.pop();
-    }
+    Ptr pop() { return buf_.pop(); }
 
     size_t evict_old(const utils::Duration max_delay) { return buf_.evict_old(max_delay); }
 
@@ -240,7 +238,6 @@ public:
 
 private:
     JitterBuf buf_;
-    uint64_t seq_ = 0;
 };
 
 } // namespace utils

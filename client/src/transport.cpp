@@ -156,6 +156,27 @@ void Transport::send_on_channel_to(
     }
 }
 
+void Transport::send_on_channel_to(
+    const std::string& label,
+    const std::string& peer_id,
+    rtc::binary&& data
+) {
+    std::shared_ptr<rtc::DataChannel> dc;
+    {
+        std::scoped_lock lk(peers_mutex_);
+        auto pit = peers_.find(peer_id);
+        if (pit == peers_.end()) return;
+        auto cit = pit->second.channels.find(label);
+        if (cit == pit->second.channels.end() || !cit->second.dc || !cit->second.open) return;
+        dc = cit->second.dc;
+    }
+    try {
+        dc->send(std::move(data));
+    } catch (const std::exception& e) {
+        LOG_ERROR() << "send_on_channel_to[" << label << "][" << peer_id << "]: " << e.what();
+    }
+}
+
 std::vector<Transport::PeerInfo> Transport::peers() const {
     std::scoped_lock lk(peers_mutex_);
     std::vector<PeerInfo> result;
