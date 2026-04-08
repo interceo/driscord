@@ -5,7 +5,7 @@ project(driscord_core LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Required so that driscord_core's objects can be linked into driscord_jni (.so)
+# Required so that driscord_core's objects can be linked into driscord_core_jni (.so)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 include(FetchContent)
@@ -137,7 +137,7 @@ target_include_directories(driscord_core PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/audio
     ${CMAKE_CURRENT_SOURCE_DIR}/src/video
-    ${CMAKE_SOURCE_DIR}/common
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/utils
 )
 
 target_link_libraries(driscord_core PRIVATE
@@ -146,7 +146,7 @@ target_link_libraries(driscord_core PRIVATE
     PkgConfig::FFMPEG
 )
 # PUBLIC: these headers are included by driscord_core's public .hpp files,
-# so consumers (driscord_jni) need their include paths too.
+# so consumers (driscord_core_jni) need their include paths too.
 #   config.hpp       → fmt/compile.h, fmt/format.h
 #   transport.hpp    → rtc/rtc.hpp, nlohmann/json.hpp
 target_link_libraries(driscord_core PUBLIC
@@ -204,11 +204,11 @@ else()
 endif()
 
 # ---------------------------------------------------------------------------
-# driscord_jni — shared library loaded by the Kotlin/Compose Desktop client
+# driscord_core_jni — shared library loaded by the Kotlin/Compose Desktop client
 # ---------------------------------------------------------------------------
 find_package(JNI QUIET)
 if(JNI_FOUND)
-    add_library(driscord_jni SHARED
+    add_library(driscord_core_jni SHARED
         jni/driscord_state.cpp
         jni/driscord_jni_transport.cpp
         jni/driscord_jni_audio.cpp
@@ -217,19 +217,21 @@ if(JNI_FOUND)
         jni/driscord_jni_screen.cpp
     )
 
-    target_include_directories(driscord_jni PRIVATE
+    set_target_properties(driscord_core_jni PROPERTIES OUTPUT_NAME "core")
+
+    target_include_directories(driscord_core_jni PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/jni
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/src/audio
         ${CMAKE_CURRENT_SOURCE_DIR}/src/video
-        ${CMAKE_SOURCE_DIR}/common
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/utils
         ${JNI_INCLUDE_DIRS}
     )
 
-    target_link_libraries(driscord_jni PRIVATE driscord_core ${JNI_LIBRARIES})
+    target_link_libraries(driscord_core_jni PRIVATE driscord_core ${JNI_LIBRARIES})
 
     # Transitive deps driscord_core was built with
-    target_link_libraries(driscord_jni PRIVATE
+    target_link_libraries(driscord_core_jni PRIVATE
         datachannel-static
         Opus::opus
         nlohmann_json::nlohmann_json
@@ -239,7 +241,7 @@ if(JNI_FOUND)
     )
 
     if(APPLE)
-        target_link_libraries(driscord_jni PRIVATE
+        target_link_libraries(driscord_core_jni PRIVATE
             ${AUDIOTOOLBOX_FRAMEWORK}
             ${COREAUDIO_FRAMEWORK}
             ${COREFOUNDATION_FRAMEWORK}
@@ -247,29 +249,29 @@ if(JNI_FOUND)
             ${COREMEDIA_FRAMEWORK}
         )
         if(SCREENCAPTUREKIT_FRAMEWORK)
-            target_link_libraries(driscord_jni PRIVATE ${SCREENCAPTUREKIT_FRAMEWORK})
+            target_link_libraries(driscord_core_jni PRIVATE ${SCREENCAPTUREKIT_FRAMEWORK})
         endif()
     elseif(WIN32)
-        target_link_libraries(driscord_jni PRIVATE
+        target_link_libraries(driscord_core_jni PRIVATE
             d3d11 dxgi gdi32 mfuuid mfplat mf strmiids
             ole32 wmcodecdspuuid ksuser mmdevapi
         )
     elseif(UNIX)
-        target_link_libraries(driscord_jni PRIVATE X11::X11 X11::Xrandr)
+        target_link_libraries(driscord_core_jni PRIVATE X11::X11 X11::Xrandr)
         if(PULSE_SIMPLE AND PULSE)
-            target_link_libraries(driscord_jni PRIVATE ${PULSE_SIMPLE} ${PULSE})
+            target_link_libraries(driscord_core_jni PRIVATE ${PULSE_SIMPLE} ${PULSE})
         endif()
     endif()
 
     if(MSVC)
-        target_compile_options(driscord_jni PRIVATE /W4)
-        target_compile_definitions(driscord_jni PRIVATE
+        target_compile_options(driscord_core_jni PRIVATE /W4)
+        target_compile_definitions(driscord_core_jni PRIVATE
             _WIN32_WINNT=0x0A00 _CRT_SECURE_NO_WARNINGS NOMINMAX)
     else()
-        target_compile_options(driscord_jni PRIVATE -Wall -Wextra -Wpedantic)
+        target_compile_options(driscord_core_jni PRIVATE -Wall -Wextra -Wpedantic)
     endif()
 
-    message(STATUS "driscord_jni target configured (JNI found at ${JNI_INCLUDE_DIRS})")
+    message(STATUS "driscord_core_jni target configured (JNI found at ${JNI_INCLUDE_DIRS})")
 else()
-    message(STATUS "JNI not found — skipping driscord_jni shared library")
+    message(STATUS "JNI not found — skipping driscord_core_jni shared library")
 endif()

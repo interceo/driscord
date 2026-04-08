@@ -1,21 +1,13 @@
-build/
-build-test/
-build-bench/
-build-debug/
-build-win/
-builds/
-cmake-build-*/
+.builds/
 CMakeFiles/
 CMakeCache.txt
 compile_commands.json
 
-node_modules/
-dist/
-.vite/
-
 *.o
 *.a
 *.so
+*.dll
+*.exe
 *.dylib
 
 .DS_Store

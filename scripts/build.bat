@@ -1,9 +1,29 @@
 @echo off
+:: Unified Driscord build script (Windows — client only).
+::
+:: Usage:
+::   scripts\build.bat                # build client (release)
+::   scripts\build.bat --debug        # build client (debug)
 setlocal EnableDelayedExpansion
 
 set "ROOT=%~dp0.."
-set "BUILD=%ROOT%\build"
 set "COMPOSE_DIR=%ROOT%\client-compose"
+set "BUILD_TYPE=Release"
+
+:: --- Parse flags ---
+for %%A in (%*) do (
+    if "%%A"=="--debug" set "BUILD_TYPE=Debug"
+    if "%%A"=="--release" set "BUILD_TYPE=Release"
+)
+
+if "%BUILD_TYPE%"=="Debug" (
+    set "TYPE_LOWER=debug"
+) else (
+    set "TYPE_LOWER=release"
+)
+
+set "BUILD=%ROOT%\.builds\cmake\windows-%TYPE_LOWER%"
+set "OUT=%ROOT%\.builds\client\windows\%TYPE_LOWER%"
 
 :: ---------------------------------------------------------------------------
 :: Detect vcpkg BEFORE vcvars
@@ -60,36 +80,35 @@ if not defined VCPKG_EXE (
 )
 
 :: ---------------------------------------------------------------------------
-:: 1. CMake — server + legacy client + driscord_jni
+:: 1. CMake — core + JNI
 :: ---------------------------------------------------------------------------
 if not exist "%BUILD%\CMakeCache.txt" (
-    echo =^> Configuring CMake...
-    cmake -S "%ROOT%" -B "%BUILD%" -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release %TOOLCHAIN% -DVCPKG_TARGET_TRIPLET=%VCPKG_TRIPLET% %FFMPEG_PATH% %OPENSSL_PATH%
+    echo =^> Configuring CMake (%BUILD_TYPE%)...
+    cmake -S "%ROOT%" -B "%BUILD%" -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=%BUILD_TYPE% -DBUILD_SERVER=OFF %TOOLCHAIN% -DVCPKG_TARGET_TRIPLET=%VCPKG_TRIPLET% %FFMPEG_PATH% %OPENSSL_PATH%
     if errorlevel 1 ( echo CMake configuration failed. & exit /b 1 )
 )
 
-echo =^> Building C++...
+echo =^> Building C++ (%BUILD_TYPE%)...
 cmake --build "%BUILD%"
 if errorlevel 1 ( echo C++ build failed. & exit /b 1 )
 
-:: Copy DLLs next to legacy client
-set "CLIENT_DIR=%BUILD%\client"
+:: Copy DLLs next to core lib
+set "CORE_DIR=%BUILD%\core"
 if exist "C:\vcpkg\installed\x64-windows\bin\avutil*.dll" (
-    copy /Y "C:\vcpkg\installed\x64-windows\bin\av*.dll" "%CLIENT_DIR%\" >nul 2>&1
-    copy /Y "C:\vcpkg\installed\x64-windows\bin\sw*.dll" "%CLIENT_DIR%\" >nul 2>&1
+    copy /Y "C:\vcpkg\installed\x64-windows\bin\av*.dll" "%CORE_DIR%\" >nul 2>&1
+    copy /Y "C:\vcpkg\installed\x64-windows\bin\sw*.dll" "%CORE_DIR%\" >nul 2>&1
 )
 if exist "C:\ffmpeg\bin\avutil*.dll" (
-    copy /Y "C:\ffmpeg\bin\av*.dll" "%CLIENT_DIR%\" >nul 2>&1
-    copy /Y "C:\ffmpeg\bin\sw*.dll" "%CLIENT_DIR%\" >nul 2>&1
+    copy /Y "C:\ffmpeg\bin\av*.dll" "%CORE_DIR%\" >nul 2>&1
+    copy /Y "C:\ffmpeg\bin\sw*.dll" "%CORE_DIR%\" >nul 2>&1
 )
 
-echo     Server:         %BUILD%\server\driscord_server.exe
-if exist "%BUILD%\client\driscord_jni.dll" (
-    echo     JNI library:    %BUILD%\client\driscord_jni.dll
+if exist "%CORE_DIR%\core.dll" (
+    echo     JNI library: %CORE_DIR%\core.dll
 )
 
 :: ---------------------------------------------------------------------------
-:: Auto-detect JAVA_HOME for Gradle if not set
+:: Auto-detect JAVA_HOME
 :: ---------------------------------------------------------------------------
 if not defined JAVA_HOME (
     for /f "tokens=2*" %%a in (
@@ -121,89 +140,48 @@ if defined JAVA_HOME (
 )
 
 :: ---------------------------------------------------------------------------
-:: 2. Kotlin/Compose Desktop client
+:: 2. Kotlin/Compose fatJar
 :: ---------------------------------------------------------------------------
 echo.
-echo =^> Building Kotlin/Compose client...
+echo =^> Building Kotlin/Compose client (%BUILD_TYPE%)...
 
 if not exist "%COMPOSE_DIR%\gradlew.bat" (
     echo     gradlew.bat not found ^— bootstrapping...
     where gradle >nul 2>&1
     if errorlevel 1 (
-        echo     WARNING: Gradle not found. Install Gradle or run manually:
-        echo       cd %COMPOSE_DIR% ^&^& gradle wrapper
-        echo     Skipping Kotlin build.
-        goto done
+        echo     WARNING: Gradle not found. Skipping Kotlin build.
+        goto stage
     )
     pushd "%COMPOSE_DIR%"
     gradle wrapper --quiet
     popd
 )
 
-set "DRISCORD_NATIVE_LIB_DIR=%BUILD%\client"
-
-:: Kotlin build outputs go to builds\ inside the project folder
-set "DRISCORD_BUILDS_DIR=%ROOT%\builds"
-set "GRADLE_USER_HOME=%ROOT%\builds\gradle-home"
-if not exist "%DRISCORD_BUILDS_DIR%" mkdir "%DRISCORD_BUILDS_DIR%"
+set "DRISCORD_NATIVE_LIB_DIR=%CORE_DIR%"
+set "DRISCORD_BUILDS_DIR=%ROOT%\.builds"
+set "GRADLE_USER_HOME=%ROOT%\.builds\gradle-home"
 
 pushd "%COMPOSE_DIR%"
-:: fatJar — один uber-JAR, никакого bundled JRE, ~30-50 MB
-call gradlew.bat fatJar --quiet -PbuildsDir="%DRISCORD_BUILDS_DIR%"
+call gradlew.bat fatJar --quiet -PbuildsDir="%DRISCORD_BUILDS_DIR%" -PclientBuildDir="%OUT%"
 if errorlevel 1 ( echo Kotlin build failed. & popd & exit /b 1 )
 popd
-echo     Compose JAR: %DRISCORD_BUILDS_DIR%\dist\driscord.jar
 
 :: ---------------------------------------------------------------------------
-:: Package into zip archives on Z:\
+:: 3. Stage artifacts
 :: ---------------------------------------------------------------------------
-echo.
-echo =^> Packaging...
-set "STAGING=%BUILD%\staging"
+:stage
+if not exist "%OUT%" mkdir "%OUT%"
 
-:: Legacy client
-if exist "%STAGING%\client" rd /s /q "%STAGING%\client"
-mkdir "%STAGING%\client"
-copy /Y "%ROOT%\driscord.json" "%STAGING%\client\" >nul
-if exist "%CLIENT_DIR%\*.dll" copy /Y "%CLIENT_DIR%\*.dll" "%STAGING%\client\" >nul
+if exist "%CORE_DIR%\core.dll" copy /Y "%CORE_DIR%\core.dll" "%OUT%\" >nul 2>&1
+if exist "%CORE_DIR%\*.dll"    copy /Y "%CORE_DIR%\*.dll"    "%OUT%\" >nul 2>&1
+copy /Y "%ROOT%\driscord.json" "%OUT%\" >nul
 
-:: Compose client — driscord.jar + нативные DLL + лаунчер в один zip
-if exist "%STAGING%\compose" rd /s /q "%STAGING%\compose"
-mkdir "%STAGING%\compose"
-
-:: JAR
-if exist "%DRISCORD_BUILDS_DIR%\dist\driscord.jar" (
-    copy /Y "%DRISCORD_BUILDS_DIR%\dist\driscord.jar" "%STAGING%\compose\" >nul
-)
-
-:: Нативные DLL (driscord_jni, ffmpeg, etc.)
-if exist "%BUILD%\client\driscord_jni.dll"  copy /Y "%BUILD%\client\driscord_jni.dll"  "%STAGING%\compose\" >nul 2>&1
-if exist "%CLIENT_DIR%\*.dll"               copy /Y "%CLIENT_DIR%\*.dll"               "%STAGING%\compose\" >nul 2>&1
-
-:: Конфиг
-copy /Y "%ROOT%\driscord.json" "%STAGING%\compose\" >nul
-
-:: Лаунчер — driscord.bat (запускает jar из той же папки)
+:: Launcher
 (
     echo @echo off
     echo cd /d "%%~dp0"
     echo java -Djava.library.path=. -jar driscord.jar %%*
-) > "%STAGING%\compose\driscord.bat"
+) > "%OUT%\driscord.bat"
 
-powershell -NoProfile -Command "Compress-Archive -Path '%STAGING%\compose\*' -DestinationPath '%ROOT%\builds\driscord_compose.zip' -Force" 2>nul
-if exist "%ROOT%\builds\driscord_compose.zip" move /Y "%ROOT%\builds\driscord_compose.zip" "Z:\" >nul
-echo     Compose zip: Z:\driscord_compose.zip
-
-:: Server
-if exist "%STAGING%\server" rd /s /q "%STAGING%\server"
-mkdir "%STAGING%\server"
-copy /Y "%BUILD%\server\driscord_server.exe" "%STAGING%\server\" >nul
-copy /Y "%ROOT%\driscord.json" "%STAGING%\server\" >nul
-powershell -NoProfile -Command "Compress-Archive -Path '%STAGING%\server\*' -DestinationPath '%ROOT%\builds\driscord_server.zip' -Force" 2>nul
-if exist "%ROOT%\builds\driscord_server.zip" move /Y "%ROOT%\builds\driscord_server.zip" "Z:\" >nul
-
-rd /s /q "%STAGING%" >nul 2>&1
-
-:done
 echo.
-echo =^> Done
+echo =^> Build complete: %OUT%
