@@ -1,6 +1,7 @@
 #pragma once
 
 #include "transport.hpp"
+#include "utils/chunk_assembler.hpp"
 #include "utils/protocol.hpp"
 
 #include <functional>
@@ -15,7 +16,7 @@ class VideoTransport {
 public:
     using PacketCb    = Transport::PacketCb;
     using Callback    = std::function<void()>;
-    using VideoPacketCb = PacketCb;
+    using VideoPacketCb = std::function<void(const std::string&, const uint8_t*, size_t, uint64_t)>;
     using KeyframeCb    = Callback;
 
     // Keep well under PMTU (~1400 bytes after DTLS/SCTP/UDP/IP headers).
@@ -48,7 +49,7 @@ public:
 
 private:
     void on_chunk(const std::string& peer_id, const uint8_t* data, size_t len);
-    void on_assembled(const std::string& peer_id, const uint8_t* data, size_t len);
+    void on_assembled(const std::string& peer_id, const uint8_t* data, size_t len, uint64_t frame_id);
 
     Transport& transport_;
 
@@ -65,16 +66,7 @@ private:
     KeyframeCb on_keyframe_needed_;
 
     uint64_t next_frame_id_ = 0;
-    std::vector<uint8_t> chunk_buf_;
 
-    struct FrameAssembly {
-        std::vector<uint8_t> buffer;
-        std::vector<bool> received;
-        uint16_t total          = 0;
-        uint16_t received_count = 0;
-        size_t actual_size      = 0;
-    };
-    // Keyed by peer_id then frame_id to prevent frame_id collision across peers.
-    std::unordered_map<std::string, std::unordered_map<uint64_t, FrameAssembly>> peer_assembly_;
-    static constexpr size_t kMaxAssemblyFrames = 8;
+    // Keyed by peer_id to prevent frame_id collision across peers.
+    std::unordered_map<std::string, utils::ChunkAssembler> peer_assembly_;
 };
