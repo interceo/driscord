@@ -14,7 +14,11 @@ compile_commands.json
 .vscode/
 .cache/
 .idea/
+.venv/
 client-compose/.kotlin/
 client-compose/.gradle/
 
 *.log
+.env
+*.db
+backend/api/.venv/

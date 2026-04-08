@@ -25,10 +25,20 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(fmt)
 
+# --- nlohmann/json (shared by core + signaling server) ---
+set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG        v3.11.3
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(json)
+
 # The signaling server is Linux-only; disable when cross-compiling for Windows.
 option(BUILD_SERVER "Build the signaling server" ON)
 if(BUILD_SERVER)
-    add_subdirectory(server)
+    add_subdirectory(backend/signaling_server)
 endif()
 
 option(BUILD_CORE "Build the core library" ON)

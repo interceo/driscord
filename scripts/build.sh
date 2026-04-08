@@ -6,9 +6,12 @@
 #   ./scripts/build.sh --debug            # build client (debug)
 #   ./scripts/build.sh --server           # build server (release)
 #   ./scripts/build.sh --server --debug   # build server (debug)
+#   ./scripts/build.sh --api              # build/setup API
 #   ./scripts/build.sh --windows          # cross-compile Windows client (release)
-#   ./scripts/build.sh --test             # build & run tests
-#   ./scripts/build.sh --bench            # build & run benchmarks
+#   ./scripts/build.sh --test             # build & run core tests
+#   ./scripts/build.sh --bench            # build & run core benchmarks
+#   ./scripts/build.sh --server --test    # (placeholder) test server
+#   ./scripts/build.sh --api --test       # (placeholder) test API
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -16,16 +19,18 @@ COMPOSE_DIR="$ROOT/client-compose"
 
 # --- Parse flags ---
 BUILD_TYPE="Release"
-MODE="client"        # client | server | test | bench
+TARGET="client"      # client | server | api
+ACTION="build"       # build | test | bench
 BUILD_WINDOWS=false
 
 for arg in "$@"; do
     case "$arg" in
         --debug)   BUILD_TYPE="Debug" ;;
         --release) BUILD_TYPE="Release" ;;
-        --server)  MODE="server" ;;
-        --test)    MODE="test" ;;
-        --bench)   MODE="bench" ;;
+        --server)  TARGET="server" ;;
+        --api)     TARGET="api" ;;
+        --test)    ACTION="test" ;;
+        --bench)   ACTION="bench" ;;
         --windows) BUILD_WINDOWS=true ;;
     esac
 done
@@ -48,19 +53,51 @@ cmake_configure() {
 }
 
 # ===== SERVER =====
-if [ "$MODE" = "server" ]; then
+if [ "$TARGET" = "server" ]; then
+    if [ "$ACTION" = "test" ]; then
+        echo "No tests for server yet."
+        exit 0
+    fi
+    if [ "$ACTION" = "bench" ]; then
+        echo "No benchmarks for server yet."
+        exit 0
+    fi
     OUT="$ROOT/.builds/server/$TYPE_LOWER"
     cmake_configure "$BUILD"
     echo "==> Building server ($BUILD_TYPE, $JOBS jobs)..."
     cmake --build "$BUILD" --target driscord_server -j"$JOBS"
     mkdir -p "$OUT"
-    cp "$BUILD/server/driscord_server" "$OUT/"
+    cp "$BUILD/backend/signaling_server/driscord_server" "$OUT/"
     echo "==> Server ready: $OUT/driscord_server"
     exit 0
 fi
 
-# ===== TEST =====
-if [ "$MODE" = "test" ]; then
+# ===== API =====
+if [ "$TARGET" = "api" ]; then
+    if [ "$ACTION" = "test" ]; then
+        echo "No tests for API yet."
+        exit 0
+    fi
+    if [ "$ACTION" = "bench" ]; then
+        echo "No benchmarks for API yet."
+        exit 0
+    fi
+    API_DIR="$ROOT/backend/api"
+    VENV_DIR="$API_DIR/.venv"
+    if [ ! -d "$VENV_DIR" ]; then
+        echo "==> Creating Python venv..."
+        python3 -m venv "$VENV_DIR"
+    fi
+    echo "==> Installing API dependencies..."
+    "$VENV_DIR/bin/pip" install -q -r "$API_DIR/requirements.txt"
+    echo "==> API ready. Run with: ./scripts/run.sh --api"
+    exit 0
+fi
+
+# ===== CLIENT =====
+
+# --- Test ---
+if [ "$ACTION" = "test" ]; then
     cmake_configure "$BUILD" -DBUILD_TESTS=ON -DBUILD_SERVER=OFF -DBUILD_CORE=OFF
     echo "==> Building tests ($BUILD_TYPE, $JOBS jobs)..."
     cmake --build "$BUILD" -j"$JOBS"
@@ -69,8 +106,8 @@ if [ "$MODE" = "test" ]; then
     exit 0
 fi
 
-# ===== BENCH =====
-if [ "$MODE" = "bench" ]; then
+# --- Bench ---
+if [ "$ACTION" = "bench" ]; then
     cmake_configure "$BUILD" -DBUILD_BENCHMARKS=ON -DBUILD_SERVER=OFF -DBUILD_CORE=OFF
     echo "==> Building benchmarks ($JOBS jobs)..."
     cmake --build "$BUILD" -j"$JOBS"
@@ -83,7 +120,7 @@ if [ "$MODE" = "bench" ]; then
     exit 0
 fi
 
-# ===== CLIENT (default) =====
+# --- Build (default) ---
 OUT="$ROOT/.builds/client/linux/$TYPE_LOWER"
 BUILDS_DIR="$ROOT/.builds"
 
