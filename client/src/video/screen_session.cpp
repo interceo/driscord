@@ -48,9 +48,10 @@ void ScreenSession::stop_sharing() {
 
 void ScreenSession::push_video_packet(
     const std::string& peer_id,
-    const utils::vector_view<const uint8_t> data
+    const utils::vector_view<const uint8_t> data,
+    uint64_t frame_id
 ) {
-    receiver_.push_video_packet(peer_id, data);
+    receiver_.push_video_packet(peer_id, data, frame_id);
 }
 
 void ScreenSession::push_audio_packet(

@@ -81,7 +81,7 @@ public:
     VideoReceiver(const VideoReceiver&)            = delete;
     VideoReceiver& operator=(const VideoReceiver&) = delete;
 
-    void push_video_packet(utils::vector_view<const uint8_t> data);
+    void push_video_packet(utils::vector_view<const uint8_t> data, uint64_t frame_id);
 
     // Drains jitter, calls on_frame if a current frame is available.
     void update(std::function<void(const Frame&)> on_frame);
