@@ -22,27 +22,35 @@
 
 #if DRIST_HAS_PROCESS_LOOPBACK
 
-class LoopbackActivationHandler : public IActivateAudioInterfaceCompletionHandler {
+class LoopbackActivationHandler
+    : public IActivateAudioInterfaceCompletionHandler {
 public:
     LoopbackActivationHandler()
-        : event_(CreateEventW(nullptr, FALSE, FALSE, nullptr)) {}
-    ~LoopbackActivationHandler() {
+        : event_(CreateEventW(nullptr, FALSE, FALSE, nullptr))
+    {
+    }
+    ~LoopbackActivationHandler()
+    {
         if (event_) {
             CloseHandle(event_);
         }
     }
 
-    ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&ref_count_); }
-    ULONG STDMETHODCALLTYPE Release() override {
+    ULONG STDMETHODCALLTYPE AddRef() override
+    {
+        return InterlockedIncrement(&ref_count_);
+    }
+    ULONG STDMETHODCALLTYPE Release() override
+    {
         ULONG c = InterlockedDecrement(&ref_count_);
         if (c == 0) {
             delete this;
         }
         return c;
     }
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
-        if (riid == __uuidof(IUnknown) ||
-            riid == __uuidof(IActivateAudioInterfaceCompletionHandler)) {
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override
+    {
+        if (riid == __uuidof(IUnknown) || riid == __uuidof(IActivateAudioInterfaceCompletionHandler)) {
             *ppv = static_cast<IActivateAudioInterfaceCompletionHandler*>(this);
             AddRef();
             return S_OK;
@@ -52,19 +60,23 @@ public:
     }
 
     HRESULT STDMETHODCALLTYPE
-    ActivateCompleted(IActivateAudioInterfaceAsyncOperation* op) override {
+    ActivateCompleted(IActivateAudioInterfaceAsyncOperation* op) override
+    {
         op->GetActivateResult(&activate_hr_, &activated_);
         SetEvent(event_);
         return S_OK;
     }
 
-    bool wait(DWORD ms = 5000) { return WaitForSingleObject(event_, ms) == WAIT_OBJECT_0; }
+    bool wait(DWORD ms = 5000)
+    {
+        return WaitForSingleObject(event_, ms) == WAIT_OBJECT_0;
+    }
     HRESULT result() const { return activate_hr_; }
     IUnknown* interface_ptr() const { return activated_; }
 
 private:
-    ULONG ref_count_     = 1;
-    HANDLE event_        = nullptr;
+    ULONG ref_count_ = 1;
+    HANDLE event_ = nullptr;
     HRESULT activate_hr_ = E_FAIL;
     IUnknown* activated_ = nullptr;
 };
@@ -75,14 +87,15 @@ class SystemAudioCaptureWin : public SystemAudioCapture {
 public:
     ~SystemAudioCaptureWin() override { stop(); }
 
-    bool start(AudioCallback cb) override {
+    bool start(AudioCallback cb) override
+    {
         if (running_) {
             return true;
         }
 
         callback_ = std::move(cb);
 
-        HRESULT hr      = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         co_initialized_ = SUCCEEDED(hr) || hr == S_FALSE;
 
         bool initialized = false;
@@ -90,7 +103,8 @@ public:
 #if DRIST_HAS_PROCESS_LOOPBACK
         initialized = try_process_loopback();
         if (initialized) {
-            LOG_INFO() << "system audio: using process loopback exclusion (self excluded)";
+            LOG_INFO()
+                << "system audio: using process loopback exclusion (self excluded)";
         }
 #endif
 
@@ -101,12 +115,11 @@ public:
             LOG_INFO() << "system audio: using standard WASAPI loopback";
         }
 
-        hr = audio_client_->GetService(
-            __uuidof(IAudioCaptureClient),
-            reinterpret_cast<void**>(&capture_client_)
-        );
+        hr = audio_client_->GetService(__uuidof(IAudioCaptureClient),
+            reinterpret_cast<void**>(&capture_client_));
         if (FAILED(hr)) {
-            LOG_ERROR() << "GetService(IAudioCaptureClient) failed: " << std::hex << hr;
+            LOG_ERROR() << "GetService(IAudioCaptureClient) failed: " << std::hex
+                        << hr;
             cleanup_client();
             return false;
         }
@@ -119,11 +132,12 @@ public:
         }
 
         running_ = true;
-        thread_  = std::thread([this] { capture_loop(); });
+        thread_ = std::thread([this] { capture_loop(); });
         return true;
     }
 
-    void stop() override {
+    void stop() override
+    {
         if (!running_) {
             return;
         }
@@ -145,31 +159,27 @@ public:
 
 private:
 #if DRIST_HAS_PROCESS_LOOPBACK
-    bool try_process_loopback() {
-        AUDIOCLIENT_ACTIVATION_PARAMS params{};
-        params.ActivationType                        = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK;
+    bool try_process_loopback()
+    {
+        AUDIOCLIENT_ACTIVATION_PARAMS params { };
+        params.ActivationType = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK;
         params.ProcessLoopbackParams.TargetProcessId = GetCurrentProcessId();
-        params.ProcessLoopbackParams
-            .ProcessLoopbackMode = PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE;
+        params.ProcessLoopbackParams.ProcessLoopbackMode = PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE;
 
-        PROPVARIANT pv{};
-        pv.vt             = VT_BLOB;
-        pv.blob.cbSize    = sizeof(params);
+        PROPVARIANT pv { };
+        pv.vt = VT_BLOB;
+        pv.blob.cbSize = sizeof(params);
         pv.blob.pBlobData = reinterpret_cast<BYTE*>(&params);
 
-        auto* handler                             = new LoopbackActivationHandler();
+        auto* handler = new LoopbackActivationHandler();
         IActivateAudioInterfaceAsyncOperation* op = nullptr;
 
-        HRESULT hr = ActivateAudioInterfaceAsync(
-            VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
-            __uuidof(IAudioClient),
-            &pv,
-            handler,
-            &op
-        );
+        HRESULT hr = ActivateAudioInterfaceAsync(VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
+            __uuidof(IAudioClient), &pv, handler, &op);
 
         if (FAILED(hr)) {
-            LOG_INFO() << "ActivateAudioInterfaceAsync unavailable: " << std::hex << hr;
+            LOG_INFO() << "ActivateAudioInterfaceAsync unavailable: " << std::hex
+                       << hr;
             handler->Release();
             return false;
         }
@@ -184,7 +194,8 @@ private:
         }
 
         if (FAILED(handler->result())) {
-            LOG_INFO() << "process loopback activation failed: " << std::hex << handler->result();
+            LOG_INFO() << "process loopback activation failed: " << std::hex
+                       << handler->result();
             handler->Release();
             if (op) {
                 op->Release();
@@ -193,8 +204,8 @@ private:
         }
 
         IUnknown* iface = handler->interface_ptr();
-        hr =
-            iface->QueryInterface(__uuidof(IAudioClient), reinterpret_cast<void**>(&audio_client_));
+        hr = iface->QueryInterface(__uuidof(IAudioClient),
+            reinterpret_cast<void**>(&audio_client_));
         handler->Release();
         if (op) {
             op->Release();
@@ -208,34 +219,28 @@ private:
     }
 #endif
 
-    bool init_standard_loopback() {
+    bool init_standard_loopback()
+    {
         IMMDeviceEnumerator* enumerator = nullptr;
-        HRESULT hr                      = CoCreateInstance(
-            __uuidof(MMDeviceEnumerator),
-            nullptr,
-            CLSCTX_ALL,
-            __uuidof(IMMDeviceEnumerator),
-            reinterpret_cast<void**>(&enumerator)
-        );
+        HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr,
+            CLSCTX_ALL, __uuidof(IMMDeviceEnumerator),
+            reinterpret_cast<void**>(&enumerator));
         if (FAILED(hr)) {
-            LOG_ERROR() << "CoCreateInstance(MMDeviceEnumerator) failed: " << std::hex << hr;
+            LOG_ERROR() << "CoCreateInstance(MMDeviceEnumerator) failed: " << std::hex
+                        << hr;
             return false;
         }
 
         IMMDevice* device = nullptr;
-        hr                = enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &device);
+        hr = enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &device);
         enumerator->Release();
         if (FAILED(hr)) {
             LOG_ERROR() << "GetDefaultAudioEndpoint failed: " << std::hex << hr;
             return false;
         }
 
-        hr = device->Activate(
-            __uuidof(IAudioClient),
-            CLSCTX_ALL,
-            nullptr,
-            reinterpret_cast<void**>(&audio_client_)
-        );
+        hr = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
+            reinterpret_cast<void**>(&audio_client_));
         device->Release();
         if (FAILED(hr)) {
             LOG_ERROR() << "Activate(IAudioClient) failed: " << std::hex << hr;
@@ -245,25 +250,21 @@ private:
         return init_client(AUDCLNT_STREAMFLAGS_LOOPBACK);
     }
 
-    bool init_client(DWORD extra_flags) {
-        WAVEFORMATEX desired{};
-        desired.wFormatTag      = WAVE_FORMAT_IEEE_FLOAT;
-        desired.nChannels       = kChannels;
-        desired.nSamplesPerSec  = opus::kSampleRate;
-        desired.wBitsPerSample  = 32;
-        desired.nBlockAlign     = desired.nChannels * desired.wBitsPerSample / 8;
+    bool init_client(DWORD extra_flags)
+    {
+        WAVEFORMATEX desired { };
+        desired.wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
+        desired.nChannels = kChannels;
+        desired.nSamplesPerSec = opus::kSampleRate;
+        desired.wBitsPerSample = 32;
+        desired.nBlockAlign = desired.nChannels * desired.wBitsPerSample / 8;
         desired.nAvgBytesPerSec = desired.nSamplesPerSec * desired.nBlockAlign;
 
         REFERENCE_TIME duration = 200000; // 20ms
-        HRESULT hr              = audio_client_->Initialize(
+        HRESULT hr = audio_client_->Initialize(
             AUDCLNT_SHAREMODE_SHARED,
-            extra_flags | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
-                AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
-            duration,
-            0,
-            &desired,
-            nullptr
-        );
+            extra_flags | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
+            duration, 0, &desired, nullptr);
         if (FAILED(hr)) {
             LOG_ERROR() << "IAudioClient::Initialize failed: " << std::hex << hr;
             audio_client_->Release();
@@ -273,7 +274,8 @@ private:
         return true;
     }
 
-    void cleanup_client() {
+    void cleanup_client()
+    {
         if (audio_client_) {
             audio_client_->Stop();
         }
@@ -287,41 +289,41 @@ private:
         }
     }
 
-    void capture_loop() {
+    void capture_loop()
+    {
         while (running_) {
             UINT32 packet_length = 0;
-            HRESULT hr           = capture_client_->GetNextPacketSize(&packet_length);
+            HRESULT hr = capture_client_->GetNextPacketSize(&packet_length);
             if (FAILED(hr)) {
                 break;
             }
 
             while (packet_length > 0) {
-                BYTE* data        = nullptr;
+                BYTE* data = nullptr;
                 UINT32 num_frames = 0;
-                DWORD flags       = 0;
+                DWORD flags = 0;
 
-                hr = capture_client_->GetBuffer(&data, &num_frames, &flags, nullptr, nullptr);
+                hr = capture_client_->GetBuffer(&data, &num_frames, &flags, nullptr,
+                    nullptr);
                 if (FAILED(hr)) {
                     break;
                 }
 
                 if (callback_ && num_frames > 0) {
                     if (flags & AUDCLNT_BUFFERFLAGS_SILENT) {
-                        silence_buf_.assign(static_cast<size_t>(num_frames) * kChannels, 0.0f);
-                        callback_(silence_buf_.data(), static_cast<size_t>(num_frames), kChannels);
+                        silence_buf_.assign(static_cast<size_t>(num_frames) * kChannels,
+                            0.0f);
+                        callback_(silence_buf_.data(), static_cast<size_t>(num_frames),
+                            kChannels);
                         ++silent_count_;
                     } else {
                         if (first_audio_logged_ == 0) {
                             first_audio_logged_ = 1;
-                            LOG_INFO()
-                                << "system audio: first non-silent buffer after " << silent_count_
-                                << " silent buffers";
+                            LOG_INFO() << "system audio: first non-silent buffer after "
+                                       << silent_count_ << " silent buffers";
                         }
-                        callback_(
-                            reinterpret_cast<const float*>(data),
-                            static_cast<size_t>(num_frames),
-                            kChannels
-                        );
+                        callback_(reinterpret_cast<const float*>(data),
+                            static_cast<size_t>(num_frames), kChannels);
                     }
                 }
 
@@ -338,21 +340,23 @@ private:
     }
 
     AudioCallback callback_;
-    std::atomic<bool> running_{false};
-    bool co_initialized_                 = false;
-    IAudioClient* audio_client_          = nullptr;
+    std::atomic<bool> running_ { false };
+    bool co_initialized_ = false;
+    IAudioClient* audio_client_ = nullptr;
     IAudioCaptureClient* capture_client_ = nullptr;
     std::thread thread_;
     std::vector<float> silence_buf_;
-    uint32_t silent_count_       = 0;
+    uint32_t silent_count_ = 0;
     uint32_t first_audio_logged_ = 0;
 };
 
-bool SystemAudioCapture::available() {
+bool SystemAudioCapture::available()
+{
     return true;
 }
 
-std::unique_ptr<SystemAudioCapture> SystemAudioCapture::create() {
+std::unique_ptr<SystemAudioCapture> SystemAudioCapture::create()
+{
     return std::make_unique<SystemAudioCaptureWin>();
 }
 

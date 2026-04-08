@@ -51,7 +51,8 @@ public:
     bool peer_muted(const std::string& peer_id) const;
 
     // Screen audio
-    void set_screen_audio_recv(const std::string& peer_id, std::shared_ptr<AudioReceiver> recv);
+    void set_screen_audio_recv(const std::string& peer_id,
+        std::shared_ptr<AudioReceiver> recv);
     void unset_screen_audio_recv(const std::string& peer_id);
     void add_screen_audio_to_mixer(const std::string& peer_id);
     void remove_screen_audio_from_mixer(const std::string& peer_id);
@@ -69,5 +70,6 @@ private:
 
     mutable std::mutex recv_mutex_;
     std::unordered_map<std::string, std::shared_ptr<AudioReceiver>> voice_recv_;
-    std::unordered_map<std::string, std::shared_ptr<AudioReceiver>> screen_audio_recv_;
+    std::unordered_map<std::string, std::shared_ptr<AudioReceiver>>
+        screen_audio_recv_;
 };
