@@ -12,14 +12,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install clang-format-18
-        run: |
-          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-          echo "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-18 main" | sudo tee /etc/apt/sources.list.d/llvm-18.list
-          sudo apt-get update
-          sudo apt-get install -y clang-format-18
+      - name: Install clang-format
+        run: pip install clang-format
 
       - name: Check formatting
         run: |
           find core/ server/ \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' -o -name '*.mm' \) \
-            | xargs clang-format-18 --dry-run --Werror --style=.clang-format
+            | xargs clang-format --dry-run --Werror
