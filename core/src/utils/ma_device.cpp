@@ -1,6 +1,7 @@
 #include "ma_device.hpp"
 
-bool MaDevice::start(const ma_device_config& cfg) {
+bool MaDevice::start(const ma_device_config& cfg)
+{
     if (running_) {
         return true;
     }
@@ -15,7 +16,8 @@ bool MaDevice::start(const ma_device_config& cfg) {
     return true;
 }
 
-void MaDevice::stop() {
+void MaDevice::stop()
+{
     if (!running_) {
         return;
     }

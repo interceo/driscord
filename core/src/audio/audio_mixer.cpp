@@ -12,36 +12,42 @@
 #include <cstring>
 
 AudioMixer::AudioMixer() = default;
-AudioMixer::~AudioMixer() {
+AudioMixer::~AudioMixer()
+{
     stop();
 }
 
-std::string AudioMixer::list_output_devices_json() {
+std::string AudioMixer::list_output_devices_json()
+{
     ma_context ctx;
     if (ma_context_init(nullptr, 0, nullptr, &ctx) != MA_SUCCESS) {
-        LOG_ERROR() << "AudioMixer::list_output_devices_json: ma_context_init failed";
+        LOG_ERROR()
+            << "AudioMixer::list_output_devices_json: ma_context_init failed";
         return "[]";
     }
 
     ma_device_info* devices = nullptr;
-    ma_uint32 count         = 0;
-    nlohmann::json arr      = nlohmann::json::array();
+    ma_uint32 count = 0;
+    nlohmann::json arr = nlohmann::json::array();
 
     if (ma_context_get_devices(&ctx, &devices, &count, nullptr, nullptr) == MA_SUCCESS) {
         for (ma_uint32 i = 0; i < count; ++i) {
-            arr.push_back({{"id", devices[i].name}, {"name", devices[i].name}});
+            arr.push_back({ { "id", devices[i].name }, { "name", devices[i].name } });
         }
     } else {
-        LOG_ERROR() << "AudioMixer::list_output_devices_json: ma_context_get_devices failed";
+        LOG_ERROR() << "AudioMixer::list_output_devices_json: "
+                       "ma_context_get_devices failed";
     }
 
     ma_context_uninit(&ctx);
     return arr.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }
 
-// Finds the ma_device_id for a device with the given name from the playback list.
-// Returns false if the device was not found.
-static bool find_playback_device_id(const std::string& name, ma_device_id& out_id) {
+// Finds the ma_device_id for a device with the given name from the playback
+// list. Returns false if the device was not found.
+static bool find_playback_device_id(const std::string& name,
+    ma_device_id& out_id)
+{
     if (name.empty()) {
         return false;
     }
@@ -50,13 +56,13 @@ static bool find_playback_device_id(const std::string& name, ma_device_id& out_i
         return false;
     }
     ma_device_info* devs = nullptr;
-    ma_uint32 count      = 0;
-    bool found           = false;
+    ma_uint32 count = 0;
+    bool found = false;
     if (ma_context_get_devices(&ctx, &devs, &count, nullptr, nullptr) == MA_SUCCESS) {
         for (ma_uint32 i = 0; i < count; ++i) {
             if (name == devs[i].name) {
                 out_id = devs[i].id;
-                found  = true;
+                found = true;
                 break;
             }
         }
@@ -65,37 +71,41 @@ static bool find_playback_device_id(const std::string& name, ma_device_id& out_i
     return found;
 }
 
-bool AudioMixer::start() {
+bool AudioMixer::start()
+{
     if (running_) {
         return true;
     }
 
-    ma_device_config config  = ma_device_config_init(ma_device_type_playback);
-    config.playback.format   = ma_format_f32;
+    ma_device_config config = ma_device_config_init(ma_device_type_playback);
+    config.playback.format = ma_format_f32;
     config.playback.channels = 1;
-    config.sampleRate        = opus::kSampleRate;
-    config.dataCallback      = [](ma_device* d, void* out, const void* /*in*/, ma_uint32 fc) {
-        static_cast<AudioMixer*>(d->pUserData)->on_playback(static_cast<float*>(out), fc);
+    config.sampleRate = opus::kSampleRate;
+    config.dataCallback = [](ma_device* d, void* out, const void* /*in*/,
+                              ma_uint32 fc) {
+        static_cast<AudioMixer*>(d->pUserData)
+            ->on_playback(static_cast<float*>(out), fc);
     };
     config.notificationCallback = [](const ma_device_notification* n) {
         auto* self = static_cast<AudioMixer*>(n->pDevice->pUserData);
         if (n->type == ma_device_notification_type_stopped && self->running_.load()) {
-            LOG_WARNING() << "AudioMixer: playback device stopped unexpectedly, restarting";
+            LOG_WARNING()
+                << "AudioMixer: playback device stopped unexpectedly, restarting";
             ma_device_start(n->pDevice);
         } else if (n->type == ma_device_notification_type_rerouted) {
             LOG_INFO() << "AudioMixer: playback device rerouted";
         }
     };
-    config.pUserData          = this;
+    config.pUserData = this;
     config.periodSizeInFrames = opus::kFrameSize;
 
-    ma_device_id selected_id{};
+    ma_device_id selected_id { };
     if (find_playback_device_id(output_device_id_, selected_id)) {
         config.playback.pDeviceID = &selected_id;
         LOG_INFO() << "AudioMixer: using device '" << output_device_id_ << "'";
     } else if (!output_device_id_.empty()) {
-        LOG_WARNING()
-            << "AudioMixer: device '" << output_device_id_ << "' not found, using default";
+        LOG_WARNING() << "AudioMixer: device '" << output_device_id_
+                      << "' not found, using default";
     }
 
     auto dev = std::make_unique<MaDevice>();
@@ -104,13 +114,14 @@ bool AudioMixer::start() {
         return false;
     }
 
-    device_  = std::move(dev);
+    device_ = std::move(dev);
     running_ = true;
     LOG_INFO() << "AudioMixer: started";
     return true;
 }
 
-void AudioMixer::set_output_device(std::string id) {
+void AudioMixer::set_output_device(std::string id)
+{
     output_device_id_ = std::move(id);
     if (!running_) {
         return;
@@ -120,26 +131,29 @@ void AudioMixer::set_output_device(std::string id) {
     running_ = false;
     device_.reset();
 
-    ma_device_config config  = ma_device_config_init(ma_device_type_playback);
-    config.playback.format   = ma_format_f32;
+    ma_device_config config = ma_device_config_init(ma_device_type_playback);
+    config.playback.format = ma_format_f32;
     config.playback.channels = 1;
-    config.sampleRate        = opus::kSampleRate;
-    config.dataCallback      = [](ma_device* d, void* out, const void* /*in*/, ma_uint32 fc) {
-        static_cast<AudioMixer*>(d->pUserData)->on_playback(static_cast<float*>(out), fc);
+    config.sampleRate = opus::kSampleRate;
+    config.dataCallback = [](ma_device* d, void* out, const void* /*in*/,
+                              ma_uint32 fc) {
+        static_cast<AudioMixer*>(d->pUserData)
+            ->on_playback(static_cast<float*>(out), fc);
     };
     config.notificationCallback = [](const ma_device_notification* n) {
         auto* self = static_cast<AudioMixer*>(n->pDevice->pUserData);
         if (n->type == ma_device_notification_type_stopped && self->running_.load()) {
-            LOG_WARNING() << "AudioMixer: playback device stopped unexpectedly, restarting";
+            LOG_WARNING()
+                << "AudioMixer: playback device stopped unexpectedly, restarting";
             ma_device_start(n->pDevice);
         } else if (n->type == ma_device_notification_type_rerouted) {
             LOG_INFO() << "AudioMixer: playback device rerouted";
         }
     };
-    config.pUserData          = this;
+    config.pUserData = this;
     config.periodSizeInFrames = opus::kFrameSize;
 
-    ma_device_id selected_id{};
+    ma_device_id selected_id { };
     if (find_playback_device_id(output_device_id_, selected_id)) {
         config.playback.pDeviceID = &selected_id;
     }
@@ -149,17 +163,19 @@ void AudioMixer::set_output_device(std::string id) {
         LOG_ERROR() << "AudioMixer: failed to restart with new output device";
         return;
     }
-    device_  = std::move(dev);
+    device_ = std::move(dev);
     running_ = true;
     LOG_INFO() << "AudioMixer: restarted on device '" << output_device_id_ << "'";
 }
 
-void AudioMixer::stop() {
+void AudioMixer::stop()
+{
     if (!running_) {
         return;
     }
     running_ = false;
-    device_.reset(); // MaDevice destructor calls ma_device_stop + ma_device_uninit
+    device_
+        .reset(); // MaDevice destructor calls ma_device_stop + ma_device_uninit
     {
         std::scoped_lock lk(sources_mutex_);
         sources_.clear();
@@ -168,7 +184,8 @@ void AudioMixer::stop() {
     LOG_INFO() << "AudioMixer: stopped";
 }
 
-void AudioMixer::add_source(std::shared_ptr<AudioReceiver> src) {
+void AudioMixer::add_source(std::shared_ptr<AudioReceiver> src)
+{
     if (!src) {
         return;
     }
@@ -178,12 +195,15 @@ void AudioMixer::add_source(std::shared_ptr<AudioReceiver> src) {
     }
 }
 
-void AudioMixer::remove_source(const std::shared_ptr<AudioReceiver>& src) {
+void AudioMixer::remove_source(const std::shared_ptr<AudioReceiver>& src)
+{
     std::scoped_lock lk(sources_mutex_);
-    sources_.erase(std::remove(sources_.begin(), sources_.end(), src), sources_.end());
+    sources_.erase(std::remove(sources_.begin(), sources_.end(), src),
+        sources_.end());
 }
 
-void AudioMixer::on_playback(float* output, const uint32_t frames) {
+void AudioMixer::on_playback(float* output, const uint32_t frames)
+{
     {
         std::unique_lock lk(sources_mutex_, std::try_to_lock);
         if (lk.owns_lock()) {
@@ -202,7 +222,7 @@ void AudioMixer::on_playback(float* output, const uint32_t frames) {
             continue;
         }
 
-        auto samples    = src->pop();
+        auto samples = src->pop();
         const float vol = src->volume();
         for (size_t i = 0; i < samples.size() && i < frames; ++i) {
             output[i] += samples[i] * vol;
@@ -212,7 +232,7 @@ void AudioMixer::on_playback(float* output, const uint32_t frames) {
     ++playback_count_;
 
     const float vol = output_volume_.load();
-    float sum       = 0.0f;
+    float sum = 0.0f;
     for (uint32_t i = 0; i < frames; ++i) {
         output[i] *= vol;
         sum += output[i] * output[i];

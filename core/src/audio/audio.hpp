@@ -22,7 +22,7 @@ public:
     AudioSender();
     ~AudioSender();
 
-    AudioSender(const AudioSender&)            = delete;
+    AudioSender(const AudioSender&) = delete;
     AudioSender& operator=(const AudioSender&) = delete;
 
     // Returns JSON array of {id, name} for all capture devices.
@@ -44,9 +44,9 @@ public:
 private:
     void on_capture(const float* input, uint32_t frames);
 
-    std::atomic<bool> running_{false};
-    std::atomic<bool> muted_{false};
-    std::atomic<float> input_level_{0.0f};
+    std::atomic<bool> running_ { false };
+    std::atomic<bool> muted_ { false };
+    std::atomic<float> input_level_ { 0.0f };
 
     std::string device_id_; // empty = default device
     PacketCallback on_packet_;
@@ -62,22 +62,25 @@ private:
 };
 
 // Single-peer audio receiver: one decoder, one jitter buffer.
-// Per-peer lifecycle (creation, volume, mute) is managed by the caller (AudioTransport or
-// ScreenReceiver). AudioMixer applies src->volume() to the output of pop().
+// Per-peer lifecycle (creation, volume, mute) is managed by the caller
+// (AudioTransport or ScreenReceiver). AudioMixer applies src->volume() to the
+// output of pop().
 class AudioReceiver {
 public:
     struct PcmFrame {
         std::vector<float> samples;
-        utils::WallTimestamp sender_ts{};
+        utils::WallTimestamp sender_ts { };
 
         bool empty() const noexcept { return samples.empty(); }
     };
 
     using AudioJitter = utils::Jitter<PcmFrame>;
 
-    explicit AudioReceiver(int jitter_ms, int channels = 1, int sample_rate = opus::kSampleRate);
+    explicit AudioReceiver(int jitter_ms,
+        int channels = 1,
+        int sample_rate = opus::kSampleRate);
 
-    AudioReceiver(const AudioReceiver&)            = delete;
+    AudioReceiver(const AudioReceiver&) = delete;
     AudioReceiver& operator=(const AudioReceiver&) = delete;
 
     void push_packet(utils::vector_view<const uint8_t> data);
@@ -100,7 +103,7 @@ public:
     void reset();
 
     struct Stats {
-        size_t queue_size   = 0;
+        size_t queue_size = 0;
         uint64_t drop_count = 0;
         uint64_t miss_count = 0;
     };
@@ -117,10 +120,10 @@ private:
     int channels_;
     int sample_rate_;
 
-    std::atomic<float> volume_{1.0f};
-    std::atomic<bool> muted_{false};
+    std::atomic<float> volume_ { 1.0f };
+    std::atomic<bool> muted_ { false };
 
-    uint64_t id_        = 0;
+    uint64_t id_ = 0;
     uint64_t pop_count_ = 0;
 
     static std::atomic<uint64_t> next_id_;

@@ -15,74 +15,83 @@
 using namespace utils;
 
 AudioSender::AudioSender() = default;
-AudioSender::~AudioSender() {
+AudioSender::~AudioSender()
+{
     stop();
 }
 
-std::string AudioSender::list_input_devices_json() {
+std::string AudioSender::list_input_devices_json()
+{
     ma_context ctx;
     if (ma_context_init(nullptr, 0, nullptr, &ctx) != MA_SUCCESS) {
-        LOG_ERROR() << "AudioSender::list_input_devices_json: ma_context_init failed";
+        LOG_ERROR()
+            << "AudioSender::list_input_devices_json: ma_context_init failed";
         return "[]";
     }
 
     ma_device_info* devices = nullptr;
-    ma_uint32 count         = 0;
-    nlohmann::json arr      = nlohmann::json::array();
+    ma_uint32 count = 0;
+    nlohmann::json arr = nlohmann::json::array();
 
     if (ma_context_get_devices(&ctx, nullptr, nullptr, &devices, &count) == MA_SUCCESS) {
         for (ma_uint32 i = 0; i < count; ++i) {
-            arr.push_back({{"id", devices[i].name}, {"name", devices[i].name}});
+            arr.push_back({ { "id", devices[i].name }, { "name", devices[i].name } });
         }
     } else {
-        LOG_ERROR() << "AudioSender::list_input_devices_json: ma_context_get_devices failed";
+        LOG_ERROR() << "AudioSender::list_input_devices_json: "
+                       "ma_context_get_devices failed";
     }
 
     ma_context_uninit(&ctx);
     return arr.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }
 
-bool AudioSender::start(PacketCallback on_packet) {
+bool AudioSender::start(PacketCallback on_packet)
+{
     if (running_) {
         return true;
     }
 
     auto enc = std::make_unique<OpusEncode>();
-    if (!enc->init(opus::kSampleRate, kChannels, 64000, 2048 /* OPUS_APPLICATION_VOIP */)) {
+    if (!enc->init(opus::kSampleRate, kChannels, 64000,
+            2048 /* OPUS_APPLICATION_VOIP */)) {
         LOG_ERROR() << "AudioSender: failed to init Opus encoder";
         return false;
     }
 
     ma_device_config config = ma_device_config_init(ma_device_type_capture);
-    config.capture.format   = ma_format_f32;
+    config.capture.format = ma_format_f32;
     config.capture.channels = kChannels;
-    config.sampleRate       = opus::kSampleRate;
-    config.dataCallback     = [](ma_device* d, void* /*out*/, const void* in, ma_uint32 fc) {
-        static_cast<AudioSender*>(d->pUserData)->on_capture(static_cast<const float*>(in), fc);
+    config.sampleRate = opus::kSampleRate;
+    config.dataCallback = [](ma_device* d, void* /*out*/, const void* in,
+                              ma_uint32 fc) {
+        static_cast<AudioSender*>(d->pUserData)
+            ->on_capture(static_cast<const float*>(in), fc);
     };
     config.notificationCallback = [](const ma_device_notification* n) {
         auto* self = static_cast<AudioSender*>(n->pDevice->pUserData);
         if (n->type == ma_device_notification_type_stopped && self->running_.load()) {
-            LOG_WARNING() << "AudioSender: capture device stopped unexpectedly, restarting";
+            LOG_WARNING()
+                << "AudioSender: capture device stopped unexpectedly, restarting";
             ma_device_start(n->pDevice);
         } else if (n->type == ma_device_notification_type_rerouted) {
             LOG_INFO() << "AudioSender: capture device rerouted";
         }
     };
-    config.pUserData          = this;
+    config.pUserData = this;
     config.periodSizeInFrames = opus::kFrameSize;
 
     // If a specific device was requested, find its native device ID by name.
-    ma_device_id selected_id{};
+    ma_device_id selected_id { };
     if (!device_id_.empty()) {
         ma_context ctx;
         if (ma_context_init(nullptr, 0, nullptr, &ctx) == MA_SUCCESS) {
             ma_device_info* devs = nullptr;
-            ma_uint32 count      = 0;
+            ma_uint32 count = 0;
             if (ma_context_get_devices(&ctx, nullptr, nullptr, &devs, &count) == MA_SUCCESS) {
                 for (ma_uint32 i = 0; i < count; ++i) {
                     if (device_id_ == devs[i].name) {
-                        selected_id              = devs[i].id; // copy union before uninit
+                        selected_id = devs[i].id; // copy union before uninit
                         config.capture.pDeviceID = &selected_id;
                         LOG_INFO() << "AudioSender: using device '" << device_id_ << "'";
                         break;
@@ -92,7 +101,8 @@ bool AudioSender::start(PacketCallback on_packet) {
             ma_context_uninit(&ctx);
         }
         if (!config.capture.pDeviceID) {
-            LOG_WARNING() << "AudioSender: device '" << device_id_ << "' not found, using default";
+            LOG_WARNING() << "AudioSender: device '" << device_id_
+                          << "' not found, using default";
         }
     }
 
@@ -106,16 +116,17 @@ bool AudioSender::start(PacketCallback on_packet) {
     capture_buf_.assign(opus::kFrameSize, 0.0f);
     encode_buf_.resize(protocol::AudioHeader::kWireSize + opus::kMaxPacket);
     capture_pos_ = 0;
-    send_seq_    = 0;
-    encoder_     = std::move(enc);
-    device_      = std::move(dev);
-    running_     = true;
+    send_seq_ = 0;
+    encoder_ = std::move(enc);
+    device_ = std::move(dev);
+    running_ = true;
 
     LOG_INFO() << "AudioSender: started";
     return true;
 }
 
-void AudioSender::set_device_id(std::string id) {
+void AudioSender::set_device_id(std::string id)
+{
     device_id_ = std::move(id);
     if (running_) {
         auto cb = on_packet_; // preserve callback across restart
@@ -124,17 +135,20 @@ void AudioSender::set_device_id(std::string id) {
     }
 }
 
-void AudioSender::stop() {
+void AudioSender::stop()
+{
     if (!running_) {
         return;
     }
     running_ = false;
-    device_.reset(); // MaDevice destructor calls ma_device_stop + ma_device_uninit
+    device_
+        .reset(); // MaDevice destructor calls ma_device_stop + ma_device_uninit
     encoder_.reset();
     LOG_INFO() << "AudioSender: stopped";
 }
 
-void AudioSender::on_capture(const float* input, uint32_t frames) {
+void AudioSender::on_capture(const float* input, uint32_t frames)
+{
     if (!running_ || !on_packet_ || muted_) {
         return;
     }
@@ -147,24 +161,22 @@ void AudioSender::on_capture(const float* input, uint32_t frames) {
 
     uint32_t consumed = 0;
     while (consumed < frames) {
-        uint32_t to_copy =
-            std::min(static_cast<uint32_t>(opus::kFrameSize - capture_pos_), frames - consumed);
-        std::memcpy(&capture_buf_[capture_pos_], &input[consumed], to_copy * sizeof(float));
+        uint32_t to_copy = std::min(static_cast<uint32_t>(opus::kFrameSize - capture_pos_),
+            frames - consumed);
+        std::memcpy(&capture_buf_[capture_pos_], &input[consumed],
+            to_copy * sizeof(float));
         capture_pos_ += to_copy;
         consumed += to_copy;
 
         if (capture_pos_ == static_cast<size_t>(opus::kFrameSize)) {
             uint8_t* opus_start = encode_buf_.data() + protocol::AudioHeader::kWireSize;
-            int bytes =
-                encoder_
-                    ->encode(capture_buf_.data(), opus::kFrameSize, opus_start, opus::kMaxPacket);
+            int bytes = encoder_->encode(capture_buf_.data(), opus::kFrameSize,
+                opus_start, opus::kMaxPacket);
             if (bytes > 0) {
-                const protocol::AudioHeader ah{.seq = send_seq_++, .sender_ts = WallNow()};
+                const protocol::AudioHeader ah { .seq = send_seq_++,
+                    .sender_ts = WallNow() };
                 ah.serialize(encode_buf_.data());
-                on_packet_(
-                    encode_buf_.data(),
-                    protocol::AudioHeader::kWireSize + static_cast<size_t>(bytes)
-                );
+                on_packet_(encode_buf_.data(), protocol::AudioHeader::kWireSize + static_cast<size_t>(bytes));
             }
             capture_pos_ = 0;
         }
@@ -181,7 +193,8 @@ AudioReceiver::AudioReceiver(int jitter_ms, int channels, int sample_rate)
     : jitter_(std::chrono::milliseconds(jitter_ms))
     , channels_(channels)
     , sample_rate_(sample_rate)
-    , id_(next_id_++) {
+    , id_(next_id_++)
+{
     decoder_.init(sample_rate, channels);
     decode_buf_.resize(static_cast<size_t>(opus::kFrameSize) * channels);
     if (channels > 1) {
@@ -189,24 +202,24 @@ AudioReceiver::AudioReceiver(int jitter_ms, int channels, int sample_rate)
     }
 }
 
-void AudioReceiver::push_packet(utils::vector_view<const uint8_t> data) {
+void AudioReceiver::push_packet(utils::vector_view<const uint8_t> data)
+{
     if (data.size() <= protocol::AudioHeader::kWireSize) {
         return;
     }
 
-    const auto ah            = protocol::AudioHeader::deserialize(data.data());
+    const auto ah = protocol::AudioHeader::deserialize(data.data());
     const uint8_t* opus_data = data.data() + protocol::AudioHeader::kWireSize;
-    const int opus_len       = static_cast<int>(data.size() - protocol::AudioHeader::kWireSize);
+    const int opus_len = static_cast<int>(data.size() - protocol::AudioHeader::kWireSize);
 
     std::vector<float> pcm;
     {
         std::scoped_lock lk(decode_mutex_);
-        const int
-            samples = decoder_.decode(opus_data, opus_len, decode_buf_.data(), opus::kFrameSize);
+        const int samples = decoder_.decode(opus_data, opus_len, decode_buf_.data(),
+            opus::kFrameSize);
         if (samples <= 0) {
-            LOG_ERROR()
-                << "[audio-recv/" << id_ << "] decode failed seq=" << ah.seq
-                << " opus_len=" << opus_len << " result=" << samples;
+            LOG_ERROR() << "[audio-recv/" << id_ << "] decode failed seq=" << ah.seq
+                        << " opus_len=" << opus_len << " result=" << samples;
             return;
         }
 
@@ -224,51 +237,59 @@ void AudioReceiver::push_packet(utils::vector_view<const uint8_t> data) {
         }
     }
 
-    jitter_.push(ah.seq, PcmFrame{.samples = std::move(pcm), .sender_ts = ah.sender_ts});
+    jitter_.push(ah.seq,
+        PcmFrame { .samples = std::move(pcm), .sender_ts = ah.sender_ts });
 
     ++push_count_;
     if (push_count_ == 1) {
         LOG_INFO() << "[audio-recv/" << id_ << "] first push seq=" << ah.seq;
     } else if (push_count_ % 30 == 0) {
         const auto st = jitter_.stats();
-        LOG_INFO()
-            << "[audio-recv/" << id_ << "] push#" << push_count_ << " queue=" << st.queue_size
-            << " drops=" << st.drop_count << " misses=" << st.miss_count;
+        LOG_INFO() << "[audio-recv/" << id_ << "] push#" << push_count_
+                   << " queue=" << st.queue_size << " drops=" << st.drop_count
+                   << " misses=" << st.miss_count;
     }
 }
 
-std::vector<float> AudioReceiver::pop() {
+std::vector<float> AudioReceiver::pop()
+{
     auto frame = jitter_.pop();
     if (!frame || frame->samples.empty()) {
-        return {};
+        return { };
     }
     ++pop_count_;
     return std::move(frame->samples);
 }
 
-size_t AudioReceiver::evict_old(utils::Duration max_delay) {
+size_t AudioReceiver::evict_old(utils::Duration max_delay)
+{
     return jitter_.evict_old(max_delay);
 }
 
-bool AudioReceiver::primed() const {
+bool AudioReceiver::primed() const
+{
     return jitter_.primed();
 }
 
-std::optional<utils::WallTimestamp> AudioReceiver::front_effective_ts() const {
+std::optional<utils::WallTimestamp> AudioReceiver::front_effective_ts() const
+{
     return jitter_.front_effective_ts();
 }
 
-int64_t AudioReceiver::front_age_ms() const {
+int64_t AudioReceiver::front_age_ms() const
+{
     return jitter_.front_age_ms();
 }
 
-void AudioReceiver::reset() {
+void AudioReceiver::reset()
+{
     std::scoped_lock lk(decode_mutex_);
     decoder_.init(sample_rate_, channels_);
     jitter_.reset();
 }
 
-AudioReceiver::Stats AudioReceiver::stats() const {
+AudioReceiver::Stats AudioReceiver::stats() const
+{
     const auto s = jitter_.stats();
-    return {s.queue_size, s.drop_count, s.miss_count};
+    return { s.queue_size, s.drop_count, s.miss_count };
 }

@@ -18,7 +18,7 @@ public:
 
     struct ChannelSpec {
         std::string label;
-        bool unordered      = true;
+        bool unordered = true;
         int max_retransmits = 0;
         PacketCb on_data;
         PeerEventCb on_open;
@@ -28,25 +28,34 @@ public:
     Transport();
     ~Transport();
 
-    Transport(const Transport&)            = delete;
+    Transport(const Transport&) = delete;
     Transport& operator=(const Transport&) = delete;
 
     void register_channel(ChannelSpec spec);
 
-    void add_turn_server(const std::string& url, const std::string& user, const std::string& pass);
+    void add_turn_server(const std::string& url,
+        const std::string& user,
+        const std::string& pass);
     void connect(const std::string& ws_url);
     void disconnect();
 
     bool connected() const { return ws_connected_; }
-    std::string local_id() const {
+    std::string local_id() const
+    {
         std::scoped_lock lk(ws_mutex_);
         return local_id_;
     }
 
     void on_peer_joined(PeerEventCb cb) { on_peer_joined_ = std::move(cb); }
     void on_peer_left(PeerEventCb cb) { on_peer_left_ = std::move(cb); }
-    void on_streaming_started(PeerEventCb cb) { on_streaming_started_ = std::move(cb); }
-    void on_streaming_stopped(PeerEventCb cb) { on_streaming_stopped_ = std::move(cb); }
+    void on_streaming_started(PeerEventCb cb)
+    {
+        on_streaming_started_ = std::move(cb);
+    }
+    void on_streaming_stopped(PeerEventCb cb)
+    {
+        on_streaming_stopped_ = std::move(cb);
+    }
     void on_watch_started(PeerEventCb cb) { on_watch_started_ = std::move(cb); }
     void on_watch_stopped(PeerEventCb cb) { on_watch_stopped_ = std::move(cb); }
 
@@ -55,20 +64,19 @@ public:
     void send_watch_start();
     void send_watch_stop();
 
-    void send_on_channel(const std::string& label, const uint8_t* data, size_t len);
-    void send_on_channel_to(
-        const std::string& label,
+    void send_on_channel(const std::string& label,
+        const uint8_t* data,
+        size_t len);
+    void send_on_channel_to(const std::string& label,
         const std::string& peer_id,
         const uint8_t* data,
-        size_t len
-    );
+        size_t len);
 
-    // Move-based overload: transfers ownership to libdatachannel, avoids internal copy.
-    void send_on_channel_to(
-        const std::string& label,
+    // Move-based overload: transfers ownership to libdatachannel, avoids internal
+    // copy.
+    void send_on_channel_to(const std::string& label,
         const std::string& peer_id,
-        rtc::binary&& data
-    );
+        rtc::binary&& data);
 
     struct PeerInfo {
         std::string id;
@@ -91,21 +99,17 @@ private:
     void create_peer(const std::string& peer_id, bool create_offer);
     void handle_offer(const std::string& from, const std::string& sdp);
     void handle_answer(const std::string& from, const std::string& sdp);
-    void handle_candidate(
-        const std::string& from,
+    void handle_candidate(const std::string& from,
         const std::string& candidate,
-        const std::string& mid
-    );
-    void setup_channel(
-        const std::string& peer_id,
+        const std::string& mid);
+    void setup_channel(const std::string& peer_id,
         const std::string& label,
-        std::shared_ptr<rtc::DataChannel> dc
-    );
+        std::shared_ptr<rtc::DataChannel> dc);
     void send_signal(const nlohmann::json& msg);
 
     mutable std::mutex ws_mutex_;
     std::shared_ptr<rtc::WebSocket> ws_;
-    std::atomic<bool> ws_connected_{false};
+    std::atomic<bool> ws_connected_ { false };
     std::string local_id_;
     std::string ws_url_;
 

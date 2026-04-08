@@ -10,45 +10,49 @@ namespace protocol {
 
 struct AudioHeader {
     uint64_t seq = 0;
-    utils::WallTimestamp sender_ts{};
+    utils::WallTimestamp sender_ts { };
 
     static constexpr size_t kWireSize = 16;
 
-    static AudioHeader deserialize(const uint8_t* src) {
+    static AudioHeader deserialize(const uint8_t* src)
+    {
         AudioHeader h;
-        h.seq       = utils::read_u64_le(src);
+        h.seq = utils::read_u64_le(src);
         h.sender_ts = utils::WallFromMs(utils::read_u64_le(src + 8));
         return h;
     }
 
-    void serialize(uint8_t* dst) const {
+    void serialize(uint8_t* dst) const
+    {
         utils::write_u64_le(dst, seq);
         utils::write_u64_le(dst + 8, utils::WallToMs(sender_ts));
     }
 };
 
 struct VideoHeader {
-    uint32_t width  = 0;
+    uint32_t width = 0;
     uint32_t height = 0;
-    utils::WallTimestamp sender_ts{};
-    uint32_t bitrate_kbps      = 0;
+    utils::WallTimestamp sender_ts { };
+    uint32_t bitrate_kbps = 0;
     uint32_t frame_duration_us = 0;
-    uint32_t gop_size          = 0;
+    uint32_t gop_size = 0;
 
     static constexpr size_t kWireSize = 28;
 
-    static VideoHeader deserialize(const uint8_t* src) {
+    static VideoHeader deserialize(const uint8_t* src)
+    {
         VideoHeader h;
-        h.width             = utils::read_u32_le(src);
-        h.height            = utils::read_u32_le(src + 4);
-        h.sender_ts         = utils::WallFromMs(utils::read_u64_le(src + 8));
-        h.bitrate_kbps      = utils::read_u32_le(src + 16);
+        h.width = utils::read_u32_le(src);
+        h.height = utils::read_u32_le(src + 4);
+        h.sender_ts = utils::WallFromMs(utils::read_u64_le(src + 8));
+        h.bitrate_kbps = utils::read_u32_le(src + 16);
         h.frame_duration_us = utils::read_u32_le(src + 20);
-        h.gop_size          = utils::read_u32_le(src + 24);
+        h.gop_size = utils::read_u32_le(src + 24);
         return h;
     }
 
-    void serialize(uint8_t* dst) const {
+    void serialize(uint8_t* dst) const
+    {
         utils::write_u32_le(dst, width);
         utils::write_u32_le(dst + 4, height);
         utils::write_u64_le(dst + 8, utils::WallToMs(sender_ts));
@@ -59,21 +63,23 @@ struct VideoHeader {
 };
 
 struct ChunkHeader {
-    uint64_t frame_id     = 0;
-    uint16_t chunk_idx    = 0;
+    uint64_t frame_id = 0;
+    uint16_t chunk_idx = 0;
     uint16_t total_chunks = 0;
 
     static constexpr size_t kWireSize = 12;
 
-    static ChunkHeader deserialize(const uint8_t* src) {
+    static ChunkHeader deserialize(const uint8_t* src)
+    {
         ChunkHeader h;
-        h.frame_id     = utils::read_u64_le(src);
-        h.chunk_idx    = utils::read_u16_le(src + 8);
+        h.frame_id = utils::read_u64_le(src);
+        h.chunk_idx = utils::read_u16_le(src + 8);
         h.total_chunks = utils::read_u16_le(src + 10);
         return h;
     }
 
-    void serialize(uint8_t* dst) const {
+    void serialize(uint8_t* dst) const
+    {
         utils::write_u64_le(dst, frame_id);
         utils::write_u16_le(dst + 8, chunk_idx);
         utils::write_u16_le(dst + 10, total_chunks);
