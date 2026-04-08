@@ -22,24 +22,25 @@ public:
     ScreenSender() = default;
     ~ScreenSender();
 
-    ScreenSender(const ScreenSender&)            = delete;
+    ScreenSender(const ScreenSender&) = delete;
     ScreenSender& operator=(const ScreenSender&) = delete;
 
-    bool start_sharing(
-        const ScreenCaptureTarget& target,
+    bool start_sharing(const ScreenCaptureTarget& target,
         const size_t max_w,
         const size_t max_h,
         const size_t fps,
         const size_t bitrate_kbps,
         bool share_audio,
         SendCb on_video,
-        SendCb on_screen_audio
-    );
+        SendCb on_screen_audio);
 
     void stop_sharing();
 
     bool sharing() const { return video_sender_.sharing(); }
-    bool sharing_audio() const { return system_audio_capture_ && system_audio_capture_->running(); }
+    bool sharing_audio() const
+    {
+        return system_audio_capture_ && system_audio_capture_->running();
+    }
 
     void force_keyframe() { video_sender_.force_keyframe(); }
     int sender_kbps() const { return video_sender_.measured_kbps(); }
@@ -54,7 +55,7 @@ private:
     SendCb on_screen_audio_;
     std::vector<float> screen_audio_buf_;
     std::vector<uint8_t> screen_audio_encode_buf_;
-    size_t screen_audio_pos_   = 0;
+    size_t screen_audio_pos_ = 0;
     uint64_t screen_audio_seq_ = 0;
 };
 
@@ -63,25 +64,27 @@ public:
     ScreenReceiver(int buffer_ms, int max_sync_gap_ms);
     ~ScreenReceiver() = default;
 
-    ScreenReceiver(const ScreenReceiver&)            = delete;
+    ScreenReceiver(const ScreenReceiver&) = delete;
     ScreenReceiver& operator=(const ScreenReceiver&) = delete;
 
-    // Video peer lifecycle — must be called before push_video_packet for that peer.
+    // Video peer lifecycle — must be called before push_video_packet for that
+    // peer.
     void add_video_peer(const std::string& peer_id);
     void remove_video_peer(const std::string& peer_id);
 
-    void push_video_packet(
-        const std::string& peer_id,
+    void push_video_packet(const std::string& peer_id,
         const utils::vector_view<const uint8_t> data,
-        uint64_t frame_id
-    );
-    void push_audio_packet(const std::string& peer_id, const utils::vector_view<const uint8_t> data);
+        uint64_t frame_id);
+    void push_audio_packet(const std::string& peer_id,
+        const utils::vector_view<const uint8_t> data);
 
-    // Per-peer audio receiver lifecycle. Must be called before push_audio_packet for that peer.
+    // Per-peer audio receiver lifecycle. Must be called before push_audio_packet
+    // for that peer.
     void add_audio_peer(const std::string& peer_id);
     void remove_audio_peer(const std::string& peer_id);
     std::shared_ptr<AudioReceiver> audio_receiver(const std::string& peer_id);
-    std::shared_ptr<const AudioReceiver> audio_receiver(const std::string& peer_id) const;
+    std::shared_ptr<const AudioReceiver> audio_receiver(
+        const std::string& peer_id) const;
 
     void update(std::function<void(const VideoReceiver::Frame&)> on_frame);
 
@@ -93,7 +96,8 @@ public:
     int measured_kbps() const;
 
     VideoReceiver::Stats video_stats() const;
-    AudioReceiver::Stats audio_stats() const; // aggregated across all audio peers
+    AudioReceiver::Stats audio_stats()
+        const; // aggregated across all audio peers
 
     // Hard timeout eviction.
     void evict_old(utils::Duration max_delay);
@@ -114,17 +118,20 @@ public:
     void reset_audio();
 
 private:
-    // Returns the VideoReceiver for the current peer; must be called with video_mutex_ held.
+    // Returns the VideoReceiver for the current peer; must be called with
+    // video_mutex_ held.
     std::shared_ptr<VideoReceiver> current_video_recv_locked() const;
 
     int video_buffer_ms_;
     std::function<void()> keyframe_cb_;
 
     mutable std::mutex video_mutex_;
-    std::unordered_map<std::string, std::shared_ptr<VideoReceiver>> video_receivers_;
+    std::unordered_map<std::string, std::shared_ptr<VideoReceiver>>
+        video_receivers_;
     std::string current_video_peer_;
 
     mutable std::mutex audio_mutex_;
-    std::unordered_map<std::string, std::shared_ptr<AudioReceiver>> audio_receivers_;
+    std::unordered_map<std::string, std::shared_ptr<AudioReceiver>>
+        audio_receivers_;
     int audio_jitter_ms_;
 };

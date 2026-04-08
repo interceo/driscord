@@ -15,7 +15,8 @@ class Session;
 
 class WebSocketServer : public std::enable_shared_from_this<WebSocketServer> {
 public:
-    explicit WebSocketServer(boost::asio::io_context& io_context, unsigned short port);
+    explicit WebSocketServer(boost::asio::io_context& io_context,
+        unsigned short port);
 
     void run();
     void stop();
@@ -40,4 +41,4 @@ private:
     std::unordered_set<std::string> streaming_peers_;
 };
 
-}  // namespace driscord
+} // namespace driscord

@@ -11,43 +11,40 @@
 
 class ScreenSession {
 public:
-    using SendCb    = std::function<void(const uint8_t*, const size_t)>;
-    using OnFrameCb = std::function<
-        void(const std::string& peer_id, const uint8_t* rgba, const int w, const int h)>;
+    using SendCb = std::function<void(const uint8_t*, const size_t)>;
+    using OnFrameCb = std::function<void(const std::string& peer_id,
+        const uint8_t* rgba,
+        const int w,
+        const int h)>;
     using OnRemovedCb = std::function<void(const std::string& peer_id)>;
 
-    ScreenSession(
-        int buf_ms,
+    ScreenSession(int buf_ms,
         utils::Duration max_sync,
         SendCb send_video,
         std::function<void()> on_keyframe_req,
-        SendCb send_screen_audio
-    );
+        SendCb send_screen_audio);
     ~ScreenSession() = default;
 
-    ScreenSession(const ScreenSession&)            = delete;
+    ScreenSession(const ScreenSession&) = delete;
     ScreenSession& operator=(const ScreenSession&) = delete;
 
-    bool start_sharing(
-        const ScreenCaptureTarget& target,
+    bool start_sharing(const ScreenCaptureTarget& target,
         const size_t max_w,
         const size_t max_h,
         const size_t fps,
         const size_t bitrate_kbps,
-        bool share_audio
-    );
+        bool share_audio);
     void stop_sharing();
     bool sharing() const { return sender_.sharing(); }
     bool sharing_audio() const { return sender_.sharing_audio(); }
     void force_keyframe() { sender_.force_keyframe(); }
     int sender_kbps() const { return sender_.sender_kbps(); }
 
-    void push_video_packet(
-        const std::string& peer_id,
+    void push_video_packet(const std::string& peer_id,
         const utils::vector_view<const uint8_t> data,
-        uint64_t frame_id
-    );
-    void push_audio_packet(const std::string& peer_id, const utils::vector_view<const uint8_t> data);
+        uint64_t frame_id);
+    void push_audio_packet(const std::string& peer_id,
+        const utils::vector_view<const uint8_t> data);
 
     void update();
 
@@ -60,17 +57,34 @@ public:
     int last_width() const { return last_w_; }
     int last_height() const { return last_h_; }
 
-    // Per-peer video receiver lifecycle (must be called before push_video_packet for that peer).
-    void add_video_peer(const std::string& peer_id) { receiver_.add_video_peer(peer_id); }
-    void remove_video_peer(const std::string& peer_id) { receiver_.remove_video_peer(peer_id); }
+    // Per-peer video receiver lifecycle (must be called before push_video_packet
+    // for that peer).
+    void add_video_peer(const std::string& peer_id)
+    {
+        receiver_.add_video_peer(peer_id);
+    }
+    void remove_video_peer(const std::string& peer_id)
+    {
+        receiver_.remove_video_peer(peer_id);
+    }
 
-    // Per-peer audio receiver lifecycle (must be called before push_audio_packet for that peer).
-    void add_audio_peer(const std::string& peer_id) { receiver_.add_audio_peer(peer_id); }
-    void remove_audio_peer(const std::string& peer_id) { receiver_.remove_audio_peer(peer_id); }
-    std::shared_ptr<AudioReceiver> audio_receiver(const std::string& peer_id) {
+    // Per-peer audio receiver lifecycle (must be called before push_audio_packet
+    // for that peer).
+    void add_audio_peer(const std::string& peer_id)
+    {
+        receiver_.add_audio_peer(peer_id);
+    }
+    void remove_audio_peer(const std::string& peer_id)
+    {
+        receiver_.remove_audio_peer(peer_id);
+    }
+    std::shared_ptr<AudioReceiver> audio_receiver(const std::string& peer_id)
+    {
         return receiver_.audio_receiver(peer_id);
     }
-    std::shared_ptr<const AudioReceiver> audio_receiver(const std::string& peer_id) const {
+    std::shared_ptr<const AudioReceiver> audio_receiver(
+        const std::string& peer_id) const
+    {
         return receiver_.audio_receiver(peer_id);
     }
 
@@ -95,9 +109,9 @@ private:
     utils::Duration max_sync_;
 
     using Clock = std::chrono::steady_clock;
-    Clock::time_point last_stats_refresh_{};
-    VideoReceiver::Stats cached_video_stats_{};
-    AudioReceiver::Stats cached_audio_stats_{};
+    Clock::time_point last_stats_refresh_ { };
+    VideoReceiver::Stats cached_video_stats_ { };
+    AudioReceiver::Stats cached_audio_stats_ { };
 
     mutable std::mutex cb_mutex_;
     OnFrameCb on_frame_cb_;

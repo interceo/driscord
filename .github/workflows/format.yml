@@ -1,0 +1,21 @@
+name: clang-format
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-format
+        run: pip install clang-format
+
+      - name: Check formatting
+        run: |
+          find core/ server/ \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' \) \
+            | xargs clang-format --dry-run --Werror

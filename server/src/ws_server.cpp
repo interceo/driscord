@@ -22,8 +22,9 @@ using json = nlohmann::json;
 
 namespace {
 
-std::string generate_id() {
-    static std::mt19937 rng{std::random_device{}()};
+std::string generate_id()
+{
+    static std::mt19937 rng { std::random_device { }() };
     std::uniform_int_distribution<uint64_t> dist;
     std::ostringstream ss;
     ss << std::hex << std::setfill('0') << std::setw(16) << dist(rng);
@@ -33,29 +34,39 @@ std::string generate_id() {
 constexpr size_t kMaxMessageSize = 64 * 1024;
 constexpr size_t kMaxWriteQueueSize = 128;
 
-}  // namespace
+} // namespace
 
 namespace driscord {
 
 class Session : public std::enable_shared_from_this<Session> {
 public:
     Session(tcp::socket&& socket, std::shared_ptr<WebSocketServer> server)
-        : ws_(std::move(socket)), id_(generate_id()), server_(std::move(server)) {}
+        : ws_(std::move(socket))
+        , id_(generate_id())
+        , server_(std::move(server))
+    {
+    }
 
     const std::string& id() const { return id_; }
 
-    void start() {
-        ws_.set_option(websocket::stream_base::timeout::suggested(beast::role_type::server));
-        ws_.set_option(websocket::stream_base::decorator([](websocket::response_type& res) {
-            res.set(http::field::server, "driscord/ws");
-        }));
+    void start()
+    {
+        ws_.set_option(
+            websocket::stream_base::timeout::suggested(beast::role_type::server));
+        ws_.set_option(
+            websocket::stream_base::decorator([](websocket::response_type& res) {
+                res.set(http::field::server, "driscord/ws");
+            }));
         ws_.read_message_max(kMaxMessageSize);
-        ws_.async_accept(beast::bind_front_handler(&Session::on_accept, shared_from_this()));
+        ws_.async_accept(
+            beast::bind_front_handler(&Session::on_accept, shared_from_this()));
     }
 
-    void send(std::shared_ptr<std::string> msg) {
+    void send(std::shared_ptr<std::string> msg)
+    {
         if (write_queue_.size() >= kMaxWriteQueueSize) {
-            LOG_WARNING() << "write queue overflow for " << id_ << ", dropping message";
+            LOG_WARNING() << "write queue overflow for " << id_
+                          << ", dropping message";
             return;
         }
         write_queue_.push_back(std::move(msg));
@@ -65,15 +76,16 @@ public:
     }
 
 private:
-    void do_write() {
+    void do_write()
+    {
         ws_.text(true);
         ws_.async_write(
             boost::asio::buffer(*write_queue_.front()),
-            beast::bind_front_handler(&Session::on_write, shared_from_this())
-        );
+            beast::bind_front_handler(&Session::on_write, shared_from_this()));
     }
 
-    void on_write(beast::error_code ec, std::size_t) {
+    void on_write(beast::error_code ec, std::size_t)
+    {
         if (ec) {
             LOG_ERROR() << "write error [" << id_ << "]: " << ec.message();
             return;
@@ -84,7 +96,8 @@ private:
         }
     }
 
-    void on_accept(beast::error_code ec) {
+    void on_accept(beast::error_code ec)
+    {
         if (ec) {
             LOG_ERROR() << "accept: " << ec.message();
             return;
@@ -99,9 +112,13 @@ private:
         do_read();
     }
 
-    void do_read() { ws_.async_read(buffer_, beast::bind_front_handler(&Session::on_read, shared_from_this())); }
+    void do_read()
+    {
+        ws_.async_read(buffer_, beast::bind_front_handler(&Session::on_read, shared_from_this()));
+    }
 
-    void on_read(beast::error_code ec, std::size_t) {
+    void on_read(beast::error_code ec, std::size_t)
+    {
         if (ec == websocket::error::closed) {
             on_close();
             return;
@@ -112,7 +129,8 @@ private:
             return;
         }
 
-        std::string_view raw{static_cast<const char*>(buffer_.data().data()), buffer_.data().size()};
+        std::string_view raw { static_cast<const char*>(buffer_.data().data()),
+            buffer_.data().size() };
 
         try {
             auto msg = json::parse(raw);
@@ -139,7 +157,8 @@ private:
         do_read();
     }
 
-    void on_close() {
+    void on_close()
+    {
         server_->unregister_session(id_);
         LOG_INFO() << "session " << id_ << " disconnected";
     }
@@ -153,12 +172,20 @@ private:
 
 // --- WebSocketServer ---------------------------------------------------------
 
-WebSocketServer::WebSocketServer(boost::asio::io_context& io_context, unsigned short port)
-    : io_context_(io_context), acceptor_(io_context_, tcp::endpoint(tcp::v4(), port)) {}
+WebSocketServer::WebSocketServer(boost::asio::io_context& io_context,
+    unsigned short port)
+    : io_context_(io_context)
+    , acceptor_(io_context_, tcp::endpoint(tcp::v4(), port))
+{
+}
 
-void WebSocketServer::run() { do_accept(); }
+void WebSocketServer::run()
+{
+    do_accept();
+}
 
-void WebSocketServer::stop() {
+void WebSocketServer::stop()
+{
     boost::system::error_code ec;
     acceptor_.close(ec);
 
@@ -166,7 +193,9 @@ void WebSocketServer::stop() {
     sessions_.clear();
 }
 
-void WebSocketServer::register_session(const std::string& id, std::shared_ptr<Session> s) {
+void WebSocketServer::register_session(const std::string& id,
+    std::shared_ptr<Session> s)
+{
     std::scoped_lock lk(sessions_mutex_);
 
     json joined;
@@ -180,7 +209,8 @@ void WebSocketServer::register_session(const std::string& id, std::shared_ptr<Se
     sessions_.emplace(id, std::move(s));
 }
 
-void WebSocketServer::unregister_session(const std::string& id) {
+void WebSocketServer::unregister_session(const std::string& id)
+{
     std::scoped_lock lk(sessions_mutex_);
     sessions_.erase(id);
     streaming_peers_.erase(id);
@@ -194,7 +224,8 @@ void WebSocketServer::unregister_session(const std::string& id) {
     }
 }
 
-std::string WebSocketServer::build_welcome(const std::string& new_id) {
+std::string WebSocketServer::build_welcome(const std::string& new_id)
+{
     std::scoped_lock lk(sessions_mutex_);
     json welcome;
     welcome["type"] = "welcome";
@@ -212,7 +243,9 @@ std::string WebSocketServer::build_welcome(const std::string& new_id) {
     return welcome.dump();
 }
 
-void WebSocketServer::broadcast(const std::string& from_id, const std::string& msg) {
+void WebSocketServer::broadcast(const std::string& from_id,
+    const std::string& msg)
+{
     std::scoped_lock lk(sessions_mutex_);
     auto shared_msg = std::make_shared<std::string>(msg);
     for (auto& [pid, session] : sessions_) {
@@ -222,7 +255,9 @@ void WebSocketServer::broadcast(const std::string& from_id, const std::string& m
     }
 }
 
-void WebSocketServer::send_to(const std::string& target_id, const std::string& msg) {
+void WebSocketServer::send_to(const std::string& target_id,
+    const std::string& msg)
+{
     std::scoped_lock lk(sessions_mutex_);
     auto it = sessions_.find(target_id);
     if (it != sessions_.end()) {
@@ -230,17 +265,20 @@ void WebSocketServer::send_to(const std::string& target_id, const std::string& m
     }
 }
 
-void WebSocketServer::add_streaming_peer(const std::string& id) {
+void WebSocketServer::add_streaming_peer(const std::string& id)
+{
     std::scoped_lock lk(sessions_mutex_);
     streaming_peers_.insert(id);
 }
 
-void WebSocketServer::remove_streaming_peer(const std::string& id) {
+void WebSocketServer::remove_streaming_peer(const std::string& id)
+{
     std::scoped_lock lk(sessions_mutex_);
     streaming_peers_.erase(id);
 }
 
-void WebSocketServer::do_accept() {
+void WebSocketServer::do_accept()
+{
     acceptor_.async_accept(
         boost::asio::make_strand(io_context_),
         [self = shared_from_this()](beast::error_code ec, tcp::socket socket) {
@@ -250,8 +288,7 @@ void WebSocketServer::do_accept() {
             if (self->acceptor_.is_open()) {
                 self->do_accept();
             }
-        }
-    );
+        });
 }
 
-}  // namespace driscord
+} // namespace driscord

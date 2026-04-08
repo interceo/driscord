@@ -4,7 +4,8 @@
 #include "log.hpp"
 #include "ws_server.hpp"
 
-int main(int argc, char** argv) {
+int main(int argc, char** argv)
+{
     try {
         unsigned short port = 9001;
         if (const char* env = std::getenv("DRISCORD_PORT")) {

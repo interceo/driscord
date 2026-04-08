@@ -16,7 +16,7 @@
 class DriscordCore {
 public:
     using StringCb = std::function<void(const std::string&)>;
-    using FrameCb  = std::function<void(const std::string&, const uint8_t*, int, int)>;
+    using FrameCb = std::function<void(const std::string&, const uint8_t*, int, int)>;
 
     Transport transport;
     AudioTransport audio_transport;
@@ -47,7 +47,9 @@ public:
     void set_on_streaming_stopped(StringCb cb);
 
     // -- Transport facade --
-    void add_turn_server(const std::string& url, const std::string& user, const std::string& pass);
+    void add_turn_server(const std::string& url,
+        const std::string& user,
+        const std::string& pass);
     void connect(const std::string& url);
     void disconnect();
     bool connected() const;
@@ -76,7 +78,8 @@ public:
     float audio_peer_volume(const std::string& peer) const;
     void audio_set_peer_muted(const std::string& peer, bool m);
     bool audio_peer_muted(const std::string& peer) const;
-    void audio_set_screen_audio_receiver(const std::string& peer, bool has_screen);
+    void audio_set_screen_audio_receiver(const std::string& peer,
+        bool has_screen);
     void audio_unset_screen_audio_receiver(const std::string& peer);
     void audio_add_screen_audio_to_mixer(const std::string& peer);
     void audio_remove_screen_audio_from_mixer(const std::string& peer);
@@ -91,21 +94,17 @@ public:
     bool capture_system_audio_available() const;
     std::string capture_audio_list_targets_json() const;
     std::string capture_video_list_targets_json() const;
-    std::vector<uint8_t> capture_grab_thumbnail(
-        const std::string& target_json,
+    std::vector<uint8_t> capture_grab_thumbnail(const std::string& target_json,
         int max_w,
-        int max_h
-    );
+        int max_h);
 
     // -- Screen facade --
-    bool screen_start_sharing(
-        const std::string& target_json,
+    bool screen_start_sharing(const std::string& target_json,
         int max_w,
         int max_h,
         int fps,
         int bitrate_kbps,
-        bool share_audio
-    );
+        bool share_audio);
     void screen_stop_sharing();
     bool screen_sharing() const;
     bool screen_sharing_audio() const;
@@ -128,7 +127,7 @@ private:
     StringCb on_peer_left_cb_;
     StringCb on_new_streaming_peer_cb_;
     StringCb on_streaming_peer_removed_cb_;
-    FrameCb  on_frame_cb_;
+    FrameCb on_frame_cb_;
     StringCb on_frame_removed_cb_;
     StringCb on_streaming_started_cb_;
     StringCb on_streaming_stopped_cb_;

@@ -8,7 +8,7 @@ public:
 
     ~MaDevice() { stop(); }
 
-    MaDevice(const MaDevice&)            = delete;
+    MaDevice(const MaDevice&) = delete;
     MaDevice& operator=(const MaDevice&) = delete;
 
     bool start(const ma_device_config& cfg);
@@ -19,6 +19,6 @@ public:
     ma_device* get() noexcept { return running_ ? &dev_ : nullptr; }
 
 private:
-    ma_device dev_{};
+    ma_device dev_ { };
     bool running_ = false;
 };

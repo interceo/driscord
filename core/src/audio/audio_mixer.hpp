@@ -13,7 +13,7 @@ public:
     AudioMixer();
     ~AudioMixer();
 
-    AudioMixer(const AudioMixer&)            = delete;
+    AudioMixer(const AudioMixer&) = delete;
     AudioMixer& operator=(const AudioMixer&) = delete;
 
     // Returns JSON array of {id, name} for all playback devices.
@@ -45,11 +45,11 @@ private:
     std::vector<std::shared_ptr<AudioReceiver>> sources_;
     std::vector<std::shared_ptr<AudioReceiver>> snapshot_;
 
-    std::string       output_device_id_; // empty = default device
+    std::string output_device_id_; // empty = default device
     std::unique_ptr<MaDevice> device_;
-    std::atomic<bool> running_{false};
-    std::atomic<float> output_volume_{1.0f};
-    std::atomic<bool> deafened_{false};
-    std::atomic<float> output_level_{0.0f};
+    std::atomic<bool> running_ { false };
+    std::atomic<float> output_volume_ { 1.0f };
+    std::atomic<bool> deafened_ { false };
+    std::atomic<float> output_level_ { 0.0f };
     uint64_t playback_count_ = 0;
 };

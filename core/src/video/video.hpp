@@ -21,7 +21,7 @@ public:
     VideoSender();
     ~VideoSender();
 
-    VideoSender(const VideoSender&)            = delete;
+    VideoSender(const VideoSender&) = delete;
     VideoSender& operator=(const VideoSender&) = delete;
 
     bool start(const size_t fps, const size_t base_bitrate_kbps, SendCb on_video);
@@ -38,18 +38,18 @@ public:
 private:
     void encode_loop();
 
-    std::atomic<bool> sharing_{false};
+    std::atomic<bool> sharing_ { false };
 
     VideoEncoder video_encoder_;
 
     std::thread encode_thread_;
-    std::atomic<bool> encode_running_{false};
+    std::atomic<bool> encode_running_ { false };
     std::mutex frame_mutex_;
     std::condition_variable frame_cv_;
     ScreenCapture::Frame pending_frame_;
     bool frame_ready_ = false;
 
-    size_t fps_               = 0;
+    size_t fps_ = 0;
     size_t base_bitrate_kbps_ = 0;
 
     std::vector<uint8_t> frame_buf_;
@@ -63,25 +63,26 @@ class VideoReceiver {
 public:
     struct Frame {
         std::vector<uint8_t> rgba;
-        int width  = 0;
+        int width = 0;
         int height = 0;
         std::string peer_id;
-        utils::WallTimestamp sender_ts{};
-        utils::Duration frame_duration{};
+        utils::WallTimestamp sender_ts { };
+        utils::Duration frame_duration { };
 
         bool empty() const noexcept { return rgba.empty(); }
     };
 
     using VideoJitter = utils::Jitter<Frame>;
-    using Stats       = VideoJitter::Stats;
+    using Stats = VideoJitter::Stats;
 
     VideoReceiver(std::string peer_id, int buffer_ms);
     ~VideoReceiver();
 
-    VideoReceiver(const VideoReceiver&)            = delete;
+    VideoReceiver(const VideoReceiver&) = delete;
     VideoReceiver& operator=(const VideoReceiver&) = delete;
 
-    void push_video_packet(utils::vector_view<const uint8_t> data, uint64_t frame_id);
+    void push_video_packet(utils::vector_view<const uint8_t> data,
+        uint64_t frame_id);
 
     // Drains jitter, calls on_frame if a current frame is available.
     void update(std::function<void(const Frame&)> on_frame);
@@ -89,7 +90,10 @@ public:
     void set_keyframe_callback(std::function<void()> fn);
 
     bool active() const;
-    int measured_kbps() const { return measured_kbps_.load(std::memory_order_relaxed); }
+    int measured_kbps() const
+    {
+        return measured_kbps_.load(std::memory_order_relaxed);
+    }
 
     Stats video_stats() const;
 
@@ -112,12 +116,12 @@ private:
     VideoJitter::Ptr current_frame_;
 
     mutable std::mutex mutex_;
-    utils::Timestamp last_packet_{};
+    utils::Timestamp last_packet_ { };
     int decode_failures_ = 0;
-    utils::Timestamp last_keyframe_req_{};
+    utils::Timestamp last_keyframe_req_ { };
 
     // Bitrate measurement — producer thread only.
-    std::atomic<int> measured_kbps_{0};
+    std::atomic<int> measured_kbps_ { 0 };
     size_t bytes_since_calc_ = 0;
-    utils::Timestamp last_calc_{};
+    utils::Timestamp last_calc_ { };
 };
