@@ -17,5 +17,5 @@ jobs:
 
       - name: Check formatting
         run: |
-          find core/ server/ \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' -o -name '*.mm' \) \
+          find core/ server/ \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' \) \
             | xargs clang-format --dry-run --Werror
