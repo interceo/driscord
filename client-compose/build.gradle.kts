@@ -12,7 +12,7 @@ version = "1.0.0"
 
 // ---------------------------------------------------------------------------
 // Output directories
-//   buildsRoot      — top-level builds/ folder (gradle cache, kotlin class output)
+//   buildsRoot      — top-level .builds/ folder (gradle cache, kotlin class output)
 //   clientBuildDir  — final staging dir for the distributable client package
 //
 // Override via:
@@ -22,7 +22,7 @@ version = "1.0.0"
 val buildsRoot: String = (
     findProperty("buildsDir") as String?
         ?: System.getenv("DRISCORD_BUILDS_DIR")
-        ?: Paths.get(rootDir.parent, "builds").toString()
+        ?: Paths.get(rootDir.parent, ".builds").toString()
 )
 
 val clientBuildDir: String = (

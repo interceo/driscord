@@ -3,21 +3,21 @@ package com.driscord.jni
 import java.io.File
 
 /**
- * Loads libdriscord_jni from the classpath (embedded in the JAR) or from
+ * Loads libcore from the classpath (embedded in the JAR) or from
  * java.library.path (dev mode when running via gradlew run).
  */
 object NativeLoader {
     private val libName: String =
         when {
-            System.getProperty("os.name").startsWith("Windows") -> "driscord_jni.dll"
-            System.getProperty("os.name").startsWith("Mac") -> "libdriscord_jni.dylib"
-            else -> "libdriscord_jni.so"
+            System.getProperty("os.name").startsWith("Windows") -> "core.dll"
+            System.getProperty("os.name").startsWith("Mac") -> "libcore.dylib"
+            else -> "libcore.so"
         }
 
     fun load() {
         // 1. Dev mode: try java.library.path first (set via DRISCORD_NATIVE_LIB_DIR)
         try {
-            System.loadLibrary("driscord_jni")
+            System.loadLibrary("core")
             return
         } catch (_: UnsatisfiedLinkError) {
         }

@@ -7,21 +7,11 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 
-FetchContent_Declare(
-    googlebenchmark
-    GIT_REPOSITORY https://github.com/google/benchmark.git
-    GIT_TAG        v1.9.1
-    GIT_SHALLOW    TRUE
-)
-
-set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
-set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
-
-FetchContent_MakeAvailable(googletest googlebenchmark)
+FetchContent_MakeAvailable(googletest)
 
 set(TEST_INCLUDE_DIRS
-    ${CMAKE_SOURCE_DIR}/client/src/
-    ${CMAKE_SOURCE_DIR}/common
+    ${CMAKE_SOURCE_DIR}/core/src/
+    ${CMAKE_SOURCE_DIR}/core/src/utils
 )
 
 # test_slot_ring
@@ -65,13 +55,3 @@ add_executable(test_chunk_assembler test_chunk_assembler.cpp)
 target_include_directories(test_chunk_assembler PRIVATE ${TEST_INCLUDE_DIRS})
 target_link_libraries(test_chunk_assembler PRIVATE GTest::gtest_main)
 add_test(NAME test_chunk_assembler COMMAND test_chunk_assembler)
-
-# bench_jitter
-add_executable(bench_jitter bench_jitter.cpp)
-target_include_directories(bench_jitter PRIVATE ${TEST_INCLUDE_DIRS})
-target_link_libraries(bench_jitter PRIVATE benchmark::benchmark_main)
-
-# bench_protocol
-add_executable(bench_protocol bench_protocol.cpp)
-target_include_directories(bench_protocol PRIVATE ${TEST_INCLUDE_DIRS})
-target_link_libraries(bench_protocol PRIVATE benchmark::benchmark_main)
