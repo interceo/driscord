@@ -52,16 +52,18 @@ static BOOL CALLBACK monitor_enum_proc(HMONITOR hmon, HDC, LPRECT, LPARAM lparam
     }
 
     int w = mi.rcMonitor.right - mi.rcMonitor.left;
-    int h = mi.rcMonitor.bottom - mi.rcMonitor.top; 
+    int h = mi.rcMonitor.bottom - mi.rcMonitor.top;
 
     ScreenCaptureTarget t;
     t.type = ScreenCaptureTarget::Monitor;
-    t.id = std::to_string(data->index);
-    t.name = "Monitor " + std::to_string(data->index + 1) + " (" + std::to_string(w) + "x" + std::to_string(h) + ")";
-    t.width = w;
+    t.id   = std::to_string(data->index);
+    t.name =
+        "Monitor " + std::to_string(data->index + 1) + " (" + std::to_string(w) + "x" +
+        std::to_string(h) + ")";
+    t.width  = w;
     t.height = h;
-    t.x = mi.rcMonitor.left;
-    t.y = mi.rcMonitor.top;
+    t.x      = mi.rcMonitor.left;
+    t.y      = mi.rcMonitor.top;
 
     data->targets->emplace_back(std::move(t));
     data->index++;
@@ -94,10 +96,10 @@ static BOOL CALLBACK window_enum_proc(HWND hwnd, LPARAM lparam) {
     }
 
     ScreenCaptureTarget t;
-    t.type = ScreenCaptureTarget::Window;
-    t.id = std::to_string(reinterpret_cast<uintptr_t>(hwnd));
-    t.name = wstr_to_utf8(title) + " (" + std::to_string(w) + "x" + std::to_string(h) + ")";
-    t.width = w;
+    t.type   = ScreenCaptureTarget::Window;
+    t.id     = std::to_string(reinterpret_cast<uintptr_t>(hwnd));
+    t.name   = wstr_to_utf8(title) + " (" + std::to_string(w) + "x" + std::to_string(h) + ")";
+    t.width  = w;
     t.height = h;
 
     targets->push_back(std::move(t));
@@ -117,7 +119,11 @@ std::vector<ScreenCaptureTarget> ScreenCapture::list_targets() {
 
 // --- thumbnail (BitBlt) -----------------------------------------------------
 
-ScreenCapture::Frame ScreenCapture::grab_thumbnail(const ScreenCaptureTarget& target, int max_w, int max_h) {
+ScreenCapture::Frame ScreenCapture::grab_thumbnail(
+    const ScreenCaptureTarget& target,
+    int max_w,
+    int max_h
+) {
     Frame f;
 
     HDC src_dc = nullptr;
@@ -136,15 +142,15 @@ ScreenCapture::Frame ScreenCapture::grab_thumbnail(const ScreenCaptureTarget& ta
 
         RECT rect{};
         GetClientRect(hwnd, &rect);
-        src_w = rect.right - rect.left;
-        src_h = rect.bottom - rect.top;
+        src_w  = rect.right - rect.left;
+        src_h  = rect.bottom - rect.top;
         src_dc = GetDC(hwnd);
     } else {
         src_dc = GetDC(nullptr);
-        src_x = target.x;
-        src_y = target.y;
-        src_w = target.width;
-        src_h = target.height;
+        src_x  = target.x;
+        src_y  = target.y;
+        src_w  = target.width;
+        src_h  = target.height;
     }
 
     if (!src_dc || src_w <= 0 || src_h <= 0) {
@@ -154,18 +160,18 @@ ScreenCapture::Frame ScreenCapture::grab_thumbnail(const ScreenCaptureTarget& ta
         return f;
     }
 
-    HDC mem_dc = CreateCompatibleDC(src_dc);
-    HBITMAP bmp = CreateCompatibleBitmap(src_dc, src_w, src_h);
+    HDC mem_dc      = CreateCompatibleDC(src_dc);
+    HBITMAP bmp     = CreateCompatibleBitmap(src_dc, src_w, src_h);
     HGDIOBJ old_bmp = SelectObject(mem_dc, bmp);
 
     BitBlt(mem_dc, 0, 0, src_w, src_h, src_dc, src_x, src_y, SRCCOPY);
 
     BITMAPINFOHEADER bi{};
-    bi.biSize = sizeof(bi);
-    bi.biWidth = src_w;
-    bi.biHeight = -src_h;  // top-down
-    bi.biPlanes = 1;
-    bi.biBitCount = 32;
+    bi.biSize        = sizeof(bi);
+    bi.biWidth       = src_w;
+    bi.biHeight      = -src_h; // top-down
+    bi.biPlanes      = 1;
+    bi.biBitCount    = 32;
     bi.biCompression = BI_RGB;
 
     std::vector<uint8_t> bgra(static_cast<size_t>(src_w) * src_h * 4);
@@ -187,7 +193,7 @@ ScreenCapture::Frame ScreenCapture::grab_thumbnail(const ScreenCaptureTarget& ta
     int ow, oh;
     compute_output_size(src_w, src_h, max_w, max_h, ow, oh);
 
-    f.width = ow;
+    f.width  = ow;
     f.height = oh;
     f.data.resize(static_cast<size_t>(ow) * oh * 4);
 
@@ -205,16 +211,22 @@ class WinScreenCapture : public ScreenCapture {
 public:
     ~WinScreenCapture() override { stop(); }
 
-    bool start(int fps, const ScreenCaptureTarget& target, int max_w, int max_h, FrameCallback cb) override {
+    bool start(
+        int fps,
+        const ScreenCaptureTarget& target,
+        int max_w,
+        int max_h,
+        FrameCallback cb
+    ) override {
         if (running_) {
             return false;
         }
 
-        callback_ = std::move(cb);
-        max_w_ = max_w;
-        max_h_ = max_h;
+        callback_          = std::move(cb);
+        max_w_             = max_w;
+        max_h_             = max_h;
         frame_interval_us_ = 1000000 / std::max(fps, 1);
-        target_ = target;
+        target_            = target;
 
         if (target.type == ScreenCaptureTarget::Window) {
             try {
@@ -228,7 +240,7 @@ public:
                 return false;
             }
             running_ = true;
-            thread_ = std::thread(&WinScreenCapture::bitblt_capture_loop, this);
+            thread_  = std::thread(&WinScreenCapture::bitblt_capture_loop, this);
             LOG_INFO() << "screen capture started (BitBlt window) @ " << fps << " fps";
         } else {
             if (!init_dxgi()) {
@@ -236,8 +248,10 @@ public:
                 return false;
             }
             running_ = true;
-            thread_ = std::thread(&WinScreenCapture::dxgi_capture_loop, this);
-            LOG_INFO() << "screen capture started (DXGI) " << capture_w_ << "x" << capture_h_ << " @ " << fps << " fps";
+            thread_  = std::thread(&WinScreenCapture::dxgi_capture_loop, this);
+            LOG_INFO()
+                << "screen capture started (DXGI) " << capture_w_ << "x" << capture_h_ << " @ "
+                << fps << " fps";
         }
         return true;
     }
@@ -301,7 +315,7 @@ private:
         }
 
         IDXGIAdapter* adapter = nullptr;
-        hr = dxgi_device->GetAdapter(&adapter);
+        hr                    = dxgi_device->GetAdapter(&adapter);
         dxgi_device->Release();
         if (FAILED(hr)) {
             LOG_ERROR() << "GetAdapter failed";
@@ -337,14 +351,14 @@ private:
         }
 
         D3D11_TEXTURE2D_DESC staging_desc{};
-        staging_desc.Width = static_cast<UINT>(capture_w_);
-        staging_desc.Height = static_cast<UINT>(capture_h_);
-        staging_desc.MipLevels = 1;
-        staging_desc.ArraySize = 1;
-        staging_desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        staging_desc.Width            = static_cast<UINT>(capture_w_);
+        staging_desc.Height           = static_cast<UINT>(capture_h_);
+        staging_desc.MipLevels        = 1;
+        staging_desc.ArraySize        = 1;
+        staging_desc.Format           = DXGI_FORMAT_B8G8R8A8_UNORM;
         staging_desc.SampleDesc.Count = 1;
-        staging_desc.Usage = D3D11_USAGE_STAGING;
-        staging_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        staging_desc.Usage            = D3D11_USAGE_STAGING;
+        staging_desc.CPUAccessFlags   = D3D11_CPU_ACCESS_READ;
 
         hr = device_->CreateTexture2D(&staging_desc, nullptr, &staging_tex_);
         if (FAILED(hr)) {
@@ -384,7 +398,7 @@ private:
                 out->Release();
             }
         }
-        return best;  // fallback to first output
+        return best; // fallback to first output
     }
 
     void cleanup_dxgi() {
@@ -434,7 +448,10 @@ private:
             }
 
             ID3D11Texture2D* frame_tex = nullptr;
-            hr = resource->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&frame_tex));
+            hr                         = resource->QueryInterface(
+                __uuidof(ID3D11Texture2D),
+                reinterpret_cast<void**>(&frame_tex)
+            );
             resource->Release();
 
             if (SUCCEEDED(hr) && running_) {
@@ -458,7 +475,7 @@ private:
 
             duplication_->ReleaseFrame();
 
-            auto elapsed = std::chrono::steady_clock::now() - t0;
+            auto elapsed    = std::chrono::steady_clock::now() - t0;
             auto target_dur = std::chrono::microseconds(frame_interval_us_);
             if (elapsed < target_dur) {
                 std::this_thread::sleep_for(target_dur - elapsed);
@@ -484,18 +501,18 @@ private:
             if (w > 0 && h > 0) {
                 HDC wnd_dc = GetDC(hwnd_);
                 if (wnd_dc) {
-                    HDC mem_dc = CreateCompatibleDC(wnd_dc);
+                    HDC mem_dc  = CreateCompatibleDC(wnd_dc);
                     HBITMAP bmp = CreateCompatibleBitmap(wnd_dc, w, h);
                     HGDIOBJ old = SelectObject(mem_dc, bmp);
 
                     BitBlt(mem_dc, 0, 0, w, h, wnd_dc, 0, 0, SRCCOPY);
 
                     BITMAPINFOHEADER bi{};
-                    bi.biSize = sizeof(bi);
-                    bi.biWidth = w;
-                    bi.biHeight = -h;
-                    bi.biPlanes = 1;
-                    bi.biBitCount = 32;
+                    bi.biSize        = sizeof(bi);
+                    bi.biWidth       = w;
+                    bi.biHeight      = -h;
+                    bi.biPlanes      = 1;
+                    bi.biBitCount    = 32;
                     bi.biCompression = BI_RGB;
 
                     std::vector<uint8_t> bgra(static_cast<size_t>(w) * h * 4);
@@ -518,7 +535,7 @@ private:
                     compute_output_size(w, h, max_w_, max_h_, ow, oh);
 
                     Frame out;
-                    out.width = ow;
+                    out.width  = ow;
                     out.height = oh;
 
                     if (ow == w && oh == h) {
@@ -534,7 +551,7 @@ private:
                 }
             }
 
-            auto elapsed = std::chrono::steady_clock::now() - t0;
+            auto elapsed    = std::chrono::steady_clock::now() - t0;
             auto target_dur = std::chrono::microseconds(frame_interval_us_);
             if (elapsed < target_dur) {
                 std::this_thread::sleep_for(target_dur - elapsed);
@@ -549,7 +566,7 @@ private:
         int src_stride = w * 4;
 
         Frame out;
-        out.width = ow;
+        out.width  = ow;
         out.height = oh;
 
         if (ow == w && oh == h) {
@@ -571,7 +588,11 @@ private:
                 std::memcpy(full.data(), data, full.size());
             } else {
                 for (int y = 0; y < h; ++y) {
-                    std::memcpy(full.data() + y * src_stride, data + y * row_pitch, static_cast<size_t>(src_stride));
+                    std::memcpy(
+                        full.data() + y * src_stride,
+                        data + y * row_pitch,
+                        static_cast<size_t>(src_stride)
+                    );
                 }
             }
             out.data.resize(static_cast<size_t>(ow) * oh * 4);
@@ -589,20 +610,22 @@ private:
     FrameCallback callback_;
     std::thread thread_;
     ScreenCaptureTarget target_;
-    int max_w_ = 1920;
-    int max_h_ = 1080;
+    int max_w_             = 1920;
+    int max_h_             = 1080;
     int frame_interval_us_ = 16666;
 
     // DXGI (monitor capture)
-    ID3D11Device* device_ = nullptr;
-    ID3D11DeviceContext* context_ = nullptr;
+    ID3D11Device* device_                = nullptr;
+    ID3D11DeviceContext* context_        = nullptr;
     IDXGIOutputDuplication* duplication_ = nullptr;
-    ID3D11Texture2D* staging_tex_ = nullptr;
-    int capture_w_ = 0;
-    int capture_h_ = 0;
+    ID3D11Texture2D* staging_tex_        = nullptr;
+    int capture_w_                       = 0;
+    int capture_h_                       = 0;
 
     // BitBlt (window capture)
     HWND hwnd_ = nullptr;
 };
 
-std::unique_ptr<ScreenCapture> ScreenCapture::create() { return std::make_unique<WinScreenCapture>(); }
+std::unique_ptr<ScreenCapture> ScreenCapture::create() {
+    return std::make_unique<WinScreenCapture>();
+}

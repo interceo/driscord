@@ -13,11 +13,11 @@
 
 #include "log.hpp"
 
-namespace beast = boost::beast;
-namespace http = beast::http;
+namespace beast     = boost::beast;
+namespace http      = beast::http;
 namespace websocket = beast::websocket;
 
-using tcp = boost::asio::ip::tcp;
+using tcp  = boost::asio::ip::tcp;
 using json = nlohmann::json;
 
 namespace {
@@ -30,17 +30,19 @@ std::string generate_id() {
     return ss.str();
 }
 
-constexpr size_t kMaxMessageSize = 64 * 1024;
+constexpr size_t kMaxMessageSize    = 64 * 1024;
 constexpr size_t kMaxWriteQueueSize = 128;
 
-}  // namespace
+} // namespace
 
 namespace driscord {
 
 class Session : public std::enable_shared_from_this<Session> {
 public:
     Session(tcp::socket&& socket, std::shared_ptr<WebSocketServer> server)
-        : ws_(std::move(socket)), id_(generate_id()), server_(std::move(server)) {}
+        : ws_(std::move(socket))
+        , id_(generate_id())
+        , server_(std::move(server)) {}
 
     const std::string& id() const { return id_; }
 
@@ -99,7 +101,9 @@ private:
         do_read();
     }
 
-    void do_read() { ws_.async_read(buffer_, beast::bind_front_handler(&Session::on_read, shared_from_this())); }
+    void do_read() {
+        ws_.async_read(buffer_, beast::bind_front_handler(&Session::on_read, shared_from_this()));
+    }
 
     void on_read(beast::error_code ec, std::size_t) {
         if (ec == websocket::error::closed) {
@@ -112,10 +116,11 @@ private:
             return;
         }
 
-        std::string_view raw{static_cast<const char*>(buffer_.data().data()), buffer_.data().size()};
+        std::string_view
+            raw{static_cast<const char*>(buffer_.data().data()), buffer_.data().size()};
 
         try {
-            auto msg = json::parse(raw);
+            auto msg    = json::parse(raw);
             msg["from"] = id_;
 
             std::string type = msg.value("type", "");
@@ -154,9 +159,12 @@ private:
 // --- WebSocketServer ---------------------------------------------------------
 
 WebSocketServer::WebSocketServer(boost::asio::io_context& io_context, unsigned short port)
-    : io_context_(io_context), acceptor_(io_context_, tcp::endpoint(tcp::v4(), port)) {}
+    : io_context_(io_context)
+    , acceptor_(io_context_, tcp::endpoint(tcp::v4(), port)) {}
 
-void WebSocketServer::run() { do_accept(); }
+void WebSocketServer::run() {
+    do_accept();
+}
 
 void WebSocketServer::stop() {
     boost::system::error_code ec;
@@ -171,8 +179,8 @@ void WebSocketServer::register_session(const std::string& id, std::shared_ptr<Se
 
     json joined;
     joined["type"] = "peer_joined";
-    joined["id"] = id;
-    auto msg = std::make_shared<std::string>(joined.dump());
+    joined["id"]   = id;
+    auto msg       = std::make_shared<std::string>(joined.dump());
     for (auto& [_, session] : sessions_) {
         session->send(msg);
     }
@@ -187,8 +195,8 @@ void WebSocketServer::unregister_session(const std::string& id) {
 
     json left;
     left["type"] = "peer_left";
-    left["id"] = id;
-    auto msg = std::make_shared<std::string>(left.dump());
+    left["id"]   = id;
+    auto msg     = std::make_shared<std::string>(left.dump());
     for (auto& [_, session] : sessions_) {
         session->send(msg);
     }
@@ -198,13 +206,13 @@ std::string WebSocketServer::build_welcome(const std::string& new_id) {
     std::scoped_lock lk(sessions_mutex_);
     json welcome;
     welcome["type"] = "welcome";
-    welcome["id"] = new_id;
-    json peers = json::array();
+    welcome["id"]   = new_id;
+    json peers      = json::array();
     for (auto& [pid, _] : sessions_) {
         peers.push_back(pid);
     }
     welcome["peers"] = peers;
-    json streaming = json::array();
+    json streaming   = json::array();
     for (auto& sid : streaming_peers_) {
         streaming.push_back(sid);
     }
@@ -254,4 +262,4 @@ void WebSocketServer::do_accept() {
     );
 }
 
-}  // namespace driscord
+} // namespace driscord

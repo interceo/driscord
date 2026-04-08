@@ -2,9 +2,9 @@
 
 #ifdef __APPLE__
 
-#import <ScreenCaptureKit/ScreenCaptureKit.h>
 #import <CoreMedia/CoreMedia.h>
 #import <Foundation/Foundation.h>
+#import <ScreenCaptureKit/ScreenCaptureKit.h>
 
 #include <atomic>
 #include <mutex>
@@ -13,12 +13,12 @@
 
 // SCStreamOutput delegate that forwards audio samples to the C++ callback
 @interface DRAudioStreamOutput : NSObject <SCStreamOutput>
-@property (nonatomic, assign) SystemAudioCapture::AudioCallback callback;
+@property(nonatomic, assign) SystemAudioCapture::AudioCallback callback;
 @end
 
 @implementation DRAudioStreamOutput
 
-- (void)stream:(SCStream *)stream
+- (void)stream:(SCStream*)stream
     didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
                    ofType:(SCStreamOutputType)type {
     if (type != SCStreamOutputTypeAudio) {
@@ -34,8 +34,9 @@
     }
 
     size_t totalLength = 0;
-    char *dataPointer = nullptr;
-    OSStatus status = CMBlockBufferGetDataPointer(blockBuffer, 0, nullptr, &totalLength, &dataPointer);
+    char* dataPointer  = nullptr;
+    OSStatus
+        status = CMBlockBufferGetDataPointer(blockBuffer, 0, nullptr, &totalLength, &dataPointer);
     if (status != kCMBlockBufferNoErr || !dataPointer || totalLength == 0) {
         return;
     }
@@ -45,15 +46,16 @@
         return;
     }
 
-    const AudioStreamBasicDescription *asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc);
+    const AudioStreamBasicDescription*
+        asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDesc);
     if (!asbd) {
         return;
     }
 
-    int channels = static_cast<int>(asbd->mChannelsPerFrame);
+    int channels  = static_cast<int>(asbd->mChannelsPerFrame);
     size_t frames = totalLength / (sizeof(float) * channels);
 
-    _callback(reinterpret_cast<const float *>(dataPointer), frames, channels);
+    _callback(reinterpret_cast<const float*>(dataPointer), frames, channels);
 }
 
 @end
@@ -70,65 +72,72 @@ public:
         callback_ = std::move(cb);
 
         dispatch_semaphore_t sem = dispatch_semaphore_create(0);
-        __block bool success = false;
-        auto* capture = this;
+        __block bool success     = false;
+        auto* capture            = this;
 
-        [SCShareableContent getShareableContentWithCompletionHandler:^(SCShareableContent *content, NSError *error) {
-            if (error || !content) {
-                LOG_ERROR() << "SCShareableContent error: "
-                            << (error ? [[error localizedDescription] UTF8String] : "nil");
-                dispatch_semaphore_signal(sem);
-                return;
-            }
+        [SCShareableContent
+            getShareableContentWithCompletionHandler:
+                ^(SCShareableContent* content, NSError* error) {
+                  if (error || !content) {
+                      LOG_ERROR()
+                          << "SCShareableContent error: "
+                          << (error ? [[error localizedDescription] UTF8String] : "nil");
+                      dispatch_semaphore_signal(sem);
+                      return;
+                  }
 
-            pid_t myPid = [[NSProcessInfo processInfo] processIdentifier];
-            NSMutableArray<SCRunningApplication *> *excludedApps = [NSMutableArray array];
-            for (SCRunningApplication *app in content.applications) {
-                if (app.processID == myPid) {
-                    [excludedApps addObject:app];
-                    break;
-                }
-            }
+                  pid_t myPid = [[NSProcessInfo processInfo] processIdentifier];
+                  NSMutableArray<SCRunningApplication*>* excludedApps = [NSMutableArray array];
+                  for (SCRunningApplication* app in content.applications) {
+                      if (app.processID == myPid) {
+                          [excludedApps addObject:app];
+                          break;
+                      }
+                  }
 
-            SCContentFilter *filter = [[SCContentFilter alloc]
-                initWithDisplay:content.displays.firstObject
-                excludingApplications:excludedApps
-                exceptingWindows:@[]];
+                  SCContentFilter* filter = [[SCContentFilter
+                      alloc] initWithDisplay:content.displays.firstObject
+                       excludingApplications:excludedApps
+                            exceptingWindows:@[]];
 
-            SCStreamConfiguration *config = [[SCStreamConfiguration alloc] init];
-            config.capturesAudio = YES;
-            config.excludesCurrentProcessAudio = YES;
-            config.sampleRate = opus::kSampleRate;
-            config.channelCount = 2;
+                  SCStreamConfiguration* config      = [[SCStreamConfiguration alloc] init];
+                  config.capturesAudio               = YES;
+                  config.excludesCurrentProcessAudio = YES;
+                  config.sampleRate                  = opus::kSampleRate;
+                  config.channelCount                = 2;
 
-            config.width = 2;
-            config.height = 2;
-            config.minimumFrameInterval = CMTimeMake(1, 1);
+                  config.width                = 2;
+                  config.height               = 2;
+                  config.minimumFrameInterval = CMTimeMake(1, 1);
 
-            capture->stream_ = [[SCStream alloc] initWithFilter:filter configuration:config delegate:nil];
-            capture->output_ = [[DRAudioStreamOutput alloc] init];
-            capture->output_.callback = capture->callback_;
+                  capture->stream_          = [[SCStream
+                      alloc] initWithFilter:filter configuration:config delegate:nil];
+                  capture->output_          = [[DRAudioStreamOutput alloc] init];
+                  capture->output_.callback = capture->callback_;
 
-            NSError *addErr = nil;
-            [capture->stream_ addStreamOutput:capture->output_
-                                         type:SCStreamOutputTypeAudio
-                           sampleHandlerQueue:dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0)
-                                        error:&addErr];
-            if (addErr) {
-                LOG_ERROR() << "addStreamOutput error: " << [[addErr localizedDescription] UTF8String];
-                dispatch_semaphore_signal(sem);
-                return;
-            }
+                  NSError* addErr = nil;
+                  [capture->stream_
+                         addStreamOutput:capture->output_
+                                    type:SCStreamOutputTypeAudio
+                      sampleHandlerQueue:dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0)
+                                   error:&addErr];
+                  if (addErr) {
+                      LOG_ERROR() << "addStreamOutput error: " <<
+                          [[addErr localizedDescription] UTF8String];
+                      dispatch_semaphore_signal(sem);
+                      return;
+                  }
 
-            [capture->stream_ startCaptureWithCompletionHandler:^(NSError *startErr) {
-                if (startErr) {
-                    LOG_ERROR() << "startCapture error: " << [[startErr localizedDescription] UTF8String];
-                } else {
-                    success = true;
-                }
-                dispatch_semaphore_signal(sem);
-            }];
-        }];
+                  [capture->stream_ startCaptureWithCompletionHandler:^(NSError* startErr) {
+                    if (startErr) {
+                        LOG_ERROR() << "startCapture error: " <<
+                            [[startErr localizedDescription] UTF8String];
+                    } else {
+                        success = true;
+                    }
+                    dispatch_semaphore_signal(sem);
+                  }];
+                }];
 
         dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC));
 
@@ -146,8 +155,8 @@ public:
 
         if (stream_) {
             dispatch_semaphore_t sem = dispatch_semaphore_create(0);
-            [stream_ stopCaptureWithCompletionHandler:^(NSError *) {
-                dispatch_semaphore_signal(sem);
+            [stream_ stopCaptureWithCompletionHandler:^(NSError*) {
+              dispatch_semaphore_signal(sem);
             }];
             dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC));
             stream_ = nil;
@@ -160,8 +169,8 @@ public:
 private:
     AudioCallback callback_;
     std::atomic<bool> running_{false};
-    SCStream *stream_ = nil;
-    DRAudioStreamOutput *output_ = nil;
+    SCStream* stream_            = nil;
+    DRAudioStreamOutput* output_ = nil;
 };
 
 bool SystemAudioCapture::available() {

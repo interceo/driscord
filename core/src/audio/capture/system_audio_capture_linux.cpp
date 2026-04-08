@@ -158,8 +158,7 @@ std::unique_ptr<SystemAudioCapture> SystemAudioCapture::create() {
 // PA operation via |issue_op|, runs until it completes.
 // Returns false if setup or the operation fails.
 // ---------------------------------------------------------------------------
-template<typename F>
-static bool pa_enumerate(const char* ctx_name, F&& issue_op) {
+template <typename F> static bool pa_enumerate(const char* ctx_name, F&& issue_op) {
     PaMainloopPtr ml{pa_mainloop_new()};
     if (!ml) {
         LOG_ERROR() << "pa_mainloop_new failed";
@@ -179,7 +178,9 @@ static bool pa_enumerate(const char* ctx_name, F&& issue_op) {
 
     while (true) {
         pa_context_state_t state = pa_context_get_state(ctx.get());
-        if (state == PA_CONTEXT_READY) break;
+        if (state == PA_CONTEXT_READY) {
+            break;
+        }
         if (!PA_CONTEXT_IS_GOOD(state)) {
             LOG_ERROR() << "pa_context bad state: " << pa_strerror(pa_context_errno(ctx.get()));
             return false;
@@ -205,15 +206,21 @@ static bool pa_enumerate(const char* ctx_name, F&& issue_op) {
 std::vector<AudioCaptureTarget> SystemAudioCapture::list_sinks() {
     std::vector<AudioCaptureTarget> targets;
 
-    static constexpr auto cb =
-        [](pa_context*, const pa_sink_info* i, int is_last, void* ud) {
-            if (is_last > 0) return;
-            if (!i) { LOG_ERROR() << "pa_sink_info is NULL (is_last not set)"; return; }
-            // Only include sinks that have a monitor source
-            if (i->monitor_source == PA_INVALID_INDEX) return;
-            static_cast<std::vector<AudioCaptureTarget>*>(ud)
-                ->emplace_back(AudioCaptureTarget{i->name, i->description});
-        };
+    static constexpr auto cb = [](pa_context*, const pa_sink_info* i, int is_last, void* ud) {
+        if (is_last > 0) {
+            return;
+        }
+        if (!i) {
+            LOG_ERROR() << "pa_sink_info is NULL (is_last not set)";
+            return;
+        }
+        // Only include sinks that have a monitor source
+        if (i->monitor_source == PA_INVALID_INDEX) {
+            return;
+        }
+        static_cast<std::vector<AudioCaptureTarget>*>(ud)
+            ->emplace_back(AudioCaptureTarget{i->name, i->description});
+    };
 
     pa_enumerate("driscord_sink_lister", [&](pa_context* ctx) {
         return pa_context_get_sink_info_list(ctx, cb, &targets);
@@ -225,15 +232,21 @@ std::vector<AudioCaptureTarget> SystemAudioCapture::list_sinks() {
 std::vector<AudioCaptureTarget> SystemAudioCapture::list_sources() {
     std::vector<AudioCaptureTarget> targets;
 
-    static constexpr auto cb =
-        [](pa_context*, const pa_source_info* i, int is_last, void* ud) {
-            if (is_last > 0) return;
-            if (!i) { LOG_ERROR() << "pa_source_info is NULL (is_last not set)"; return; }
-            // Exclude virtual sink-monitor sources; keep only hardware inputs
-            if (i->monitor_of_sink != PA_INVALID_INDEX) return;
-            static_cast<std::vector<AudioCaptureTarget>*>(ud)
-                ->emplace_back(AudioCaptureTarget{i->name, i->description});
-        };
+    static constexpr auto cb = [](pa_context*, const pa_source_info* i, int is_last, void* ud) {
+        if (is_last > 0) {
+            return;
+        }
+        if (!i) {
+            LOG_ERROR() << "pa_source_info is NULL (is_last not set)";
+            return;
+        }
+        // Exclude virtual sink-monitor sources; keep only hardware inputs
+        if (i->monitor_of_sink != PA_INVALID_INDEX) {
+            return;
+        }
+        static_cast<std::vector<AudioCaptureTarget>*>(ud)
+            ->emplace_back(AudioCaptureTarget{i->name, i->description});
+    };
 
     pa_enumerate("driscord_source_lister", [&](pa_context* ctx) {
         return pa_context_get_source_info_list(ctx, cb, &targets);

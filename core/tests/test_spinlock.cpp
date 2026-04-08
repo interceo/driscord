@@ -40,9 +40,7 @@ TEST(SpinLock, TryLockFailsWhenLocked) {
 // 4. scoped_lock works (Lockable concept)
 TEST(SpinLock, ScopedLock) {
     utils::SpinLock sl;
-    {
-        std::scoped_lock lk(sl);
-    }
+    { std::scoped_lock lk(sl); }
     EXPECT_TRUE(sl.try_lock());
     sl.unlock();
 }
@@ -62,8 +60,8 @@ TEST(SpinLock, UniqueLockTryToLock) {
 // 6. Mutual exclusion — concurrent counter increment
 TEST(SpinLock, MutualExclusion) {
     utils::SpinLock sl;
-    int counter = 0;
-    constexpr int N = 100'000;
+    int counter           = 0;
+    constexpr int N       = 100'000;
     constexpr int THREADS = 4;
 
     auto worker = [&] {
@@ -77,7 +75,9 @@ TEST(SpinLock, MutualExclusion) {
     for (int i = 0; i < THREADS; ++i) {
         threads.emplace_back(worker);
     }
-    for (auto& t : threads) t.join();
+    for (auto& t : threads) {
+        t.join();
+    }
 
     EXPECT_EQ(counter, N * THREADS);
 }
@@ -106,7 +106,7 @@ TEST(SpinLock, LockBlocks) {
 TEST(SpinLock, Stress) {
     utils::SpinLock sl;
     constexpr int THREADS = 8;
-    constexpr int OPS = 50'000;
+    constexpr int OPS     = 50'000;
     std::atomic<int> sum{0};
 
     auto worker = [&] {
@@ -120,7 +120,9 @@ TEST(SpinLock, Stress) {
     for (int i = 0; i < THREADS; ++i) {
         threads.emplace_back(worker);
     }
-    for (auto& t : threads) t.join();
+    for (auto& t : threads) {
+        t.join();
+    }
 
     EXPECT_EQ(sum.load(), THREADS * OPS);
 }

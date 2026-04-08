@@ -24,8 +24,8 @@ std::string AudioMixer::list_output_devices_json() {
     }
 
     ma_device_info* devices = nullptr;
-    ma_uint32       count   = 0;
-    nlohmann::json  arr     = nlohmann::json::array();
+    ma_uint32 count         = 0;
+    nlohmann::json arr      = nlohmann::json::array();
 
     if (ma_context_get_devices(&ctx, &devices, &count, nullptr, nullptr) == MA_SUCCESS) {
         for (ma_uint32 i = 0; i < count; ++i) {
@@ -42,12 +42,16 @@ std::string AudioMixer::list_output_devices_json() {
 // Finds the ma_device_id for a device with the given name from the playback list.
 // Returns false if the device was not found.
 static bool find_playback_device_id(const std::string& name, ma_device_id& out_id) {
-    if (name.empty()) return false;
+    if (name.empty()) {
+        return false;
+    }
     ma_context ctx;
-    if (ma_context_init(nullptr, 0, nullptr, &ctx) != MA_SUCCESS) return false;
-    ma_device_info* devs  = nullptr;
-    ma_uint32       count = 0;
-    bool found = false;
+    if (ma_context_init(nullptr, 0, nullptr, &ctx) != MA_SUCCESS) {
+        return false;
+    }
+    ma_device_info* devs = nullptr;
+    ma_uint32 count      = 0;
+    bool found           = false;
     if (ma_context_get_devices(&ctx, &devs, &count, nullptr, nullptr) == MA_SUCCESS) {
         for (ma_uint32 i = 0; i < count; ++i) {
             if (name == devs[i].name) {
@@ -70,7 +74,7 @@ bool AudioMixer::start() {
     config.playback.format   = ma_format_f32;
     config.playback.channels = 1;
     config.sampleRate        = opus::kSampleRate;
-    config.dataCallback = [](ma_device* d, void* out, const void* /*in*/, ma_uint32 fc) {
+    config.dataCallback      = [](ma_device* d, void* out, const void* /*in*/, ma_uint32 fc) {
         static_cast<AudioMixer*>(d->pUserData)->on_playback(static_cast<float*>(out), fc);
     };
     config.notificationCallback = [](const ma_device_notification* n) {
@@ -90,7 +94,8 @@ bool AudioMixer::start() {
         config.playback.pDeviceID = &selected_id;
         LOG_INFO() << "AudioMixer: using device '" << output_device_id_ << "'";
     } else if (!output_device_id_.empty()) {
-        LOG_WARNING() << "AudioMixer: device '" << output_device_id_ << "' not found, using default";
+        LOG_WARNING()
+            << "AudioMixer: device '" << output_device_id_ << "' not found, using default";
     }
 
     auto dev = std::make_unique<MaDevice>();
@@ -107,7 +112,9 @@ bool AudioMixer::start() {
 
 void AudioMixer::set_output_device(std::string id) {
     output_device_id_ = std::move(id);
-    if (!running_) return;
+    if (!running_) {
+        return;
+    }
 
     // Restart the playback device without clearing sources.
     running_ = false;
@@ -117,7 +124,7 @@ void AudioMixer::set_output_device(std::string id) {
     config.playback.format   = ma_format_f32;
     config.playback.channels = 1;
     config.sampleRate        = opus::kSampleRate;
-    config.dataCallback = [](ma_device* d, void* out, const void* /*in*/, ma_uint32 fc) {
+    config.dataCallback      = [](ma_device* d, void* out, const void* /*in*/, ma_uint32 fc) {
         static_cast<AudioMixer*>(d->pUserData)->on_playback(static_cast<float*>(out), fc);
     };
     config.notificationCallback = [](const ma_device_notification* n) {
@@ -194,7 +201,7 @@ void AudioMixer::on_playback(float* output, const uint32_t frames) {
         if (src->muted()) {
             continue;
         }
-        
+
         auto samples    = src->pop();
         const float vol = src->volume();
         for (size_t i = 0; i < samples.size() && i < frames; ++i) {

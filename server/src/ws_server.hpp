@@ -40,4 +40,4 @@ private:
     std::unordered_set<std::string> streaming_peers_;
 };
 
-}  // namespace driscord
+} // namespace driscord

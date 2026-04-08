@@ -45,7 +45,7 @@ private:
     std::vector<std::shared_ptr<AudioReceiver>> sources_;
     std::vector<std::shared_ptr<AudioReceiver>> snapshot_;
 
-    std::string       output_device_id_; // empty = default device
+    std::string output_device_id_; // empty = default device
     std::unique_ptr<MaDevice> device_;
     std::atomic<bool> running_{false};
     std::atomic<float> output_volume_{1.0f};

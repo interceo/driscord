@@ -134,7 +134,10 @@ void VideoReceiver::set_keyframe_callback(std::function<void()> fn) {
     on_keyframe_needed_ = std::move(fn);
 }
 
-void VideoReceiver::push_video_packet(const utils::vector_view<const uint8_t> data, uint64_t frame_id) {
+void VideoReceiver::push_video_packet(
+    const utils::vector_view<const uint8_t> data,
+    uint64_t frame_id
+) {
     if (data.size() <= protocol::VideoHeader::kWireSize) {
         return;
     }
@@ -242,8 +245,8 @@ bool VideoReceiver::active() const {
 void VideoReceiver::reset() {
     {
         std::scoped_lock lk(mutex_);
-        last_packet_      = utils::Timestamp{};
-        decode_failures_  = 0;
+        last_packet_       = utils::Timestamp{};
+        decode_failures_   = 0;
         last_keyframe_req_ = utils::Timestamp{};
     }
     jitter_.reset();

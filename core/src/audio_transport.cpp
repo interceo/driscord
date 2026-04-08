@@ -10,32 +10,30 @@ AudioTransport::AudioTransport(Transport& transport)
         .label           = "audio",
         .unordered       = true,
         .max_retransmits = 0,
-        .on_data =
-            [this, recv_count](const std::string& peer_id, const uint8_t* data, size_t len) {
-                const uint64_t n = ++(*recv_count);
-                if (n == 1 || n % 200 == 0) {
-                    LOG_INFO() << "[audio-dc] rx#" << n << " peer=" << peer_id << " bytes=" << len;
-                }
-                std::scoped_lock lk(recv_mutex_);
-                auto it = voice_recv_.find(peer_id);
-                if (it != voice_recv_.end()) {
-                    it->second->push_packet(utils::vector_view<const uint8_t>{data, len});
-                }
-            },
+        .on_data = [this, recv_count](const std::string& peer_id, const uint8_t* data, size_t len) {
+            const uint64_t n = ++(*recv_count);
+            if (n == 1 || n % 200 == 0) {
+                LOG_INFO() << "[audio-dc] rx#" << n << " peer=" << peer_id << " bytes=" << len;
+            }
+            std::scoped_lock lk(recv_mutex_);
+            auto it = voice_recv_.find(peer_id);
+            if (it != voice_recv_.end()) {
+                it->second->push_packet(utils::vector_view<const uint8_t>{data, len});
+            }
+        },
     });
 
     transport.register_channel({
         .label           = "screen_audio",
         .unordered       = true,
         .max_retransmits = 0,
-        .on_data =
-            [this](const std::string& peer_id, const uint8_t* data, size_t len) {
-                std::scoped_lock lk(recv_mutex_);
-                auto it = screen_audio_recv_.find(peer_id);
-                if (it != screen_audio_recv_.end()) {
-                    it->second->push_packet(utils::vector_view<const uint8_t>{data, len});
-                }
-            },
+        .on_data         = [this](const std::string& peer_id, const uint8_t* data, size_t len) {
+            std::scoped_lock lk(recv_mutex_);
+            auto it = screen_audio_recv_.find(peer_id);
+            if (it != screen_audio_recv_.end()) {
+                it->second->push_packet(utils::vector_view<const uint8_t>{data, len});
+            }
+        },
     });
 }
 
@@ -51,9 +49,7 @@ bool AudioTransport::start() {
     if (!mixer_.start()) {
         return false;
     }
-    return sender_.start([this](const uint8_t* d, size_t l) {
-        send_audio(d, l);
-    });
+    return sender_.start([this](const uint8_t* d, size_t l) { send_audio(d, l); });
 }
 
 void AudioTransport::stop() {

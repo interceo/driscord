@@ -34,14 +34,16 @@ std::vector<ScreenCaptureTarget> ScreenCapture::list_targets() {
     targets.reserve(count);
     for (uint32_t i = 0; i < count; ++i) {
         auto bounds = CGDisplayBounds(displays[i]);
-        int w = static_cast<int>(bounds.size.width);
-        int h = static_cast<int>(bounds.size.height);
+        int w       = static_cast<int>(bounds.size.width);
+        int h       = static_cast<int>(bounds.size.height);
 
         ScreenCaptureTarget t;
         t.type = ScreenCaptureTarget::Monitor;
-        t.id = std::to_string(i);
-        t.name = "Display " + std::to_string(i + 1) + " (" + std::to_string(w) + "x" + std::to_string(h) + ")";
-        t.width = w;
+        t.id   = std::to_string(i);
+        t.name =
+            "Display " + std::to_string(i + 1) + " (" + std::to_string(w) + "x" +
+            std::to_string(h) + ")";
+        t.width  = w;
         t.height = h;
         targets.emplace_back(std::move(t));
     }
@@ -67,10 +69,14 @@ static CGDirectDisplayID resolve_display(const std::string& id) {
 
 // --- thumbnail --------------------------------------------------------------
 
-ScreenCapture::Frame ScreenCapture::grab_thumbnail(const ScreenCaptureTarget& target, int max_w, int max_h) {
+ScreenCapture::Frame ScreenCapture::grab_thumbnail(
+    const ScreenCaptureTarget& target,
+    int max_w,
+    int max_h
+) {
     Frame f;
     CGDirectDisplayID did = resolve_display(target.id);
-    CGImageRef image = CGDisplayCreateImage(did);
+    CGImageRef image      = CGDisplayCreateImage(did);
     if (!image) {
         return f;
     }
@@ -82,8 +88,8 @@ ScreenCapture::Frame ScreenCapture::grab_thumbnail(const ScreenCaptureTarget& ta
     compute_output_size(src_w, src_h, max_w, max_h, ow, oh);
 
     CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
-    f.width = ow;
-    f.height = oh;
+    f.width            = ow;
+    f.height           = oh;
     f.data.resize(static_cast<size_t>(ow) * oh * 4);
 
     CGContextRef ctx = CGBitmapContextCreate(
@@ -109,21 +115,27 @@ class MacScreenCapture : public ScreenCapture {
 public:
     ~MacScreenCapture() override { stop(); }
 
-    bool start(int fps, const ScreenCaptureTarget& target, int max_w, int max_h, FrameCallback cb) override {
+    bool start(
+        int fps,
+        const ScreenCaptureTarget& target,
+        int max_w,
+        int max_h,
+        FrameCallback cb
+    ) override {
         if (running_) {
             return false;
         }
 
         check_screen_recording_permission();
 
-        callback_ = std::move(cb);
-        max_w_ = max_w;
-        max_h_ = max_h;
-        display_id_ = resolve_display(target.id);
+        callback_          = std::move(cb);
+        max_w_             = max_w;
+        max_h_             = max_h;
+        display_id_        = resolve_display(target.id);
         frame_interval_us_ = 1000000 / std::max(fps, 1);
 
         running_ = true;
-        thread_ = std::thread(&MacScreenCapture::capture_loop, this);
+        thread_  = std::thread(&MacScreenCapture::capture_loop, this);
         LOG_INFO() << "screen capture started (CoreGraphics) @ " << fps << " fps";
         return true;
     }
@@ -152,7 +164,7 @@ private:
                 CGImageRelease(image);
             }
 
-            auto elapsed = std::chrono::steady_clock::now() - t0;
+            auto elapsed    = std::chrono::steady_clock::now() - t0;
             auto target_dur = std::chrono::microseconds(frame_interval_us_);
             if (elapsed < target_dur) {
                 std::this_thread::sleep_for(target_dur - elapsed);
@@ -172,7 +184,7 @@ private:
         }
 
         Frame out;
-        out.width = ow;
+        out.width  = ow;
         out.height = oh;
         out.data.resize(static_cast<size_t>(ow) * oh * 4);
 
@@ -208,9 +220,11 @@ private:
     int max_h_ = 1080;
 
     CGDirectDisplayID display_id_ = 0;
-    int frame_interval_us_ = 33333;
+    int frame_interval_us_        = 33333;
 
     CGColorSpaceRef cached_cs_ = nullptr;
 };
 
-std::unique_ptr<ScreenCapture> ScreenCapture::create() { return std::make_unique<MacScreenCapture>(); }
+std::unique_ptr<ScreenCapture> ScreenCapture::create() {
+    return std::make_unique<MacScreenCapture>();
+}
