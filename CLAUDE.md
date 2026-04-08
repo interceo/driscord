@@ -11,24 +11,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Build client (debug)
 ./scripts/build.sh --debug
 
-# Build server
+# Build signaling server
 ./scripts/build.sh --server
 ./scripts/build.sh --server --debug
+
+# Build API (create venv + install deps)
+./scripts/build.sh --api
 
 # Cross-compile Windows client
 ./scripts/build.sh --windows
 
-# Tests & benchmarks
-./scripts/build.sh --test
-./scripts/build.sh --bench
+# Tests & benchmarks (target + action are independent axes)
+./scripts/build.sh --test             # test core (client)
+./scripts/build.sh --bench            # bench core (client)
+./scripts/build.sh --server --test    # test server (placeholder)
+./scripts/build.sh --api --test       # test API (placeholder)
 
 # Run client
 ./scripts/run.sh
 ./scripts/run.sh --debug
 
-# Run server
+# Run signaling server
 ./scripts/run.sh --server
 ./scripts/run.sh --server --debug
+
+# Run API server
+./scripts/run.sh --api
 
 # Debug with GDB
 ./scripts/run.sh --gdb
@@ -40,15 +48,19 @@ Build outputs:
 - `.builds/server/{release,debug}/` — driscord_server
 
 Runtime config is loaded from `driscord.json` (server host/port, TURN servers, bitrates, jitter settings).
+API config is loaded from `backend/api/.env` (see `.env.example` for template).
 
 ## Architecture
 
-Driscord is a WebRTC-based P2P voice and screen-sharing app (Discord-like) with three layers:
+Driscord is a WebRTC-based P2P voice and screen-sharing app (Discord-like) with four layers:
 
-### 1. Signaling Server (`server/`)
+### 1. Signaling Server (`backend/signaling_server/`)
 Boost.Beast WebSocket relay — purely a message router for SDP/ICE negotiation. It never touches audio/video data. All real-time media flows P2P directly between clients.
 
-### 2. C++ Core Library (`core/src/`, built as `driscord_core` static lib)
+### 2. API Server (`backend/api/`)
+Python/FastAPI backend with PostgreSQL (asyncpg + SQLAlchemy). Provides user auth (JWT), channel management, and update distribution. All endpoints except `/auth/*` and `/health` require a Bearer token.
+
+### 3. C++ Core Library (`core/src/`, built as `driscord_core` static lib)
 The core has two parallel transport systems:
 
 **Audio pipeline**: `audio_sender` → mic capture (miniaudio) → Opus encode (48kHz/mono) → DataChannel → `audio_receiver` → jitter buffer → decode → `audio_mixer` → playback
@@ -57,7 +69,7 @@ The core has two parallel transport systems:
 
 **Transport layer** (`transport.cpp`): manages the WebSocket signaling connection and all WebRTC peer connections. Each peer gets multiple DataChannels (audio, video, control, optionally system audio).
 
-### 3. UI Clients
+### 4. UI Clients
 - **Modern**: `client-compose/` — Kotlin/Compose Desktop, calls into `driscord_core` via JNI (`core/jni/`)
 
 ### Wire Protocol (`core/src/utils/protocol.hpp`)
@@ -84,3 +96,6 @@ All C++ deps except FFmpeg and system libs are fetched at configure time via CMa
 - Boost ≥1.89 (ASIO + Beast, system-installed)
 - FFmpeg (system-installed, required for video encode/decode)
 - nlohmann/json v3.11.3, fmt v10.2.1
+
+Python API deps (installed via `./scripts/build.sh --api`):
+- FastAPI, uvicorn, SQLAlchemy (asyncpg), python-jose (JWT), passlib (bcrypt), pydantic-settings

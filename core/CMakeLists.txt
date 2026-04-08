@@ -44,15 +44,6 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 
-# --- nlohmann/json ---
-set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(
-    json
-    GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG        v3.11.3
-    GIT_SHALLOW    TRUE
-)
-
 # --- miniaudio (header-only) ---
 FetchContent_Declare(
     miniaudio
@@ -61,7 +52,7 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 
-FetchContent_MakeAvailable(glfw libdatachannel opus json miniaudio)
+FetchContent_MakeAvailable(glfw libdatachannel opus miniaudio)
 
 # miniaudio interface library
 add_library(miniaudio_lib INTERFACE)
