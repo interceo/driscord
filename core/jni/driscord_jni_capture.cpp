@@ -1,6 +1,8 @@
 #include "driscord_state.hpp"
 #include "jni_common.hpp"
 
+#include "audio/capture/system_audio_capture.hpp"
+
 #define CORE() DriscordState::get().core
 
 extern "C" {
@@ -9,7 +11,7 @@ JNIEXPORT jboolean JNICALL
 Java_com_driscord_jni_NativeDriscord_captureSystemAudioAvailable(JNIEnv*,
     jclass)
 {
-    return CORE().capture_system_audio_available() ? JNI_TRUE : JNI_FALSE;
+    return SystemAudioCapture::available() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jstring JNICALL

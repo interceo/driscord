@@ -11,7 +11,7 @@ ScreenSender::~ScreenSender()
     stop_sharing();
 }
 
-bool ScreenSender::start_sharing(const ScreenCaptureTarget& target,
+utils::Expected<void, VideoError> ScreenSender::start_sharing(const ScreenCaptureTarget& target,
     const size_t max_w,
     const size_t max_h,
     const size_t fps,
@@ -21,7 +21,7 @@ bool ScreenSender::start_sharing(const ScreenCaptureTarget& target,
     SendCb on_screen_audio)
 {
     if (!video_sender_.start(fps, bitrate_kbps, std::move(on_video))) {
-        return false;
+        return utils::Unexpected(VideoError::VideoSenderFailed);
     }
 
     screen_capture_ = ScreenCapture::create();
@@ -31,7 +31,7 @@ bool ScreenSender::start_sharing(const ScreenCaptureTarget& target,
             })) {
         video_sender_.stop();
         screen_capture_.reset();
-        return false;
+        return utils::Unexpected(VideoError::CaptureStartFailed);
     }
 
     if (share_audio && on_screen_audio && SystemAudioCapture::available()) {
@@ -55,7 +55,7 @@ bool ScreenSender::start_sharing(const ScreenCaptureTarget& target,
         }
     }
 
-    return true;
+    return { };
 }
 
 void ScreenSender::stop_sharing()

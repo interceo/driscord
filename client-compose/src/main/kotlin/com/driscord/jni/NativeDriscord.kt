@@ -22,7 +22,7 @@ object NativeDriscord {
 
     @JvmStatic external fun addTurnServer(url: String, user: String, pass: String)
 
-    @JvmStatic external fun connect(url: String)
+    @JvmStatic external fun connect(url: String): String?
 
     @JvmStatic external fun disconnect()
 
@@ -45,7 +45,7 @@ object NativeDriscord {
 
     @JvmStatic external fun audioSend(data: ByteArray, len: Int)
 
-    @JvmStatic external fun audioStart(): Boolean
+    @JvmStatic external fun audioStart(): String?
 
     @JvmStatic external fun audioStop()
 
@@ -139,7 +139,7 @@ object NativeDriscord {
         bitrateKbps: Int,
         gopSize: Int,
         shareAudio: Boolean,
-    ): Boolean
+    ): String?
 
     @JvmStatic external fun screenStopSharing()
 

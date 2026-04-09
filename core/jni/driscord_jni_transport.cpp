@@ -15,38 +15,39 @@ Java_com_driscord_jni_NativeDriscord_addTurnServer(JNIEnv* env,
     auto url = env->GetStringUTFChars(jUrl, nullptr);
     auto user = env->GetStringUTFChars(jUser, nullptr);
     auto pass = env->GetStringUTFChars(jPass, nullptr);
-    CORE().add_turn_server(url, user, pass);
+    CORE().transport.add_turn_server(url, user, pass);
     env->ReleaseStringUTFChars(jUrl, url);
     env->ReleaseStringUTFChars(jUser, user);
     env->ReleaseStringUTFChars(jPass, pass);
 }
 
-JNIEXPORT void JNICALL
+JNIEXPORT jstring JNICALL
 Java_com_driscord_jni_NativeDriscord_connect(JNIEnv* env,
     jclass,
     jstring jUrl)
 {
     auto url = env->GetStringUTFChars(jUrl, nullptr);
-    CORE().connect(url);
+    auto r = CORE().transport.connect(url);
     env->ReleaseStringUTFChars(jUrl, url);
+    return r ? nullptr : env->NewStringUTF(to_string(r.error()));
 }
 
 JNIEXPORT void JNICALL Java_com_driscord_jni_NativeDriscord_disconnect(JNIEnv*,
     jclass)
 {
-    CORE().disconnect();
+    CORE().transport.disconnect();
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_driscord_jni_NativeDriscord_connected(JNIEnv*, jclass)
 {
-    return CORE().connected() ? JNI_TRUE : JNI_FALSE;
+    return CORE().transport.connected() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jstring JNICALL
 Java_com_driscord_jni_NativeDriscord_localId(JNIEnv* env, jclass)
 {
-    return env->NewStringUTF(CORE().local_id().c_str());
+    return env->NewStringUTF(CORE().transport.local_id().c_str());
 }
 
 JNIEXPORT jstring JNICALL

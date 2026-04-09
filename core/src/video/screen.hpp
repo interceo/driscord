@@ -25,7 +25,7 @@ public:
     ScreenSender(const ScreenSender&) = delete;
     ScreenSender& operator=(const ScreenSender&) = delete;
 
-    bool start_sharing(const ScreenCaptureTarget& target,
+    utils::Expected<void, VideoError> start_sharing(const ScreenCaptureTarget& target,
         const size_t max_w,
         const size_t max_h,
         const size_t fps,

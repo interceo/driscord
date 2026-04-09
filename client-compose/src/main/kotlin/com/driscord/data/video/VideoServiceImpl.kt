@@ -126,14 +126,16 @@ class VideoServiceImpl(
             else -> 1920 to 1080
         }
         val targetJson = json.encodeToString(CaptureTarget.serializer(), target)
-        val ok = NativeDriscord.screenStartSharing(
+        val err = NativeDriscord.screenStartSharing(
             targetJson, maxW, maxH, fps, bitrateKbps, gopSize, shareAudio,
         )
-        if (ok) {
-            _sharing.value = true
-            _shareTargetName.value = target.name
+        if (err != null) {
+            System.err.println("VideoService: screenStartSharing failed: $err")
+            return false
         }
-        return ok
+        _sharing.value = true
+        _shareTargetName.value = target.name
+        return true
     }
 
     override fun stopSharing() {

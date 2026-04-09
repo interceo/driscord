@@ -46,77 +46,32 @@ public:
     void set_on_streaming_started(StringCb cb);
     void set_on_streaming_stopped(StringCb cb);
 
-    // -- Transport facade --
-    void add_turn_server(const std::string& url,
-        const std::string& user,
-        const std::string& pass);
-    void connect(const std::string& url);
-    void disconnect();
-    bool connected() const;
-    std::string local_id() const;
+    // -- Transport (non-trivial) --
     std::string peers_json() const;
 
-    // -- Audio facade --
-    void audio_send(const uint8_t* data, int len);
-    bool audio_start();
-    void audio_stop();
-    bool audio_deafened() const;
-    void audio_set_deafened(bool d);
-    float audio_master_volume() const;
-    void audio_set_master_volume(float v);
-    float audio_output_level() const;
-    bool audio_self_muted() const;
-    void audio_set_self_muted(bool m);
-    float audio_input_level() const;
-    std::string audio_list_input_devices_json() const;
-    void audio_set_input_device(std::string id);
-    std::string audio_list_output_devices_json() const;
-    void audio_set_output_device(std::string id);
-    void audio_on_peer_joined(const std::string& peer, int jitter_ms);
-    void audio_on_peer_left(const std::string& peer);
-    void audio_set_peer_volume(const std::string& peer, float vol);
-    float audio_peer_volume(const std::string& peer) const;
-    void audio_set_peer_muted(const std::string& peer, bool m);
-    bool audio_peer_muted(const std::string& peer) const;
-    void audio_set_screen_audio_receiver(const std::string& peer,
-        bool has_screen);
-    void audio_unset_screen_audio_receiver(const std::string& peer);
-    void audio_add_screen_audio_to_mixer(const std::string& peer);
-    void audio_remove_screen_audio_from_mixer(const std::string& peer);
+    // -- Audio (cross-subsystem) --
+    void audio_set_screen_audio_receiver(const std::string& peer, bool has_screen);
 
-    // -- Video facade --
+    // -- Video --
     void video_set_watching(bool w);
-    bool video_watching() const;
-    void video_remove_streaming_peer(const std::string& peer);
-    void video_send_keyframe_request();
 
-    // -- Capture facade --
-    bool capture_system_audio_available() const;
+    // -- Capture (JSON serialisation logic) --
     std::string capture_audio_list_targets_json() const;
     std::string capture_video_list_targets_json() const;
     std::vector<uint8_t> capture_grab_thumbnail(const std::string& target_json,
         int max_w,
         int max_h);
 
-    // -- Screen facade --
-    bool screen_start_sharing(const std::string& target_json,
+    // -- Screen (cross-subsystem / multi-step) --
+    utils::Expected<void, VideoError> screen_start_sharing(const std::string& target_json,
         int max_w,
         int max_h,
         int fps,
         int bitrate_kbps,
         bool share_audio);
     void screen_stop_sharing();
-    bool screen_sharing() const;
-    bool screen_sharing_audio() const;
-    void screen_force_keyframe();
-    void screen_update();
-    std::string screen_active_peer() const;
-    bool screen_active() const;
-    void screen_reset();
-    void screen_reset_audio();
     void screen_set_stream_volume(const std::string& peer, float vol);
     float screen_stream_volume() const;
-    std::string screen_stats_json() const;
 
 private:
     std::unordered_set<std::string> watched_peers_;

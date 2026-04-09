@@ -1,5 +1,7 @@
 #pragma once
 
+#include "utils/expected.hpp"
+
 #include <atomic>
 #include <functional>
 #include <memory>
@@ -9,6 +11,11 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+enum class TransportError {
+    WebSocketCreateFailed,
+};
+const char* to_string(TransportError e);
 
 class Transport {
 public:
@@ -36,7 +43,7 @@ public:
     void add_turn_server(const std::string& url,
         const std::string& user,
         const std::string& pass);
-    void connect(const std::string& ws_url);
+    utils::Expected<void, TransportError> connect(const std::string& ws_url);
     void disconnect();
 
     bool connected() const { return ws_connected_; }
