@@ -1,7 +1,7 @@
 #pragma once
 
+#include "opus_codec.hpp"
 #include "utils/jitter.hpp"
-#include "utils/opus_codec.hpp"
 #include "utils/vector_view.hpp"
 
 #include <atomic>

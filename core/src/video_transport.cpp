@@ -1,5 +1,6 @@
 #include "video_transport.hpp"
 
+#include "channel_labels.hpp"
 #include "log.hpp"
 
 #include <algorithm>
@@ -16,7 +17,7 @@ VideoTransport::VideoTransport(Transport& transport)
     : transport_(transport)
 {
     transport.register_channel({
-        .label = "video",
+        .label = channel::kVideo,
         .unordered = true,
         .max_retransmits = 0,
         .on_data =
@@ -89,21 +90,21 @@ void VideoTransport::send_video(const uint8_t* data, size_t len)
         // Move to last subscriber, copy to the rest
         for (size_t s = 0; s + 1 < subscribers.size(); ++s) {
             transport_.send_on_channel_to(
-                "video", subscribers[s], reinterpret_cast<const uint8_t*>(pkt.data()),
+                channel::kVideo, subscribers[s], reinterpret_cast<const uint8_t*>(pkt.data()),
                 wire_len);
         }
-        transport_.send_on_channel_to("video", subscribers.back(), std::move(pkt));
+        transport_.send_on_channel_to(channel::kVideo, subscribers.back(), std::move(pkt));
     }
 }
 
 void VideoTransport::send_keyframe_request()
 {
-    transport_.send_on_channel("video", &kKeyframeRequestTag, 1);
+    transport_.send_on_channel(channel::kVideo, &kKeyframeRequestTag, 1);
 }
 
 void VideoTransport::send_stop_stream()
 {
-    transport_.send_on_channel("video", &kStopStreamTag, 1);
+    transport_.send_on_channel(channel::kVideo, &kStopStreamTag, 1);
 }
 
 void VideoTransport::add_subscriber(const std::string& peer_id)

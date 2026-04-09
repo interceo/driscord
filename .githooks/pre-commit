@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Pre-commit hook: check that staged C/C++ files are formatted.
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+
+# Collect staged C/C++ files
+STAGED=$(git diff --cached --name-only --diff-filter=ACM \
+    | grep -E '\.(cpp|hpp|h|mm)$' \
+    | grep -E '^(core/|backend/signaling_server/)' || true)
+
+if [[ -z "$STAGED" ]]; then
+    exit 0
+fi
+
+# Check formatting on staged files only
+FAILED=false
+for f in $STAGED; do
+    if ! clang-format --dry-run --Werror "$ROOT/$f" 2>/dev/null; then
+        FAILED=true
+    fi
+done
+
+if [[ "$FAILED" == "true" ]]; then
+    echo ""
+    echo "clang-format check failed. Run ./scripts/format.sh to fix."
+    exit 1
+fi
