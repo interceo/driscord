@@ -55,13 +55,17 @@ void AudioTransport::send_screen_audio(const uint8_t* data, size_t len)
     transport_.send_on_channel(channel::kScreenAudio, data, len);
 }
 
-bool AudioTransport::start()
+utils::Expected<void, AudioError> AudioTransport::start()
 {
-    if (!mixer_.start()) {
-        return false;
+    if (auto r = mixer_.start(); !r) {
+        return r;
     }
-    return sender_.start(
+    auto r = sender_.start(
         [this](const uint8_t* d, size_t l) { send_audio(d, l); });
+    if (!r) {
+        mixer_.stop();
+    }
+    return r;
 }
 
 void AudioTransport::stop()

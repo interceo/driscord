@@ -71,10 +71,10 @@ static bool find_playback_device_id(const std::string& name,
     return found;
 }
 
-bool AudioMixer::start()
+utils::Expected<void, AudioError> AudioMixer::start()
 {
     if (running_) {
-        return true;
+        return { };
     }
 
     ma_device_config config = ma_device_config_init(ma_device_type_playback);
@@ -111,13 +111,13 @@ bool AudioMixer::start()
     auto dev = std::make_unique<MaDevice>();
     if (!dev->start(config)) {
         LOG_ERROR() << "AudioMixer: failed to start audio device";
-        return false;
+        return utils::Unexpected(AudioError::MixerDeviceStartFailed);
     }
 
     device_ = std::move(dev);
     running_ = true;
     LOG_INFO() << "AudioMixer: started";
-    return true;
+    return { };
 }
 
 void AudioMixer::set_output_device(std::string id)

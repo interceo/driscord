@@ -16,7 +16,7 @@ Java_com_driscord_jni_NativeDriscord_videoSetWatching(JNIEnv*,
 JNIEXPORT jboolean JNICALL
 Java_com_driscord_jni_NativeDriscord_videoWatching(JNIEnv*, jclass)
 {
-    return CORE().video_watching() ? JNI_TRUE : JNI_FALSE;
+    return CORE().video_transport.watching() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL
@@ -25,14 +25,14 @@ Java_com_driscord_jni_NativeDriscord_videoRemoveStreamingPeer(JNIEnv* env,
     jstring jPeer)
 {
     auto peer = env->GetStringUTFChars(jPeer, nullptr);
-    CORE().video_remove_streaming_peer(peer);
+    CORE().video_transport.remove_streaming_peer(peer);
     env->ReleaseStringUTFChars(jPeer, peer);
 }
 
 JNIEXPORT void JNICALL
 Java_com_driscord_jni_NativeDriscord_videoSendKeyframeRequest(JNIEnv*, jclass)
 {
-    CORE().video_send_keyframe_request();
+    CORE().video_transport.send_keyframe_request();
 }
 
 JNIEXPORT void JNICALL

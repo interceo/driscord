@@ -36,7 +36,10 @@ class AudioServiceImpl : AudioService {
     }
 
     override fun start() {
-        NativeDriscord.audioStart()
+        val err = NativeDriscord.audioStart()
+        if (err != null) {
+            System.err.println("AudioService: audioStart failed: $err")
+        }
     }
 
     override fun stop() {

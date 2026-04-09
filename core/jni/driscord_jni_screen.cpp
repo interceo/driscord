@@ -21,7 +21,7 @@ Java_com_driscord_jni_NativeDriscord_screenDeinit(JNIEnv*, jclass)
     CORE().deinit_screen_session();
 }
 
-JNIEXPORT jboolean JNICALL
+JNIEXPORT jstring JNICALL
 Java_com_driscord_jni_NativeDriscord_screenStartSharing(JNIEnv* env,
     jclass,
     jstring jTargetJson,
@@ -33,11 +33,11 @@ Java_com_driscord_jni_NativeDriscord_screenStartSharing(JNIEnv* env,
     jboolean shareAudio)
 {
     auto targetJson = jni_jstring_to_utf8(env, jTargetJson);
-    bool ok = CORE().screen_start_sharing(
+    auto r = CORE().screen_start_sharing(
         targetJson, static_cast<int>(maxW), static_cast<int>(maxH),
         static_cast<int>(fps), static_cast<int>(bitrateKbps),
         shareAudio == JNI_TRUE);
-    return ok ? JNI_TRUE : JNI_FALSE;
+    return r ? nullptr : env->NewStringUTF(to_string(r.error()));
 }
 
 JNIEXPORT void JNICALL
@@ -49,49 +49,49 @@ Java_com_driscord_jni_NativeDriscord_screenStopSharing(JNIEnv*, jclass)
 JNIEXPORT jboolean JNICALL
 Java_com_driscord_jni_NativeDriscord_screenSharing(JNIEnv*, jclass)
 {
-    return CORE().screen_sharing() ? JNI_TRUE : JNI_FALSE;
+    return CORE().screen_session->sharing() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_driscord_jni_NativeDriscord_screenSharingAudio(JNIEnv*, jclass)
 {
-    return CORE().screen_sharing_audio() ? JNI_TRUE : JNI_FALSE;
+    return CORE().screen_session->sharing_audio() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL
 Java_com_driscord_jni_NativeDriscord_screenForceKeyframe(JNIEnv*, jclass)
 {
-    CORE().screen_force_keyframe();
+    CORE().screen_session->force_keyframe();
 }
 
 JNIEXPORT void JNICALL
 Java_com_driscord_jni_NativeDriscord_screenUpdate(JNIEnv*, jclass)
 {
-    CORE().screen_update();
+    CORE().screen_session->update();
 }
 
 JNIEXPORT jstring JNICALL
 Java_com_driscord_jni_NativeDriscord_screenActivePeer(JNIEnv* env, jclass)
 {
-    return env->NewStringUTF(CORE().screen_active_peer().c_str());
+    return env->NewStringUTF(CORE().screen_session->active_peer().c_str());
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_driscord_jni_NativeDriscord_screenActive(JNIEnv*, jclass)
 {
-    return CORE().screen_active() ? JNI_TRUE : JNI_FALSE;
+    return CORE().screen_session->active() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL
 Java_com_driscord_jni_NativeDriscord_screenReset(JNIEnv*, jclass)
 {
-    CORE().screen_reset();
+    CORE().screen_session->reset();
 }
 
 JNIEXPORT void JNICALL
 Java_com_driscord_jni_NativeDriscord_screenResetAudioReceiver(JNIEnv*, jclass)
 {
-    CORE().screen_reset_audio();
+    CORE().screen_session->reset_audio();
 }
 
 JNIEXPORT void JNICALL
@@ -114,7 +114,7 @@ Java_com_driscord_jni_NativeDriscord_screenStreamVolume(JNIEnv*, jclass)
 JNIEXPORT jstring JNICALL
 Java_com_driscord_jni_NativeDriscord_screenStats(JNIEnv* env, jclass)
 {
-    return env->NewStringUTF(CORE().screen_stats_json().c_str());
+    return env->NewStringUTF(CORE().screen_session->stats_json().c_str());
 }
 
 JNIEXPORT void JNICALL

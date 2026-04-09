@@ -1,6 +1,5 @@
 #include "driscord_state.hpp"
 #include "jni_common.hpp"
-#include <string>
 
 #define CORE() DriscordState::get().core
 
@@ -13,26 +12,27 @@ Java_com_driscord_jni_NativeDriscord_audioSend(JNIEnv* env,
     jint len)
 {
     auto* buf = env->GetByteArrayElements(jdata, nullptr);
-    CORE().audio_send(reinterpret_cast<const uint8_t*>(buf), len);
+    CORE().audio_transport.send_audio(reinterpret_cast<const uint8_t*>(buf), len);
     env->ReleaseByteArrayElements(jdata, buf, JNI_ABORT);
 }
 
-JNIEXPORT jboolean JNICALL
-Java_com_driscord_jni_NativeDriscord_audioStart(JNIEnv*, jclass)
+JNIEXPORT jstring JNICALL
+Java_com_driscord_jni_NativeDriscord_audioStart(JNIEnv* env, jclass)
 {
-    return CORE().audio_start() ? JNI_TRUE : JNI_FALSE;
+    auto r = CORE().audio_transport.start();
+    return r ? nullptr : env->NewStringUTF(to_string(r.error()));
 }
 
 JNIEXPORT void JNICALL Java_com_driscord_jni_NativeDriscord_audioStop(JNIEnv*,
     jclass)
 {
-    CORE().audio_stop();
+    CORE().audio_transport.stop();
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_driscord_jni_NativeDriscord_audioDeafened(JNIEnv*, jclass)
 {
-    return CORE().audio_deafened() ? JNI_TRUE : JNI_FALSE;
+    return CORE().audio_transport.deafened() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL
@@ -40,13 +40,13 @@ Java_com_driscord_jni_NativeDriscord_audioSetDeafened(JNIEnv*,
     jclass,
     jboolean deaf)
 {
-    CORE().audio_set_deafened(deaf == JNI_TRUE);
+    CORE().audio_transport.set_deafened(deaf == JNI_TRUE);
 }
 
 JNIEXPORT jfloat JNICALL
 Java_com_driscord_jni_NativeDriscord_audioMasterVolume(JNIEnv*, jclass)
 {
-    return CORE().audio_master_volume();
+    return CORE().audio_transport.master_volume();
 }
 
 JNIEXPORT void JNICALL
@@ -54,19 +54,19 @@ Java_com_driscord_jni_NativeDriscord_audioSetMasterVolume(JNIEnv*,
     jclass,
     jfloat vol)
 {
-    CORE().audio_set_master_volume(static_cast<float>(vol));
+    CORE().audio_transport.set_master_volume(static_cast<float>(vol));
 }
 
 JNIEXPORT jfloat JNICALL
 Java_com_driscord_jni_NativeDriscord_audioOutputLevel(JNIEnv*, jclass)
 {
-    return CORE().audio_output_level();
+    return CORE().audio_transport.output_level();
 }
 
 JNIEXPORT jboolean JNICALL
 Java_com_driscord_jni_NativeDriscord_audioSelfMuted(JNIEnv*, jclass)
 {
-    return CORE().audio_self_muted() ? JNI_TRUE : JNI_FALSE;
+    return CORE().audio_transport.self_muted() ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT void JNICALL
@@ -74,20 +74,20 @@ Java_com_driscord_jni_NativeDriscord_audioSetSelfMuted(JNIEnv*,
     jclass,
     jboolean muted)
 {
-    CORE().audio_set_self_muted(muted == JNI_TRUE);
+    CORE().audio_transport.set_self_muted(muted == JNI_TRUE);
 }
 
 JNIEXPORT jfloat JNICALL
 Java_com_driscord_jni_NativeDriscord_audioInputLevel(JNIEnv*, jclass)
 {
-    return CORE().audio_input_level();
+    return CORE().audio_transport.input_level();
 }
 
 JNIEXPORT jstring JNICALL
 Java_com_driscord_jni_NativeDriscord_audioListInputDevices(JNIEnv* env,
     jclass)
 {
-    const std::string json = CORE().audio_list_input_devices_json();
+    const std::string json = AudioTransport::list_input_devices_json();
     return env->NewStringUTF(json.c_str());
 }
 
@@ -97,7 +97,7 @@ Java_com_driscord_jni_NativeDriscord_audioSetInputDevice(JNIEnv* env,
     jstring jId)
 {
     const char* id = env->GetStringUTFChars(jId, nullptr);
-    CORE().audio_set_input_device(id);
+    CORE().audio_transport.set_input_device(id);
     env->ReleaseStringUTFChars(jId, id);
 }
 
@@ -105,7 +105,7 @@ JNIEXPORT jstring JNICALL
 Java_com_driscord_jni_NativeDriscord_audioListOutputDevices(JNIEnv* env,
     jclass)
 {
-    const std::string json = CORE().audio_list_output_devices_json();
+    const std::string json = AudioTransport::list_output_devices_json();
     return env->NewStringUTF(json.c_str());
 }
 
@@ -115,7 +115,7 @@ Java_com_driscord_jni_NativeDriscord_audioSetOutputDevice(JNIEnv* env,
     jstring jId)
 {
     const char* id = env->GetStringUTFChars(jId, nullptr);
-    CORE().audio_set_output_device(id);
+    CORE().audio_transport.set_output_device(id);
     env->ReleaseStringUTFChars(jId, id);
 }
 
@@ -126,7 +126,7 @@ Java_com_driscord_jni_NativeDriscord_audioOnPeerJoined(JNIEnv* env,
     jint jitterMs)
 {
     const char* peer = env->GetStringUTFChars(jPeer, nullptr);
-    CORE().audio_on_peer_joined(peer, static_cast<int>(jitterMs));
+    CORE().audio_transport.on_peer_joined(peer, static_cast<int>(jitterMs));
     env->ReleaseStringUTFChars(jPeer, peer);
 }
 
@@ -136,7 +136,7 @@ Java_com_driscord_jni_NativeDriscord_audioOnPeerLeft(JNIEnv* env,
     jstring jPeer)
 {
     const char* peer = env->GetStringUTFChars(jPeer, nullptr);
-    CORE().audio_on_peer_left(peer);
+    CORE().audio_transport.on_peer_left(peer);
     env->ReleaseStringUTFChars(jPeer, peer);
 }
 
@@ -147,7 +147,7 @@ Java_com_driscord_jni_NativeDriscord_audioSetPeerVolume(JNIEnv* env,
     jfloat vol)
 {
     const char* peer = env->GetStringUTFChars(jPeer, nullptr);
-    CORE().audio_set_peer_volume(peer, static_cast<float>(vol));
+    CORE().audio_transport.set_peer_volume(peer, static_cast<float>(vol));
     env->ReleaseStringUTFChars(jPeer, peer);
 }
 
@@ -157,7 +157,7 @@ Java_com_driscord_jni_NativeDriscord_audioGetPeerVolume(JNIEnv* env,
     jstring jPeer)
 {
     const char* peer = env->GetStringUTFChars(jPeer, nullptr);
-    const float v = CORE().audio_peer_volume(peer);
+    const float v = CORE().audio_transport.peer_volume(peer);
     env->ReleaseStringUTFChars(jPeer, peer);
     return v;
 }
@@ -169,7 +169,7 @@ Java_com_driscord_jni_NativeDriscord_audioSetPeerMuted(JNIEnv* env,
     jboolean muted)
 {
     const char* peer = env->GetStringUTFChars(jPeer, nullptr);
-    CORE().audio_set_peer_muted(peer, muted == JNI_TRUE);
+    CORE().audio_transport.set_peer_muted(peer, muted == JNI_TRUE);
     env->ReleaseStringUTFChars(jPeer, peer);
 }
 
@@ -179,7 +179,7 @@ Java_com_driscord_jni_NativeDriscord_audioGetPeerMuted(JNIEnv* env,
     jstring jPeer)
 {
     const char* peer = env->GetStringUTFChars(jPeer, nullptr);
-    const bool m = CORE().audio_peer_muted(peer);
+    const bool m = CORE().audio_transport.peer_muted(peer);
     env->ReleaseStringUTFChars(jPeer, peer);
     return m ? JNI_TRUE : JNI_FALSE;
 }
@@ -203,7 +203,7 @@ Java_com_driscord_jni_NativeDriscord_audioUnsetScreenAudioReceiver(
     jstring jPeerId)
 {
     const char* peer = env->GetStringUTFChars(jPeerId, nullptr);
-    CORE().audio_unset_screen_audio_receiver(peer);
+    CORE().audio_transport.unset_screen_audio_recv(peer);
     env->ReleaseStringUTFChars(jPeerId, peer);
 }
 
@@ -214,7 +214,7 @@ Java_com_driscord_jni_NativeDriscord_audioAddScreenAudioToMixer(
     jstring jPeerId)
 {
     const char* peer = env->GetStringUTFChars(jPeerId, nullptr);
-    CORE().audio_add_screen_audio_to_mixer(peer);
+    CORE().audio_transport.add_screen_audio_to_mixer(peer);
     env->ReleaseStringUTFChars(jPeerId, peer);
 }
 
@@ -225,7 +225,7 @@ Java_com_driscord_jni_NativeDriscord_audioRemoveScreenAudioFromMixer(
     jstring jPeerId)
 {
     const char* peer = env->GetStringUTFChars(jPeerId, nullptr);
-    CORE().audio_remove_screen_audio_from_mixer(peer);
+    CORE().audio_transport.remove_screen_audio_from_mixer(peer);
     env->ReleaseStringUTFChars(jPeerId, peer);
 }
 
