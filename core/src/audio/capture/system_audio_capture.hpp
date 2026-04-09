@@ -1,6 +1,6 @@
 #pragma once
 
-#include "utils/opus_codec.hpp"
+#include "opus_codec.hpp"
 
 #include <cstddef>
 #include <functional>

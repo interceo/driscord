@@ -2,8 +2,8 @@
 
 #include "audio.hpp"
 #include "log.hpp"
+#include "opus_codec.hpp"
 #include "utils/ma_device.hpp"
-#include "utils/opus_codec.hpp"
 
 #include <nlohmann/json.hpp>
 
