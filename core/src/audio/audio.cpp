@@ -14,6 +14,19 @@
 
 using namespace utils;
 
+const char* to_string(AudioError e)
+{
+    switch (e) {
+    case AudioError::OpusInitFailed:
+        return "OpusInitFailed";
+    case AudioError::SenderDeviceStartFailed:
+        return "SenderDeviceStartFailed";
+    case AudioError::MixerDeviceStartFailed:
+        return "MixerDeviceStartFailed";
+    }
+    return "Unknown";
+}
+
 AudioSender::AudioSender() = default;
 AudioSender::~AudioSender()
 {
@@ -46,17 +59,17 @@ std::string AudioSender::list_input_devices_json()
     return arr.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }
 
-bool AudioSender::start(PacketCallback on_packet)
+utils::Expected<void, AudioError> AudioSender::start(PacketCallback on_packet)
 {
     if (running_) {
-        return true;
+        return { };
     }
 
     auto enc = std::make_unique<OpusEncode>();
     if (!enc->init(opus::kSampleRate, kChannels, 64000,
             2048 /* OPUS_APPLICATION_VOIP */)) {
         LOG_ERROR() << "AudioSender: failed to init Opus encoder";
-        return false;
+        return utils::Unexpected(AudioError::OpusInitFailed);
     }
 
     ma_device_config config = ma_device_config_init(ma_device_type_capture);
@@ -109,7 +122,7 @@ bool AudioSender::start(PacketCallback on_packet)
     auto dev = std::make_unique<MaDevice>();
     if (!dev->start(config)) {
         LOG_ERROR() << "AudioSender: failed to start audio device";
-        return false;
+        return utils::Unexpected(AudioError::SenderDeviceStartFailed);
     }
 
     on_packet_ = std::move(on_packet);
@@ -122,7 +135,7 @@ bool AudioSender::start(PacketCallback on_packet)
     running_ = true;
 
     LOG_INFO() << "AudioSender: started";
-    return true;
+    return { };
 }
 
 void AudioSender::set_device_id(std::string id)
@@ -131,7 +144,10 @@ void AudioSender::set_device_id(std::string id)
     if (running_) {
         auto cb = on_packet_; // preserve callback across restart
         stop();
-        start(cb);
+        if (auto r = start(cb); !r) {
+            LOG_ERROR() << "AudioSender: set_device_id restart failed: "
+                        << to_string(r.error());
+        }
     }
 }
 

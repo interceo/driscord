@@ -17,7 +17,7 @@ public:
     void send_screen_audio(const uint8_t* data, size_t len);
 
     // Mixer lifecycle
-    bool start();
+    utils::Expected<void, AudioError> start();
     void stop();
 
     // Master controls

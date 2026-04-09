@@ -195,9 +195,30 @@ static ff::CodecContextPtr try_open_encoder(const AVCodec* codec,
 
 } // namespace
 
+// --- to_string(VideoError) --------------------------------------------------
+
+const char* to_string(VideoError e)
+{
+    switch (e) {
+    case VideoError::InvalidDimensions:
+        return "InvalidDimensions";
+    case VideoError::InvalidFps:
+        return "InvalidFps";
+    case VideoError::InvalidBitrate:
+        return "InvalidBitrate";
+    case VideoError::EncoderInitFailed:
+        return "EncoderInitFailed";
+    case VideoError::VideoSenderFailed:
+        return "VideoSenderFailed";
+    case VideoError::CaptureStartFailed:
+        return "CaptureStartFailed";
+    }
+    return "Unknown";
+}
+
 // --- VideoEncoder -----------------------------------------------------------
 
-bool VideoEncoder::init(const size_t width,
+utils::Expected<void, VideoError> VideoEncoder::init(const size_t width,
     const size_t height,
     const size_t fps,
     const size_t base_bitrate_kbps)
@@ -208,24 +229,24 @@ bool VideoEncoder::init(const size_t width,
     const int base_bitrate = static_cast<int>(base_bitrate_kbps);
 
     if (w == state_.width && h == state_.height && f == state_.fps && base_bitrate == state_.base_bitrate_kbps) {
-        return true;
+        return { };
     }
 
     if ((w & 1) != 0 || (h & 1) != 0 || !w || !h) {
         LOG_ERROR() << "video encoder: dimensions must be even and non-zero (" << w
                     << "x" << h << ")";
-        return false;
+        return utils::Unexpected(VideoError::InvalidDimensions);
     }
 
     if (f < 1 || f > 240) {
         LOG_ERROR() << "video encoder: fps must be between 1 and 240 (" << f << ")";
-        return false;
+        return utils::Unexpected(VideoError::InvalidFps);
     }
 
     if (base_bitrate < 1) {
         LOG_ERROR() << "video encoder: base bitrate must be positive ("
                     << base_bitrate << ")";
-        return false;
+        return utils::Unexpected(VideoError::InvalidBitrate);
     }
 
     const auto bitrate = compute_bitrate(w, h, base_bitrate);
@@ -233,7 +254,7 @@ bool VideoEncoder::init(const size_t width,
     const AVCodec* codec = pick_h264_encoder();
     if (!codec) {
         LOG_ERROR() << "H.264 encoder not found";
-        return false;
+        return utils::Unexpected(VideoError::EncoderInitFailed);
     }
 
     LOG_INFO() << "selected video encoder: " << codec->name;
@@ -244,7 +265,7 @@ bool VideoEncoder::init(const size_t width,
     if (!ctx) {
         const bool is_hw = std::string_view(codec->name).find("libx264") == std::string_view::npos;
         if (!is_hw) {
-            return false;
+            return utils::Unexpected(VideoError::EncoderInitFailed);
         }
 
         LOG_WARNING() << "falling back to libx264";
@@ -255,33 +276,33 @@ bool VideoEncoder::init(const size_t width,
         }
         if (!codec) {
             LOG_ERROR() << "H.264 encoder not found";
-            return false;
+            return utils::Unexpected(VideoError::EncoderInitFailed);
         }
 
         ctx = try_open_encoder(codec, w, h, f, bitrate);
         if (!ctx) {
             LOG_ERROR() << "failed to open " << codec->name << " encoder";
-            return false;
+            return utils::Unexpected(VideoError::EncoderInitFailed);
         }
     }
 
     auto frame = ff::FramePtr { av_frame_alloc() };
     if (!frame) {
         LOG_ERROR() << "av_frame_alloc failed";
-        return false;
+        return utils::Unexpected(VideoError::EncoderInitFailed);
     }
     frame->format = AV_PIX_FMT_YUV420P;
     frame->width = w;
     frame->height = h;
     if (const int ret = av_frame_get_buffer(frame.get(), 0); ret < 0) {
         LOG_ERROR() << "av_frame_get_buffer failed: " << ff_err(ret);
-        return false;
+        return utils::Unexpected(VideoError::EncoderInitFailed);
     }
 
     auto pkt = ff::PacketPtr { av_packet_alloc() };
     if (!pkt) {
         LOG_ERROR() << "av_packet_alloc failed";
-        return false;
+        return utils::Unexpected(VideoError::EncoderInitFailed);
     }
 
     auto sws = ff::SwsContextPtr {
@@ -290,7 +311,7 @@ bool VideoEncoder::init(const size_t width,
     };
     if (!sws) {
         LOG_ERROR() << "sws_getContext (encoder) failed";
-        return false;
+        return utils::Unexpected(VideoError::EncoderInitFailed);
     }
 
     ctx_ = std::move(ctx);
@@ -313,7 +334,7 @@ bool VideoEncoder::init(const size_t width,
     LOG_INFO() << "video encoder: " << w << "x" << h << " @ " << f << " fps"
                << " H.264 (" << codec->name << ") bitrate=" << bitrate << " kbps"
                << " gop=" << ctx_->gop_size;
-    return true;
+    return { };
 }
 
 void VideoEncoder::shutdown()

@@ -64,12 +64,27 @@ void Transport::add_turn_server(const std::string& url,
     LOG_INFO() << "TURN server added: " << host << ":" << port;
 }
 
-void Transport::connect(const std::string& ws_url)
+const char* to_string(TransportError e)
+{
+    switch (e) {
+    case TransportError::WebSocketCreateFailed:
+        return "WebSocketCreateFailed";
+    }
+    return "Unknown";
+}
+
+utils::Expected<void, TransportError> Transport::connect(const std::string& ws_url)
 {
     disconnect();
     ws_url_ = ws_url;
 
-    auto ws = std::make_shared<rtc::WebSocket>();
+    std::shared_ptr<rtc::WebSocket> ws;
+    try {
+        ws = std::make_shared<rtc::WebSocket>();
+    } catch (const std::exception& ex) {
+        LOG_ERROR() << "Transport: WebSocket create failed: " << ex.what();
+        return utils::Unexpected(TransportError::WebSocketCreateFailed);
+    }
 
     ws->onOpen([this]() {
         LOG_INFO() << "ws connected to " << ws_url_;
@@ -93,6 +108,7 @@ void Transport::connect(const std::string& ws_url)
 
     std::scoped_lock lk(ws_mutex_);
     ws_ = std::move(ws);
+    return { };
 }
 
 void Transport::disconnect()

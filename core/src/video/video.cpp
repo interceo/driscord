@@ -94,8 +94,10 @@ void VideoSender::encode_loop()
         }
 
         if (frame.width != video_encoder_.width() || frame.height != video_encoder_.height()) {
-            if (!video_encoder_.init(frame.width, frame.height, fps_,
-                    base_bitrate_kbps_)) {
+            if (auto r = video_encoder_.init(frame.width, frame.height, fps_,
+                    base_bitrate_kbps_);
+                !r) {
+                LOG_ERROR() << "video encoder reinit failed: " << to_string(r.error());
                 continue;
             }
         }
