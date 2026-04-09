@@ -160,6 +160,8 @@ void VideoReceiver::push_video_packet(
         return;
     }
 
+    packets_received_.inc();
+
     {
         std::scoped_lock lk(mutex_);
         last_packet_ = utils::Now();
@@ -183,20 +185,23 @@ void VideoReceiver::push_video_packet(
     int w = 0, h = 0;
     if (decoder_.decode(encoded, encoded_len, rgba, w, h)) {
         decode_failures_ = 0;
-        jitter_.push(
-            frame_id,
-            Frame {
-                .rgba = std::move(rgba),
-                .width = w,
-                .height = h,
-                .peer_id = peer_id_,
-                .sender_ts = vh.sender_ts,
-                .frame_duration = std::chrono::microseconds(vh.frame_duration_us),
-            });
+        if (jitter_.push(frame_id,
+                Frame {
+                    .rgba = std::move(rgba),
+                    .width = w,
+                    .height = h,
+                    .peer_id = peer_id_,
+                    .sender_ts = vh.sender_ts,
+                    .frame_duration = std::chrono::microseconds(vh.frame_duration_us),
+                })) {
+            drop_count_.inc();
+        }
     } else {
         ++decode_failures_;
+        total_decode_failures_.inc();
         const auto kf_now = utils::Now();
         if (on_keyframe_needed_ && (decode_failures_ == 1 || utils::ElapsedMs(last_keyframe_req_, kf_now) >= 500)) {
+            keyframe_requests_.inc();
             on_keyframe_needed_();
             last_keyframe_req_ = kf_now;
         }
@@ -206,7 +211,10 @@ void VideoReceiver::push_video_packet(
 void VideoReceiver::update(std::function<void(const Frame&)> on_frame)
 {
     while (true) {
-        auto frame = jitter_.pop();
+        auto [frame, missed] = jitter_.pop();
+        if (missed) {
+            miss_count_.inc();
+        }
         if (!frame || frame->rgba.empty()) {
             break;
         }
@@ -219,17 +227,30 @@ void VideoReceiver::update(std::function<void(const Frame&)> on_frame)
 
 VideoReceiver::Stats VideoReceiver::video_stats() const
 {
-    return jitter_.stats();
+    return {
+        jitter_.primed(),
+        jitter_.queue_size(),
+        drop_count_.load(),
+        miss_count_.load(),
+        packets_received_.load(),
+        total_decode_failures_.load(),
+        keyframe_requests_.load(),
+        measured_kbps_.load(std::memory_order_relaxed),
+    };
 }
 
 size_t VideoReceiver::evict_old(utils::Duration max_delay)
 {
-    return jitter_.evict_old(max_delay);
+    const auto n = jitter_.evict_old(max_delay);
+    drop_count_.inc(n);
+    return n;
 }
 
 size_t VideoReceiver::evict_before_sender_ts(utils::WallTimestamp cutoff)
 {
-    return jitter_.evict_before_sender_ts(cutoff);
+    const auto n = jitter_.evict_before_sender_ts(cutoff);
+    drop_count_.inc(n);
+    return n;
 }
 
 std::optional<utils::WallTimestamp> VideoReceiver::front_effective_ts() const
@@ -272,4 +293,9 @@ void VideoReceiver::reset()
     measured_kbps_.store(0, std::memory_order_relaxed);
     bytes_since_calc_ = 0;
     last_calc_ = utils::Now();
+    packets_received_.reset();
+    drop_count_.reset();
+    miss_count_.reset();
+    total_decode_failures_.reset();
+    keyframe_requests_.reset();
 }
