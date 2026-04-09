@@ -1,6 +1,7 @@
 #pragma once
 
 #include "opus_codec.hpp"
+#include "utils/expected.hpp"
 #include "utils/jitter.hpp"
 #include "utils/vector_view.hpp"
 
@@ -12,6 +13,13 @@
 #include <vector>
 
 class MaDevice;
+
+enum class AudioError {
+    OpusInitFailed,
+    SenderDeviceStartFailed,
+    MixerDeviceStartFailed,
+};
+const char* to_string(AudioError e);
 
 class AudioSender {
 public:
@@ -28,7 +36,7 @@ public:
     // Returns JSON array of {id, name} for all capture devices.
     static std::string list_input_devices_json();
 
-    bool start(PacketCallback on_packet);
+    utils::Expected<void, AudioError> start(PacketCallback on_packet);
     void stop();
     bool running() const { return running_; }
 

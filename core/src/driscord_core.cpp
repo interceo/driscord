@@ -188,35 +188,8 @@ void DriscordCore::on_video_peer_stream_ended(const std::string& peer_id)
 }
 
 // ---------------------------------------------------------------------------
-// Transport facade
+// Transport
 // ---------------------------------------------------------------------------
-
-void DriscordCore::add_turn_server(const std::string& url,
-    const std::string& user,
-    const std::string& pass)
-{
-    transport.add_turn_server(url, user, pass);
-}
-
-void DriscordCore::connect(const std::string& url)
-{
-    transport.connect(url);
-}
-
-void DriscordCore::disconnect()
-{
-    transport.disconnect();
-}
-
-bool DriscordCore::connected() const
-{
-    return transport.connected();
-}
-
-std::string DriscordCore::local_id() const
-{
-    return transport.local_id();
-}
 
 std::string DriscordCore::peers_json() const
 {
@@ -229,114 +202,8 @@ std::string DriscordCore::peers_json() const
 }
 
 // ---------------------------------------------------------------------------
-// Audio facade
+// Audio (cross-subsystem)
 // ---------------------------------------------------------------------------
-
-void DriscordCore::audio_send(const uint8_t* data, int len)
-{
-    audio_transport.send_audio(data, len);
-}
-
-bool DriscordCore::audio_start()
-{
-    return audio_transport.start();
-}
-
-void DriscordCore::audio_stop()
-{
-    audio_transport.stop();
-}
-
-bool DriscordCore::audio_deafened() const
-{
-    return audio_transport.deafened();
-}
-
-void DriscordCore::audio_set_deafened(bool d)
-{
-    audio_transport.set_deafened(d);
-}
-
-float DriscordCore::audio_master_volume() const
-{
-    return audio_transport.master_volume();
-}
-
-void DriscordCore::audio_set_master_volume(float v)
-{
-    audio_transport.set_master_volume(v);
-}
-
-float DriscordCore::audio_output_level() const
-{
-    return audio_transport.output_level();
-}
-
-bool DriscordCore::audio_self_muted() const
-{
-    return audio_transport.self_muted();
-}
-
-void DriscordCore::audio_set_self_muted(bool m)
-{
-    audio_transport.set_self_muted(m);
-}
-
-float DriscordCore::audio_input_level() const
-{
-    return audio_transport.input_level();
-}
-
-std::string DriscordCore::audio_list_input_devices_json() const
-{
-    return AudioTransport::list_input_devices_json();
-}
-
-void DriscordCore::audio_set_input_device(std::string id)
-{
-    audio_transport.set_input_device(std::move(id));
-}
-
-std::string DriscordCore::audio_list_output_devices_json() const
-{
-    return AudioTransport::list_output_devices_json();
-}
-
-void DriscordCore::audio_set_output_device(std::string id)
-{
-    audio_transport.set_output_device(std::move(id));
-}
-
-void DriscordCore::audio_on_peer_joined(const std::string& peer,
-    int jitter_ms)
-{
-    audio_transport.on_peer_joined(peer, jitter_ms);
-}
-
-void DriscordCore::audio_on_peer_left(const std::string& peer)
-{
-    audio_transport.on_peer_left(peer);
-}
-
-void DriscordCore::audio_set_peer_volume(const std::string& peer, float vol)
-{
-    audio_transport.set_peer_volume(peer, vol);
-}
-
-float DriscordCore::audio_peer_volume(const std::string& peer) const
-{
-    return audio_transport.peer_volume(peer);
-}
-
-void DriscordCore::audio_set_peer_muted(const std::string& peer, bool m)
-{
-    audio_transport.set_peer_muted(peer, m);
-}
-
-bool DriscordCore::audio_peer_muted(const std::string& peer) const
-{
-    return audio_transport.peer_muted(peer);
-}
 
 void DriscordCore::audio_set_screen_audio_receiver(const std::string& peer,
     bool has_screen)
@@ -348,24 +215,8 @@ void DriscordCore::audio_set_screen_audio_receiver(const std::string& peer,
     audio_transport.set_screen_audio_recv(peer, std::move(recv));
 }
 
-void DriscordCore::audio_unset_screen_audio_receiver(const std::string& peer)
-{
-    audio_transport.unset_screen_audio_recv(peer);
-}
-
-void DriscordCore::audio_add_screen_audio_to_mixer(const std::string& peer)
-{
-    audio_transport.add_screen_audio_to_mixer(peer);
-}
-
-void DriscordCore::audio_remove_screen_audio_from_mixer(
-    const std::string& peer)
-{
-    audio_transport.remove_screen_audio_from_mixer(peer);
-}
-
 // ---------------------------------------------------------------------------
-// Video facade
+// Video
 // ---------------------------------------------------------------------------
 
 void DriscordCore::video_set_watching(bool w)
@@ -375,29 +226,9 @@ void DriscordCore::video_set_watching(bool w)
     }
 }
 
-bool DriscordCore::video_watching() const
-{
-    return video_transport.watching();
-}
-
-void DriscordCore::video_remove_streaming_peer(const std::string& peer)
-{
-    video_transport.remove_streaming_peer(peer);
-}
-
-void DriscordCore::video_send_keyframe_request()
-{
-    video_transport.send_keyframe_request();
-}
-
 // ---------------------------------------------------------------------------
-// Capture facade
+// Capture
 // ---------------------------------------------------------------------------
-
-bool DriscordCore::capture_system_audio_available() const
-{
-    return SystemAudioCapture::available();
-}
 
 std::string DriscordCore::capture_audio_list_targets_json() const
 {
@@ -441,23 +272,30 @@ std::vector<uint8_t> DriscordCore::capture_grab_thumbnail(
 }
 
 // ---------------------------------------------------------------------------
-// Screen facade
+// Screen
 // ---------------------------------------------------------------------------
 
-bool DriscordCore::screen_start_sharing(const std::string& target_json,
+utils::Expected<void, VideoError> DriscordCore::screen_start_sharing(
+    const std::string& target_json,
     int max_w,
     int max_h,
     int fps,
     int bitrate_kbps,
     bool share_audio)
 {
-    const auto target = ScreenCaptureTarget::from_json(json::parse(target_json));
-    bool ok = screen_session->start_sharing(target, max_w, max_h, fps,
+    nlohmann::json j;
+    try {
+        j = json::parse(target_json);
+    } catch (const std::exception&) {
+        return utils::Unexpected(VideoError::CaptureStartFailed);
+    }
+    const auto target = ScreenCaptureTarget::from_json(j);
+    auto r = screen_session->start_sharing(target, max_w, max_h, fps,
         bitrate_kbps, share_audio);
-    if (ok) {
+    if (r) {
         transport.send_streaming_start();
     }
-    return ok;
+    return r;
 }
 
 void DriscordCore::screen_stop_sharing()
@@ -467,48 +305,7 @@ void DriscordCore::screen_stop_sharing()
     transport.send_streaming_stop();
 }
 
-bool DriscordCore::screen_sharing() const
-{
-    return screen_session->sharing();
-}
-
-bool DriscordCore::screen_sharing_audio() const
-{
-    return screen_session->sharing_audio();
-}
-
-void DriscordCore::screen_force_keyframe()
-{
-    screen_session->force_keyframe();
-}
-
-void DriscordCore::screen_update()
-{
-    screen_session->update();
-}
-
-std::string DriscordCore::screen_active_peer() const
-{
-    return screen_session->active_peer();
-}
-
-bool DriscordCore::screen_active() const
-{
-    return screen_session->active();
-}
-
-void DriscordCore::screen_reset()
-{
-    screen_session->reset();
-}
-
-void DriscordCore::screen_reset_audio()
-{
-    screen_session->reset_audio();
-}
-
-void DriscordCore::screen_set_stream_volume(const std::string& peer,
-    float vol)
+void DriscordCore::screen_set_stream_volume(const std::string& peer, float vol)
 {
     audio_transport.set_screen_audio_peer_volume(peer, vol);
 }
@@ -517,9 +314,4 @@ float DriscordCore::screen_stream_volume() const
 {
     return audio_transport.screen_audio_peer_volume(
         screen_session->active_peer());
-}
-
-std::string DriscordCore::screen_stats_json() const
-{
-    return screen_session->stats_json();
 }

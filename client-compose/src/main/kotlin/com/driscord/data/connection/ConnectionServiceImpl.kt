@@ -50,7 +50,12 @@ class ConnectionServiceImpl(config: AppConfig) : ConnectionService {
     override fun connect(serverUrl: String) {
         if (_connectionState.value != ConnectionState.Disconnected) return
         _connectionState.value = ConnectionState.Connecting
-        NativeDriscord.connect(serverUrl)
+        val err = NativeDriscord.connect(serverUrl)
+        if (err != null) {
+            System.err.println("ConnectionService: connect failed: $err")
+            _connectionState.value = ConnectionState.Disconnected
+            return
+        }
         scope.launch {
             while (isActive && !NativeDriscord.connected()) delay(100)
             if (NativeDriscord.connected()) {

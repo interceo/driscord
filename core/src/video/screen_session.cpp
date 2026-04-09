@@ -22,7 +22,7 @@ ScreenSession::ScreenSession(int buf_ms,
     receiver_.set_keyframe_callback(std::move(on_keyframe_req));
 }
 
-bool ScreenSession::start_sharing(const ScreenCaptureTarget& target,
+utils::Expected<void, VideoError> ScreenSession::start_sharing(const ScreenCaptureTarget& target,
     const size_t max_w,
     const size_t max_h,
     const size_t fps,

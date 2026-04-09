@@ -1,5 +1,7 @@
 #pragma once
 
+#include "audio.hpp"
+
 #include <atomic>
 #include <memory>
 #include <mutex>
@@ -19,7 +21,7 @@ public:
     // Returns JSON array of {id, name} for all playback devices.
     static std::string list_output_devices_json();
 
-    bool start();
+    utils::Expected<void, AudioError> start();
     void stop();
     bool running() const { return running_; }
 

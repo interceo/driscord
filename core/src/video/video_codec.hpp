@@ -7,7 +7,18 @@
 #include <vector>
 
 #include "time.hpp"
+#include "utils/expected.hpp"
 #include "vector_view.hpp"
+
+enum class VideoError {
+    InvalidDimensions,
+    InvalidFps,
+    InvalidBitrate,
+    EncoderInitFailed,
+    VideoSenderFailed,
+    CaptureStartFailed,
+};
+const char* to_string(VideoError e);
 
 struct AVCodecContext;
 struct SwsContext;
@@ -45,7 +56,7 @@ public:
     VideoEncoder(const VideoEncoder&) = delete;
     VideoEncoder& operator=(const VideoEncoder&) = delete;
 
-    bool init(size_t width, size_t height, size_t fps, size_t base_bitrate_kbps);
+    utils::Expected<void, VideoError> init(size_t width, size_t height, size_t fps, size_t base_bitrate_kbps);
     void shutdown();
 
     const std::vector<uint8_t>& encode(const std::vector<uint8_t>& bgra,
