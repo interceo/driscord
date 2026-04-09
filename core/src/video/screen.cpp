@@ -299,6 +299,8 @@ AudioReceiver::Stats ScreenReceiver::audio_stats() const
         agg.queue_size += s.queue_size;
         agg.drop_count += s.drop_count;
         agg.miss_count += s.miss_count;
+        agg.packets_received += s.packets_received;
+        agg.decode_errors += s.decode_errors;
     }
     return agg;
 }

@@ -234,6 +234,7 @@ void AudioReceiver::push_packet(utils::vector_view<const uint8_t> data)
         const int samples = decoder_.decode(opus_data, opus_len, decode_buf_.data(),
             opus::kFrameSize);
         if (samples <= 0) {
+            decode_error_count_.inc();
             LOG_ERROR() << "[audio-recv/" << id_ << "] decode failed seq=" << ah.seq
                         << " opus_len=" << opus_len << " result=" << samples;
             return;
@@ -253,23 +254,26 @@ void AudioReceiver::push_packet(utils::vector_view<const uint8_t> data)
         }
     }
 
-    jitter_.push(ah.seq,
-        PcmFrame { .samples = std::move(pcm), .sender_ts = ah.sender_ts });
+    if (jitter_.push(ah.seq, PcmFrame { .samples = std::move(pcm), .sender_ts = ah.sender_ts })) {
+        drop_count_.inc();
+    }
 
     ++push_count_;
     if (push_count_ == 1) {
         LOG_INFO() << "[audio-recv/" << id_ << "] first push seq=" << ah.seq;
     } else if (push_count_ % 30 == 0) {
-        const auto st = jitter_.stats();
         LOG_INFO() << "[audio-recv/" << id_ << "] push#" << push_count_
-                   << " queue=" << st.queue_size << " drops=" << st.drop_count
-                   << " misses=" << st.miss_count;
+                   << " queue=" << jitter_.queue_size() << " drops=" << drop_count_.load()
+                   << " misses=" << miss_count_.load();
     }
 }
 
 std::vector<float> AudioReceiver::pop()
 {
-    auto frame = jitter_.pop();
+    auto [frame, missed] = jitter_.pop();
+    if (missed) {
+        miss_count_.inc();
+    }
     if (!frame || frame->samples.empty()) {
         return { };
     }
@@ -279,7 +283,9 @@ std::vector<float> AudioReceiver::pop()
 
 size_t AudioReceiver::evict_old(utils::Duration max_delay)
 {
-    return jitter_.evict_old(max_delay);
+    const auto n = jitter_.evict_old(max_delay);
+    drop_count_.inc(n);
+    return n;
 }
 
 bool AudioReceiver::primed() const
@@ -302,10 +308,20 @@ void AudioReceiver::reset()
     std::scoped_lock lk(decode_mutex_);
     decoder_.init(sample_rate_, channels_);
     jitter_.reset();
+    drop_count_.reset();
+    miss_count_.reset();
+    decode_error_count_.reset();
+    push_count_ = 0;
+    pop_count_ = 0;
 }
 
 AudioReceiver::Stats AudioReceiver::stats() const
 {
-    const auto s = jitter_.stats();
-    return { s.queue_size, s.drop_count, s.miss_count };
+    return {
+        jitter_.queue_size(),
+        drop_count_.load(),
+        miss_count_.load(),
+        push_count_,
+        decode_error_count_.load(),
+    };
 }

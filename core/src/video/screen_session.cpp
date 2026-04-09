@@ -139,16 +139,23 @@ std::string ScreenSession::stats_json() const
 {
     auto vs = video_stats();
     auto as = audio_stats();
-    nlohmann::json j = { { "width", last_w_ },
+    nlohmann::json j = {
+        { "width", last_w_ },
         { "height", last_h_ },
-        { "measuredKbps", measured_kbps() },
+        { "measuredKbps", vs.measured_kbps },
         { "video",
             { { "queue", vs.queue_size },
                 { "drops", vs.drop_count },
-                { "misses", vs.miss_count } } },
+                { "misses", vs.miss_count },
+                { "packetsReceived", vs.packets_received },
+                { "decodeFailures", vs.decode_failures },
+                { "keyframeRequests", vs.keyframe_requests } } },
         { "audio",
             { { "queue", as.queue_size },
                 { "drops", as.drop_count },
-                { "misses", as.miss_count } } } };
+                { "misses", as.miss_count },
+                { "packetsReceived", as.packets_received },
+                { "decodeErrors", as.decode_errors } } },
+    };
     return j.dump();
 }
