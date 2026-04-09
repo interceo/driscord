@@ -2,6 +2,7 @@
 
 #include "capture/screen_capture.hpp"
 #include "utils/jitter.hpp"
+#include "utils/metrics.hpp"
 #include "video_codec.hpp"
 
 #include <atomic>
@@ -73,7 +74,17 @@ public:
     };
 
     using VideoJitter = utils::Jitter<Frame>;
-    using Stats = VideoJitter::Stats;
+
+    struct Stats {
+        bool primed = false;
+        size_t queue_size = 0;
+        uint64_t drop_count = 0;
+        uint64_t miss_count = 0;
+        uint64_t packets_received = 0;
+        uint64_t decode_failures = 0;
+        uint64_t keyframe_requests = 0;
+        int measured_kbps = 0;
+    };
 
     VideoReceiver(std::string peer_id, int buffer_ms);
     ~VideoReceiver();
@@ -124,4 +135,10 @@ private:
     std::atomic<int> measured_kbps_ { 0 };
     size_t bytes_since_calc_ = 0;
     utils::Timestamp last_calc_ { };
+
+    utils::Counter packets_received_;
+    utils::Counter drop_count_;
+    utils::Counter miss_count_;
+    utils::Counter total_decode_failures_;
+    utils::Counter keyframe_requests_;
 };
