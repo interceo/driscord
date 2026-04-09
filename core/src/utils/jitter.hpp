@@ -22,11 +22,9 @@ public:
         utils::Timestamp arrival { };
     };
 
-    struct Stats {
-        bool primed = false;
-        size_t queue_size = 0;
-        uint64_t drop_count = 0;
-        uint64_t miss_count = 0;
+    struct PopResult {
+        Ptr data;
+        bool missed = false;
     };
 
     explicit JitterBuffer(const utils::Duration target_delay)
@@ -37,7 +35,8 @@ public:
     {
     }
 
-    void push(const uint64_t seq, Ptr&& data)
+    // Returns true if the packet was dropped (ring full).
+    bool push(const uint64_t seq, Ptr&& data)
     {
         std::scoped_lock lk(mutex_);
 
@@ -46,51 +45,49 @@ public:
             first_push_time_ = now;
         }
 
-        if (!ring_.push(seq, Packet { std::move(data), now })) {
-            ++drop_count_;
-        }
+        return !ring_.push(seq, Packet { std::move(data), now });
     }
 
-    Ptr pop() noexcept
+    // Returns {data, missed=false} on success, {nullptr, true} on a seq gap
+    // (miss), {nullptr, false} when not ready or queue empty.
+    PopResult pop() noexcept
     {
         std::unique_lock lk(mutex_, std::try_to_lock);
         if (!lk.owns_lock()) [[unlikely]] {
-            return nullptr;
+            return { };
         }
 
         const auto now = utils::Now();
         if (!first_push_time_) [[unlikely]] {
-            return nullptr;
+            return { };
         }
 
         if (!primed_) [[unlikely]] {
             if (utils::Elapsed(*first_push_time_, now) < target_delay_) {
-                return nullptr;
+                return { };
             }
             primed_ = true;
         }
 
         if (ring_.empty()) {
-            return nullptr;
+            return { };
         }
 
         auto peek = ring_.peek_next();
         if (!peek) {
-            return nullptr;
+            return { };
         }
 
         if (peek->skipped > 0) {
             ring_.advance_seq();
-            ++miss_count_;
-            return nullptr;
+            return { nullptr, true };
         }
 
         auto result = ring_.consume_peeked(0);
-        ++played_count_;
-
-        return std::move(result.data.data);
+        return { std::move(result.data.data), false };
     }
 
+    // Returns number of evicted packets (each counts as a drop).
     size_t evict_old(const utils::Duration max_delay)
     {
         std::scoped_lock lk(mutex_);
@@ -104,7 +101,6 @@ public:
                 break;
             }
             ring_.consume_peeked(peek->skipped);
-            ++drop_count_;
             ++dropped;
         }
         return dropped;
@@ -124,7 +120,6 @@ public:
                 break;
             }
             ring_.consume_peeked(peek->skipped);
-            ++drop_count_;
             ++dropped;
         }
         return dropped;
@@ -174,20 +169,6 @@ public:
         ring_.reset();
         primed_ = false;
         first_push_time_.reset();
-        played_count_ = 0;
-        drop_count_ = 0;
-        miss_count_ = 0;
-    }
-
-    Stats stats() const
-    {
-        std::scoped_lock lk(mutex_);
-        return {
-            primed_,
-            ring_.size(),
-            drop_count_,
-            miss_count_,
-        };
     }
 
 private:
@@ -198,33 +179,30 @@ private:
     utils::Duration target_delay_;
 
     std::optional<utils::Timestamp> first_push_time_;
-
-    uint64_t played_count_ = 0;
-    uint64_t drop_count_ = 0;
-    uint64_t miss_count_ = 0;
 };
 
 template <typename Frame>
 class Jitter {
 public:
     using JitterBuf = JitterBuffer<Frame>;
-    using Stats = JitterBuf::Stats;
     using Ptr = JitterBuf::Ptr;
+    using PopResult = JitterBuf::PopResult;
 
     explicit Jitter(const utils::Duration target_delay)
         : buf_(target_delay)
     {
     }
 
-    void push(uint64_t seq, Frame&& frame)
+    // Returns true if the frame was dropped (ring full).
+    bool push(uint64_t seq, Frame&& frame)
     {
         if (frame.empty()) {
-            return;
+            return false;
         }
-        buf_.push(seq, std::make_unique<Frame>(std::move(frame)));
+        return buf_.push(seq, std::make_unique<Frame>(std::move(frame)));
     }
 
-    Ptr pop() { return buf_.pop(); }
+    PopResult pop() { return buf_.pop(); }
 
     size_t evict_old(const utils::Duration max_delay)
     {
@@ -259,8 +237,6 @@ public:
     size_t queue_size() const { return buf_.queue_size(); }
     int64_t front_age_ms() const { return buf_.front_age_ms(); }
     void reset() { buf_.reset(); }
-
-    Stats stats() const { return buf_.stats(); }
 
 private:
     JitterBuf buf_;

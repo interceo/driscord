@@ -3,6 +3,7 @@
 #include "opus_codec.hpp"
 #include "utils/expected.hpp"
 #include "utils/jitter.hpp"
+#include "utils/metrics.hpp"
 #include "utils/vector_view.hpp"
 
 #include <atomic>
@@ -114,6 +115,8 @@ public:
         size_t queue_size = 0;
         uint64_t drop_count = 0;
         uint64_t miss_count = 0;
+        uint64_t packets_received = 0;
+        uint64_t decode_errors = 0;
     };
     Stats stats() const;
 
@@ -133,6 +136,10 @@ private:
 
     uint64_t id_ = 0;
     uint64_t pop_count_ = 0;
+
+    utils::Counter drop_count_;
+    utils::Counter miss_count_;
+    utils::Counter decode_error_count_;
 
     static std::atomic<uint64_t> next_id_;
 };
