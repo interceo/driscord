@@ -2,7 +2,7 @@
 
 #include "capture/screen_capture.hpp"
 #include "utils/jitter.hpp"
-#include "utils/video_codec.hpp"
+#include "video_codec.hpp"
 
 #include <atomic>
 #include <condition_variable>
