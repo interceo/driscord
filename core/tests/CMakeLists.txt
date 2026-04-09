@@ -55,3 +55,9 @@ add_executable(test_chunk_assembler test_chunk_assembler.cpp)
 target_include_directories(test_chunk_assembler PRIVATE ${TEST_INCLUDE_DIRS})
 target_link_libraries(test_chunk_assembler PRIVATE GTest::gtest_main)
 add_test(NAME test_chunk_assembler COMMAND test_chunk_assembler)
+
+# test_expected
+add_executable(test_expected test_expected.cpp)
+target_include_directories(test_expected PRIVATE ${TEST_INCLUDE_DIRS})
+target_link_libraries(test_expected PRIVATE GTest::gtest_main)
+add_test(NAME test_expected COMMAND test_expected)

@@ -2,7 +2,7 @@
 
 #include "audio/audio.hpp"
 #include "audio/capture/system_audio_capture.hpp"
-#include "utils/opus_codec.hpp"
+#include "opus_codec.hpp"
 #include "video/capture/screen_capture.hpp"
 #include "video/video.hpp"
 
