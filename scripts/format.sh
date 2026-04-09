@@ -14,7 +14,7 @@ if [[ "${1:-}" == "--check" ]]; then
 fi
 
 FILES=$(find "$ROOT/core" "$ROOT/backend/signaling_server" \
-    \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' -o -name '*.mm' \) \
+    \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' \) \
     ! -path '*/.builds/*' ! -path '*/_deps/*')
 
 if [[ -z "$FILES" ]]; then
