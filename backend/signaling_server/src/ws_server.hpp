@@ -23,11 +23,23 @@ public:
 
     unsigned short bound_port() const;
 
-    void register_session(const std::string& id, std::shared_ptr<Session> s);
+    // Atomically inserts the new session into the registry, snapshots the
+    // existing peers (for the welcome message) and broadcasts peer_joined to
+    // every pre-existing session. Returns the JSON-encoded welcome payload
+    // that the caller must send to the newly registered session. The welcome
+    // send itself happens OUTSIDE the critical section (Beast's async_write
+    // is posted on the session's own strand), so multiple concurrent joiners
+    // cannot miss each other.
+    std::string register_and_build_welcome(const std::string& id,
+        std::shared_ptr<Session> s);
+
     void unregister_session(const std::string& id);
-    std::string build_welcome(const std::string& new_id);
     void broadcast(const std::string& from_id, const std::string& msg);
     void send_to(const std::string& target_id, const std::string& msg);
+
+    // Returns the current number of connected sessions. Useful for tests
+    // that want to assert cleanup after disconnect.
+    size_t active_sessions() const;
 
     void add_streaming_peer(const std::string& id);
     void remove_streaming_peer(const std::string& id);
