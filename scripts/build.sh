@@ -98,7 +98,9 @@ fi
 
 # --- Test ---
 if [ "$ACTION" = "test" ]; then
-    cmake_configure "$BUILD" -DBUILD_TESTS=ON -DBUILD_SERVER=OFF -DBUILD_CORE=OFF
+    # test_datachannel_transport links driscord_core and driscord_signaling,
+    # so BUILD_CORE and BUILD_SERVER must be ON.
+    cmake_configure "$BUILD" -DBUILD_TESTS=ON -DBUILD_SERVER=ON -DBUILD_CORE=ON
     echo "==> Building tests ($BUILD_TYPE, $JOBS jobs)..."
     cmake --build "$BUILD" -j"$JOBS"
     cd "$BUILD"
