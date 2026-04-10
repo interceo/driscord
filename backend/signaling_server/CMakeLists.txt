@@ -10,17 +10,16 @@ find_package(OpenSSL REQUIRED)
 
 find_package(Boost 1.89 REQUIRED)
 
-add_executable(driscord_server
-    src/main.cpp
+add_library(driscord_signaling STATIC
     src/ws_server.cpp
 )
 
-target_include_directories(driscord_server PRIVATE
+target_include_directories(driscord_signaling PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/core/src/utils
 )
 
-target_link_libraries(driscord_server PRIVATE
+target_link_libraries(driscord_signaling PUBLIC
     Boost::boost
     OpenSSL::SSL
     OpenSSL::Crypto
@@ -30,11 +29,19 @@ target_link_libraries(driscord_server PRIVATE
 )
 
 if(MSVC)
-    target_compile_options(driscord_server PRIVATE /W4)
-    target_compile_definitions(driscord_server PRIVATE
+    target_compile_options(driscord_signaling PRIVATE /W4)
+    target_compile_definitions(driscord_signaling PUBLIC
         _WIN32_WINNT=0x0A00
         _CRT_SECURE_NO_WARNINGS
     )
 else()
-    target_compile_options(driscord_server PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(driscord_signaling PRIVATE -Wall -Wextra -Wpedantic)
 endif()
+
+add_executable(driscord_server
+    src/main.cpp
+)
+
+target_link_libraries(driscord_server PRIVATE
+    driscord_signaling
+)

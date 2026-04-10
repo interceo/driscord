@@ -43,6 +43,12 @@ public:
     void add_turn_server(const std::string& url,
         const std::string& user,
         const std::string& pass);
+
+    // Replace the entire ICE server list. Pass an empty vector to disable
+    // STUN/TURN entirely (useful for tests on loopback where host candidates
+    // are sufficient). Must be called before connect().
+    void set_ice_servers(const std::vector<std::string>& urls);
+
     utils::Expected<void, TransportError> connect(const std::string& ws_url);
     void disconnect();
 

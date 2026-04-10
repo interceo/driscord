@@ -64,6 +64,14 @@ void Transport::add_turn_server(const std::string& url,
     LOG_INFO() << "TURN server added: " << host << ":" << port;
 }
 
+void Transport::set_ice_servers(const std::vector<std::string>& urls)
+{
+    rtc_config_.iceServers.clear();
+    for (const auto& url : urls) {
+        rtc_config_.iceServers.push_back(rtc::IceServer(url));
+    }
+}
+
 const char* to_string(TransportError e)
 {
     switch (e) {
@@ -409,10 +417,13 @@ void Transport::handle_answer(const std::string& from, const std::string& sdp)
 
     std::scoped_lock lk(peers_mutex_);
     auto it = peers_.find(from);
-    if (it != peers_.end()) {
-        it->second.pc->setRemoteDescription(
-            rtc::Description(sdp, rtc::Description::Type::Answer));
+    if (it == peers_.end() || !it->second.pc) {
+        LOG_WARNING() << "dropping answer from " << from
+                      << ": no peer connection (pre-registered but no offer exchanged)";
+        return;
     }
+    it->second.pc->setRemoteDescription(
+        rtc::Description(sdp, rtc::Description::Type::Answer));
 }
 
 void Transport::handle_candidate(const std::string& from,
@@ -422,9 +433,12 @@ void Transport::handle_candidate(const std::string& from,
     LOG_INFO() << "remote ICE candidate from " << from << ": " << candidate;
     std::scoped_lock lk(peers_mutex_);
     auto it = peers_.find(from);
-    if (it != peers_.end()) {
-        it->second.pc->addRemoteCandidate(rtc::Candidate(candidate, mid));
+    if (it == peers_.end() || !it->second.pc) {
+        LOG_WARNING() << "dropping ICE candidate from " << from
+                      << ": no peer connection (pre-registered but no offer exchanged)";
+        return;
     }
+    it->second.pc->addRemoteCandidate(rtc::Candidate(candidate, mid));
 }
 
 void Transport::setup_channel(const std::string& peer_id,
