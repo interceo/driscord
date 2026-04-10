@@ -61,3 +61,20 @@ add_executable(test_expected test_expected.cpp)
 target_include_directories(test_expected PRIVATE ${TEST_INCLUDE_DIRS})
 target_link_libraries(test_expected PRIVATE GTest::gtest_main)
 add_test(NAME test_expected COMMAND test_expected)
+
+# test_datachannel_transport (integration test — requires the signaling
+# server library, hence the BUILD_SERVER guard)
+if(BUILD_SERVER)
+    add_executable(test_datachannel_transport test_datachannel_transport.cpp)
+    target_include_directories(test_datachannel_transport PRIVATE
+        ${TEST_INCLUDE_DIRS}
+    )
+    target_link_libraries(test_datachannel_transport PRIVATE
+        GTest::gtest_main
+        driscord_core
+        driscord_signaling
+    )
+    add_test(NAME test_datachannel_transport
+        COMMAND test_datachannel_transport)
+    set_tests_properties(test_datachannel_transport PROPERTIES TIMEOUT 60)
+endif()

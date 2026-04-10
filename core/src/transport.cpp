@@ -64,6 +64,14 @@ void Transport::add_turn_server(const std::string& url,
     LOG_INFO() << "TURN server added: " << host << ":" << port;
 }
 
+void Transport::set_ice_servers(const std::vector<std::string>& urls)
+{
+    rtc_config_.iceServers.clear();
+    for (const auto& url : urls) {
+        rtc_config_.iceServers.push_back(rtc::IceServer(url));
+    }
+}
+
 const char* to_string(TransportError e)
 {
     switch (e) {
