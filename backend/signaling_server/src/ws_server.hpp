@@ -21,6 +21,8 @@ public:
     void run();
     void stop();
 
+    unsigned short bound_port() const;
+
     void register_session(const std::string& id, std::shared_ptr<Session> s);
     void unregister_session(const std::string& id);
     std::string build_welcome(const std::string& new_id);

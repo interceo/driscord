@@ -27,15 +27,15 @@ TEST(JitterBuffer, PrimingDelay)
     JBuf buf(50ms);
     buf.push(0, std::make_unique<int>(42));
 
-    // Pop immediately — should return nullptr (not yet primed)
-    EXPECT_EQ(buf.pop(), nullptr);
+    // Pop immediately — should return empty (not yet primed)
+    EXPECT_EQ(buf.pop().data, nullptr);
     EXPECT_FALSE(buf.primed());
 
     std::this_thread::sleep_for(60ms);
 
     auto val = buf.pop();
-    ASSERT_NE(val, nullptr);
-    EXPECT_EQ(*val, 42);
+    ASSERT_NE(val.data, nullptr);
+    EXPECT_EQ(*val.data, 42);
     EXPECT_TRUE(buf.primed());
 }
 
@@ -52,8 +52,8 @@ TEST(JitterBuffer, SequentialPushPop)
     std::vector<int> got;
     for (int i = 0; i < 20; ++i) {
         auto v = buf.pop();
-        if (v) {
-            got.push_back(*v);
+        if (v.data) {
+            got.push_back(*v.data);
         }
     }
 
@@ -64,7 +64,7 @@ TEST(JitterBuffer, SequentialPushPop)
     }
 }
 
-// 3. Gap handling — miss count
+// 3. Gap handling — PopResult::missed flag
 TEST(JitterBuffer, GapHandling)
 {
     JBuf buf(10ms);
@@ -75,39 +75,35 @@ TEST(JitterBuffer, GapHandling)
     std::this_thread::sleep_for(15ms);
 
     auto v0 = buf.pop();
-    ASSERT_NE(v0, nullptr);
-    EXPECT_EQ(*v0, 0);
+    ASSERT_NE(v0.data, nullptr);
+    EXPECT_EQ(*v0.data, 0);
 
-    // Next pop should detect the gap (seq 1 missing), advance, return nullptr
+    // Next pop should detect the gap (seq 1 missing), advance, and
+    // return {nullptr, missed=true}.
     auto v1 = buf.pop();
-    EXPECT_EQ(v1, nullptr);
-
-    auto s = buf.stats();
-    EXPECT_GE(s.miss_count, 1u);
+    EXPECT_EQ(v1.data, nullptr);
+    EXPECT_TRUE(v1.missed);
 
     // Next pop should return seq 2
     auto v2 = buf.pop();
-    ASSERT_NE(v2, nullptr);
-    EXPECT_EQ(*v2, 2);
+    ASSERT_NE(v2.data, nullptr);
+    EXPECT_EQ(*v2.data, 2);
 }
 
-// 4. Drop count on overflow
+// 4. Drop count on overflow — push() returns true when the packet is
+//    dropped because the ring is full.
 TEST(JitterBuffer, DropCountOnOverflow)
 {
     JBuf buf(5ms);
-    // Push 300 packets with distinct seqs — ring capacity is 256
+    size_t dropped = 0;
+    // Ring capacity is 256; pushing 300 sequential seqs must drop some.
     for (int i = 0; i < 300; ++i) {
-        buf.push(i, std::make_unique<int>(i));
+        if (buf.push(i, std::make_unique<int>(i))) {
+            ++dropped;
+        }
     }
-
-    auto s = buf.stats();
-    // Some packets should have been dropped (push returned false due to
-    // overwrites) The first batch's slots get overwritten by later seqs in the
-    // same slot, but since push checks slot.seq >= seq, overwrites succeed and
-    // decrement size. drop_count comes from push returning false (old seq
-    // rejected). With 300 sequential pushes into 256 slots, this should still
-    // work.
-    EXPECT_GE(s.queue_size, 0u); // basic sanity
+    EXPECT_GT(dropped, 0u);
+    EXPECT_LE(buf.queue_size(), 256u);
 }
 
 // 5. evict_old
@@ -137,19 +133,15 @@ TEST(JitterBuffer, EvictIf)
     EXPECT_EQ(buf.queue_size(), 1u);
 }
 
-// 7. Stats reflect state
-TEST(JitterBuffer, Stats)
+// 7. Status reflects state (primed + queue_size)
+TEST(JitterBuffer, Status)
 {
     JBuf buf(10ms);
-    auto s0 = buf.stats();
-    EXPECT_FALSE(s0.primed);
-    EXPECT_EQ(s0.queue_size, 0u);
-    EXPECT_EQ(s0.drop_count, 0u);
-    EXPECT_EQ(s0.miss_count, 0u);
+    EXPECT_FALSE(buf.primed());
+    EXPECT_EQ(buf.queue_size(), 0u);
 
     buf.push(0, std::make_unique<int>(0));
-    auto s1 = buf.stats();
-    EXPECT_EQ(s1.queue_size, 1u);
+    EXPECT_EQ(buf.queue_size(), 1u);
 }
 
 // 8. Reset
@@ -164,11 +156,8 @@ TEST(JitterBuffer, Reset)
 
     buf.reset();
 
-    auto s = buf.stats();
-    EXPECT_FALSE(s.primed);
-    EXPECT_EQ(s.queue_size, 0u);
-    EXPECT_EQ(s.drop_count, 0u);
-    EXPECT_EQ(s.miss_count, 0u);
+    EXPECT_FALSE(buf.primed());
+    EXPECT_EQ(buf.queue_size(), 0u);
 }
 
 // 9. with_front
@@ -201,7 +190,7 @@ TEST(JitterBuffer, TryLockSemantics)
             std::this_thread::yield();
         }
         auto v = buf.pop();
-        pop_returned_null.store(v == nullptr, std::memory_order_release);
+        pop_returned_null.store(v.data == nullptr, std::memory_order_release);
         done.store(true, std::memory_order_release);
     });
 
@@ -239,7 +228,7 @@ TEST(JitterBuffer, ConcurrentOneProducerOneConsumer)
         std::this_thread::sleep_for(10ms);
         auto deadline = std::chrono::steady_clock::now() + 2s;
         while (std::chrono::steady_clock::now() < deadline) {
-            if (buf.pop()) {
+            if (buf.pop().data) {
                 received.fetch_add(1, std::memory_order_relaxed);
             } else {
                 std::this_thread::sleep_for(100us);
@@ -275,7 +264,7 @@ TEST(JitterBuffer, ConcurrentMultiProducerOneConsumer)
         std::this_thread::sleep_for(10ms);
         auto deadline = std::chrono::steady_clock::now() + 2s;
         while (std::chrono::steady_clock::now() < deadline) {
-            if (buf.pop()) {
+            if (buf.pop().data) {
                 received.fetch_add(1, std::memory_order_relaxed);
             } else {
                 std::this_thread::sleep_for(100us);
@@ -314,7 +303,7 @@ TEST(JitterBuffer, ConcurrentOneProducerMultiConsumer)
             std::this_thread::sleep_for(10ms);
             auto deadline = std::chrono::steady_clock::now() + 2s;
             while (std::chrono::steady_clock::now() < deadline) {
-                if (buf.pop()) {
+                if (buf.pop().data) {
                     total_received.fetch_add(1, std::memory_order_relaxed);
                 } else {
                     std::this_thread::sleep_for(100us);
@@ -393,7 +382,7 @@ TEST(JitterBuffer, StressTest)
                 buf.evict_old(100ms);
                 break;
             case 4:
-                buf.stats();
+                (void)buf.queue_size();
                 break;
             }
         }
@@ -431,8 +420,8 @@ TEST(Jitter, ExplicitSequencing)
     std::vector<int> got;
     for (int i = 0; i < 5; ++i) {
         auto f = j.pop();
-        if (f) {
-            got.push_back(f->id);
+        if (f.data) {
+            got.push_back(f.data->id);
         }
     }
 
@@ -504,7 +493,7 @@ TEST(Jitter, ConcurrentProducerConsumer)
         std::this_thread::sleep_for(10ms);
         auto deadline = std::chrono::steady_clock::now() + 2s;
         while (std::chrono::steady_clock::now() < deadline) {
-            if (j.pop()) {
+            if (j.pop().data) {
                 received.fetch_add(1, std::memory_order_relaxed);
             } else {
                 std::this_thread::sleep_for(100us);
@@ -532,8 +521,8 @@ TEST(Jitter, OutOfOrderSeq)
     std::vector<int> got;
     for (int i = 0; i < 5; ++i) {
         auto f = j.pop();
-        if (f) {
-            got.push_back(f->id);
+        if (f.data) {
+            got.push_back(f.data->id);
         }
     }
 

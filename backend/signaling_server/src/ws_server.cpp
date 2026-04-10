@@ -193,6 +193,16 @@ void WebSocketServer::stop()
     sessions_.clear();
 }
 
+unsigned short WebSocketServer::bound_port() const
+{
+    boost::system::error_code ec;
+    auto endpoint = acceptor_.local_endpoint(ec);
+    if (ec) {
+        return 0;
+    }
+    return endpoint.port();
+}
+
 void WebSocketServer::register_session(const std::string& id,
     std::shared_ptr<Session> s)
 {
