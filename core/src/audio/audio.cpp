@@ -59,14 +59,15 @@ std::string AudioSender::list_input_devices_json()
     return arr.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }
 
-utils::Expected<void, AudioError> AudioSender::start(PacketCallback on_packet)
+utils::Expected<void, AudioError> AudioSender::start(PacketCallback on_packet,
+    int bitrate_bps)
 {
     if (running_) {
         return { };
     }
 
     auto enc = std::make_unique<OpusEncode>();
-    if (!enc->init(opus::kSampleRate, kChannels, 64000,
+    if (!enc->init(opus::kSampleRate, kChannels, bitrate_bps,
             2048 /* OPUS_APPLICATION_VOIP */)) {
         LOG_ERROR() << "AudioSender: failed to init Opus encoder";
         return utils::Unexpected(AudioError::OpusInitFailed);
@@ -126,6 +127,7 @@ utils::Expected<void, AudioError> AudioSender::start(PacketCallback on_packet)
     }
 
     on_packet_ = std::move(on_packet);
+    bitrate_bps_ = bitrate_bps;
     capture_buf_.assign(opus::kFrameSize, 0.0f);
     encode_buf_.resize(protocol::AudioHeader::kWireSize + opus::kMaxPacket);
     capture_pos_ = 0;
@@ -142,9 +144,10 @@ void AudioSender::set_device_id(std::string id)
 {
     device_id_ = std::move(id);
     if (running_) {
-        auto cb = on_packet_; // preserve callback across restart
+        auto cb = on_packet_;
+        const auto br = bitrate_bps_;
         stop();
-        if (auto r = start(cb); !r) {
+        if (auto r = start(cb, br); !r) {
             LOG_ERROR() << "AudioSender: set_device_id restart failed: "
                         << to_string(r.error());
         }
@@ -173,7 +176,13 @@ void AudioSender::on_capture(const float* input, uint32_t frames)
     for (uint32_t i = 0; i < frames; ++i) {
         sum += input[i] * input[i];
     }
-    input_level_.store(std::sqrt(sum / static_cast<float>(frames)));
+    const float rms = std::sqrt(sum / static_cast<float>(frames));
+    input_level_.store(rms);
+
+    const float gate = noise_gate_.load(std::memory_order_relaxed);
+    if (gate > 0.0f && rms < gate) {
+        return;
+    }
 
     uint32_t consumed = 0;
     while (consumed < frames) {
@@ -226,35 +235,11 @@ void AudioReceiver::push_packet(utils::vector_view<const uint8_t> data)
 
     const auto ah = protocol::AudioHeader::deserialize(data.data());
     const uint8_t* opus_data = data.data() + protocol::AudioHeader::kWireSize;
-    const int opus_len = static_cast<int>(data.size() - protocol::AudioHeader::kWireSize);
+    const size_t opus_len = data.size() - protocol::AudioHeader::kWireSize;
 
-    std::vector<float> pcm;
-    {
-        std::scoped_lock lk(decode_mutex_);
-        const int samples = decoder_.decode(opus_data, opus_len, decode_buf_.data(),
-            opus::kFrameSize);
-        if (samples <= 0) {
-            decode_error_count_.inc();
-            LOG_ERROR() << "[audio-recv/" << id_ << "] decode failed seq=" << ah.seq
-                        << " opus_len=" << opus_len << " result=" << samples;
-            return;
-        }
+    std::vector<uint8_t> opus_bytes(opus_data, opus_data + opus_len);
 
-        if (channels_ > 1) {
-            for (int i = 0; i < samples; ++i) {
-                float sum = 0.0f;
-                for (int ch = 0; ch < channels_; ++ch) {
-                    sum += decode_buf_[static_cast<size_t>(i) * channels_ + ch];
-                }
-                mono_buf_[static_cast<size_t>(i)] = sum / channels_;
-            }
-            pcm.assign(mono_buf_.begin(), mono_buf_.begin() + samples);
-        } else {
-            pcm.assign(decode_buf_.begin(), decode_buf_.begin() + samples);
-        }
-    }
-
-    if (jitter_.push(ah.seq, PcmFrame { .samples = std::move(pcm), .sender_ts = ah.sender_ts })) {
+    if (jitter_.push(ah.seq, OpusFrame { .data = std::move(opus_bytes), .sender_ts = ah.sender_ts })) {
         drop_count_.inc();
     }
 
@@ -273,12 +258,52 @@ std::vector<float> AudioReceiver::pop()
     auto [frame, missed] = jitter_.pop();
     if (missed) {
         miss_count_.inc();
-    }
-    if (!frame || frame->samples.empty()) {
+        // PLC: ask Opus decoder to generate a concealment frame.
+        std::scoped_lock lk(decode_mutex_);
+        const int samples = decoder_.decode_plc(decode_buf_.data(), opus::kFrameSize);
+        if (samples > 0) {
+            ++pop_count_;
+            if (channels_ > 1) {
+                for (int i = 0; i < samples; ++i) {
+                    float sum = 0.0f;
+                    for (int ch = 0; ch < channels_; ++ch) {
+                        sum += decode_buf_[static_cast<size_t>(i) * channels_ + ch];
+                    }
+                    mono_buf_[static_cast<size_t>(i)] = sum / channels_;
+                }
+                return { mono_buf_.begin(), mono_buf_.begin() + samples };
+            }
+            return { decode_buf_.begin(), decode_buf_.begin() + samples };
+        }
         return { };
     }
+    if (!frame || frame->data.empty()) {
+        return { };
+    }
+
+    std::scoped_lock lk(decode_mutex_);
+    const int samples = decoder_.decode(frame->data.data(),
+        static_cast<int>(frame->data.size()),
+        decode_buf_.data(), opus::kFrameSize);
+    if (samples <= 0) {
+        decode_error_count_.inc();
+        LOG_ERROR() << "[audio-recv/" << id_ << "] decode failed in pop"
+                    << " opus_len=" << frame->data.size() << " result=" << samples;
+        return { };
+    }
+
     ++pop_count_;
-    return std::move(frame->samples);
+    if (channels_ > 1) {
+        for (int i = 0; i < samples; ++i) {
+            float sum = 0.0f;
+            for (int ch = 0; ch < channels_; ++ch) {
+                sum += decode_buf_[static_cast<size_t>(i) * channels_ + ch];
+            }
+            mono_buf_[static_cast<size_t>(i)] = sum / channels_;
+        }
+        return { mono_buf_.begin(), mono_buf_.begin() + samples };
+    }
+    return { decode_buf_.begin(), decode_buf_.begin() + samples };
 }
 
 size_t AudioReceiver::evict_old(utils::Duration max_delay)

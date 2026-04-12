@@ -39,6 +39,7 @@ public:
     bool sharing_audio() const { return sender_.sharing_audio(); }
     void force_keyframe() { sender_.force_keyframe(); }
     int sender_kbps() const { return sender_.sender_kbps(); }
+    void set_system_audio_bitrate(int kbps) { sender_.set_system_audio_bitrate(kbps); }
 
     void push_video_packet(const std::string& peer_id,
         const utils::vector_view<const uint8_t> data,

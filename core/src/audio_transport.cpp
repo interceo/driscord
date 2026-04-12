@@ -55,13 +55,14 @@ void AudioTransport::send_screen_audio(const uint8_t* data, size_t len)
     transport_.send_on_channel(channel::kScreenAudio, data, len);
 }
 
-utils::Expected<void, AudioError> AudioTransport::start()
+utils::Expected<void, AudioError> AudioTransport::start(int voice_bitrate_kbps)
 {
     if (auto r = mixer_.start(); !r) {
         return r;
     }
     auto r = sender_.start(
-        [this](const uint8_t* d, size_t l) { send_audio(d, l); });
+        [this](const uint8_t* d, size_t l) { send_audio(d, l); },
+        voice_bitrate_kbps * 1000);
     if (!r) {
         mixer_.stop();
     }
@@ -87,6 +88,11 @@ bool AudioTransport::self_muted() const
 float AudioTransport::input_level() const
 {
     return sender_.input_level();
+}
+
+void AudioTransport::set_noise_gate(float threshold)
+{
+    sender_.set_noise_gate(threshold);
 }
 
 std::string AudioTransport::list_input_devices_json()

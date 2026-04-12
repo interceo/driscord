@@ -17,7 +17,7 @@ public:
     void send_screen_audio(const uint8_t* data, size_t len);
 
     // Mixer lifecycle
-    utils::Expected<void, AudioError> start();
+    utils::Expected<void, AudioError> start(int voice_bitrate_kbps = 64);
     void stop();
 
     // Master controls
@@ -35,6 +35,7 @@ public:
     void set_self_muted(bool m);
     bool self_muted() const;
     float input_level() const;
+    void set_noise_gate(float threshold);
 
     // Mic device selection
     static std::string list_input_devices_json();

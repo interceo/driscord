@@ -36,9 +36,9 @@ utils::Expected<void, VideoError> ScreenSender::start_sharing(const ScreenCaptur
 
     if (share_audio && on_screen_audio && SystemAudioCapture::available()) {
         auto enc = std::make_unique<OpusEncode>();
-        if (enc->init(opus::kSampleRate, SystemAudioCapture::kChannels, 128000,
-                2049 /*OPUS_APPLICATION_AUDIO*/
-                )) {
+        if (enc->init(opus::kSampleRate, SystemAudioCapture::kChannels,
+                system_audio_bitrate_kbps_ * 1000,
+                2049 /*OPUS_APPLICATION_AUDIO*/)) {
             auto cap = SystemAudioCapture::create();
             if (cap && cap->start([this](const float* s, size_t f, int c) {
                     on_audio_captured_(s, f, c);

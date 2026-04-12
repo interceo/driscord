@@ -58,6 +58,14 @@ public:
         float* output,
         const size_t max_samples);
 
+    // Packet Loss Concealment — generates a concealment frame from decoder state.
+    int decode_plc(float* output, size_t max_samples);
+
+    // FEC decode — recovers the *previous* lost frame from FEC data embedded in
+    // the current packet (data/len). Returns decoded sample count, or <= 0 on error.
+    int decode_fec(const uint8_t* data, size_t len,
+        float* output, size_t max_samples);
+
     size_t sample_rate() const { return sample_rate_; }
     size_t channels() const { return channels_; }
 

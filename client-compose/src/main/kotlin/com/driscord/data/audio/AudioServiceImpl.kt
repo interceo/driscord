@@ -35,8 +35,8 @@ class AudioServiceImpl : AudioService {
         }
     }
 
-    override fun start() {
-        val err = NativeDriscord.audioStart()
+    override fun start(voiceBitrateKbps: Int) {
+        val err = NativeDriscord.audioStart(voiceBitrateKbps)
         if (err != null) {
             System.err.println("AudioService: audioStart failed: $err")
         }
@@ -44,6 +44,10 @@ class AudioServiceImpl : AudioService {
 
     override fun stop() {
         NativeDriscord.audioStop()
+    }
+
+    override fun setNoiseGate(threshold: Float) {
+        NativeDriscord.audioSetNoiseGate(threshold)
     }
 
     override fun toggleMute() {

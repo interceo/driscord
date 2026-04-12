@@ -17,9 +17,11 @@ Java_com_driscord_jni_NativeDriscord_audioSend(JNIEnv* env,
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_driscord_jni_NativeDriscord_audioStart(JNIEnv* env, jclass)
+Java_com_driscord_jni_NativeDriscord_audioStart(JNIEnv* env, jclass,
+    jint voiceBitrateKbps)
 {
-    auto r = CORE().audio_transport.start();
+    auto r = CORE().audio_transport.start(
+        voiceBitrateKbps > 0 ? static_cast<int>(voiceBitrateKbps) : 64);
     return r ? nullptr : env->NewStringUTF(to_string(r.error()));
 }
 
@@ -81,6 +83,14 @@ JNIEXPORT jfloat JNICALL
 Java_com_driscord_jni_NativeDriscord_audioInputLevel(JNIEnv*, jclass)
 {
     return CORE().audio_transport.input_level();
+}
+
+JNIEXPORT void JNICALL
+Java_com_driscord_jni_NativeDriscord_audioSetNoiseGate(JNIEnv*,
+    jclass,
+    jfloat threshold)
+{
+    CORE().audio_transport.set_noise_gate(static_cast<float>(threshold));
 }
 
 JNIEXPORT jstring JNICALL

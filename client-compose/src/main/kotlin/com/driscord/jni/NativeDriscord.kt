@@ -45,7 +45,7 @@ object NativeDriscord {
 
     @JvmStatic external fun audioSend(data: ByteArray, len: Int)
 
-    @JvmStatic external fun audioStart(): String?
+    @JvmStatic external fun audioStart(voiceBitrateKbps: Int): String?
 
     @JvmStatic external fun audioStop()
 
@@ -64,6 +64,8 @@ object NativeDriscord {
     @JvmStatic external fun audioSetSelfMuted(muted: Boolean)
 
     @JvmStatic external fun audioInputLevel(): Float
+
+    @JvmStatic external fun audioSetNoiseGate(threshold: Float)
 
     /** Returns JSON array of {id, name} for all capture (mic) devices. */
     @JvmStatic external fun audioListInputDevices(): String
@@ -128,6 +130,8 @@ object NativeDriscord {
     // -- Screen --
 
     @JvmStatic external fun screenInit(bufMs: Int, maxSyncMs: Int)
+
+    @JvmStatic external fun screenSetSystemAudioBitrate(kbps: Int)
 
     @JvmStatic external fun screenDeinit()
 
