@@ -20,6 +20,8 @@ public:
     const T* cdata() const noexcept { return base_; }
 
     size_t size() const noexcept { return size_; }
+    bool empty() const noexcept { return size_ == 0; }
+    T& operator[](size_t i) const noexcept { return base_[i]; }
 };
 
 } // namespace utils

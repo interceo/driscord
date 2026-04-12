@@ -148,6 +148,7 @@ void VideoTransport::remove_streaming_peer(const std::string& peer_id)
         was_present = seen_streaming_.erase(peer_id) > 0;
         cb = on_streaming_peer_removed_;
     }
+    peer_assembly_.erase(peer_id);
     if (was_present && cb) {
         cb(peer_id);
     }

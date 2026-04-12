@@ -75,12 +75,8 @@ static bool find_playback_device_id(const std::string& name,
     return found;
 }
 
-utils::Expected<void, AudioError> AudioMixer::start()
+bool AudioMixer::start_device_()
 {
-    if (running_) {
-        return { };
-    }
-
     ma_device_config config = ma_device_config_init(ma_device_type_playback);
     config.playback.format = ma_format_f32;
     config.playback.channels = kOutputChannels;
@@ -114,11 +110,21 @@ utils::Expected<void, AudioError> AudioMixer::start()
 
     auto dev = std::make_unique<MaDevice>();
     if (!dev->start(config)) {
+        return false;
+    }
+    device_ = std::move(dev);
+    return true;
+}
+
+utils::Expected<void, AudioError> AudioMixer::start()
+{
+    if (running_) {
+        return { };
+    }
+    if (!start_device_()) {
         LOG_ERROR() << "AudioMixer: failed to start audio device";
         return utils::Unexpected(AudioError::MixerDeviceStartFailed);
     }
-
-    device_ = std::move(dev);
     running_ = true;
     LOG_INFO() << "AudioMixer: started (stereo)";
     return { };
@@ -130,44 +136,13 @@ void AudioMixer::set_output_device(std::string id)
     if (!running_) {
         return;
     }
-
     // Restart the playback device without clearing sources.
     running_ = false;
     device_.reset();
-
-    ma_device_config config = ma_device_config_init(ma_device_type_playback);
-    config.playback.format = ma_format_f32;
-    config.playback.channels = kOutputChannels;
-    config.sampleRate = opus::kSampleRate;
-    config.dataCallback = [](ma_device* d, void* out, const void* /*in*/,
-                              ma_uint32 fc) {
-        static_cast<AudioMixer*>(d->pUserData)
-            ->on_playback(static_cast<float*>(out), fc);
-    };
-    config.notificationCallback = [](const ma_device_notification* n) {
-        auto* self = static_cast<AudioMixer*>(n->pDevice->pUserData);
-        if (n->type == ma_device_notification_type_stopped && self->running_.load()) {
-            LOG_WARNING()
-                << "AudioMixer: playback device stopped unexpectedly, restarting";
-            ma_device_start(n->pDevice);
-        } else if (n->type == ma_device_notification_type_rerouted) {
-            LOG_INFO() << "AudioMixer: playback device rerouted";
-        }
-    };
-    config.pUserData = this;
-    config.periodSizeInFrames = opus::kFrameSize;
-
-    ma_device_id selected_id { };
-    if (find_playback_device_id(output_device_id_, selected_id)) {
-        config.playback.pDeviceID = &selected_id;
-    }
-
-    auto dev = std::make_unique<MaDevice>();
-    if (!dev->start(config)) {
+    if (!start_device_()) {
         LOG_ERROR() << "AudioMixer: failed to restart with new output device";
         return;
     }
-    device_ = std::move(dev);
     running_ = true;
     LOG_INFO() << "AudioMixer: restarted on device '" << output_device_id_ << "'";
 }
