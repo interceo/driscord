@@ -253,13 +253,16 @@ void AudioReceiver::push_packet(utils::vector_view<const uint8_t> data)
     }
 }
 
-std::vector<float> AudioReceiver::pop()
+utils::vector_view<const float> AudioReceiver::pop()
 {
+    if (reset_pending_.exchange(false, std::memory_order_acq_rel)) {
+        decoder_.reset_state();
+    }
+
     auto [frame, missed] = jitter_.pop();
     if (missed) {
         miss_count_.inc();
         // PLC: ask Opus decoder to generate a concealment frame.
-        std::scoped_lock lk(decode_mutex_);
         const int samples = decoder_.decode_plc(decode_buf_.data(), opus::kFrameSize);
         if (samples > 0) {
             ++pop_count_;
@@ -271,17 +274,16 @@ std::vector<float> AudioReceiver::pop()
                     }
                     mono_buf_[static_cast<size_t>(i)] = sum / channels_;
                 }
-                return { mono_buf_.begin(), mono_buf_.begin() + samples };
+                return utils::vector_view<const float>(mono_buf_.data(), samples);
             }
-            return { decode_buf_.begin(), decode_buf_.begin() + samples };
+            return utils::vector_view<const float>(decode_buf_.data(), samples);
         }
-        return { };
+        return utils::vector_view<const float>(nullptr, 0);
     }
     if (!frame || frame->data.empty()) {
-        return { };
+        return utils::vector_view<const float>(nullptr, 0);
     }
 
-    std::scoped_lock lk(decode_mutex_);
     const int samples = decoder_.decode(frame->data.data(),
         static_cast<int>(frame->data.size()),
         decode_buf_.data(), opus::kFrameSize);
@@ -289,7 +291,7 @@ std::vector<float> AudioReceiver::pop()
         decode_error_count_.inc();
         LOG_ERROR() << "[audio-recv/" << id_ << "] decode failed in pop"
                     << " opus_len=" << frame->data.size() << " result=" << samples;
-        return { };
+        return utils::vector_view<const float>(nullptr, 0);
     }
 
     ++pop_count_;
@@ -301,9 +303,9 @@ std::vector<float> AudioReceiver::pop()
             }
             mono_buf_[static_cast<size_t>(i)] = sum / channels_;
         }
-        return { mono_buf_.begin(), mono_buf_.begin() + samples };
+        return utils::vector_view<const float>(mono_buf_.data(), samples);
     }
-    return { decode_buf_.begin(), decode_buf_.begin() + samples };
+    return utils::vector_view<const float>(decode_buf_.data(), samples);
 }
 
 size_t AudioReceiver::evict_old(utils::Duration max_delay)
@@ -330,8 +332,7 @@ int64_t AudioReceiver::front_age_ms() const
 
 void AudioReceiver::reset()
 {
-    std::scoped_lock lk(decode_mutex_);
-    decoder_.init(sample_rate_, channels_);
+    reset_pending_.store(true, std::memory_order_release);
     jitter_.reset();
     drop_count_.reset();
     miss_count_.reset();

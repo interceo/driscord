@@ -44,6 +44,7 @@ public:
 
 private:
     void on_playback(float* output, uint32_t frames);
+    bool start_device_();
 
     std::mutex sources_mutex_;
     std::vector<std::shared_ptr<AudioReceiver>> sources_;

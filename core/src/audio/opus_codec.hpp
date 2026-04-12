@@ -66,6 +66,9 @@ public:
     int decode_fec(const uint8_t* data, size_t len,
         float* output, size_t max_samples);
 
+    // Reset internal decoder state without reallocation. RT-safe (≤1µs, no alloc).
+    void reset_state();
+
     size_t sample_rate() const { return sample_rate_; }
     size_t channels() const { return channels_; }
 
