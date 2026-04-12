@@ -1,8 +1,10 @@
 extern "C" {
 #include <libavcodec/avcodec.h>
+#include <libavutil/hwcontext.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/log.h>
 #include <libavutil/opt.h>
+#include <libavutil/pixdesc.h>
 #include <libswscale/swscale.h>
 }
 
@@ -57,6 +59,38 @@ static const AVCodec* try_encoder(const char* name)
     }
     return c;
 }
+
+static const AVCodec* try_decoder(const char* name)
+{
+    const AVCodec* c = avcodec_find_decoder_by_name(name);
+    if (c) {
+        LOG_INFO() << "found decoder: " << name;
+    }
+    return c;
+}
+
+struct HWDecoderSpec {
+    const char* codec_name;
+    AVHWDeviceType hw_type; // AV_HWDEVICE_TYPE_NONE → no external device ctx needed
+};
+
+// Priority order mirrors the encoder: NVENC/CUVID first, then vendor-specific.
+// CUVID and VideoToolbox manage their own HW context internally; VAAPI/QSV need
+// an explicit hw_device_ctx created here.
+static constexpr HWDecoderSpec kHWDecoders[] = {
+#ifdef __APPLE__
+    // VideoToolbox manages its own HW context internally.
+    { "h264_videotoolbox", AV_HWDEVICE_TYPE_NONE },
+#elif defined(_WIN32)
+    // Explicit CUDA context so CUVID works regardless of NVENC init order.
+    { "h264_cuvid", AV_HWDEVICE_TYPE_CUDA },
+    { "h264_qsv", AV_HWDEVICE_TYPE_QSV },
+#elif defined(__linux__)
+    { "h264_cuvid", AV_HWDEVICE_TYPE_CUDA },
+    { "h264_vaapi", AV_HWDEVICE_TYPE_VAAPI },
+    { "h264_qsv", AV_HWDEVICE_TYPE_QSV },
+#endif
+};
 
 static const AVCodec* pick_h264_encoder()
 {
@@ -121,9 +155,11 @@ static void setup_rate_control(AVCodecContext* ctx,
         av_opt_set(ctx->priv_data, "preset", "p4", 0);
         av_opt_set(ctx->priv_data, "tune", "ll", 0);
         av_opt_set(ctx->priv_data, "rc", "cbr", 0);
+        av_opt_set(ctx->priv_data, "repeat_headers", "1", 0); // SPS/PPS in every IDR
         ctx->profile = AV_PROFILE_H264_HIGH;
     } else if (enc_name.find("vaapi") != std::string_view::npos) {
         av_opt_set(ctx->priv_data, "rc_mode", "CBR", 0);
+        av_opt_set(ctx->priv_data, "repeat_headers", "1", 0); // SPS/PPS in every IDR
         ctx->profile = AV_PROFILE_H264_HIGH;
     } else if (enc_name.find("h264_mf") != std::string_view::npos) {
         av_opt_set(ctx->priv_data, "rate_control", "cbr", 0);
@@ -131,10 +167,12 @@ static void setup_rate_control(AVCodecContext* ctx,
     } else if (enc_name.find("h264_amf") != std::string_view::npos) {
         av_opt_set(ctx->priv_data, "rc", "cbr", 0);
         av_opt_set(ctx->priv_data, "quality", "balanced", 0);
+        av_opt_set(ctx->priv_data, "repeat_headers", "1", 0); // SPS/PPS in every IDR
         ctx->profile = AV_PROFILE_H264_HIGH;
     } else if (enc_name.find("h264_qsv") != std::string_view::npos) {
         av_opt_set(ctx->priv_data, "preset", "veryfast", 0);
         av_opt_set(ctx->priv_data, "scenario", "displayremoting", 0);
+        av_opt_set(ctx->priv_data, "repeat_headers", "1", 0); // SPS/PPS in every IDR
         ctx->rc_min_rate = bitrate_bps;
         ctx->profile = AV_PROFILE_H264_HIGH;
     }
@@ -400,6 +438,53 @@ bool VideoDecoder::init()
 {
     shutdown();
 
+    // Try hardware decoders first, in platform-specific priority order.
+    for (const auto& spec : kHWDecoders) {
+        const AVCodec* codec = try_decoder(spec.codec_name);
+        if (!codec) {
+            continue;
+        }
+
+        ff::CodecContextPtr ctx { avcodec_alloc_context3(codec) };
+        if (!ctx) {
+            continue;
+        }
+
+        // HW decoders don't benefit from SW thread parallelism.
+        ctx->thread_count = 1;
+        // Required by CUVID and some other HW decoders to handle PTS correctly.
+        // We don't use decoder-side timestamps, so any valid rational works.
+        ctx->pkt_timebase = { 1, 90000 };
+
+        AVBufferRef* hw_dev = nullptr;
+        if (spec.hw_type != AV_HWDEVICE_TYPE_NONE) {
+            if (av_hwdevice_ctx_create(&hw_dev, spec.hw_type,
+                    nullptr, nullptr, 0)
+                < 0) {
+                LOG_WARNING() << "hw device create failed for " << spec.codec_name;
+                continue;
+            }
+            ctx->hw_device_ctx = av_buffer_ref(hw_dev);
+        }
+
+        if (avcodec_open2(ctx.get(), codec, nullptr) < 0) {
+            LOG_WARNING() << "avcodec_open2 (" << spec.codec_name << ") failed";
+            av_buffer_unref(&hw_dev);
+            continue;
+        }
+
+        ctx_ = std::move(ctx);
+        frame_ = ff::FramePtr { av_frame_alloc() };
+        sw_frame_ = ff::FramePtr { av_frame_alloc() };
+        pkt_ = ff::PacketPtr { av_packet_alloc() };
+        hw_device_ctx_ = hw_dev;
+        is_hw_ = true;
+
+        LOG_INFO() << "video decoder: H.264 (" << spec.codec_name << ") [hardware]";
+        return true;
+    }
+
+    // Fallback: software decoder.
     const AVCodec* codec = avcodec_find_decoder(AV_CODEC_ID_H264);
     if (!codec) {
         LOG_ERROR() << "H.264 decoder not found";
@@ -422,8 +507,9 @@ bool VideoDecoder::init()
     ctx_ = std::move(ctx);
     frame_ = ff::FramePtr { av_frame_alloc() };
     pkt_ = ff::PacketPtr { av_packet_alloc() };
+    is_hw_ = false;
 
-    LOG_INFO() << "video decoder: H.264 (" << codec->name << ")";
+    LOG_INFO() << "video decoder: H.264 (" << codec->name << ") [software]";
     return true;
 }
 
@@ -432,9 +518,16 @@ void VideoDecoder::shutdown()
     ctx_.reset();
     sws_.reset();
     frame_.reset();
+    sw_frame_.reset();
     pkt_.reset();
+    if (hw_device_ctx_) {
+        av_buffer_unref(&hw_device_ctx_);
+        hw_device_ctx_ = nullptr;
+    }
     last_w_ = 0;
     last_h_ = 0;
+    last_fmt_ = -1;
+    is_hw_ = false;
 }
 
 bool VideoDecoder::decode(const uint8_t* data,
@@ -453,26 +546,51 @@ bool VideoDecoder::decode(const uint8_t* data,
     int ret = avcodec_send_packet(ctx_.get(), pkt_.get());
     av_packet_unref(pkt_.get());
     if (ret < 0) {
+        LOG_WARNING() << "avcodec_send_packet: " << ff_err(ret);
         return false;
     }
 
     // avcodec_receive_frame always calls av_frame_unref(frame) before returning,
-    // including on EAGAIN. Using a loop would leave frame_ unref'd after the last
-    // failed call. With max_b_frames=0 and LOW_DELAY, one send produces at most
-    // one frame, so a single receive is correct here.
-    if (avcodec_receive_frame(ctx_.get(), frame_.get()) < 0) {
+    // including on EAGAIN. With max_b_frames=0 and LOW_DELAY, one send produces
+    // at most one frame, so a single receive is correct here.
+    if (const int rcv = avcodec_receive_frame(ctx_.get(), frame_.get()); rcv < 0) {
+        // EAGAIN is normal for hardware decoders that buffer frames internally
+        // (e.g. h264_cuvid). The caller must keep sending packets; a frame will
+        // appear once the pipeline is primed.
+        if (rcv != AVERROR(EAGAIN)) {
+            LOG_WARNING() << "avcodec_receive_frame: " << ff_err(rcv);
+        }
         return false;
     }
 
-    const int w = frame_->width;
-    const int h = frame_->height;
+    // For hardware frames, transfer pixel data to a CPU-side buffer.
+    // av_pix_fmt_desc_get flags AV_PIX_FMT_FLAG_HWACCEL for all HW formats
+    // (AV_PIX_FMT_CUDA, AV_PIX_FMT_VAAPI, AV_PIX_FMT_VIDEOTOOLBOX, …).
+    AVFrame* src = frame_.get();
+    const auto* pix_desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(frame_->format));
+    if (pix_desc && (pix_desc->flags & AV_PIX_FMT_FLAG_HWACCEL)) {
+        if (!sw_frame_) {
+            return false;
+        }
+        if (const int tr = av_hwframe_transfer_data(sw_frame_.get(), frame_.get(), 0); tr < 0) {
+            LOG_WARNING() << "av_hwframe_transfer_data: " << ff_err(tr);
+            return false;
+        }
+        sw_frame_->width = frame_->width;
+        sw_frame_->height = frame_->height;
+        src = sw_frame_.get();
+    }
 
-    if (w != last_w_ || h != last_h_) {
-        sws_.reset(sws_getContext(w, h, static_cast<AVPixelFormat>(frame_->format),
-            w, h, AV_PIX_FMT_RGBA, SWS_FAST_BILINEAR, nullptr,
-            nullptr, nullptr));
+    const int w = src->width;
+    const int h = src->height;
+    const int fmt = src->format;
+
+    if (w != last_w_ || h != last_h_ || fmt != last_fmt_) {
+        sws_.reset(sws_getContext(w, h, static_cast<AVPixelFormat>(fmt),
+            w, h, AV_PIX_FMT_RGBA, SWS_FAST_BILINEAR, nullptr, nullptr, nullptr));
         last_w_ = w;
         last_h_ = h;
+        last_fmt_ = fmt;
     }
 
     if (!sws_) {
@@ -485,8 +603,7 @@ bool VideoDecoder::decode(const uint8_t* data,
 
     uint8_t* dst_slices[1] = { rgba_out.data() };
     int dst_stride[1] = { w * 4 };
-    sws_scale(sws_.get(), frame_->data, frame_->linesize, 0, h, dst_slices,
-        dst_stride);
+    sws_scale(sws_.get(), src->data, src->linesize, 0, h, dst_slices, dst_stride);
 
     return true;
 }
