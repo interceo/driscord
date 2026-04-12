@@ -63,7 +63,7 @@ if [ "$TARGET" = "server" ]; then
         exit 0
     fi
     OUT="$ROOT/.builds/server/$TYPE_LOWER"
-    cmake_configure "$BUILD"
+    cmake_configure "$BUILD" -DBUILD_CORE=OFF
     echo "==> Building server ($BUILD_TYPE, $JOBS jobs)..."
     cmake --build "$BUILD" --target driscord_server -j"$JOBS"
     mkdir -p "$OUT"
