@@ -33,6 +33,10 @@ bool OpusEncode::init(const size_t sample_rate,
         return false;
     }
 
+    opus_encoder_ctl(encoder_, OPUS_SET_INBAND_FEC(1));
+    opus_encoder_ctl(encoder_, OPUS_SET_PACKET_LOSS_PERC(10));
+    opus_encoder_ctl(encoder_, OPUS_SET_DTX(1));
+
     sample_rate_ = sample_rate;
     channels_ = channels;
     return true;
@@ -101,4 +105,21 @@ int OpusDecode::decode(const uint8_t* data,
         return -1;
     }
     return opus_decode_float(decoder_, data, len, output, max_samples, 0);
+}
+
+int OpusDecode::decode_plc(float* output, const size_t max_samples)
+{
+    if (!decoder_) {
+        return -1;
+    }
+    return opus_decode_float(decoder_, nullptr, 0, output, max_samples, 0);
+}
+
+int OpusDecode::decode_fec(const uint8_t* data, const size_t len,
+    float* output, const size_t max_samples)
+{
+    if (!decoder_) {
+        return -1;
+    }
+    return opus_decode_float(decoder_, data, len, output, max_samples, 1);
 }

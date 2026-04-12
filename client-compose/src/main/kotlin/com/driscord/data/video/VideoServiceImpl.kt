@@ -44,6 +44,7 @@ class VideoServiceImpl(
 
     init {
         NativeDriscord.screenInit(config.screenBufferMs, config.maxSyncGapMs)
+        NativeDriscord.screenSetSystemAudioBitrate(config.systemAudioBitrateKbps)
 
         NativeDriscord.setOnNewStreamingPeer { peerId ->
             scope.launch(Dispatchers.Main) {

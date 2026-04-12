@@ -16,6 +16,16 @@ Java_com_driscord_jni_NativeDriscord_screenInit(JNIEnv*,
 }
 
 JNIEXPORT void JNICALL
+Java_com_driscord_jni_NativeDriscord_screenSetSystemAudioBitrate(JNIEnv*,
+    jclass,
+    jint kbps)
+{
+    if (CORE().screen_session) {
+        CORE().screen_session->set_system_audio_bitrate(static_cast<int>(kbps));
+    }
+}
+
+JNIEXPORT void JNICALL
 Java_com_driscord_jni_NativeDriscord_screenDeinit(JNIEnv*, jclass)
 {
     CORE().deinit_screen_session();
