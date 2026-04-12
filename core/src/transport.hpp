@@ -3,12 +3,15 @@
 #include "utils/expected.hpp"
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <rtc/rtc.hpp>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -91,6 +94,15 @@ public:
         const std::string& peer_id,
         rtc::binary&& data);
 
+    // Returns open DCs for label in the order of peer_ids, skipping closed ones.
+    // Single lock acquisition — use for high-frequency multicast (e.g. video).
+    std::vector<std::shared_ptr<rtc::DataChannel>> get_open_channels(
+        const std::string& label,
+        const std::vector<std::string>& peer_ids) const;
+
+    // Per-peer stats snapshot: bytes sent/received, RTT, connection state.
+    std::string stats_json() const;
+
     struct PeerInfo {
         std::string id;
         bool primary_open = false;
@@ -106,6 +118,7 @@ private:
     struct PeerState {
         std::shared_ptr<rtc::PeerConnection> pc;
         std::unordered_map<std::string, ChannelState> channels;
+        bool was_offerer = false;
     };
 
     void on_ws_message(const std::string& raw);
@@ -140,4 +153,17 @@ private:
     PeerEventCb on_streaming_stopped_;
     PeerEventCb on_watch_started_;
     PeerEventCb on_watch_stopped_;
+
+    // Background timer: collects stats, drives ICE reconnect on failure.
+    void timer_loop_();
+    std::thread timer_thread_;
+    std::mutex timer_cv_mutex_;
+    std::condition_variable timer_cv_;
+    std::atomic<bool> stop_timer_ { false };
+
+    // Last reconnect attempt per peer (guarded by peers_mutex_).
+    std::unordered_map<std::string, std::chrono::steady_clock::time_point> reconnect_times_;
+
+    mutable std::mutex stats_mutex_;
+    std::string stats_json_cache_ { "[]" };
 };
