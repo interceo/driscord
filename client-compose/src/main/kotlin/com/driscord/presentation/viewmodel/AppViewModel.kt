@@ -63,7 +63,8 @@ class AppViewModel(
                 connectionService.connect(intent.serverUrl)
                 audioService.setInputDevice(cfg.micDeviceId)
                 audioService.setOutputDevice(cfg.outputDeviceId)
-                audioService.start()
+                audioService.start(cfg.voiceBitrateKbps)
+                audioService.setNoiseGate(cfg.noiseGateThreshold)
             }
             AppIntent.Disconnect -> {
                 connectionService.disconnect()

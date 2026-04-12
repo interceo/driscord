@@ -45,7 +45,10 @@ public:
     void force_keyframe() { video_sender_.force_keyframe(); }
     int sender_kbps() const { return video_sender_.measured_kbps(); }
 
+    void set_system_audio_bitrate(int kbps) { system_audio_bitrate_kbps_ = kbps; }
+
 private:
+    int system_audio_bitrate_kbps_ = 128;
     void on_audio_captured_(const float* samples, size_t frames, int channels);
 
     VideoSender video_sender_;

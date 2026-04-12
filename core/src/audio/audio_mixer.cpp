@@ -11,6 +11,10 @@
 #include <cmath>
 #include <cstring>
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 AudioMixer::AudioMixer() = default;
 AudioMixer::~AudioMixer()
 {
@@ -79,7 +83,7 @@ utils::Expected<void, AudioError> AudioMixer::start()
 
     ma_device_config config = ma_device_config_init(ma_device_type_playback);
     config.playback.format = ma_format_f32;
-    config.playback.channels = 1;
+    config.playback.channels = kOutputChannels;
     config.sampleRate = opus::kSampleRate;
     config.dataCallback = [](ma_device* d, void* out, const void* /*in*/,
                               ma_uint32 fc) {
@@ -116,7 +120,7 @@ utils::Expected<void, AudioError> AudioMixer::start()
 
     device_ = std::move(dev);
     running_ = true;
-    LOG_INFO() << "AudioMixer: started";
+    LOG_INFO() << "AudioMixer: started (stereo)";
     return { };
 }
 
@@ -133,7 +137,7 @@ void AudioMixer::set_output_device(std::string id)
 
     ma_device_config config = ma_device_config_init(ma_device_type_playback);
     config.playback.format = ma_format_f32;
-    config.playback.channels = 1;
+    config.playback.channels = kOutputChannels;
     config.sampleRate = opus::kSampleRate;
     config.dataCallback = [](ma_device* d, void* out, const void* /*in*/,
                               ma_uint32 fc) {
@@ -184,6 +188,24 @@ void AudioMixer::stop()
     LOG_INFO() << "AudioMixer: stopped";
 }
 
+// Redistribute pan positions evenly across the stereo field.
+static void distribute_pan(std::vector<std::shared_ptr<AudioReceiver>>& sources)
+{
+    const size_t n = sources.size();
+    if (n == 0) {
+        return;
+    }
+    if (n == 1) {
+        sources[0]->set_pan(0.5f);
+        return;
+    }
+    // Spread from 0.2 to 0.8 (avoid hard panning).
+    for (size_t i = 0; i < n; ++i) {
+        const float t = static_cast<float>(i) / static_cast<float>(n - 1);
+        sources[i]->set_pan(0.2f + t * 0.6f);
+    }
+}
+
 void AudioMixer::add_source(std::shared_ptr<AudioReceiver> src)
 {
     if (!src) {
@@ -192,6 +214,7 @@ void AudioMixer::add_source(std::shared_ptr<AudioReceiver> src)
     std::scoped_lock lk(sources_mutex_);
     if (std::find(sources_.begin(), sources_.end(), src) == sources_.end()) {
         sources_.push_back(std::move(src));
+        distribute_pan(sources_);
     }
 }
 
@@ -200,6 +223,7 @@ void AudioMixer::remove_source(const std::shared_ptr<AudioReceiver>& src)
     std::scoped_lock lk(sources_mutex_);
     sources_.erase(std::remove(sources_.begin(), sources_.end(), src),
         sources_.end());
+    distribute_pan(sources_);
 }
 
 void AudioMixer::on_playback(float* output, const uint32_t frames)
@@ -211,7 +235,9 @@ void AudioMixer::on_playback(float* output, const uint32_t frames)
         }
     }
 
-    std::memset(output, 0, frames * sizeof(float));
+    // Stereo interleaved: output[2*i] = L, output[2*i+1] = R.
+    const size_t total_samples = static_cast<size_t>(frames) * kOutputChannels;
+    std::memset(output, 0, total_samples * sizeof(float));
     if (deafened_) {
         output_level_.store(0.0f);
         return;
@@ -223,9 +249,22 @@ void AudioMixer::on_playback(float* output, const uint32_t frames)
         }
 
         auto samples = src->pop();
+        if (samples.empty()) {
+            continue;
+        }
+
         const float vol = src->volume();
-        for (size_t i = 0; i < samples.size() && i < frames; ++i) {
-            output[i] += samples[i] * vol;
+        const float pan = src->pan(); // 0=left, 0.5=center, 1=right
+
+        // Constant-power panning.
+        const float angle = pan * static_cast<float>(M_PI * 0.5);
+        const float gain_l = std::cos(angle) * vol;
+        const float gain_r = std::sin(angle) * vol;
+
+        const size_t n = std::min(samples.size(), static_cast<size_t>(frames));
+        for (size_t i = 0; i < n; ++i) {
+            output[2 * i] += samples[i] * gain_l;
+            output[2 * i + 1] += samples[i] * gain_r;
         }
     }
 
@@ -233,9 +272,16 @@ void AudioMixer::on_playback(float* output, const uint32_t frames)
 
     const float vol = output_volume_.load();
     float sum = 0.0f;
-    for (uint32_t i = 0; i < frames; ++i) {
-        output[i] *= vol;
-        sum += output[i] * output[i];
+    for (size_t i = 0; i < total_samples; ++i) {
+        float x = output[i] * vol;
+        // Soft-clip: linear below 0.8, smooth tanh curve above.
+        const float ax = std::abs(x);
+        if (ax > 0.8f) {
+            const float sign = x > 0.0f ? 1.0f : -1.0f;
+            x = sign * (0.8f + 0.2f * std::tanh((ax - 0.8f) * 5.0f));
+        }
+        output[i] = x;
+        sum += x * x;
     }
-    output_level_.store(std::sqrt(sum / frames));
+    output_level_.store(std::sqrt(sum / static_cast<float>(total_samples)));
 }
