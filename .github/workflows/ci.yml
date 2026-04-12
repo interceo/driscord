@@ -29,6 +29,7 @@ jobs:
             libavcodec-dev libavformat-dev libavdevice-dev \
             libswscale-dev libswresample-dev libavutil-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libwayland-dev libxkbcommon-dev \
             libpulse-dev
 
       - name: Cache Boost headers
@@ -127,6 +128,7 @@ jobs:
             libavcodec-dev libavformat-dev libavdevice-dev \
             libswscale-dev libswresample-dev libavutil-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libwayland-dev libxkbcommon-dev \
             libpulse-dev
 
       - name: Cache Boost headers
@@ -208,6 +210,7 @@ jobs:
             libavcodec-dev libavformat-dev libavdevice-dev \
             libswscale-dev libswresample-dev libavutil-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libwayland-dev libxkbcommon-dev \
             libpulse-dev \
             mingw-w64 gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
 
