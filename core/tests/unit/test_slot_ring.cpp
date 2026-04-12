@@ -17,9 +17,9 @@ using Ring = SlotRing<Payload, 16>;
 TEST(SlotRing, BasicPushPop)
 {
     Ring ring;
-    ASSERT_TRUE(ring.push(0, Payload { 10 }));
-    ASSERT_TRUE(ring.push(1, Payload { 20 }));
-    ASSERT_TRUE(ring.push(2, Payload { 30 }));
+    ASSERT_EQ(ring.push(0, Payload { 10 }), PushStatus::Stored);
+    ASSERT_EQ(ring.push(1, Payload { 20 }), PushStatus::Stored);
+    ASSERT_EQ(ring.push(2, Payload { 30 }), PushStatus::Stored);
     EXPECT_EQ(ring.size(), 3u);
 
     auto r0 = ring.pop();
@@ -43,10 +43,10 @@ TEST(SlotRing, OutOfOrderPush)
 {
     Ring ring;
     // First push initializes next_seq_ = 0
-    ASSERT_TRUE(ring.push(0, Payload { 10 }));
+    ASSERT_EQ(ring.push(0, Payload { 10 }), PushStatus::Stored);
     // Push seq 2 before seq 1 — both are >= next_seq_, so accepted
-    ASSERT_TRUE(ring.push(2, Payload { 30 }));
-    ASSERT_TRUE(ring.push(1, Payload { 20 }));
+    ASSERT_EQ(ring.push(2, Payload { 30 }), PushStatus::Stored);
+    ASSERT_EQ(ring.push(1, Payload { 20 }), PushStatus::Stored);
 
     // Pop returns in seq order: 0, 1, 2
     auto r0 = ring.pop();
@@ -67,13 +67,13 @@ TEST(SlotRing, OutOfOrderBeforePop)
 {
     Ring ring;
     // First push with seq=5 sets next_seq_ = 5
-    ASSERT_TRUE(ring.push(5, Payload { 50 }));
+    ASSERT_EQ(ring.push(5, Payload { 50 }), PushStatus::Stored);
     // seq=3 < next_seq_=5, but no pop yet — accepted, next_seq_ adjusts to 3
-    ASSERT_TRUE(ring.push(3, Payload { 30 }));
+    ASSERT_EQ(ring.push(3, Payload { 30 }), PushStatus::Stored);
     // seq=4, now >= next_seq_=3, accepted
-    ASSERT_TRUE(ring.push(4, Payload { 40 }));
+    ASSERT_EQ(ring.push(4, Payload { 40 }), PushStatus::Stored);
     // seq=6 >= next_seq_=3, accepted
-    ASSERT_TRUE(ring.push(6, Payload { 60 }));
+    ASSERT_EQ(ring.push(6, Payload { 60 }), PushStatus::Stored);
     EXPECT_EQ(ring.size(), 4u);
 
     // Pop returns in seq order: 3, 4, 5, 6
@@ -98,18 +98,18 @@ TEST(SlotRing, OutOfOrderBeforePop)
 TEST(SlotRing, OutOfOrderRejectedAfterPop)
 {
     Ring ring;
-    ASSERT_TRUE(ring.push(5, Payload { 50 }));
+    ASSERT_EQ(ring.push(5, Payload { 50 }), PushStatus::Stored);
     ring.pop(); // next_seq_ becomes 6, popped_ = true
-    EXPECT_FALSE(ring.push(3, Payload { 30 }));
-    ASSERT_TRUE(ring.push(6, Payload { 60 }));
+    EXPECT_EQ(ring.push(3, Payload { 30 }), PushStatus::Late);
+    ASSERT_EQ(ring.push(6, Payload { 60 }), PushStatus::Stored);
 }
 
 // 3. Duplicate seq rejected
 TEST(SlotRing, DuplicateSeqRejected)
 {
     Ring ring;
-    ASSERT_TRUE(ring.push(5, Payload { 50 }));
-    EXPECT_FALSE(ring.push(5, Payload { 99 }));
+    ASSERT_EQ(ring.push(5, Payload { 50 }), PushStatus::Stored);
+    EXPECT_EQ(ring.push(5, Payload { 99 }), PushStatus::Late);
     EXPECT_EQ(ring.size(), 1u);
 
     auto r = ring.pop();
@@ -121,19 +121,19 @@ TEST(SlotRing, DuplicateSeqRejected)
 TEST(SlotRing, OldSeqRejectedAfterPop)
 {
     Ring ring;
-    ASSERT_TRUE(ring.push(5, Payload { 50 }));
+    ASSERT_EQ(ring.push(5, Payload { 50 }), PushStatus::Stored);
     ring.pop(); // next_seq_ becomes 6
-    EXPECT_FALSE(ring.push(3, Payload { 30 }));
-    EXPECT_FALSE(ring.push(5, Payload { 50 }));
-    ASSERT_TRUE(ring.push(6, Payload { 60 }));
+    EXPECT_EQ(ring.push(3, Payload { 30 }), PushStatus::Late);
+    EXPECT_EQ(ring.push(5, Payload { 50 }), PushStatus::Late);
+    ASSERT_EQ(ring.push(6, Payload { 60 }), PushStatus::Stored);
 }
 
 // 5. Gap detection via peek
 TEST(SlotRing, GapDetection)
 {
     Ring ring;
-    ASSERT_TRUE(ring.push(0, Payload { 10 }));
-    ASSERT_TRUE(ring.push(2, Payload { 30 }));
+    ASSERT_EQ(ring.push(0, Payload { 10 }), PushStatus::Stored);
+    ASSERT_EQ(ring.push(2, Payload { 30 }), PushStatus::Stored);
 
     auto p0 = ring.peek_next();
     ASSERT_TRUE(p0.has_value());
@@ -152,9 +152,11 @@ TEST(SlotRing, GapDetection)
 TEST(SlotRing, Wraparound)
 {
     Ring ring;
-    for (uint64_t i = 0; i < 17; ++i) {
-        ring.push(i, Payload { static_cast<int>(i) });
+    for (uint64_t i = 0; i < 16; ++i) {
+        EXPECT_EQ(ring.push(i, Payload { static_cast<int>(i) }), PushStatus::Stored);
     }
+    // seq=16 lands on same slot as seq=0, overwriting it
+    EXPECT_EQ(ring.push(16, Payload { 16 }), PushStatus::Overwritten);
 
     // First element (seq=0) was overwritten by seq=16 (same slot).
     // next_seq_ is 0, but slot 0 now has seq=16, so peek skips ahead.
@@ -178,7 +180,7 @@ TEST(SlotRing, Reset)
     EXPECT_FALSE(ring.initialized());
 
     // After reset, can push starting from any seq
-    ASSERT_TRUE(ring.push(100, Payload { 100 }));
+    ASSERT_EQ(ring.push(100, Payload { 100 }), PushStatus::Stored);
     auto r = ring.pop();
     ASSERT_TRUE(r.has_value());
     EXPECT_EQ(r->data.value, 100);
@@ -205,8 +207,12 @@ TEST(SlotRing, ForEachOccupied)
 TEST(SlotRing, CapacityOverflow)
 {
     Ring ring;
-    for (uint64_t i = 0; i < 32; ++i) {
-        ring.push(i, Payload { static_cast<int>(i) });
+    for (uint64_t i = 0; i < 16; ++i) {
+        EXPECT_EQ(ring.push(i, Payload { static_cast<int>(i) }), PushStatus::Stored);
+    }
+    // Seqs 16-31 overwrite slots occupied by 0-15
+    for (uint64_t i = 16; i < 32; ++i) {
+        EXPECT_EQ(ring.push(i, Payload { static_cast<int>(i) }), PushStatus::Overwritten);
     }
 
     // Size capped at Capacity (16) since each new push overwrites old slot
