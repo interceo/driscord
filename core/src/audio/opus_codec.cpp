@@ -123,3 +123,10 @@ int OpusDecode::decode_fec(const uint8_t* data, const size_t len,
     }
     return opus_decode_float(decoder_, data, len, output, max_samples, 1);
 }
+
+void OpusDecode::reset_state()
+{
+    if (decoder_) {
+        opus_decoder_ctl(decoder_, OPUS_RESET_STATE);
+    }
+}
