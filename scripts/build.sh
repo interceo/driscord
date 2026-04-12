@@ -99,8 +99,16 @@ fi
 # --- Test ---
 if [ "$ACTION" = "test" ]; then
     # test_datachannel_transport links driscord_core and driscord_signaling,
-    # so BUILD_CORE and BUILD_SERVER must be ON.
-    cmake_configure "$BUILD" -DBUILD_TESTS=ON -DBUILD_SERVER=ON -DBUILD_CORE=ON
+    # so BUILD_CORE and BUILD_SERVER must be ON.  Always pass flags so switching
+    # from --bench to --test (same build dir) re-enables BUILD_TESTS.
+    echo "==> Configuring CMake for tests ($BUILD_TYPE)..."
+    if command -v ninja &>/dev/null; then
+        cmake -S "$ROOT" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
+            -DBUILD_TESTS=ON -DBUILD_SERVER=ON -DBUILD_CORE=ON -Wno-dev
+    else
+        cmake -S "$ROOT" -B "$BUILD" -G "Unix Makefiles" -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
+            -DBUILD_TESTS=ON -DBUILD_SERVER=ON -DBUILD_CORE=ON -Wno-dev
+    fi
     echo "==> Building tests ($BUILD_TYPE, $JOBS jobs)..."
     cmake --build "$BUILD" -j"$JOBS"
     cd "$BUILD"
@@ -110,15 +118,27 @@ fi
 
 # --- Bench ---
 if [ "$ACTION" = "bench" ]; then
-    cmake_configure "$BUILD" -DBUILD_BENCHMARKS=ON -DBUILD_SERVER=OFF -DBUILD_CORE=OFF
+    # Always pass flags explicitly — cmake_configure skips if cache exists,
+    # but build mode can change (e.g. --test → --bench on the same build dir).
+    echo "==> Configuring CMake for benchmarks ($BUILD_TYPE)..."
+    if command -v ninja &>/dev/null; then
+        cmake -S "$ROOT" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
+            -DBUILD_BENCHMARKS=ON -DBUILD_CORE=ON -DBUILD_SERVER=OFF -Wno-dev
+    else
+        cmake -S "$ROOT" -B "$BUILD" -G "Unix Makefiles" -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
+            -DBUILD_BENCHMARKS=ON -DBUILD_CORE=ON -DBUILD_SERVER=OFF -Wno-dev
+    fi
     echo "==> Building benchmarks ($JOBS jobs)..."
-    cmake --build "$BUILD" -j"$JOBS"
+    cmake --build "$BUILD" --target jitter_bench protocol_bench video_codec_bench -j"$JOBS"
     echo ""
     echo "=== jitter_bench ==="
     "$BUILD/core/benchmarks/jitter_bench"
     echo ""
     echo "=== protocol_bench ==="
     "$BUILD/core/benchmarks/protocol_bench"
+    echo ""
+    echo "=== video_codec_bench ==="
+    "$BUILD/core/benchmarks/video_codec_bench"
     exit 0
 fi
 

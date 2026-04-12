@@ -157,3 +157,18 @@ BENCHMARK(BM_VideoCodec_Roundtrip)
     ->Args({ 1280, 720 })
     ->Args({ 1920, 1080 })
     ->Unit(benchmark::kMillisecond);
+
+/*
+--------------------------------------------------------------------------------------------
+Benchmark                                  Time             CPU   Iterations UserCounters...
+--------------------------------------------------------------------------------------------
+BM_VideoEncoder_Encode/640/360         0.446 ms        0.443 ms         1593 bytes_per_second=1.93873Gi/s 640x360
+BM_VideoEncoder_Encode/1280/720         1.72 ms         1.72 ms          402 bytes_per_second=2.00137Gi/s 1280x720
+BM_VideoEncoder_Encode/1920/1080        4.07 ms         4.05 ms          178 bytes_per_second=1.90633Gi/s 1920x1080
+BM_VideoDecoder_Decode/640/360         0.710 ms        0.607 ms         1009 bytes_per_second=1.41439Gi/s 640x360
+BM_VideoDecoder_Decode/1280/720         2.49 ms         2.18 ms          316 bytes_per_second=1.57477Gi/s 1280x720
+BM_VideoDecoder_Decode/1920/1080        5.52 ms         4.90 ms          147 bytes_per_second=1.57752Gi/s 1920x1080
+BM_VideoCodec_Roundtrip/640/360         1.27 ms         1.05 ms          623 bytes_per_second=837.713Mi/s 640x360
+BM_VideoCodec_Roundtrip/1280/720        4.45 ms         3.98 ms          180 bytes_per_second=884.028Mi/s 1280x720
+BM_VideoCodec_Roundtrip/1920/1080       10.1 ms         9.27 ms           78 bytes_per_second=853.313Mi/s 1920x1080
+*/
