@@ -9,9 +9,11 @@
 
 namespace driscord {
 
+// None silences all output; ordering Info < Warning < Error < None is intentional.
 enum class LogLevel { Info,
     Warning,
-    Error };
+    Error,
+    None };
 
 inline const char* level_tag(LogLevel l)
 {
@@ -22,9 +24,38 @@ inline const char* level_tag(LogLevel l)
         return "WARN";
     case LogLevel::Error:
         return "ERROR";
+    case LogLevel::None:
+        return "";
     }
     return "UNKNOWN";
 }
+
+// Minimum level that will actually be printed.  Initialised once from the
+// DRISCORD_LOG_LEVEL environment variable (info / warn / error / none).
+// Can also be changed at runtime via set_min_log_level().
+inline LogLevel& min_log_level()
+{
+    static LogLevel level = []() -> LogLevel {
+        const char* env = std::getenv("DRISCORD_LOG_LEVEL");
+        if (!env) {
+            return LogLevel::Info;
+        }
+        std::string_view v(env);
+        if (v == "warn" || v == "warning") {
+            return LogLevel::Warning;
+        }
+        if (v == "error") {
+            return LogLevel::Error;
+        }
+        if (v == "none" || v == "silent" || v == "off") {
+            return LogLevel::None;
+        }
+        return LogLevel::Info;
+    }();
+    return level;
+}
+
+inline void set_min_log_level(LogLevel level) { min_log_level() = level; }
 
 class LogMessage {
 public:
@@ -35,6 +66,10 @@ public:
 
     ~LogMessage()
     {
+        if (level_ < min_log_level()) {
+            return;
+        }
+
         static std::mutex mtx;
         const auto now = std::chrono::system_clock::now();
         const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(

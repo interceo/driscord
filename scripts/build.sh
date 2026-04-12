@@ -132,13 +132,13 @@ if [ "$ACTION" = "bench" ]; then
     cmake --build "$BUILD" --target jitter_bench protocol_bench video_codec_bench -j"$JOBS"
     echo ""
     echo "=== jitter_bench ==="
-    "$BUILD/core/benchmarks/jitter_bench"
+    DRISCORD_LOG_LEVEL=none "$BUILD/core/benchmarks/jitter_bench"
     echo ""
     echo "=== protocol_bench ==="
-    "$BUILD/core/benchmarks/protocol_bench"
+    DRISCORD_LOG_LEVEL=none "$BUILD/core/benchmarks/protocol_bench"
     echo ""
     echo "=== video_codec_bench ==="
-    "$BUILD/core/benchmarks/video_codec_bench"
+    DRISCORD_LOG_LEVEL=none "$BUILD/core/benchmarks/video_codec_bench"
     exit 0
 fi
 
