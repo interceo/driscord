@@ -52,7 +52,8 @@ public:
         // Track inter-packet arrival intervals for adaptive delay.
         if (last_arrival_) {
             const auto interval_ms = std::chrono::duration_cast<
-                std::chrono::milliseconds>(now - *last_arrival_).count();
+                std::chrono::milliseconds>(now - *last_arrival_)
+                                         .count();
             intervals_[interval_write_ % kIntervalWindow] = interval_ms;
             ++interval_write_;
             interval_count_ = std::min(interval_count_ + 1, kIntervalWindow);
@@ -213,7 +214,7 @@ private:
         last_adapt_time_ = now;
 
         // Sort a copy of the interval window and pick p95.
-        std::array<int64_t, kIntervalWindow> sorted {};
+        std::array<int64_t, kIntervalWindow> sorted { };
         const size_t n = interval_count_;
         for (size_t i = 0; i < n; ++i) {
             // Read from ring starting at (interval_write_ - n).
@@ -225,7 +226,8 @@ private:
         // Target = p95 + small margin, clamped to bounds.
         const int64_t target = std::clamp(p95 + 5, kMinDelayMs, kMaxDelayMs);
         const int64_t current = std::chrono::duration_cast<
-            std::chrono::milliseconds>(adaptive_delay_).count();
+            std::chrono::milliseconds>(adaptive_delay_)
+                                    .count();
 
         if (target > current) {
             // Increase immediately.
@@ -247,7 +249,7 @@ private:
     std::optional<utils::Timestamp> first_push_time_;
 
     // Adaptive jitter tracking.
-    std::array<int64_t, kIntervalWindow> intervals_ {};
+    std::array<int64_t, kIntervalWindow> intervals_ { };
     size_t interval_write_ = 0;
     size_t interval_count_ = 0;
     std::optional<utils::Timestamp> last_arrival_;
