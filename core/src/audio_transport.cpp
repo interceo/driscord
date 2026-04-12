@@ -27,6 +27,8 @@ AudioTransport::AudioTransport(Transport& transport)
                         utils::vector_view<const uint8_t> { data, len });
                 }
             },
+        .on_open = nullptr,
+        .on_close = nullptr,
     });
 
     transport.register_channel({
@@ -42,6 +44,8 @@ AudioTransport::AudioTransport(Transport& transport)
                         utils::vector_view<const uint8_t> { data, len });
                 }
             },
+        .on_open = nullptr,
+        .on_close = nullptr,
     });
 }
 

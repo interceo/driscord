@@ -18,10 +18,17 @@ Transport::Transport()
     // (VideoTransport), so SCTP never sees messages larger than ~61 KB. 128 KB
     // gives enough headroom.
     rtc_config_.maxMessageSize = 128 * 1024; // 128 KB
+
+    timer_thread_ = std::thread(&Transport::timer_loop_, this);
 }
 
 Transport::~Transport()
 {
+    stop_timer_ = true;
+    timer_cv_.notify_all();
+    if (timer_thread_.joinable()) {
+        timer_thread_.join();
+    }
     disconnect();
 }
 
@@ -88,7 +95,10 @@ utils::Expected<void, TransportError> Transport::connect(const std::string& ws_u
 
     std::shared_ptr<rtc::WebSocket> ws;
     try {
-        ws = std::make_shared<rtc::WebSocket>();
+        rtc::WebSocket::Configuration ws_config;
+        ws_config.pingInterval = std::chrono::seconds(15);
+        ws_config.maxOutstandingPings = 2;
+        ws = std::make_shared<rtc::WebSocket>(ws_config);
     } catch (const std::exception& ex) {
         LOG_ERROR() << "Transport: WebSocket create failed: " << ex.what();
         return utils::Unexpected(TransportError::WebSocketCreateFailed);
@@ -223,6 +233,127 @@ void Transport::send_on_channel_to(const std::string& label,
     } catch (const std::exception& e) {
         LOG_ERROR() << "send_on_channel_to[" << label << "][" << peer_id
                     << "]: " << e.what();
+    }
+}
+
+std::vector<std::shared_ptr<rtc::DataChannel>> Transport::get_open_channels(
+    const std::string& label,
+    const std::vector<std::string>& peer_ids) const
+{
+    std::vector<std::shared_ptr<rtc::DataChannel>> result;
+    std::scoped_lock lk(peers_mutex_);
+    result.reserve(peer_ids.size());
+    for (const auto& id : peer_ids) {
+        auto pit = peers_.find(id);
+        if (pit == peers_.end()) {
+            continue;
+        }
+        auto cit = pit->second.channels.find(label);
+        if (cit == pit->second.channels.end() || !cit->second.dc || !cit->second.open) {
+            continue;
+        }
+        result.push_back(cit->second.dc);
+    }
+    return result;
+}
+
+std::string Transport::stats_json() const
+{
+    std::scoped_lock lk(stats_mutex_);
+    return stats_json_cache_;
+}
+
+void Transport::timer_loop_()
+{
+    while (true) {
+        {
+            std::unique_lock lk(timer_cv_mutex_);
+            timer_cv_.wait_for(lk, std::chrono::seconds(2),
+                [this] { return stop_timer_.load(); });
+        }
+        if (stop_timer_) {
+            break;
+        }
+
+        // --- Collect PC snapshots under lock (no libdatachannel calls while locked)
+        struct PeerSnap {
+            std::string id;
+            std::shared_ptr<rtc::PeerConnection> pc;
+            bool was_offerer;
+        };
+        std::vector<PeerSnap> snaps;
+        {
+            std::scoped_lock lk(peers_mutex_);
+            snaps.reserve(peers_.size());
+            for (auto& [id, st] : peers_) {
+                if (st.pc) {
+                    snaps.push_back({ id, st.pc, st.was_offerer });
+                }
+            }
+        }
+
+        // --- Query stats and detect failures outside peers_mutex_
+        const auto now = std::chrono::steady_clock::now();
+        json arr = json::array();
+        std::vector<std::string> to_reconnect;
+
+        for (auto& snap : snaps) {
+            const auto pc_state = snap.pc->state();
+
+            json peer;
+            peer["id"] = snap.id;
+            switch (pc_state) {
+            case rtc::PeerConnection::State::New:
+                peer["state"] = "new";
+                break;
+            case rtc::PeerConnection::State::Connecting:
+                peer["state"] = "connecting";
+                break;
+            case rtc::PeerConnection::State::Connected:
+                peer["state"] = "connected";
+                break;
+            case rtc::PeerConnection::State::Disconnected:
+                peer["state"] = "disconnected";
+                break;
+            case rtc::PeerConnection::State::Failed:
+                peer["state"] = "failed";
+                break;
+            case rtc::PeerConnection::State::Closed:
+                peer["state"] = "closed";
+                break;
+            }
+            peer["bytes_sent"] = snap.pc->bytesSent();
+            peer["bytes_received"] = snap.pc->bytesReceived();
+            const auto rtt = snap.pc->rtt();
+            peer["rtt_ms"] = rtt ? static_cast<int>(rtt->count()) : -1;
+            arr.push_back(std::move(peer));
+
+            if (pc_state == rtc::PeerConnection::State::Failed && snap.was_offerer
+                && ws_connected_) {
+                bool should_reconnect = false;
+                {
+                    std::scoped_lock lk(peers_mutex_);
+                    auto& last = reconnect_times_[snap.id];
+                    if (now - last > std::chrono::seconds(10)) {
+                        last = now;
+                        should_reconnect = true;
+                    }
+                }
+                if (should_reconnect) {
+                    to_reconnect.push_back(snap.id);
+                }
+            }
+        }
+
+        {
+            std::scoped_lock lk(stats_mutex_);
+            stats_json_cache_ = arr.dump();
+        }
+
+        for (const auto& id : to_reconnect) {
+            LOG_WARNING() << "peer " << id << " ICE failed, reconnecting";
+            create_peer(id, true);
+        }
     }
 }
 
@@ -380,6 +511,7 @@ void Transport::create_peer(const std::string& peer_id, bool create_offer)
 
     PeerState state;
     state.pc = pc;
+    state.was_offerer = create_offer;
 
     if (create_offer) {
         for (const auto& spec : channel_specs_) {

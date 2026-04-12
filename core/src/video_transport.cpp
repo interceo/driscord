@@ -16,25 +16,13 @@ constexpr uint8_t kStopStreamTag = 0x02;
 VideoTransport::VideoTransport(Transport& transport)
     : transport_(transport)
 {
+    // Video channel: pure data, no embedded control tags.
     transport.register_channel({
         .label = channel::kVideo,
         .unordered = true,
         .max_retransmits = 0,
         .on_data =
             [this](const std::string& peer_id, const uint8_t* data, size_t len) {
-                if (len == 1) {
-                    if (data[0] == kKeyframeRequestTag) {
-                        std::scoped_lock lk(sink_mutex_);
-                        if (on_keyframe_needed_) {
-                            on_keyframe_needed_();
-                        }
-                        return;
-                    }
-                    if (data[0] == kStopStreamTag) {
-                        remove_streaming_peer(peer_id);
-                        return;
-                    }
-                }
                 on_chunk(peer_id, data, len);
             },
         .on_open =
@@ -55,6 +43,30 @@ VideoTransport::VideoTransport(Transport& transport)
                 video_subscribers_.erase(peer_id);
             },
     });
+
+    // Control channel: ordered, reliable — carries keyframe requests and stream
+    // lifecycle signals. Separate from video data to eliminate the len==1 ambiguity.
+    transport.register_channel({
+        .label = channel::kControl,
+        .unordered = false,
+        .max_retransmits = -1, // reliable
+        .on_data =
+            [this](const std::string& peer_id, const uint8_t* data, size_t len) {
+                if (len == 0) {
+                    return;
+                }
+                if (data[0] == kKeyframeRequestTag) {
+                    std::scoped_lock lk(sink_mutex_);
+                    if (on_keyframe_needed_) {
+                        on_keyframe_needed_();
+                    }
+                } else if (data[0] == kStopStreamTag) {
+                    remove_streaming_peer(peer_id);
+                }
+            },
+        .on_open = nullptr,
+        .on_close = nullptr,
+    });
 }
 
 void VideoTransport::send_video(const uint8_t* data, size_t len)
@@ -72,6 +84,12 @@ void VideoTransport::send_video(const uint8_t* data, size_t len)
         subscribers.assign(video_subscribers_.begin(), video_subscribers_.end());
     }
 
+    // 4.6: collect all open DCs in one lock acquisition instead of N×M.
+    auto dcs = transport_.get_open_channels(channel::kVideo, subscribers);
+    if (dcs.empty()) {
+        return;
+    }
+
     const uint64_t frame_id = next_frame_id_++;
     const auto total = static_cast<uint16_t>((len + kChunkPayloadSize - 1) / kChunkPayloadSize);
 
@@ -80,31 +98,35 @@ void VideoTransport::send_video(const uint8_t* data, size_t len)
         const size_t chunk_len = std::min(kChunkPayloadSize, len - offset);
         const size_t wire_len = protocol::ChunkHeader::kWireSize + chunk_len;
 
-        // Build wire packet: header + payload
         rtc::binary pkt(wire_len);
         protocol::ChunkHeader { frame_id, i, total }.serialize(
             reinterpret_cast<uint8_t*>(pkt.data()));
-        std::memcpy(pkt.data() + protocol::ChunkHeader::kWireSize, data + offset,
-            chunk_len);
+        std::memcpy(pkt.data() + protocol::ChunkHeader::kWireSize, data + offset, chunk_len);
 
-        // Move to last subscriber, copy to the rest
-        for (size_t s = 0; s + 1 < subscribers.size(); ++s) {
-            transport_.send_on_channel_to(
-                channel::kVideo, subscribers[s], reinterpret_cast<const uint8_t*>(pkt.data()),
-                wire_len);
+        // Copy to all but last, move to last (avoids internal copy in libdatachannel).
+        for (size_t s = 0; s + 1 < dcs.size(); ++s) {
+            try {
+                dcs[s]->send(reinterpret_cast<const std::byte*>(pkt.data()), wire_len);
+            } catch (const std::exception& e) {
+                LOG_ERROR() << "send_video chunk[" << i << "] to dc[" << s << "]: " << e.what();
+            }
         }
-        transport_.send_on_channel_to(channel::kVideo, subscribers.back(), std::move(pkt));
+        try {
+            dcs.back()->send(std::move(pkt));
+        } catch (const std::exception& e) {
+            LOG_ERROR() << "send_video chunk[" << i << "] to last dc: " << e.what();
+        }
     }
 }
 
 void VideoTransport::send_keyframe_request()
 {
-    transport_.send_on_channel(channel::kVideo, &kKeyframeRequestTag, 1);
+    transport_.send_on_channel(channel::kControl, &kKeyframeRequestTag, 1);
 }
 
 void VideoTransport::send_stop_stream()
 {
-    transport_.send_on_channel(channel::kVideo, &kStopStreamTag, 1);
+    transport_.send_on_channel(channel::kControl, &kStopStreamTag, 1);
 }
 
 void VideoTransport::add_subscriber(const std::string& peer_id)
