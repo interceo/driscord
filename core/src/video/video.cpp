@@ -193,7 +193,8 @@ void VideoReceiver::push_video_packet(
                     .peer_id = peer_id_,
                     .sender_ts = vh.sender_ts,
                     .frame_duration = std::chrono::microseconds(vh.frame_duration_us),
-                })) {
+                })
+            != PushStatus::Stored) {
             drop_count_.inc();
         }
     } else {

@@ -16,7 +16,7 @@ env:
 jobs:
   tests:
     name: Tests (Linux)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -65,7 +65,7 @@ jobs:
 
   build-server:
     name: Build / Signaling Server (Linux)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -115,7 +115,7 @@ jobs:
 
   build-client:
     name: Build / Client (Linux)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -182,7 +182,7 @@ jobs:
 
   build-api:
     name: Build / API
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -197,7 +197,7 @@ jobs:
 
   build-windows-cross:
     name: Build / Windows DLL (cross-compile)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
 

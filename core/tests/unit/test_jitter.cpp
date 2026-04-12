@@ -90,15 +90,14 @@ TEST(JitterBuffer, GapHandling)
     EXPECT_EQ(*v2.data, 2);
 }
 
-// 4. Drop count on overflow — push() returns true when the packet is
-//    dropped because the ring is full.
+// 4. Drop count on overflow — push() returns Overwritten when the ring is full.
 TEST(JitterBuffer, DropCountOnOverflow)
 {
     JBuf buf(5ms);
     size_t dropped = 0;
-    // Ring capacity is 256; pushing 300 sequential seqs must drop some.
+    // Ring capacity is 256; pushing 300 sequential seqs must overwrite some.
     for (int i = 0; i < 300; ++i) {
-        if (buf.push(i, std::make_unique<int>(i))) {
+        if (buf.push(i, std::make_unique<int>(i)) != PushStatus::Stored) {
             ++dropped;
         }
     }

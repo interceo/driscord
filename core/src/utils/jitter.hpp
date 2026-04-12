@@ -39,8 +39,8 @@ public:
         intervals_.fill(0);
     }
 
-    // Returns true if the packet was dropped (ring full).
-    bool push(const uint64_t seq, Ptr&& data)
+    // Returns PushStatus::Stored, Overwritten, or Late.
+    PushStatus push(const uint64_t seq, Ptr&& data)
     {
         std::scoped_lock lk(mutex_);
 
@@ -61,7 +61,7 @@ public:
         }
         last_arrival_ = now;
 
-        return !ring_.push(seq, Packet { std::move(data), now });
+        return ring_.push(seq, Packet { std::move(data), now });
     }
 
     // Returns {data, missed=false} on success, {nullptr, true} on a seq gap
@@ -268,11 +268,11 @@ public:
     {
     }
 
-    // Returns true if the frame was dropped (ring full).
-    bool push(uint64_t seq, Frame&& frame)
+    // Returns PushStatus::Stored, Overwritten, or Late.
+    PushStatus push(uint64_t seq, Frame&& frame)
     {
         if (frame.empty()) {
-            return false;
+            return PushStatus::Stored;
         }
         return buf_.push(seq, std::make_unique<Frame>(std::move(frame)));
     }
