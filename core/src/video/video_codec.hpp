@@ -24,6 +24,7 @@ struct AVCodecContext;
 struct SwsContext;
 struct AVFrame;
 struct AVPacket;
+struct AVBufferRef;
 
 // Custom deleters for FFmpeg opaque types — defined in video_codec.cpp to keep
 // FFmpeg headers out of this header.
@@ -103,6 +104,7 @@ public:
     bool init();
     void shutdown();
     bool ready() const { return ctx_ != nullptr; }
+    bool is_hw() const { return is_hw_; }
 
     bool decode(const uint8_t* data,
         size_t len,
@@ -114,7 +116,11 @@ private:
     ff::CodecContextPtr ctx_;
     ff::SwsContextPtr sws_;
     ff::FramePtr frame_;
+    ff::FramePtr sw_frame_; // scratch buffer for HW→CPU transfer
     ff::PacketPtr pkt_;
+    AVBufferRef* hw_device_ctx_ = nullptr;
     int last_w_ = 0;
     int last_h_ = 0;
+    int last_fmt_ = -1; // AV_PIX_FMT of the sw-side frame, for sws rebuild
+    bool is_hw_ = false;
 };

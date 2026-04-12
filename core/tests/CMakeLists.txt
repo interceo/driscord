@@ -27,6 +27,14 @@ function(add_unit_test name)
     add_test(NAME ${name} COMMAND ${name})
 endfunction()
 
+# --- Helper for tests that need driscord_core (FFmpeg-backed codecs, etc.) ---
+function(add_core_test name)
+    add_executable(${name} unit/${name}.cpp)
+    target_include_directories(${name} PRIVATE ${TEST_INCLUDE_DIRS})
+    target_link_libraries(${name} PRIVATE GTest::gtest_main driscord_core)
+    add_test(NAME ${name} COMMAND ${name})
+endfunction()
+
 add_unit_test(test_slot_ring)
 add_unit_test(test_jitter)
 add_unit_test(test_byte_utils)
@@ -35,6 +43,7 @@ add_unit_test(test_spinlock)
 add_unit_test(test_vector_view)
 add_unit_test(test_chunk_assembler)
 add_unit_test(test_expected)
+add_core_test(test_video_codec)
 
 # --- Integration tests (need driscord_core + driscord_signaling) ---
 if(BUILD_SERVER)
