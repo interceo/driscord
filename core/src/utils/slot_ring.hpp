@@ -4,6 +4,10 @@
 #include <cstdint>
 #include <optional>
 
+enum class PushStatus { Stored,
+    Overwritten,
+    Late };
+
 template <typename T, size_t Capacity = 256>
 class SlotRing {
     static_assert((Capacity & (Capacity - 1)) == 0,
@@ -28,14 +32,14 @@ public:
     };
 
     template <class U>
-    inline bool push(const uint64_t seq, U&& data)
+    inline PushStatus push(const uint64_t seq, U&& data)
     {
         if (!initialized_) [[unlikely]] {
             next_seq_ = seq;
             initialized_ = true;
         } else if (seq < next_seq_) [[unlikely]] {
             if (popped_) {
-                return false; // already consumed past this
+                return PushStatus::Late; // already consumed past this
             }
             next_seq_ = seq; // lower seq arrived, adjust start
         }
@@ -43,18 +47,18 @@ public:
         auto& slot = slots_[seq & kMask];
 
         if (slot.seq != UINT64_MAX && slot.seq >= seq) [[unlikely]] {
-            return false;
+            return PushStatus::Late;
         }
 
-        if (slot.seq != UINT64_MAX) {
+        const bool was_occupied = (slot.seq != UINT64_MAX);
+        if (was_occupied)
             --size_;
-        }
 
         slot.seq = seq;
         slot.data = std::move(data);
 
         ++size_;
-        return true;
+        return was_occupied ? PushStatus::Overwritten : PushStatus::Stored;
     }
 
     std::optional<PeekResult> peek_next()

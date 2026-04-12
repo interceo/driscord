@@ -1,0 +1,259 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BOOST_VERSION: '1.89.0'
+
+jobs:
+  tests:
+    name: Tests (Linux)
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y \
+            cmake ninja-build \
+            libssl-dev \
+            libavcodec-dev libavformat-dev libavdevice-dev \
+            libswscale-dev libswresample-dev libavutil-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libwayland-dev libxkbcommon-dev \
+            libpulse-dev
+
+      - name: Cache Boost headers
+        id: cache-boost
+        uses: actions/cache@v4
+        with:
+          path: ~/boost-cache
+          key: boost-${{ env.BOOST_VERSION }}-${{ runner.os }}
+
+      - name: Download Boost headers
+        if: steps.cache-boost.outputs.cache-hit != 'true'
+        run: |
+          BOOST_VER_UNDER="${BOOST_VERSION//./_}"
+          wget -q "https://archives.boost.io/release/${BOOST_VERSION}/source/boost_${BOOST_VER_UNDER}.tar.gz"
+          mkdir -p ~/boost-cache/include
+          tar xzf "boost_${BOOST_VER_UNDER}.tar.gz" \
+            --strip-components=1 \
+            -C ~/boost-cache/include \
+            "boost_${BOOST_VER_UNDER}/boost"
+
+      - name: Set BOOST_ROOT
+        run: echo "BOOST_ROOT=$HOME/boost-cache" >> $GITHUB_ENV
+
+      - name: Cache CMake FetchContent dependencies
+        uses: actions/cache@v4
+        with:
+          path: .builds/cmake/linux-release/_deps
+          key: cmake-deps-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt') }}
+          restore-keys: cmake-deps-${{ runner.os }}-
+
+      - name: Build and run tests
+        run: ./scripts/build.sh --test
+
+  build-server:
+    name: Build / Signaling Server (Linux)
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y \
+            cmake ninja-build \
+            libssl-dev
+
+      - name: Cache Boost headers
+        id: cache-boost
+        uses: actions/cache@v4
+        with:
+          path: ~/boost-cache
+          key: boost-${{ env.BOOST_VERSION }}-${{ runner.os }}
+
+      - name: Download Boost headers
+        if: steps.cache-boost.outputs.cache-hit != 'true'
+        run: |
+          BOOST_VER_UNDER="${BOOST_VERSION//./_}"
+          wget -q "https://archives.boost.io/release/${BOOST_VERSION}/source/boost_${BOOST_VER_UNDER}.tar.gz"
+          mkdir -p ~/boost-cache/include
+          tar xzf "boost_${BOOST_VER_UNDER}.tar.gz" \
+            --strip-components=1 \
+            -C ~/boost-cache/include \
+            "boost_${BOOST_VER_UNDER}/boost"
+
+      - name: Set BOOST_ROOT
+        run: echo "BOOST_ROOT=$HOME/boost-cache" >> $GITHUB_ENV
+
+      - name: Cache CMake FetchContent dependencies
+        uses: actions/cache@v4
+        with:
+          path: .builds/cmake/linux-release/_deps
+          key: cmake-deps-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt') }}
+          restore-keys: cmake-deps-${{ runner.os }}-
+
+      - name: Build signaling server
+        run: ./scripts/build.sh --server
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: driscord-server-linux
+          path: .builds/server/release/driscord_server
+
+  build-client:
+    name: Build / Client (Linux)
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y \
+            cmake ninja-build \
+            libssl-dev \
+            libavcodec-dev libavformat-dev libavdevice-dev \
+            libswscale-dev libswresample-dev libavutil-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libwayland-dev libxkbcommon-dev \
+            libpulse-dev
+
+      - name: Cache Boost headers
+        id: cache-boost
+        uses: actions/cache@v4
+        with:
+          path: ~/boost-cache
+          key: boost-${{ env.BOOST_VERSION }}-${{ runner.os }}
+
+      - name: Download Boost headers
+        if: steps.cache-boost.outputs.cache-hit != 'true'
+        run: |
+          BOOST_VER_UNDER="${BOOST_VERSION//./_}"
+          wget -q "https://archives.boost.io/release/${BOOST_VERSION}/source/boost_${BOOST_VER_UNDER}.tar.gz"
+          mkdir -p ~/boost-cache/include
+          tar xzf "boost_${BOOST_VER_UNDER}.tar.gz" \
+            --strip-components=1 \
+            -C ~/boost-cache/include \
+            "boost_${BOOST_VER_UNDER}/boost"
+
+      - name: Set BOOST_ROOT
+        run: echo "BOOST_ROOT=$HOME/boost-cache" >> $GITHUB_ENV
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Cache Gradle home
+        uses: actions/cache@v4
+        with:
+          path: .builds/gradle-home
+          key: gradle-${{ runner.os }}-${{ hashFiles('client-compose/build.gradle*', 'client-compose/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Cache CMake FetchContent dependencies
+        uses: actions/cache@v4
+        with:
+          path: .builds/cmake/linux-release/_deps
+          key: cmake-deps-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt') }}
+          restore-keys: cmake-deps-${{ runner.os }}-
+
+      - name: Build client (JNI + fatJar)
+        run: ./scripts/build.sh
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: driscord-client-linux
+          path: .builds/client/linux/release/
+
+  build-api:
+    name: Build / API
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/api/requirements.txt
+
+      - name: Install API dependencies
+        run: ./scripts/build.sh --api
+
+  build-windows-cross:
+    name: Build / Windows DLL (cross-compile)
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies + MinGW
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y \
+            cmake ninja-build \
+            libssl-dev \
+            libavcodec-dev libavformat-dev libavdevice-dev \
+            libswscale-dev libswresample-dev libavutil-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libwayland-dev libxkbcommon-dev \
+            libpulse-dev \
+            mingw-w64 gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+
+      - name: Cache Boost headers
+        id: cache-boost
+        uses: actions/cache@v4
+        with:
+          path: ~/boost-cache
+          key: boost-${{ env.BOOST_VERSION }}-${{ runner.os }}
+
+      - name: Download Boost headers
+        if: steps.cache-boost.outputs.cache-hit != 'true'
+        run: |
+          BOOST_VER_UNDER="${BOOST_VERSION//./_}"
+          wget -q "https://archives.boost.io/release/${BOOST_VERSION}/source/boost_${BOOST_VER_UNDER}.tar.gz"
+          mkdir -p ~/boost-cache/include
+          tar xzf "boost_${BOOST_VER_UNDER}.tar.gz" \
+            --strip-components=1 \
+            -C ~/boost-cache/include \
+            "boost_${BOOST_VER_UNDER}/boost"
+
+      - name: Set BOOST_ROOT
+        run: echo "BOOST_ROOT=$HOME/boost-cache" >> $GITHUB_ENV
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Cache CMake FetchContent dependencies
+        uses: actions/cache@v4
+        with:
+          path: .builds/cmake/linux-release/_deps
+          key: cmake-deps-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt') }}
+          restore-keys: cmake-deps-${{ runner.os }}-
+
+      - name: Build client with Windows cross-compile
+        # build.sh logs a warning and skips the DLL if MinGW OpenSSL is not in the sysroot
+        run: ./scripts/build.sh --windows
+
+      - name: Upload Windows DLL artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: driscord-windows-dll
+          path: .builds/client/windows/release/
+          if-no-files-found: warn

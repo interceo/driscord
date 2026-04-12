@@ -239,7 +239,7 @@ void AudioReceiver::push_packet(utils::vector_view<const uint8_t> data)
 
     std::vector<uint8_t> opus_bytes(opus_data, opus_data + opus_len);
 
-    if (jitter_.push(ah.seq, OpusFrame { .data = std::move(opus_bytes), .sender_ts = ah.sender_ts })) {
+    if (jitter_.push(ah.seq, OpusFrame { .data = std::move(opus_bytes), .sender_ts = ah.sender_ts }) != PushStatus::Stored) {
         drop_count_.inc();
     }
 
