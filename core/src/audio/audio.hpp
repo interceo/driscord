@@ -11,7 +11,6 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
-#include <mutex>
 #include <vector>
 
 class MaDevice;
@@ -106,7 +105,8 @@ public:
     void push_packet(utils::vector_view<const uint8_t> data);
 
     // Pops one decoded frame of PCM samples (mono, mixed down from channels_).
-    std::vector<float> pop();
+    // Returns a view into internal buffers — valid until the next pop() call.
+    utils::vector_view<const float> pop();
 
     void set_volume(float v) { volume_.store(v); }
     float volume() const { return volume_.load(); }
@@ -136,7 +136,7 @@ public:
     Stats stats() const;
 
 private:
-    mutable std::mutex decode_mutex_;
+    std::atomic<bool> reset_pending_ { false };
     OpusDecode decoder_;
     AudioJitter jitter_;
     std::vector<float> decode_buf_;
