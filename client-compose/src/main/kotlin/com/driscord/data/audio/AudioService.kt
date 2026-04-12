@@ -10,8 +10,9 @@ interface AudioService {
     val outputVolume: StateFlow<Float>
     val inputLevel: StateFlow<Float>
 
-    fun start()
+    fun start(voiceBitrateKbps: Int = 64)
     fun stop()
+    fun setNoiseGate(threshold: Float)
     fun toggleMute()
     fun toggleDeafen()
     fun setOutputVolume(vol: Float)

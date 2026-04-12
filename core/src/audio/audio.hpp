@@ -6,6 +6,7 @@
 #include "utils/metrics.hpp"
 #include "utils/vector_view.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <functional>
@@ -37,7 +38,8 @@ public:
     // Returns JSON array of {id, name} for all capture devices.
     static std::string list_input_devices_json();
 
-    utils::Expected<void, AudioError> start(PacketCallback on_packet);
+    utils::Expected<void, AudioError> start(PacketCallback on_packet,
+        int bitrate_bps = 64000);
     void stop();
     bool running() const { return running_; }
 
@@ -48,6 +50,9 @@ public:
     void set_muted(bool m) { muted_ = m; }
     bool muted() const noexcept { return muted_; }
 
+    void set_noise_gate(float threshold) { noise_gate_ = threshold; }
+    float noise_gate() const noexcept { return noise_gate_; }
+
     float input_level() const noexcept { return input_level_; }
 
 private:
@@ -55,9 +60,11 @@ private:
 
     std::atomic<bool> running_ { false };
     std::atomic<bool> muted_ { false };
+    std::atomic<float> noise_gate_ { 0.0f };
     std::atomic<float> input_level_ { 0.0f };
 
     std::string device_id_; // empty = default device
+    int bitrate_bps_ = 64000;
     PacketCallback on_packet_;
 
     std::unique_ptr<OpusEncode> encoder_;
@@ -74,16 +81,20 @@ private:
 // Per-peer lifecycle (creation, volume, mute) is managed by the caller
 // (AudioTransport or ScreenReceiver). AudioMixer applies src->volume() to the
 // output of pop().
+//
+// Raw Opus packets are stored in the jitter buffer and decoded at pop() time.
+// This allows PLC (Packet Loss Concealment) on sequence gaps: the Opus decoder
+// generates a concealment frame via opus_decode(NULL, 0, ...).
 class AudioReceiver {
 public:
-    struct PcmFrame {
-        std::vector<float> samples;
+    struct OpusFrame {
+        std::vector<uint8_t> data; // raw Opus-encoded bytes
         utils::WallTimestamp sender_ts { };
 
-        bool empty() const noexcept { return samples.empty(); }
+        bool empty() const noexcept { return data.empty(); }
     };
 
-    using AudioJitter = utils::Jitter<PcmFrame>;
+    using AudioJitter = utils::Jitter<OpusFrame>;
 
     explicit AudioReceiver(int jitter_ms,
         int channels = 1,
@@ -102,6 +113,10 @@ public:
 
     void set_muted(bool m) { muted_.store(m); }
     bool muted() const { return muted_.load(); }
+
+    // Stereo pan: 0.0 = hard left, 0.5 = center, 1.0 = hard right.
+    void set_pan(float p) { pan_.store(std::clamp(p, 0.0f, 1.0f)); }
+    float pan() const { return pan_.load(); }
 
     size_t evict_old(utils::Duration max_delay);
 
@@ -133,6 +148,7 @@ private:
 
     std::atomic<float> volume_ { 1.0f };
     std::atomic<bool> muted_ { false };
+    std::atomic<float> pan_ { 0.5f };
 
     uint64_t id_ = 0;
     uint64_t pop_count_ = 0;

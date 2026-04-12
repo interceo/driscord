@@ -12,6 +12,8 @@ class MaDevice;
 
 class AudioMixer {
 public:
+    static constexpr int kOutputChannels = 2; // stereo
+
     AudioMixer();
     ~AudioMixer();
 
