@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  BOOST_VERSION: '1.89'
+  BOOST_VERSION: '1.89.0'
 
 jobs:
   tests:
@@ -22,16 +22,35 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo add-apt-repository -y ppa:mhier/libboost-latest
           sudo apt-get update -q
           sudo apt-get install -y \
             cmake ninja-build \
-            libboost${BOOST_VERSION}-dev \
             libssl-dev \
             libavcodec-dev libavformat-dev libavdevice-dev \
             libswscale-dev libswresample-dev libavutil-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
             libpulse-dev
+
+      - name: Cache Boost headers
+        id: cache-boost
+        uses: actions/cache@v4
+        with:
+          path: ~/boost-cache
+          key: boost-${{ env.BOOST_VERSION }}-${{ runner.os }}
+
+      - name: Download Boost headers
+        if: steps.cache-boost.outputs.cache-hit != 'true'
+        run: |
+          BOOST_VER_UNDER="${BOOST_VERSION//./_}"
+          wget -q "https://archives.boost.io/release/${BOOST_VERSION}/source/boost_${BOOST_VER_UNDER}.tar.gz"
+          mkdir -p ~/boost-cache/include
+          tar xzf "boost_${BOOST_VER_UNDER}.tar.gz" \
+            --strip-components=1 \
+            -C ~/boost-cache/include \
+            "boost_${BOOST_VER_UNDER}/boost"
+
+      - name: Set BOOST_ROOT
+        run: echo "BOOST_ROOT=$HOME/boost-cache" >> $GITHUB_ENV
 
       - name: Cache CMake FetchContent dependencies
         uses: actions/cache@v4
@@ -51,12 +70,31 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo add-apt-repository -y ppa:mhier/libboost-latest
           sudo apt-get update -q
           sudo apt-get install -y \
             cmake ninja-build \
-            libboost${BOOST_VERSION}-dev \
             libssl-dev
+
+      - name: Cache Boost headers
+        id: cache-boost
+        uses: actions/cache@v4
+        with:
+          path: ~/boost-cache
+          key: boost-${{ env.BOOST_VERSION }}-${{ runner.os }}
+
+      - name: Download Boost headers
+        if: steps.cache-boost.outputs.cache-hit != 'true'
+        run: |
+          BOOST_VER_UNDER="${BOOST_VERSION//./_}"
+          wget -q "https://archives.boost.io/release/${BOOST_VERSION}/source/boost_${BOOST_VER_UNDER}.tar.gz"
+          mkdir -p ~/boost-cache/include
+          tar xzf "boost_${BOOST_VER_UNDER}.tar.gz" \
+            --strip-components=1 \
+            -C ~/boost-cache/include \
+            "boost_${BOOST_VER_UNDER}/boost"
+
+      - name: Set BOOST_ROOT
+        run: echo "BOOST_ROOT=$HOME/boost-cache" >> $GITHUB_ENV
 
       - name: Cache CMake FetchContent dependencies
         uses: actions/cache@v4
@@ -82,16 +120,35 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo add-apt-repository -y ppa:mhier/libboost-latest
           sudo apt-get update -q
           sudo apt-get install -y \
             cmake ninja-build \
-            libboost${BOOST_VERSION}-dev \
             libssl-dev \
             libavcodec-dev libavformat-dev libavdevice-dev \
             libswscale-dev libswresample-dev libavutil-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
             libpulse-dev
+
+      - name: Cache Boost headers
+        id: cache-boost
+        uses: actions/cache@v4
+        with:
+          path: ~/boost-cache
+          key: boost-${{ env.BOOST_VERSION }}-${{ runner.os }}
+
+      - name: Download Boost headers
+        if: steps.cache-boost.outputs.cache-hit != 'true'
+        run: |
+          BOOST_VER_UNDER="${BOOST_VERSION//./_}"
+          wget -q "https://archives.boost.io/release/${BOOST_VERSION}/source/boost_${BOOST_VER_UNDER}.tar.gz"
+          mkdir -p ~/boost-cache/include
+          tar xzf "boost_${BOOST_VER_UNDER}.tar.gz" \
+            --strip-components=1 \
+            -C ~/boost-cache/include \
+            "boost_${BOOST_VER_UNDER}/boost"
+
+      - name: Set BOOST_ROOT
+        run: echo "BOOST_ROOT=$HOME/boost-cache" >> $GITHUB_ENV
 
       - uses: actions/setup-java@v4
         with:
@@ -144,17 +201,36 @@ jobs:
 
       - name: Install system dependencies + MinGW
         run: |
-          sudo add-apt-repository -y ppa:mhier/libboost-latest
           sudo apt-get update -q
           sudo apt-get install -y \
             cmake ninja-build \
-            libboost${BOOST_VERSION}-dev \
             libssl-dev \
             libavcodec-dev libavformat-dev libavdevice-dev \
             libswscale-dev libswresample-dev libavutil-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
             libpulse-dev \
             mingw-w64 gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+
+      - name: Cache Boost headers
+        id: cache-boost
+        uses: actions/cache@v4
+        with:
+          path: ~/boost-cache
+          key: boost-${{ env.BOOST_VERSION }}-${{ runner.os }}
+
+      - name: Download Boost headers
+        if: steps.cache-boost.outputs.cache-hit != 'true'
+        run: |
+          BOOST_VER_UNDER="${BOOST_VERSION//./_}"
+          wget -q "https://archives.boost.io/release/${BOOST_VERSION}/source/boost_${BOOST_VER_UNDER}.tar.gz"
+          mkdir -p ~/boost-cache/include
+          tar xzf "boost_${BOOST_VER_UNDER}.tar.gz" \
+            --strip-components=1 \
+            -C ~/boost-cache/include \
+            "boost_${BOOST_VER_UNDER}/boost"
+
+      - name: Set BOOST_ROOT
+        run: echo "BOOST_ROOT=$HOME/boost-cache" >> $GITHUB_ENV
 
       - uses: actions/setup-java@v4
         with:
