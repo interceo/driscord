@@ -119,8 +119,13 @@ public:
     float pan() const { return pan_.load(); }
 
     size_t evict_old(utils::Duration max_delay);
+    size_t evict_before_sender_ts(utils::WallTimestamp cutoff);
 
     std::optional<utils::WallTimestamp> front_effective_ts() const;
+
+    // Median one-way-delay + clock-skew estimate (ms). Returns -1 until
+    // enough samples have been collected.
+    int64_t median_ow_delay_ms() const;
     bool primed() const;
     int64_t front_age_ms() const;
 

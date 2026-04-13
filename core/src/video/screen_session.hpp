@@ -19,6 +19,7 @@ public:
     using OnRemovedCb = std::function<void(const std::string& peer_id)>;
 
     ScreenSession(int buf_ms,
+        int audio_jitter_ms,
         utils::Duration max_sync,
         SendCb send_video,
         std::function<void()> on_keyframe_req,
@@ -32,7 +33,6 @@ public:
         const size_t max_w,
         const size_t max_h,
         const size_t fps,
-        const size_t bitrate_kbps,
         bool share_audio);
     void stop_sharing();
     bool sharing() const { return sender_.sharing(); }

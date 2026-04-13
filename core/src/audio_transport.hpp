@@ -17,7 +17,7 @@ public:
     void send_screen_audio(const uint8_t* data, size_t len);
 
     // Mixer lifecycle
-    utils::Expected<void, AudioError> start(int voice_bitrate_kbps = 64);
+    utils::Expected<void, AudioError> start();
     void stop();
 
     // Master controls
@@ -28,7 +28,7 @@ public:
     float output_level() const;
 
     // Peer lifecycle — auto-creates/destroys AudioReceiver and mixer source
-    void on_peer_joined(const std::string& peer_id, int jitter_ms);
+    void on_peer_joined(const std::string& peer_id);
     void on_peer_left(const std::string& peer_id);
 
     // Self (microphone) controls

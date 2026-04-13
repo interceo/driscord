@@ -6,23 +6,9 @@
 extern "C" {
 
 JNIEXPORT void JNICALL
-Java_com_driscord_jni_NativeDriscord_screenInit(JNIEnv*,
-    jclass,
-    jint bufMs,
-    jint maxSyncMs)
+Java_com_driscord_jni_NativeDriscord_screenInit(JNIEnv*, jclass)
 {
-    CORE().init_screen_session(static_cast<int>(bufMs),
-        static_cast<int>(maxSyncMs));
-}
-
-JNIEXPORT void JNICALL
-Java_com_driscord_jni_NativeDriscord_screenSetSystemAudioBitrate(JNIEnv*,
-    jclass,
-    jint kbps)
-{
-    if (CORE().screen_session) {
-        CORE().screen_session->set_system_audio_bitrate(static_cast<int>(kbps));
-    }
+    CORE().init_screen_session();
 }
 
 JNIEXPORT void JNICALL
@@ -38,15 +24,12 @@ Java_com_driscord_jni_NativeDriscord_screenStartSharing(JNIEnv* env,
     jint maxW,
     jint maxH,
     jint fps,
-    jint bitrateKbps,
-    jint /*gopSize*/,
     jboolean shareAudio)
 {
     auto targetJson = jni_jstring_to_utf8(env, jTargetJson);
     auto r = CORE().screen_start_sharing(
         targetJson, static_cast<int>(maxW), static_cast<int>(maxH),
-        static_cast<int>(fps), static_cast<int>(bitrateKbps),
-        shareAudio == JNI_TRUE);
+        static_cast<int>(fps), shareAudio == JNI_TRUE);
     return r ? nullptr : env->NewStringUTF(to_string(r.error()));
 }
 
