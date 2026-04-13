@@ -77,7 +77,7 @@ struct HWDecoderSpec {
 // Priority order mirrors the encoder: NVENC/CUVID first, then vendor-specific.
 // CUVID and VideoToolbox manage their own HW context internally; VAAPI/QSV need
 // an explicit hw_device_ctx created here.
-static constexpr HWDecoderSpec kHWDecoders[] = {
+static constexpr HWDecoderSpec kHWDecodersH264[] = {
 #ifdef __APPLE__
     // VideoToolbox manages its own HW context internally.
     { "h264_videotoolbox", AV_HWDEVICE_TYPE_NONE },
@@ -89,6 +89,19 @@ static constexpr HWDecoderSpec kHWDecoders[] = {
     { "h264_cuvid", AV_HWDEVICE_TYPE_CUDA },
     { "h264_vaapi", AV_HWDEVICE_TYPE_VAAPI },
     { "h264_qsv", AV_HWDEVICE_TYPE_QSV },
+#endif
+};
+
+static constexpr HWDecoderSpec kHWDecodersHEVC[] = {
+#ifdef __APPLE__
+    { "hevc_videotoolbox", AV_HWDEVICE_TYPE_NONE },
+#elif defined(_WIN32)
+    { "hevc_cuvid", AV_HWDEVICE_TYPE_CUDA },
+    { "hevc_qsv", AV_HWDEVICE_TYPE_QSV },
+#elif defined(__linux__)
+    { "hevc_cuvid", AV_HWDEVICE_TYPE_CUDA },
+    { "hevc_vaapi", AV_HWDEVICE_TYPE_VAAPI },
+    { "hevc_qsv", AV_HWDEVICE_TYPE_QSV },
 #endif
 };
 
@@ -125,10 +138,47 @@ static const AVCodec* pick_h264_encoder()
     return avcodec_find_encoder(AV_CODEC_ID_H264);
 }
 
+static const AVCodec* pick_hevc_encoder()
+{
+#ifdef __APPLE__
+    if (auto* c = try_encoder("hevc_videotoolbox")) {
+        return c;
+    }
+#elif defined(_WIN32)
+    if (auto* c = try_encoder("hevc_amf")) {
+        return c;
+    }
+    if (auto* c = try_encoder("hevc_nvenc")) {
+        return c;
+    }
+    if (auto* c = try_encoder("hevc_mf")) {
+        return c;
+    }
+    if (auto* c = try_encoder("hevc_qsv")) {
+        return c;
+    }
+#elif defined(__linux__)
+    if (auto* c = try_encoder("hevc_nvenc")) {
+        return c;
+    }
+    if (auto* c = try_encoder("hevc_vaapi")) {
+        return c;
+    }
+#endif
+    if (auto* c = try_encoder("libx265")) {
+        return c;
+    }
+    return avcodec_find_encoder(AV_CODEC_ID_HEVC);
+}
+
 static void setup_rate_control(AVCodecContext* ctx,
     int bitrate_kbps,
     std::string_view enc_name)
 {
+    const bool is_hevc = enc_name.find("hevc") != std::string_view::npos
+        || enc_name.find("x265") != std::string_view::npos;
+    const int profile = is_hevc ? AV_PROFILE_HEVC_MAIN : AV_PROFILE_H264_HIGH;
+
     const int64_t bitrate_bps = static_cast<int64_t>(bitrate_kbps) * 1000;
     ctx->bit_rate = bitrate_bps;
     ctx->rc_max_rate = bitrate_bps;
@@ -136,12 +186,12 @@ static void setup_rate_control(AVCodecContext* ctx,
 
     if (enc_name.find("videotoolbox") != std::string_view::npos) {
         av_opt_set(ctx->priv_data, "allow_sw", "true", 0);
-        ctx->profile = AV_PROFILE_H264_HIGH;
+        ctx->profile = profile;
         av_opt_set(ctx->priv_data, "constant_bit_rate", "true", 0);
     } else if (enc_name.find("libx264") != std::string_view::npos) {
         av_opt_set(ctx->priv_data, "preset", "veryfast", 0);
         av_opt_set(ctx->priv_data, "tune", "zerolatency", 0);
-        ctx->profile = AV_PROFILE_H264_HIGH;
+        ctx->profile = profile;
         ctx->rc_min_rate = bitrate_bps;
         av_opt_set(ctx->priv_data, "nal-hrd", "cbr", 0);
         av_opt_set(ctx->priv_data, "rc-lookahead", "0", 0);
@@ -151,30 +201,42 @@ static void setup_rate_control(AVCodecContext* ctx,
             std::to_string(bitrate_kbps).c_str(), 0);
         av_opt_set(ctx->priv_data, "vbv-bufsize",
             std::to_string(bitrate_kbps * 2).c_str(), 0);
+    } else if (enc_name.find("libx265") != std::string_view::npos) {
+        av_opt_set(ctx->priv_data, "preset", "ultrafast", 0);
+        av_opt_set(ctx->priv_data, "tune", "zerolatency", 0);
+        ctx->profile = profile;
+        ctx->rc_min_rate = bitrate_bps;
+        // x265 VBV params and repeat-headers go through x265-params
+        av_opt_set(ctx->priv_data, "x265-params",
+            ("vbv-maxrate=" + std::to_string(bitrate_kbps)
+                + ":vbv-bufsize=" + std::to_string(bitrate_kbps * 2)
+                + ":repeat-headers=1:no-info=1")
+                .c_str(),
+            0);
     } else if (enc_name.find("nvenc") != std::string_view::npos) {
         av_opt_set(ctx->priv_data, "preset", "p4", 0);
         av_opt_set(ctx->priv_data, "tune", "ll", 0);
         av_opt_set(ctx->priv_data, "rc", "cbr", 0);
         av_opt_set(ctx->priv_data, "repeat_headers", "1", 0); // SPS/PPS in every IDR
-        ctx->profile = AV_PROFILE_H264_HIGH;
+        ctx->profile = profile;
     } else if (enc_name.find("vaapi") != std::string_view::npos) {
         av_opt_set(ctx->priv_data, "rc_mode", "CBR", 0);
         av_opt_set(ctx->priv_data, "repeat_headers", "1", 0); // SPS/PPS in every IDR
-        ctx->profile = AV_PROFILE_H264_HIGH;
-    } else if (enc_name.find("h264_mf") != std::string_view::npos) {
+        ctx->profile = profile;
+    } else if (enc_name.find("_mf") != std::string_view::npos) {
         av_opt_set(ctx->priv_data, "rate_control", "cbr", 0);
-        ctx->profile = AV_PROFILE_H264_HIGH;
-    } else if (enc_name.find("h264_amf") != std::string_view::npos) {
+        ctx->profile = profile;
+    } else if (enc_name.find("_amf") != std::string_view::npos) {
         av_opt_set(ctx->priv_data, "rc", "cbr", 0);
         av_opt_set(ctx->priv_data, "quality", "balanced", 0);
         av_opt_set(ctx->priv_data, "repeat_headers", "1", 0); // SPS/PPS in every IDR
-        ctx->profile = AV_PROFILE_H264_HIGH;
-    } else if (enc_name.find("h264_qsv") != std::string_view::npos) {
+        ctx->profile = profile;
+    } else if (enc_name.find("_qsv") != std::string_view::npos) {
         av_opt_set(ctx->priv_data, "preset", "veryfast", 0);
         av_opt_set(ctx->priv_data, "scenario", "displayremoting", 0);
         av_opt_set(ctx->priv_data, "repeat_headers", "1", 0); // SPS/PPS in every IDR
         ctx->rc_min_rate = bitrate_bps;
-        ctx->profile = AV_PROFILE_H264_HIGH;
+        ctx->profile = profile;
     }
 }
 
@@ -233,27 +295,6 @@ static ff::CodecContextPtr try_open_encoder(const AVCodec* codec,
 
 } // namespace
 
-// --- to_string(VideoError) --------------------------------------------------
-
-const char* to_string(VideoError e)
-{
-    switch (e) {
-    case VideoError::InvalidDimensions:
-        return "InvalidDimensions";
-    case VideoError::InvalidFps:
-        return "InvalidFps";
-    case VideoError::InvalidBitrate:
-        return "InvalidBitrate";
-    case VideoError::EncoderInitFailed:
-        return "EncoderInitFailed";
-    case VideoError::VideoSenderFailed:
-        return "VideoSenderFailed";
-    case VideoError::CaptureStartFailed:
-        return "CaptureStartFailed";
-    }
-    return "Unknown";
-}
-
 // --- VideoEncoder -----------------------------------------------------------
 
 utils::Expected<void, VideoError> VideoEncoder::init(const size_t width,
@@ -289,9 +330,27 @@ utils::Expected<void, VideoError> VideoEncoder::init(const size_t width,
 
     const auto bitrate = compute_bitrate(w, h, base_bitrate);
 
-    const AVCodec* codec = pick_h264_encoder();
+    // Above 2K resolution prefer HEVC for ~40% lower bitrate; fall back to H.264.
+    constexpr int kHevcThresholdWidth = 2048;
+    const bool prefer_hevc = (w > kHevcThresholdWidth);
+
+    VideoCodec chosen_codec = VideoCodec::H264;
+    const AVCodec* codec = nullptr;
+
+    if (prefer_hevc) {
+        codec = pick_hevc_encoder();
+        if (codec) {
+            chosen_codec = VideoCodec::HEVC;
+        } else {
+            LOG_WARNING() << "no HEVC encoder found, falling back to H.264";
+        }
+    }
     if (!codec) {
-        LOG_ERROR() << "H.264 encoder not found";
+        codec = pick_h264_encoder();
+        chosen_codec = VideoCodec::H264;
+    }
+    if (!codec) {
+        LOG_ERROR() << "no video encoder found";
         return utils::Unexpected(VideoError::EncoderInitFailed);
     }
 
@@ -301,25 +360,34 @@ utils::Expected<void, VideoError> VideoEncoder::init(const size_t width,
 
     auto ctx = try_open_encoder(codec, w, h, f, bitrate);
     if (!ctx) {
-        const bool is_hw = std::string_view(codec->name).find("libx264") == std::string_view::npos;
-        if (!is_hw) {
+        const std::string_view name { codec->name };
+        const bool is_sw = name == "libx264" || name == "libx265";
+        if (is_sw) {
+            LOG_ERROR() << "failed to open " << name << " encoder";
             return utils::Unexpected(VideoError::EncoderInitFailed);
         }
 
-        LOG_WARNING() << "falling back to libx264";
-        codec = try_encoder("libx264");
-        if (!codec) {
-            codec = avcodec_find_encoder(AV_CODEC_ID_H264);
-            LOG_WARNING() << "libx264 not found, trying default H.264 encoder";
+        // HW encoder failed: try the matching SW fallback, then H.264 if on HEVC path.
+        if (chosen_codec == VideoCodec::HEVC) {
+            LOG_WARNING() << codec->name << " failed, trying libx265";
+            codec = try_encoder("libx265");
+            if (codec) {
+                ctx = try_open_encoder(codec, w, h, f, bitrate);
+            }
         }
-        if (!codec) {
-            LOG_ERROR() << "H.264 encoder not found";
-            return utils::Unexpected(VideoError::EncoderInitFailed);
-        }
-
-        ctx = try_open_encoder(codec, w, h, f, bitrate);
         if (!ctx) {
-            LOG_ERROR() << "failed to open " << codec->name << " encoder";
+            LOG_WARNING() << "falling back to libx264";
+            chosen_codec = VideoCodec::H264;
+            codec = try_encoder("libx264");
+            if (!codec) {
+                codec = avcodec_find_encoder(AV_CODEC_ID_H264);
+            }
+            if (codec) {
+                ctx = try_open_encoder(codec, w, h, f, bitrate);
+            }
+        }
+        if (!ctx) {
+            LOG_ERROR() << "all video encoder fallbacks failed";
             return utils::Unexpected(VideoError::EncoderInitFailed);
         }
     }
@@ -363,6 +431,7 @@ utils::Expected<void, VideoError> VideoEncoder::init(const size_t width,
         .width = w,
         .height = h,
         .pts = 0,
+        .codec = chosen_codec,
     };
 
     bytes_since_calc_ = 0;
@@ -370,7 +439,8 @@ utils::Expected<void, VideoError> VideoEncoder::init(const size_t width,
     measured_kbps_ = 0;
 
     LOG_INFO() << "video encoder: " << w << "x" << h << " @ " << f << " fps"
-               << " H.264 (" << codec->name << ") bitrate=" << bitrate << " kbps"
+               << " " << to_string(chosen_codec)
+               << " (" << codec->name << ") bitrate=" << bitrate << " kbps"
                << " gop=" << ctx_->gop_size;
     return { };
 }
@@ -434,12 +504,17 @@ VideoEncoder::encode(const std::vector<uint8_t>& bgra, int width, int height)
 
 // --- VideoDecoder -----------------------------------------------------------
 
-bool VideoDecoder::init()
+bool VideoDecoder::init(VideoCodec video_codec)
 {
     shutdown();
 
+    const bool use_hevc = (video_codec == VideoCodec::HEVC);
+    const utils::vector_view<const HWDecoderSpec> hw_specs = use_hevc
+        ? utils::vector_view<const HWDecoderSpec>(kHWDecodersHEVC, std::size(kHWDecodersHEVC))
+        : utils::vector_view<const HWDecoderSpec>(kHWDecodersH264, std::size(kHWDecodersH264));
+
     // Try hardware decoders first, in platform-specific priority order.
-    for (const auto& spec : kHWDecoders) {
+    for (const auto& spec : hw_specs) {
         const AVCodec* codec = try_decoder(spec.codec_name);
         if (!codec) {
             continue;
@@ -480,14 +555,16 @@ bool VideoDecoder::init()
         hw_device_ctx_ = hw_dev;
         is_hw_ = true;
 
-        LOG_INFO() << "video decoder: H.264 (" << spec.codec_name << ") [hardware]";
+        LOG_INFO() << "video decoder: " << (use_hevc ? "HEVC" : "H.264")
+                   << " (" << spec.codec_name << ") [hardware]";
         return true;
     }
 
     // Fallback: software decoder.
-    const AVCodec* codec = avcodec_find_decoder(AV_CODEC_ID_H264);
+    const AVCodecID sw_id = use_hevc ? AV_CODEC_ID_HEVC : AV_CODEC_ID_H264;
+    const AVCodec* codec = avcodec_find_decoder(sw_id);
     if (!codec) {
-        LOG_ERROR() << "H.264 decoder not found";
+        LOG_ERROR() << (use_hevc ? "HEVC" : "H.264") << " decoder not found";
         return false;
     }
 
@@ -509,7 +586,8 @@ bool VideoDecoder::init()
     pkt_ = ff::PacketPtr { av_packet_alloc() };
     is_hw_ = false;
 
-    LOG_INFO() << "video decoder: H.264 (" << codec->name << ") [software]";
+    LOG_INFO() << "video decoder: " << (use_hevc ? "HEVC" : "H.264")
+               << " (" << codec->name << ") [software]";
     return true;
 }
 

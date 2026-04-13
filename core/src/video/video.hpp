@@ -127,6 +127,7 @@ private:
     utils::Duration buffer_delay_;
 
     VideoDecoder decoder_;
+    std::optional<VideoCodec> decoder_codec_; // nullopt = not yet initialised
     VideoJitter jitter_;
     VideoJitter::Ptr current_frame_;
 

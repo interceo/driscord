@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "log.hpp"
+#include "utils/protocol.hpp"
 #include "video/video_codec.hpp"
 
 #include <cstring>
@@ -155,10 +156,17 @@ TEST(VideoDecoder, NotReadyBeforeInit)
     EXPECT_FALSE(dec.ready());
 }
 
-TEST(VideoDecoder, InitSucceeds)
+TEST(VideoDecoder, InitH264Succeeds)
 {
     VideoDecoder dec;
-    EXPECT_TRUE(dec.init());
+    EXPECT_TRUE(dec.init(protocol::VideoCodec::H264));
+    EXPECT_TRUE(dec.ready());
+}
+
+TEST(VideoDecoder, InitHEVCSucceeds)
+{
+    VideoDecoder dec;
+    EXPECT_TRUE(dec.init(protocol::VideoCodec::HEVC));
     EXPECT_TRUE(dec.ready());
 }
 
@@ -176,6 +184,15 @@ TEST(VideoDecoder, ReinitSucceeds)
     ASSERT_TRUE(dec.init());
     dec.shutdown();
     ASSERT_TRUE(dec.init());
+    EXPECT_TRUE(dec.ready());
+}
+
+TEST(VideoDecoder, ReinitWithDifferentCodec)
+{
+    VideoDecoder dec;
+    ASSERT_TRUE(dec.init(protocol::VideoCodec::H264));
+    dec.shutdown();
+    ASSERT_TRUE(dec.init(protocol::VideoCodec::HEVC));
     EXPECT_TRUE(dec.ready());
 }
 
@@ -229,7 +246,7 @@ TEST(VideoCodecRoundtrip, EncodeDecode)
     ASSERT_TRUE(enc.init(W, H, 30, 500).has_value());
 
     VideoDecoder dec;
-    ASSERT_TRUE(dec.init());
+    ASSERT_TRUE(dec.init(enc.codec()));
 
     enc.force_keyframe();
 
@@ -251,7 +268,7 @@ TEST(VideoCodecRoundtrip, MultipleFrames)
     ASSERT_TRUE(enc.init(W, H, 30, 500).has_value());
 
     VideoDecoder dec;
-    ASSERT_TRUE(dec.init());
+    ASSERT_TRUE(dec.init(enc.codec()));
 
     auto frame = make_bgra(W, H);
     enc.force_keyframe();
@@ -283,7 +300,7 @@ TEST(VideoCodecRoundtrip, ReinitDecoderMidStream)
     ASSERT_TRUE(enc.init(W, H, 30, 500).has_value());
 
     VideoDecoder dec;
-    ASSERT_TRUE(dec.init());
+    ASSERT_TRUE(dec.init(enc.codec()));
 
     // Prime both pipelines before the reinit.
     enc.force_keyframe();
@@ -294,7 +311,7 @@ TEST(VideoCodecRoundtrip, ReinitDecoderMidStream)
 
     // Reinit the decoder (simulates a peer reconnect / decoder reset).
     dec.shutdown();
-    ASSERT_TRUE(dec.init());
+    ASSERT_TRUE(dec.init(enc.codec()));
 
     // Force a new keyframe so the fresh decoder has a self-contained entry point.
     enc.force_keyframe();
@@ -324,7 +341,7 @@ TEST(VideoCodecRoundtrip, ForceKeyframe)
     ASSERT_TRUE(enc.init(W, H, 30, 500).has_value());
 
     VideoDecoder dec;
-    ASSERT_TRUE(dec.init());
+    ASSERT_TRUE(dec.init(enc.codec()));
 
     auto frame = make_bgra(W, H);
 
@@ -360,4 +377,31 @@ TEST(VideoCodecRoundtrip, ForceKeyframe)
         }
     }
     EXPECT_TRUE(got_frame) << "decoder stopped producing frames after force_keyframe";
+}
+
+// ---- HEVC roundtrip (above 2K threshold) -----------------------------------
+
+TEST(VideoCodecRoundtrip, HEVCEncodeDecode)
+{
+    // 2560x1440 crosses the 2048-px threshold → encoder should pick HEVC.
+    constexpr int W = 2560, H = 1440;
+
+    VideoEncoder enc;
+    ASSERT_TRUE(enc.init(W, H, 30, 8000).has_value());
+    EXPECT_EQ(enc.codec(), protocol::VideoCodec::HEVC)
+        << "expected HEVC encoder for resolution above 2K";
+
+    VideoDecoder dec;
+    ASSERT_TRUE(dec.init(enc.codec()));
+
+    enc.force_keyframe();
+
+    std::vector<uint8_t> rgba;
+    int out_w = 0, out_h = 0;
+    ASSERT_TRUE(prime_and_decode(enc, dec, W, H, rgba, out_w, out_h))
+        << "HEVC decoder never produced a frame";
+
+    EXPECT_EQ(out_w, W);
+    EXPECT_EQ(out_h, H);
+    EXPECT_EQ(static_cast<int>(rgba.size()), W * H * 4);
 }

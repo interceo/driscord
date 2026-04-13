@@ -1,6 +1,7 @@
 #include <benchmark/benchmark.h>
 
 #include "log.hpp"
+#include "utils/protocol.hpp"
 #include "video/video_codec.hpp"
 
 #include <numeric>
@@ -22,14 +23,16 @@ static std::vector<uint8_t> make_bgra(int w, int h)
 }
 
 // Pre-encode `count` frames (keyframe + P-frames) at the given resolution.
-// Returns the encoded packets.  Used by decoder benchmarks so setup cost
-// is not counted in the measured loop.
-static std::vector<std::vector<uint8_t>> encode_stream(int w, int h, int count = 60)
+// Returns the encoded packets and the codec used by the encoder.
+// Used by decoder benchmarks so setup cost is not counted in the measured loop.
+static std::vector<std::vector<uint8_t>> encode_stream(
+    int w, int h, int count, protocol::VideoCodec& out_codec)
 {
     VideoEncoder enc;
     if (!enc.init(w, h, 30, 2000).has_value()) {
         return { };
     }
+    out_codec = enc.codec();
     enc.force_keyframe();
     auto src = make_bgra(w, h);
     std::vector<std::vector<uint8_t>> pkts;
@@ -73,6 +76,7 @@ BENCHMARK(BM_VideoEncoder_Encode)
     ->Args({ 640, 360 })
     ->Args({ 1280, 720 })
     ->Args({ 1920, 1080 })
+    ->Args({ 2560, 1440 }) // 2K — HEVC threshold crossed
     ->Args({ 3840, 2160 })
     ->Unit(benchmark::kMillisecond);
 
@@ -84,14 +88,15 @@ static void BM_VideoDecoder_Decode(benchmark::State& state)
     const int h = static_cast<int>(state.range(1));
 
     // Pre-encode a realistic stream: 1 keyframe + P-frames.
-    const auto stream = encode_stream(w, h, 60);
+    protocol::VideoCodec stream_codec = protocol::VideoCodec::H264;
+    const auto stream = encode_stream(w, h, 60, stream_codec);
     if (stream.empty()) {
         state.SkipWithError("encoder produced no packets");
         return;
     }
 
     VideoDecoder dec;
-    if (!dec.init()) {
+    if (!dec.init(stream_codec)) {
         state.SkipWithError("decoder init failed");
         return;
     }
@@ -128,6 +133,7 @@ BENCHMARK(BM_VideoDecoder_Decode)
     ->Args({ 640, 360 })
     ->Args({ 1280, 720 })
     ->Args({ 1920, 1080 })
+    ->Args({ 2560, 1440 }) // 2K — HEVC threshold crossed
     ->Args({ 3840, 2160 })
     ->Unit(benchmark::kMillisecond);
 
@@ -145,7 +151,7 @@ static void BM_VideoCodec_Roundtrip(benchmark::State& state)
     }
 
     VideoDecoder dec;
-    if (!dec.init()) {
+    if (!dec.init(enc.codec())) {
         state.SkipWithError("decoder init failed");
         return;
     }
@@ -185,6 +191,7 @@ BENCHMARK(BM_VideoCodec_Roundtrip)
     ->Args({ 640, 360 })
     ->Args({ 1280, 720 })
     ->Args({ 1920, 1080 })
+    ->Args({ 2560, 1440 }) // 2K — HEVC threshold crossed
     ->Args({ 3840, 2160 })
     ->Unit(benchmark::kMillisecond);
 
