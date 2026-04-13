@@ -29,6 +29,12 @@ struct AudioHeader {
     }
 };
 
+enum class VideoCodec : uint8_t {
+    H264 = 0,
+    HEVC = 1,
+};
+const char* to_string(VideoCodec c);
+
 struct VideoHeader {
     uint32_t width = 0;
     uint32_t height = 0;
@@ -36,8 +42,9 @@ struct VideoHeader {
     uint32_t bitrate_kbps = 0;
     uint32_t frame_duration_us = 0;
     uint32_t gop_size = 0;
+    VideoCodec codec = VideoCodec::H264;
 
-    static constexpr size_t kWireSize = 28;
+    static constexpr size_t kWireSize = 32;
 
     static VideoHeader deserialize(const uint8_t* src)
     {
@@ -48,6 +55,7 @@ struct VideoHeader {
         h.bitrate_kbps = utils::read_u32_le(src + 16);
         h.frame_duration_us = utils::read_u32_le(src + 20);
         h.gop_size = utils::read_u32_le(src + 24);
+        h.codec = static_cast<VideoCodec>(utils::read_u32_le(src + 28));
         return h;
     }
 
@@ -59,6 +67,7 @@ struct VideoHeader {
         utils::write_u32_le(dst + 16, bitrate_kbps);
         utils::write_u32_le(dst + 20, frame_duration_us);
         utils::write_u32_le(dst + 24, gop_size);
+        utils::write_u32_le(dst + 28, static_cast<uint32_t>(codec));
     }
 };
 

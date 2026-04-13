@@ -14,19 +14,6 @@
 
 using namespace utils;
 
-const char* to_string(AudioError e)
-{
-    switch (e) {
-    case AudioError::OpusInitFailed:
-        return "OpusInitFailed";
-    case AudioError::SenderDeviceStartFailed:
-        return "SenderDeviceStartFailed";
-    case AudioError::MixerDeviceStartFailed:
-        return "MixerDeviceStartFailed";
-    }
-    return "Unknown";
-}
-
 AudioSender::AudioSender() = default;
 AudioSender::~AudioSender()
 {
