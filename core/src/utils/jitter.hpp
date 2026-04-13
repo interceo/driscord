@@ -1,11 +1,10 @@
 #pragma once
 
+#include "clock_skew.hpp"
 #include "slot_ring.hpp"
 #include "spinlock.hpp"
 #include "time.hpp"
 
-#include <algorithm>
-#include <array>
 #include <chrono>
 #include <cstdint>
 #include <memory>
@@ -36,11 +35,11 @@ public:
                       target_delay)))
         , adaptive_delay_(initial_delay_)
     {
-        intervals_.fill(0);
     }
 
     // Returns PushStatus::Stored, Overwritten, or Late.
-    PushStatus push(const uint64_t seq, Ptr&& data)
+    PushStatus push(const uint64_t seq, Ptr&& data,
+        utils::WallTimestamp sender_ts = { })
     {
         std::scoped_lock lk(mutex_);
 
@@ -49,17 +48,10 @@ public:
             first_push_time_ = now;
         }
 
-        // Track inter-packet arrival intervals for adaptive delay.
-        if (last_arrival_) {
-            const auto interval_ms = std::chrono::duration_cast<
-                std::chrono::milliseconds>(now - *last_arrival_)
-                                         .count();
-            intervals_[interval_write_ % kIntervalWindow] = interval_ms;
-            ++interval_write_;
-            interval_count_ = std::min(interval_count_ + 1, kIntervalWindow);
+        if (sender_ts != utils::WallTimestamp { }) {
+            skew_.update(sender_ts);
             update_adaptive_delay(now);
         }
-        last_arrival_ = now;
 
         return ring_.push(seq, Packet { std::move(data), now });
     }
@@ -179,6 +171,8 @@ public:
         return ring_.size();
     }
 
+    int64_t ow_delay_ms() const { return skew_.median_ms(); }
+
     void reset()
     {
         std::scoped_lock lk(mutex_);
@@ -186,57 +180,33 @@ public:
         primed_ = false;
         first_push_time_.reset();
         adaptive_delay_ = initial_delay_;
-        intervals_.fill(0);
-        interval_write_ = 0;
-        interval_count_ = 0;
-        last_arrival_.reset();
+        skew_.reset();
         last_adapt_time_.reset();
     }
 
 private:
-    static constexpr size_t kIntervalWindow = 50;
     static constexpr int64_t kMinDelayMs = 10;
     static constexpr int64_t kMaxDelayMs = 400;
-    // Decrease rate: at most 1 ms per adaptive update.
-    static constexpr int64_t kDecreaseStepMs = 1;
 
     void update_adaptive_delay(utils::Timestamp now)
     {
-        // Need at least 8 samples before adapting.
-        if (interval_count_ < 8) {
+        const int64_t p95 = skew_.percentile_ms(95);
+        if (p95 < 0) {
             return;
         }
-        // Rate-limit: adapt at most once every 100ms.
         if (last_adapt_time_
             && utils::Elapsed(*last_adapt_time_, now) < std::chrono::milliseconds(100)) {
             return;
         }
         last_adapt_time_ = now;
-
-        // Sort a copy of the interval window and pick p95.
-        std::array<int64_t, kIntervalWindow> sorted { };
-        const size_t n = interval_count_;
-        for (size_t i = 0; i < n; ++i) {
-            // Read from ring starting at (interval_write_ - n).
-            sorted[i] = intervals_[(interval_write_ - n + i) % kIntervalWindow];
-        }
-        std::sort(sorted.begin(), sorted.begin() + n);
-        const int64_t p95 = sorted[n * 95 / 100];
-
-        // Target = p95 + small margin, clamped to bounds.
         const int64_t target = std::clamp(p95 + 5, kMinDelayMs, kMaxDelayMs);
         const int64_t current = std::chrono::duration_cast<
             std::chrono::milliseconds>(adaptive_delay_)
                                     .count();
-
-        if (target > current) {
-            // Increase immediately.
+        if (target > current)
             adaptive_delay_ = std::chrono::milliseconds(target);
-        } else if (target < current) {
-            // Decrease slowly.
-            adaptive_delay_ = std::chrono::milliseconds(
-                std::max(target, current - kDecreaseStepMs));
-        }
+        else if (target < current)
+            adaptive_delay_ = std::chrono::milliseconds(std::max(target, current - 1));
     }
 
     mutable utils::SpinLock mutex_;
@@ -248,11 +218,7 @@ private:
 
     std::optional<utils::Timestamp> first_push_time_;
 
-    // Adaptive jitter tracking.
-    std::array<int64_t, kIntervalWindow> intervals_ { };
-    size_t interval_write_ = 0;
-    size_t interval_count_ = 0;
-    std::optional<utils::Timestamp> last_arrival_;
+    ClockSkewEstimator skew_;
     std::optional<utils::Timestamp> last_adapt_time_;
 };
 
@@ -274,8 +240,11 @@ public:
         if (frame.empty()) {
             return PushStatus::Stored;
         }
-        return buf_.push(seq, std::make_unique<Frame>(std::move(frame)));
+        const auto ts = frame.sender_ts;
+        return buf_.push(seq, std::make_unique<Frame>(std::move(frame)), ts);
     }
+
+    int64_t ow_delay_ms() const { return buf_.ow_delay_ms(); }
 
     PopResult pop() { return buf_.pop(); }
 

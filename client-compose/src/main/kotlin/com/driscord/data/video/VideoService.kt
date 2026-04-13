@@ -16,7 +16,7 @@ interface VideoService {
 
     fun joinStream()
     fun leaveStream()
-    fun startSharing(target: CaptureTarget, quality: Int, fps: Int, shareAudio: Boolean, bitrateKbps: Int, gopSize: Int): Boolean
+    fun startSharing(target: CaptureTarget, quality: Int, fps: Int, shareAudio: Boolean): Boolean
     fun stopSharing()
     fun setStreamVolume(peerId: String, vol: Float)
     fun getStreamVolume(): Float

@@ -35,8 +35,8 @@ class AudioServiceImpl : AudioService {
         }
     }
 
-    override fun start(voiceBitrateKbps: Int) {
-        val err = NativeDriscord.audioStart(voiceBitrateKbps)
+    override fun start() {
+        val err = NativeDriscord.audioStart()
         if (err != null) {
             System.err.println("AudioService: audioStart failed: $err")
         }
@@ -76,8 +76,8 @@ class AudioServiceImpl : AudioService {
     override fun getPeerVolume(peerId: String): Float =
         NativeDriscord.audioGetPeerVolume(peerId)
 
-    override fun onPeerJoined(peerId: String, jitterMs: Int) {
-        NativeDriscord.audioOnPeerJoined(peerId, jitterMs)
+    override fun onPeerJoined(peerId: String) {
+        NativeDriscord.audioOnPeerJoined(peerId)
     }
 
     override fun onPeerLeft(peerId: String) {

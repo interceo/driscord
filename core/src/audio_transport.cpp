@@ -1,6 +1,7 @@
 #include "audio_transport.hpp"
 
 #include "channel_labels.hpp"
+#include "config.hpp"
 #include "log.hpp"
 
 AudioTransport::AudioTransport(Transport& transport)
@@ -59,14 +60,14 @@ void AudioTransport::send_screen_audio(const uint8_t* data, size_t len)
     transport_.send_on_channel(channel::kScreenAudio, data, len);
 }
 
-utils::Expected<void, AudioError> AudioTransport::start(int voice_bitrate_kbps)
+utils::Expected<void, AudioError> AudioTransport::start()
 {
     if (auto r = mixer_.start(); !r) {
         return r;
     }
     auto r = sender_.start(
         [this](const uint8_t* d, size_t l) { send_audio(d, l); },
-        voice_bitrate_kbps * 1000);
+        stream_defaults::kVoiceBitrateKbps * 1000);
     if (!r) {
         mixer_.stop();
     }
@@ -144,9 +145,9 @@ float AudioTransport::output_level() const
     return mixer_.output_level();
 }
 
-void AudioTransport::on_peer_joined(const std::string& peer_id, int jitter_ms)
+void AudioTransport::on_peer_joined(const std::string& peer_id)
 {
-    auto recv = std::make_shared<AudioReceiver>(jitter_ms);
+    auto recv = std::make_shared<AudioReceiver>(stream_defaults::kVoiceJitterMs);
     {
         std::scoped_lock lk(recv_mutex_);
         voice_recv_[peer_id] = recv;

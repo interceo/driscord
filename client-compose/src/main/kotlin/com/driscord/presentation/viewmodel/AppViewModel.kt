@@ -46,7 +46,7 @@ class AppViewModel(
         // Peer lifecycle → AudioService
         scope.launch {
             connectionService.peerJoinedEvents.collect { peerId ->
-                audioService.onPeerJoined(peerId, configRepository.config.value.voiceJitterMs)
+                audioService.onPeerJoined(peerId)
             }
         }
         scope.launch {
@@ -63,7 +63,7 @@ class AppViewModel(
                 connectionService.connect(intent.serverUrl)
                 audioService.setInputDevice(cfg.micDeviceId)
                 audioService.setOutputDevice(cfg.outputDeviceId)
-                audioService.start(cfg.voiceBitrateKbps)
+                audioService.start()
                 audioService.setNoiseGate(cfg.noiseGateThreshold)
             }
             AppIntent.Disconnect -> {
@@ -79,10 +79,8 @@ class AppViewModel(
             AppIntent.OpenShareDialog -> _state.update { it.copy(showShareDialog = true) }
             AppIntent.DismissShareDialog -> _state.update { it.copy(showShareDialog = false) }
             is AppIntent.StartSharing -> {
-                val cfg = configRepository.config.value
                 val ok = videoService.startSharing(
                     intent.target, intent.quality, intent.fps, intent.shareAudio,
-                    cfg.videoBitrateKbps, cfg.gopSize,
                 )
                 if (ok) _state.update { it.copy(showShareDialog = false) }
             }

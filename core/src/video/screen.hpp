@@ -29,7 +29,6 @@ public:
         const size_t max_w,
         const size_t max_h,
         const size_t fps,
-        const size_t bitrate_kbps,
         bool share_audio,
         SendCb on_video,
         SendCb on_screen_audio);
@@ -64,7 +63,7 @@ private:
 
 class ScreenReceiver {
 public:
-    ScreenReceiver(int buffer_ms, int max_sync_gap_ms);
+    ScreenReceiver(int buffer_ms, int max_sync_gap_ms, int audio_jitter_ms);
     ~ScreenReceiver() = default;
 
     ScreenReceiver(const ScreenReceiver&) = delete;
@@ -113,6 +112,12 @@ public:
     std::optional<utils::WallTimestamp> audio_front_effective_ts() const;
     utils::Duration video_frame_duration() const;
     size_t evict_video_before(utils::WallTimestamp cutoff);
+    size_t evict_audio_before(utils::WallTimestamp cutoff);
+
+    // Clock-skew estimators: median OWD+skew per stream.
+    // Returns -1 if not enough samples yet.
+    int64_t video_median_ow_delay_ms() const;
+    int64_t audio_median_ow_delay_ms() const;
 
     int64_t video_front_age_ms() const;
     int64_t audio_front_age_ms() const;

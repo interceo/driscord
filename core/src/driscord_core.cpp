@@ -1,5 +1,6 @@
 #include "driscord_core.hpp"
 #include "audio/capture/system_audio_capture.hpp"
+#include "config.hpp"
 #include "utils/vector_view.hpp"
 #include "video/capture/screen_capture.hpp"
 
@@ -109,15 +110,18 @@ void DriscordCore::set_on_streaming_stopped(StringCb cb)
 // ScreenSession lifecycle
 // ---------------------------------------------------------------------------
 
-void DriscordCore::init_screen_session(int buf_ms, int max_sync_ms)
+void DriscordCore::init_screen_session()
 {
     screen_session.emplace(
-        buf_ms, std::chrono::milliseconds(max_sync_ms),
+        stream_defaults::kScreenBufferMs,
+        stream_defaults::kVoiceJitterMs,
+        std::chrono::milliseconds(stream_defaults::kMaxSyncGapMs),
         [this](const uint8_t* d, size_t l) { video_transport.send_video(d, l); },
         [this]() { video_transport.send_keyframe_request(); },
         [this](const uint8_t* d, size_t l) {
             audio_transport.send_screen_audio(d, l);
         });
+    screen_session->set_system_audio_bitrate(stream_defaults::kSystemAudioBitrateKbps);
     screen_session->set_on_frame(
         [this](const std::string& pid, const uint8_t* rgba, int w, int h) {
             std::scoped_lock lk(cb_mtx_);
@@ -280,7 +284,6 @@ utils::Expected<void, VideoError> DriscordCore::screen_start_sharing(
     int max_w,
     int max_h,
     int fps,
-    int bitrate_kbps,
     bool share_audio)
 {
     nlohmann::json j;
@@ -290,8 +293,7 @@ utils::Expected<void, VideoError> DriscordCore::screen_start_sharing(
         return utils::Unexpected(VideoError::CaptureStartFailed);
     }
     const auto target = ScreenCaptureTarget::from_json(j);
-    auto r = screen_session->start_sharing(target, max_w, max_h, fps,
-        bitrate_kbps, share_audio);
+    auto r = screen_session->start_sharing(target, max_w, max_h, fps, share_audio);
     if (r) {
         transport.send_streaming_start();
     }

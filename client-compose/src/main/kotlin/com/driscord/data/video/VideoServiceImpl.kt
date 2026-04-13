@@ -43,8 +43,7 @@ class VideoServiceImpl(
         get() = NativeDriscord.captureSystemAudioAvailable()
 
     init {
-        NativeDriscord.screenInit(config.screenBufferMs, config.maxSyncGapMs)
-        NativeDriscord.screenSetSystemAudioBitrate(config.systemAudioBitrateKbps)
+        NativeDriscord.screenInit()
 
         NativeDriscord.setOnNewStreamingPeer { peerId ->
             scope.launch(Dispatchers.Main) {
@@ -116,8 +115,6 @@ class VideoServiceImpl(
         quality: Int,
         fps: Int,
         shareAudio: Boolean,
-        bitrateKbps: Int,
-        gopSize: Int,
     ): Boolean {
         val (maxW, maxH) = when (quality) {
             0 -> 0 to 0
@@ -128,7 +125,7 @@ class VideoServiceImpl(
         }
         val targetJson = json.encodeToString(CaptureTarget.serializer(), target)
         val err = NativeDriscord.screenStartSharing(
-            targetJson, maxW, maxH, fps, bitrateKbps, gopSize, shareAudio,
+            targetJson, maxW, maxH, fps, shareAudio,
         )
         if (err != null) {
             System.err.println("VideoService: screenStartSharing failed: $err")

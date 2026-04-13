@@ -1,6 +1,7 @@
 #include "signaling_test_fixture.hpp"
 #include "transport.hpp"
 #include "transport_harness.hpp"
+#include "utils/log.hpp"
 #include "wait_helpers.hpp"
 
 #include <gtest/gtest.h>
@@ -11,6 +12,11 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+struct SuppressLogs {
+    SuppressLogs() { driscord::set_min_log_level(driscord::LogLevel::None); }
+};
+static SuppressLogs suppress_logs_on_startup;
 
 using namespace std::chrono_literals;
 using test_util::kDefaultTimeout;
