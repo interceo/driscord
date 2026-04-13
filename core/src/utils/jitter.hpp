@@ -39,7 +39,7 @@ public:
 
     // Returns PushStatus::Stored, Overwritten, or Late.
     PushStatus push(const uint64_t seq, Ptr&& data,
-        utils::WallTimestamp sender_ts = {})
+        utils::WallTimestamp sender_ts = { })
     {
         std::scoped_lock lk(mutex_);
 
@@ -48,7 +48,7 @@ public:
             first_push_time_ = now;
         }
 
-        if (sender_ts != utils::WallTimestamp{}) {
+        if (sender_ts != utils::WallTimestamp { }) {
             skew_.update(sender_ts);
             update_adaptive_delay(now);
         }
