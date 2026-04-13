@@ -117,6 +117,7 @@ void VideoSender::encode_loop()
             .sender_ts = capture_ts,
             .bitrate_kbps = static_cast<uint32_t>(video_encoder_.measured_kbps()),
             .frame_duration_us = static_cast<uint32_t>(1'000'000 / fps_),
+            .codec = video_encoder_.codec(),
         };
         frame_buf_.resize(protocol::VideoHeader::kWireSize + encoded.size());
         vh.serialize(frame_buf_.data());
@@ -132,9 +133,7 @@ VideoReceiver::VideoReceiver(std::string peer_id, int buffer_ms)
     , buffer_delay_(std::chrono::milliseconds(buffer_ms))
     , jitter_(buffer_delay_)
 {
-    if (!decoder_.init()) {
-        LOG_ERROR() << "video decoder init failed for peer " << peer_id_;
-    }
+    // Decoder is lazy-initialised on the first packet so we know the codec.
 }
 
 VideoReceiver::~VideoReceiver() = default;
@@ -158,6 +157,17 @@ void VideoReceiver::push_video_packet(
     const auto vh = protocol::VideoHeader::deserialize(data.data());
     if (vh.width == 0 || vh.height == 0 || vh.width > 7680 || vh.height > 4320) {
         return;
+    }
+
+    if (!decoder_codec_.has_value() || *decoder_codec_ != vh.codec) {
+        LOG_INFO() << "video decoder: init " << to_string(vh.codec)
+                   << " for peer " << peer_id_;
+        if (!decoder_.init(vh.codec)) {
+            LOG_ERROR() << "video decoder init failed for peer " << peer_id_;
+            return;
+        }
+        decoder_codec_ = vh.codec;
+        jitter_.reset();
     }
 
     packets_received_.inc();

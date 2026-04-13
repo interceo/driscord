@@ -63,6 +63,7 @@ TEST(VideoHeader, Roundtrip)
     src.bitrate_kbps = 6000;
     src.frame_duration_us = 16667;
     src.gop_size = 60;
+    src.codec = protocol::VideoCodec::H264;
 
     uint8_t buf[protocol::VideoHeader::kWireSize] { };
     src.serialize(buf);
@@ -74,11 +75,12 @@ TEST(VideoHeader, Roundtrip)
     EXPECT_EQ(dst.bitrate_kbps, 6000u);
     EXPECT_EQ(dst.frame_duration_us, 16667u);
     EXPECT_EQ(dst.gop_size, 60u);
+    EXPECT_EQ(dst.codec, protocol::VideoCodec::H264);
 }
 
 TEST(VideoHeader, WireSize)
 {
-    EXPECT_EQ(protocol::VideoHeader::kWireSize, 28u);
+    EXPECT_EQ(protocol::VideoHeader::kWireSize, 32u);
 }
 
 TEST(VideoHeader, ZeroValues)
@@ -93,6 +95,7 @@ TEST(VideoHeader, ZeroValues)
     EXPECT_EQ(dst.bitrate_kbps, 0u);
     EXPECT_EQ(dst.frame_duration_us, 0u);
     EXPECT_EQ(dst.gop_size, 0u);
+    EXPECT_EQ(dst.codec, protocol::VideoCodec::H264); // default codec
 }
 
 TEST(VideoHeader, MaxValues)
@@ -104,6 +107,7 @@ TEST(VideoHeader, MaxValues)
     src.bitrate_kbps = UINT32_MAX;
     src.frame_duration_us = UINT32_MAX;
     src.gop_size = UINT32_MAX;
+    src.codec = protocol::VideoCodec::HEVC;
 
     uint8_t buf[protocol::VideoHeader::kWireSize] { };
     src.serialize(buf);
@@ -114,6 +118,29 @@ TEST(VideoHeader, MaxValues)
     EXPECT_EQ(dst.bitrate_kbps, UINT32_MAX);
     EXPECT_EQ(dst.frame_duration_us, UINT32_MAX);
     EXPECT_EQ(dst.gop_size, UINT32_MAX);
+    EXPECT_EQ(dst.codec, protocol::VideoCodec::HEVC);
+}
+
+TEST(VideoHeader, CodecRoundtrip)
+{
+    for (auto codec : { protocol::VideoCodec::H264, protocol::VideoCodec::HEVC }) {
+        protocol::VideoHeader src;
+        src.width = 1280;
+        src.height = 720;
+        src.codec = codec;
+
+        uint8_t buf[protocol::VideoHeader::kWireSize] { };
+        src.serialize(buf);
+
+        auto dst = protocol::VideoHeader::deserialize(buf);
+        EXPECT_EQ(dst.codec, codec);
+    }
+}
+
+TEST(VideoCodecEnum, ToString)
+{
+    EXPECT_STREQ(protocol::to_string(protocol::VideoCodec::H264), "H264");
+    EXPECT_STREQ(protocol::to_string(protocol::VideoCodec::HEVC), "HEVC");
 }
 
 // ---- ChunkHeader ----

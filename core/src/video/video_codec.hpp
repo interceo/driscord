@@ -8,7 +8,10 @@
 
 #include "time.hpp"
 #include "utils/expected.hpp"
+#include "utils/protocol.hpp"
 #include "vector_view.hpp"
+
+using protocol::VideoCodec;
 
 enum class VideoError {
     InvalidDimensions,
@@ -70,6 +73,7 @@ public:
     int height() const { return state_.height; }
     int fps() const { return state_.fps; }
     int measured_kbps() const { return measured_kbps_; }
+    VideoCodec codec() const { return state_.codec; }
 
 private:
     ff::CodecContextPtr ctx_;
@@ -83,6 +87,7 @@ private:
         int width = 0;
         int height = 0;
         uint64_t pts = 0;
+        VideoCodec codec = VideoCodec::H264;
     } state_;
 
     std::vector<uint8_t> encode_buf_;
@@ -101,7 +106,7 @@ public:
     VideoDecoder(const VideoDecoder&) = delete;
     VideoDecoder& operator=(const VideoDecoder&) = delete;
 
-    bool init();
+    bool init(VideoCodec codec = VideoCodec::H264);
     void shutdown();
     bool ready() const { return ctx_ != nullptr; }
     bool is_hw() const { return is_hw_; }

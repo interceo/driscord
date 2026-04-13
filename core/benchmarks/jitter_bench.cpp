@@ -137,11 +137,11 @@ BENCHMARK(BM_Jitter_PushPop);
 ------------------------------------------------------------------------------
 Benchmark                                    Time             CPU   Iterations
 ------------------------------------------------------------------------------
-BM_SlotRing_PushPop                       3.02 ns         3.01 ns    229125475
-BM_SlotRing_OutOfOrder                     789 ns          787 ns       880115
-BM_JitterBuffer_PushPop                   58.7 ns         58.5 ns     11853653
-BM_JitterBuffer_Contended/threads:2       37.4 ns         37.3 ns     18872028
-BM_JitterBuffer_Contended/threads:4       86.6 ns         86.2 ns      8134412
-BM_JitterBuffer_Contended/threads:8        318 ns          316 ns      2199232
-BM_Jitter_PushPop                         65.1 ns         64.8 ns     10578713
+BM_SlotRing_PushPop                       3.01 ns         3.00 ns    237086854
+BM_SlotRing_OutOfOrder                     994 ns          991 ns       712212
+BM_JitterBuffer_PushPop                   72.3 ns         72.0 ns      9753356
+BM_JitterBuffer_Contended/threads:2       51.4 ns         51.2 ns     15210898
+BM_JitterBuffer_Contended/threads:4        101 ns          100 ns      7253500
+BM_JitterBuffer_Contended/threads:8        366 ns          365 ns      1902824
+BM_Jitter_PushPop                          200 ns          200 ns      6447704
 */

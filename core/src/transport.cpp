@@ -79,15 +79,6 @@ void Transport::set_ice_servers(const std::vector<std::string>& urls)
     }
 }
 
-const char* to_string(TransportError e)
-{
-    switch (e) {
-    case TransportError::WebSocketCreateFailed:
-        return "WebSocketCreateFailed";
-    }
-    return "Unknown";
-}
-
 utils::Expected<void, TransportError> Transport::connect(const std::string& ws_url)
 {
     disconnect();
