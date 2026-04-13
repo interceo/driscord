@@ -45,7 +45,7 @@ object NativeDriscord {
 
     @JvmStatic external fun audioSend(data: ByteArray, len: Int)
 
-    @JvmStatic external fun audioStart(voiceBitrateKbps: Int): String?
+    @JvmStatic external fun audioStart(): String?
 
     @JvmStatic external fun audioStop()
 
@@ -79,7 +79,7 @@ object NativeDriscord {
     /** Set the audio output device by id (name). Empty string = system default. */
     @JvmStatic external fun audioSetOutputDevice(id: String)
 
-    @JvmStatic external fun audioOnPeerJoined(peer: String, jitterMs: Int)
+    @JvmStatic external fun audioOnPeerJoined(peer: String)
 
     @JvmStatic external fun audioOnPeerLeft(peer: String)
 
@@ -129,9 +129,7 @@ object NativeDriscord {
 
     // -- Screen --
 
-    @JvmStatic external fun screenInit(bufMs: Int, maxSyncMs: Int)
-
-    @JvmStatic external fun screenSetSystemAudioBitrate(kbps: Int)
+    @JvmStatic external fun screenInit()
 
     @JvmStatic external fun screenDeinit()
 
@@ -140,8 +138,6 @@ object NativeDriscord {
         maxW: Int,
         maxH: Int,
         fps: Int,
-        bitrateKbps: Int,
-        gopSize: Int,
         shareAudio: Boolean,
     ): String?
 

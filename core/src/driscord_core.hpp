@@ -26,7 +26,7 @@ public:
     DriscordCore();
 
     // ScreenSession lifecycle — wires core objects together.
-    void init_screen_session(int buf_ms, int max_sync_ms);
+    void init_screen_session();
     void deinit_screen_session();
 
     // Stream watching lifecycle.
@@ -67,7 +67,6 @@ public:
         int max_w,
         int max_h,
         int fps,
-        int bitrate_kbps,
         bool share_audio);
     void screen_stop_sharing();
     void screen_set_stream_volume(const std::string& peer, float vol);

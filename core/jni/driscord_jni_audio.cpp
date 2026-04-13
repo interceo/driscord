@@ -17,11 +17,9 @@ Java_com_driscord_jni_NativeDriscord_audioSend(JNIEnv* env,
 }
 
 JNIEXPORT jstring JNICALL
-Java_com_driscord_jni_NativeDriscord_audioStart(JNIEnv* env, jclass,
-    jint voiceBitrateKbps)
+Java_com_driscord_jni_NativeDriscord_audioStart(JNIEnv* env, jclass)
 {
-    auto r = CORE().audio_transport.start(
-        voiceBitrateKbps > 0 ? static_cast<int>(voiceBitrateKbps) : 64);
+    auto r = CORE().audio_transport.start();
     return r ? nullptr : env->NewStringUTF(to_string(r.error()));
 }
 
@@ -132,11 +130,10 @@ Java_com_driscord_jni_NativeDriscord_audioSetOutputDevice(JNIEnv* env,
 JNIEXPORT void JNICALL
 Java_com_driscord_jni_NativeDriscord_audioOnPeerJoined(JNIEnv* env,
     jclass,
-    jstring jPeer,
-    jint jitterMs)
+    jstring jPeer)
 {
     const char* peer = env->GetStringUTFChars(jPeer, nullptr);
-    CORE().audio_transport.on_peer_joined(peer, static_cast<int>(jitterMs));
+    CORE().audio_transport.on_peer_joined(peer);
     env->ReleaseStringUTFChars(jPeer, peer);
 }
 

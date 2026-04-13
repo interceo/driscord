@@ -10,7 +10,7 @@ interface AudioService {
     val outputVolume: StateFlow<Float>
     val inputLevel: StateFlow<Float>
 
-    fun start(voiceBitrateKbps: Int = 64)
+    fun start()
     fun stop()
     fun setNoiseGate(threshold: Float)
     fun toggleMute()
@@ -18,7 +18,7 @@ interface AudioService {
     fun setOutputVolume(vol: Float)
     fun setPeerVolume(peerId: String, vol: Float)
     fun getPeerVolume(peerId: String): Float
-    fun onPeerJoined(peerId: String, jitterMs: Int)
+    fun onPeerJoined(peerId: String)
     fun onPeerLeft(peerId: String)
 
     fun listInputDevices(): List<AudioInputDevice>

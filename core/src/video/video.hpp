@@ -111,6 +111,10 @@ public:
     size_t evict_old(utils::Duration max_delay);
     size_t evict_before_sender_ts(utils::WallTimestamp cutoff);
     std::optional<utils::WallTimestamp> front_effective_ts() const;
+
+    // Median one-way-delay + clock-skew estimate (ms). Returns -1 until enough
+    // samples are available.
+    int64_t median_ow_delay_ms() const;
     utils::Duration front_frame_duration() const;
     bool primed() const;
     int64_t front_age_ms() const;

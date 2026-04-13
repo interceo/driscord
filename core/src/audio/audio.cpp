@@ -315,6 +315,18 @@ size_t AudioReceiver::evict_old(utils::Duration max_delay)
     return n;
 }
 
+size_t AudioReceiver::evict_before_sender_ts(utils::WallTimestamp cutoff)
+{
+    const auto n = jitter_.evict_before_sender_ts(cutoff);
+    drop_count_.inc(n);
+    return n;
+}
+
+int64_t AudioReceiver::median_ow_delay_ms() const
+{
+    return jitter_.ow_delay_ms();
+}
+
 bool AudioReceiver::primed() const
 {
     return jitter_.primed();

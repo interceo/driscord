@@ -29,11 +29,6 @@ fun SettingsDialog(
     var serverHost by remember { mutableStateOf(config.serverHost) }
     var serverPort by remember { mutableStateOf(config.serverPort.toString()) }
     var screenFps by remember { mutableStateOf(config.screenFps.toString()) }
-    var videoBitrate by remember { mutableStateOf(config.videoBitrateKbps.toString()) }
-    var gopSize by remember { mutableStateOf(config.gopSize.toString()) }
-    var voiceJitter by remember { mutableStateOf(config.voiceJitterMs.toString()) }
-    var screenBuffer by remember { mutableStateOf(config.screenBufferMs.toString()) }
-    var maxSyncGap by remember { mutableStateOf(config.maxSyncGapMs.toString()) }
 
     // Load device lists once on open; prepend "Default" (empty id = system default)
     val inputOptions: List<AudioInputDevice> = remember {
@@ -88,12 +83,6 @@ fun SettingsDialog(
                     )
                 }
 
-                SettingsGroup("Advanced") {
-                    SettingsField("Voice Jitter (ms)", voiceJitter) { voiceJitter = it }
-                    SettingsField("Screen Buffer (ms)", screenBuffer) { screenBuffer = it }
-                    SettingsField("Max Sync Gap (ms)", maxSyncGap) { maxSyncGap = it }
-                }
-
                 SettingsGroup("Connection") {
                     SettingsField("Server Host", serverHost) { serverHost = it }
                     SettingsField("Server Port", serverPort) { serverPort = it }
@@ -101,13 +90,11 @@ fun SettingsDialog(
 
                 SettingsGroup("Video") {
                     SettingsField("Capture FPS", screenFps) { screenFps = it }
-                    SettingsField("Bitrate (kbps)", videoBitrate) { videoBitrate = it }
-                    SettingsField("Gop size (frames)", gopSize) { gopSize = it }
                 }
 
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = "* Advanced, Connection and Video settings take effect after restart",
+                    text = "* Connection and Video settings take effect after restart",
                     color = TextMuted,
                     fontSize = 10.sp,
                 )
@@ -121,16 +108,11 @@ fun SettingsDialog(
                         onClick = {
                             onSave(
                                 config.copy(
-                                    serverHost       = serverHost.ifBlank { "localhost" },
-                                    serverPort       = serverPort.toIntOrNull() ?: config.serverPort,
-                                    screenFps        = screenFps.toIntOrNull() ?: config.screenFps,
-                                    videoBitrateKbps = videoBitrate.toIntOrNull() ?: config.videoBitrateKbps,
-                                    gopSize          = gopSize.toIntOrNull() ?: config.gopSize,
-                                    voiceJitterMs    = voiceJitter.toIntOrNull() ?: config.voiceJitterMs,
-                                    screenBufferMs   = screenBuffer.toIntOrNull() ?: config.screenBufferMs,
-                                    maxSyncGapMs     = maxSyncGap.toIntOrNull() ?: config.maxSyncGapMs,
-                                    micDeviceId      = inputOptions.getOrNull(selectedInputIdx)?.id ?: "",
-                                    outputDeviceId   = outputOptions.getOrNull(selectedOutputIdx)?.id ?: "",
+                                    serverHost     = serverHost.ifBlank { "localhost" },
+                                    serverPort     = serverPort.toIntOrNull() ?: config.serverPort,
+                                    screenFps      = screenFps.toIntOrNull() ?: config.screenFps,
+                                    micDeviceId    = inputOptions.getOrNull(selectedInputIdx)?.id ?: "",
+                                    outputDeviceId = outputOptions.getOrNull(selectedOutputIdx)?.id ?: "",
                                 ),
                             )
                             onDismiss()

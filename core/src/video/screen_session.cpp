@@ -6,6 +6,7 @@
 #include <nlohmann/json.hpp>
 
 ScreenSession::ScreenSession(int buf_ms,
+    int audio_jitter_ms,
     utils::Duration max_sync,
     SendCb send_video,
     std::function<void()> on_keyframe_req,
@@ -14,7 +15,8 @@ ScreenSession::ScreenSession(int buf_ms,
           buf_ms,
           static_cast<int>(
               std::chrono::duration_cast<std::chrono::milliseconds>(max_sync)
-                  .count()))
+                  .count()),
+          audio_jitter_ms)
     , send_video_(std::move(send_video))
     , send_screen_audio_(std::move(send_screen_audio))
     , max_sync_(max_sync)
@@ -26,10 +28,9 @@ utils::Expected<void, VideoError> ScreenSession::start_sharing(const ScreenCaptu
     const size_t max_w,
     const size_t max_h,
     const size_t fps,
-    const size_t bitrate_kbps,
     bool share_audio)
 {
-    return sender_.start_sharing(target, max_w, max_h, fps, bitrate_kbps,
+    return sender_.start_sharing(target, max_w, max_h, fps,
         share_audio, send_video_, send_screen_audio_);
 }
 
@@ -63,12 +64,32 @@ void ScreenSession::update()
             const auto v_ts = receiver_.video_front_effective_ts();
             const auto a_ts = receiver_.audio_front_effective_ts();
             if (v_ts && a_ts) {
-                const auto drift_ms = std::chrono::duration_cast<std::chrono::milliseconds>(*a_ts - *v_ts);
+                // 3.3: clock-skew correction.
+                // If A and V come from different senders their wall clocks may
+                // diverge over time.  The difference of median OWDs approximates
+                // the relative drift: a positive value means audio sender's clock
+                // is behind video sender's (or audio has higher latency).
+                // We subtract this bias so the eviction threshold is not polluted
+                // by hardware crystal differences.
+                const int64_t v_ow = receiver_.video_median_ow_delay_ms();
+                const int64_t a_ow = receiver_.audio_median_ow_delay_ms();
+                const auto skew_correction_ms = (v_ow >= 0 && a_ow >= 0)
+                    ? std::chrono::milliseconds(a_ow - v_ow)
+                    : std::chrono::milliseconds(0);
+
+                const auto raw_drift = std::chrono::duration_cast<std::chrono::milliseconds>(*a_ts - *v_ts);
+                const auto drift_ms = raw_drift - skew_correction_ms;
                 const auto frame_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                     receiver_.video_frame_duration());
                 const auto max_sync_ms = std::chrono::duration_cast<std::chrono::milliseconds>(max_sync_);
-                if (drift_ms > max_sync_ms + frame_ms) {
+                const auto threshold = max_sync_ms + frame_ms;
+
+                if (drift_ms > threshold) {
+                    // Video is behind audio: fast-forward video.
                     receiver_.evict_video_before(*a_ts - frame_ms);
+                } else if (-drift_ms > threshold) {
+                    // 3.2: Audio is behind video: fast-forward audio.
+                    receiver_.evict_audio_before(*v_ts - frame_ms);
                 }
             }
         }

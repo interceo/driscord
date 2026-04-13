@@ -18,16 +18,17 @@ struct Config {
     int screen_fps = 60;
     int capture_width = 1920;
     int capture_height = 1080;
-    int video_bitrate_kbps = 8000;
-    int gop_size = 30;
-    int voice_bitrate_kbps = 64;
-    int system_audio_bitrate_kbps = 128;
     float noise_gate_threshold = 0.01f;
-    int voice_jitter_ms = 80;
-    int screen_buffer_ms = 120;
-    int max_sync_gap_ms = 2000;
     int hold_threshold_ms = 50;
     int drain_threshold_ms = 50;
 
     std::vector<TurnServer> turn_servers;
 };
+
+namespace stream_defaults {
+inline constexpr int kVoiceBitrateKbps = 64;
+inline constexpr int kSystemAudioBitrateKbps = 128;
+inline constexpr int kVoiceJitterMs = 80;
+inline constexpr int kScreenBufferMs = 120;
+inline constexpr int kMaxSyncGapMs = 2000;
+}
