@@ -2,7 +2,6 @@
 
 #include "clock_skew.hpp"
 #include "slot_ring.hpp"
-#include "spinlock.hpp"
 #include "time.hpp"
 
 #include <chrono>
@@ -60,6 +59,8 @@ public:
     // (miss), {nullptr, false} when not ready or queue empty.
     PopResult pop() noexcept
     {
+        // pop() is called from the playback thread and must never block.
+        // If a push is in flight we skip this cycle rather than stalling.
         std::unique_lock lk(mutex_, std::try_to_lock);
         if (!lk.owns_lock()) [[unlikely]] {
             return { };
@@ -133,6 +134,8 @@ public:
         return dropped;
     }
 
+    // WARNING: fn is called while holding mutex_. Do not acquire any other
+    // lock inside fn — doing so risks deadlock with push/pop callers.
     template <typename F>
     auto with_front(F&& fn) const
         -> std::optional<std::invoke_result_t<F, const T&>>
@@ -190,12 +193,12 @@ private:
 
     void update_adaptive_delay(utils::Timestamp now)
     {
-        const int64_t p95 = skew_.percentile_ms(95);
-        if (p95 < 0) {
-            return;
-        }
         if (last_adapt_time_
             && utils::Elapsed(*last_adapt_time_, now) < std::chrono::milliseconds(100)) {
+            return;
+        }
+        const int64_t p95 = skew_.percentile_ms(95);
+        if (p95 < 0) {
             return;
         }
         last_adapt_time_ = now;
@@ -206,10 +209,10 @@ private:
         if (target > current)
             adaptive_delay_ = std::chrono::milliseconds(target);
         else if (target < current)
-            adaptive_delay_ = std::chrono::milliseconds(std::max(target, current - 1));
+            adaptive_delay_ = std::chrono::milliseconds(std::max(target, current - 10));
     }
 
-    mutable utils::SpinLock mutex_;
+    mutable std::mutex mutex_;
     mutable SlotRing<Packet> ring_;
 
     bool primed_ = false;
@@ -238,7 +241,7 @@ public:
     PushStatus push(uint64_t seq, Frame&& frame)
     {
         if (frame.empty()) {
-            return PushStatus::Stored;
+            return PushStatus::Late;
         }
         const auto ts = frame.sender_ts;
         return buf_.push(seq, std::make_unique<Frame>(std::move(frame)), ts);

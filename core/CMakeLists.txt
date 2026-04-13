@@ -117,6 +117,7 @@ add_library(driscord_core STATIC
     src/video_transport.cpp
     src/video/video_codec.cpp
     src/audio/opus_codec.cpp
+    src/utils/enum_strings.cpp
     src/utils/ma_device.cpp
     ${CAPTURE_SOURCES}
     ${SYSTEM_AUDIO_SOURCES}
