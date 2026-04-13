@@ -1,3 +1,4 @@
+#include "driscord_jni_vulkan.hpp"
 #include "driscord_state.hpp"
 #include "jni_common.hpp"
 
@@ -119,19 +120,25 @@ Java_com_driscord_jni_NativeDriscord_setOnFrame(JNIEnv* env,
         CORE().set_on_frame(nullptr);
         return;
     }
-    auto ref = std::make_shared<JniRef>(env, cb, "invoke", "(Ljava/lang/String;[BII)V");
+    // Pass the native RGBA pointer directly (as jlong) instead of copying into
+    // a JVM byte array.  The Kotlin side must create a Skia snapshot from the
+    // pointer synchronously before this callback returns, because the underlying
+    // buffer is owned by the C++ VideoReceiver and may be reused on the next
+    // update cycle.
+    auto ref = std::make_shared<JniRef>(env, cb, "invoke", "(Ljava/lang/String;JII)V");
     CORE().set_on_frame(
         [ref](const std::string& pid, const uint8_t* rgba, int w, int h) {
+            // Vulkan fast path: render directly if a renderer is attached.
+            if (vulkan_try_present(pid, rgba, w, h)) return;
+
+            // Skia fallback: pass native RGBA pointer to Kotlin.
             auto* e = ref->attach();
             if (!e) {
                 return;
             }
             jstring jpeer = e->NewStringUTF(pid.c_str());
-            jbyteArray jdata = e->NewByteArray(w * h * 4);
-            e->SetByteArrayRegion(jdata, 0, w * h * 4,
-                reinterpret_cast<const jbyte*>(rgba));
-            e->CallVoidMethod(ref->obj, ref->mid, jpeer, jdata, (jint)w, (jint)h);
-            e->DeleteLocalRef(jdata);
+            auto jptr = static_cast<jlong>(reinterpret_cast<uintptr_t>(rgba));
+            e->CallVoidMethod(ref->obj, ref->mid, jpeer, jptr, (jint)w, (jint)h);
             e->DeleteLocalRef(jpeer);
         });
 }
@@ -158,6 +165,16 @@ JNIEXPORT void JNICALL
 Java_com_driscord_jni_NativeDriscord_screenLeaveStream(JNIEnv*, jclass)
 {
     CORE().leave_stream();
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_com_driscord_jni_NativeDriscord_copyNativePixels(JNIEnv* env, jclass,
+    jlong ptr, jint size)
+{
+    auto arr = env->NewByteArray(size);
+    env->SetByteArrayRegion(arr, 0, size,
+        reinterpret_cast<const jbyte*>(static_cast<uintptr_t>(ptr)));
+    return arr;
 }
 
 } // extern "C"

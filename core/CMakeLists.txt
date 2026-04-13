@@ -10,17 +10,6 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 include(FetchContent)
 
-# --- GLFW ---
-set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(
-    glfw
-    GIT_REPOSITORY https://github.com/glfw/glfw.git
-    GIT_TAG        3.4
-    GIT_SHALLOW    TRUE
-)
-
 # --- libdatachannel (WebRTC + WebSocket) ---
 set(NO_MEDIA ON CACHE BOOL "" FORCE)
 set(NO_EXAMPLES ON CACHE BOOL "" FORCE)
@@ -52,7 +41,7 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 
-FetchContent_MakeAvailable(glfw libdatachannel opus miniaudio)
+FetchContent_MakeAvailable(libdatachannel opus miniaudio)
 
 # miniaudio interface library
 add_library(miniaudio_lib INTERFACE)
@@ -88,6 +77,52 @@ if(NOT TARGET PkgConfig::FFMPEG)
     )
 endif()
 
+# --- Vulkan (optional) ---
+find_package(Vulkan QUIET)
+set(VULKAN_SOURCES "")
+if(Vulkan_FOUND)
+    message(STATUS "Vulkan found: ${Vulkan_LIBRARY}")
+
+    # Compile SPIR-V shaders and embed as C headers
+    set(SHADER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
+    set(SHADER_OUT ${CMAKE_CURRENT_BINARY_DIR}/shaders)
+    file(MAKE_DIRECTORY ${SHADER_OUT})
+
+    set(SHADER_HEADERS "")
+    foreach(SHADER quad_vert:quad.vert quad_frag:quad.frag)
+        string(REPLACE ":" ";" PARTS ${SHADER})
+        list(GET PARTS 0 NAME)
+        list(GET PARTS 1 FILE)
+
+        set(SPV_FILE ${SHADER_OUT}/${NAME}.spv)
+        set(HDR_FILE ${SHADER_OUT}/${NAME}.h)
+
+        add_custom_command(
+            OUTPUT ${SPV_FILE}
+            COMMAND Vulkan::glslc ${SHADER_DIR}/${FILE} -o ${SPV_FILE}
+            DEPENDS ${SHADER_DIR}/${FILE}
+            COMMENT "Compiling ${FILE} -> ${NAME}.spv"
+        )
+        add_custom_command(
+            OUTPUT ${HDR_FILE}
+            COMMAND ${CMAKE_COMMAND} -P ${SHADER_DIR}/spv_to_header.cmake
+                    ${SPV_FILE} ${HDR_FILE} ${NAME}_spv
+            DEPENDS ${SPV_FILE} ${SHADER_DIR}/spv_to_header.cmake
+            COMMENT "Embedding ${NAME}.spv as C header"
+        )
+        list(APPEND SHADER_HEADERS ${HDR_FILE})
+    endforeach()
+
+    add_custom_target(driscord_shaders DEPENDS ${SHADER_HEADERS})
+
+    set(VULKAN_SOURCES
+        src/video/vulkan_renderer.cpp
+        src/video/vulkan_texture.cpp
+    )
+else()
+    message(STATUS "Vulkan not found — video will use Skia fallback")
+endif()
+
 # --- platform-specific screen capture ---
 if(APPLE)
     set(CAPTURE_SOURCES src/video/capture/screen_capture_mac.cpp)
@@ -121,6 +156,7 @@ add_library(driscord_core STATIC
     src/utils/ma_device.cpp
     ${CAPTURE_SOURCES}
     ${SYSTEM_AUDIO_SOURCES}
+    ${VULKAN_SOURCES}
 )
 
 set_target_properties(driscord_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -137,6 +173,13 @@ target_link_libraries(driscord_core PRIVATE
     miniaudio_lib
     PkgConfig::FFMPEG
 )
+
+if(Vulkan_FOUND)
+    add_dependencies(driscord_core driscord_shaders)
+    target_include_directories(driscord_core PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/shaders)
+    target_link_libraries(driscord_core PRIVATE Vulkan::Vulkan)
+    target_compile_definitions(driscord_core PRIVATE DRISCORD_HAS_VULKAN=1)
+endif()
 # PUBLIC: these headers are included by driscord_core's public .hpp files,
 # so consumers (driscord_core_jni) need their include paths too.
 #   config.hpp       → fmt/compile.h, fmt/format.h
@@ -207,6 +250,7 @@ if(JNI_FOUND)
         jni/driscord_jni_video.cpp
         jni/driscord_jni_capture.cpp
         jni/driscord_jni_screen.cpp
+        jni/driscord_jni_vulkan.cpp
     )
 
     set_target_properties(driscord_core_jni PROPERTIES OUTPUT_NAME "core")
@@ -221,6 +265,11 @@ if(JNI_FOUND)
     )
 
     target_link_libraries(driscord_core_jni PRIVATE driscord_core ${JNI_LIBRARIES})
+
+    if(Vulkan_FOUND)
+        target_link_libraries(driscord_core_jni PRIVATE Vulkan::Vulkan)
+        target_compile_definitions(driscord_core_jni PRIVATE DRISCORD_HAS_VULKAN=1)
+    endif()
 
     # Transitive deps driscord_core was built with
     target_link_libraries(driscord_core_jni PRIVATE

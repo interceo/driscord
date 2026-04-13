@@ -13,6 +13,7 @@ interface VideoService {
     val frames: StateFlow<Map<String, ImageBitmap>>
     val streamStats: StateFlow<StreamStats>
     val systemAudioAvailable: Boolean
+    val vulkanAvailable: Boolean
 
     fun joinStream()
     fun leaveStream()

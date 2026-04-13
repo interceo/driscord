@@ -22,6 +22,7 @@ class AppViewModel(
 
     private val _state = MutableStateFlow(AppUiState(
         systemAudioAvailable = videoService.systemAudioAvailable,
+        vulkanAvailable = videoService.vulkanAvailable,
         config = configRepository.config.value,
     ))
     val state: StateFlow<AppUiState> = _state.asStateFlow()

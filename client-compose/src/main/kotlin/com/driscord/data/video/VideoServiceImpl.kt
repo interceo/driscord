@@ -42,6 +42,8 @@ class VideoServiceImpl(
     override val systemAudioAvailable: Boolean
         get() = NativeDriscord.captureSystemAudioAvailable()
 
+    override val vulkanAvailable: Boolean = NativeDriscord.vulkanAvailable()
+
     init {
         NativeDriscord.screenInit()
 
@@ -77,9 +79,12 @@ class VideoServiceImpl(
                 _frames.value -= peerId
             }
         }
-        NativeDriscord.setOnFrame { peerId, rgba, w, h ->
+        NativeDriscord.setOnFrame { peerId, rgbaPtr, w, h ->
+            // Only called for peers without a Vulkan renderer attached.
+            // Vulkan peers are rendered directly in C++.
+            val bytes = NativeDriscord.copyNativePixels(rgbaPtr, w * h * 4)
             scope.launch(Dispatchers.Main) {
-                _frames.value += (peerId to rgbaToImageBitmap(rgba, w, h))
+                _frames.value += (peerId to rgbaToImageBitmap(bytes, w, h))
             }
         }
         NativeDriscord.setOnFrameRemoved { peerId ->
@@ -162,6 +167,7 @@ class VideoServiceImpl(
 
     override fun destroy() {
         scope.cancel()
+        NativeDriscord.vulkanDetachAll()
         NativeDriscord.screenDeinit()
     }
 

@@ -117,7 +117,21 @@ public:
         int& out_w,
         int& out_h);
 
+    // Decode into a caller-provided RGBA buffer (zero-copy variant).
+    // rgba_dst must have at least rgba_capacity bytes.  Returns false if the
+    // buffer is too small or decoding fails.
+    bool decode_into(const uint8_t* data,
+        size_t len,
+        uint8_t* rgba_dst,
+        size_t rgba_capacity,
+        int& out_w,
+        int& out_h);
+
 private:
+    // Shared decode logic: send packet, receive frame, HW transfer, rebuild sws.
+    // Returns CPU-side AVFrame on success (valid until next decode call), nullptr on failure.
+    AVFrame* decode_frame(const uint8_t* data, size_t len, int& out_w, int& out_h);
+
     ff::CodecContextPtr ctx_;
     ff::SwsContextPtr sws_;
     ff::FramePtr frame_;

@@ -12,7 +12,7 @@ object NativeDriscord {
     fun interface OnFrameCallback {
         fun invoke(
             peerId: String,
-            rgba: ByteArray,
+            rgbaPtr: Long,
             w: Int,
             h: Int,
         )
@@ -173,4 +173,20 @@ object NativeDriscord {
     @JvmStatic external fun screenJoinStream(peerId: String)
 
     @JvmStatic external fun screenLeaveStream()
+
+    // -- Vulkan --
+
+    @JvmStatic external fun vulkanAvailable(): Boolean
+
+    /** Attach a VulkanRenderer to the native surface of [component] for the given peer. */
+    @JvmStatic external fun vulkanAttach(peerId: String, component: java.awt.Component, w: Int, h: Int): Boolean
+
+    @JvmStatic external fun vulkanDetach(peerId: String)
+
+    @JvmStatic external fun vulkanResize(peerId: String, w: Int, h: Int)
+
+    @JvmStatic external fun vulkanDetachAll()
+
+    /** Copy [size] bytes from a native RGBA pointer into a new ByteArray (Skia fallback). */
+    @JvmStatic external fun copyNativePixels(ptr: Long, size: Int): ByteArray
 }

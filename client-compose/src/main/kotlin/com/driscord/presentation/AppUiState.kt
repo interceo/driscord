@@ -22,6 +22,7 @@ data class AppUiState(
     val streamStats: StreamStats = StreamStats(),
     val config: AppConfig = AppConfig(),
     val systemAudioAvailable: Boolean = false,
+    val vulkanAvailable: Boolean = false,
     val showShareDialog: Boolean = false,
     val showSettings: Boolean = false,
 )

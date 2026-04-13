@@ -608,14 +608,14 @@ void VideoDecoder::shutdown()
     is_hw_ = false;
 }
 
-bool VideoDecoder::decode(const uint8_t* data,
-    size_t len,
-    std::vector<uint8_t>& rgba_out,
-    int& out_w,
-    int& out_h)
+// Common decode logic: sends packet, receives frame, handles HW transfer,
+// rebuilds sws context.  On success returns pointer to the CPU-side AVFrame
+// and sets out_w / out_h.  Returns nullptr on failure.
+AVFrame* VideoDecoder::decode_frame(const uint8_t* data, size_t len,
+    int& out_w, int& out_h)
 {
     if (!ctx_) {
-        return false;
+        return nullptr;
     }
 
     pkt_->data = const_cast<uint8_t*>(data);
@@ -625,7 +625,7 @@ bool VideoDecoder::decode(const uint8_t* data,
     av_packet_unref(pkt_.get());
     if (ret < 0) {
         LOG_WARNING() << "avcodec_send_packet: " << ff_err(ret);
-        return false;
+        return nullptr;
     }
 
     // avcodec_receive_frame always calls av_frame_unref(frame) before returning,
@@ -638,7 +638,7 @@ bool VideoDecoder::decode(const uint8_t* data,
         if (rcv != AVERROR(EAGAIN)) {
             LOG_WARNING() << "avcodec_receive_frame: " << ff_err(rcv);
         }
-        return false;
+        return nullptr;
     }
 
     // For hardware frames, transfer pixel data to a CPU-side buffer.
@@ -648,11 +648,11 @@ bool VideoDecoder::decode(const uint8_t* data,
     const auto* pix_desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(frame_->format));
     if (pix_desc && (pix_desc->flags & AV_PIX_FMT_FLAG_HWACCEL)) {
         if (!sw_frame_) {
-            return false;
+            return nullptr;
         }
         if (const int tr = av_hwframe_transfer_data(sw_frame_.get(), frame_.get(), 0); tr < 0) {
             LOG_WARNING() << "av_hwframe_transfer_data: " << ff_err(tr);
-            return false;
+            return nullptr;
         }
         sw_frame_->width = frame_->width;
         sw_frame_->height = frame_->height;
@@ -672,16 +672,54 @@ bool VideoDecoder::decode(const uint8_t* data,
     }
 
     if (!sws_) {
-        return false;
+        return nullptr;
     }
 
     out_w = w;
     out_h = h;
-    rgba_out.resize(static_cast<size_t>(w) * h * 4);
+    return src;
+}
+
+bool VideoDecoder::decode(const uint8_t* data,
+    size_t len,
+    std::vector<uint8_t>& rgba_out,
+    int& out_w,
+    int& out_h)
+{
+    AVFrame* src = decode_frame(data, len, out_w, out_h);
+    if (!src) {
+        return false;
+    }
+
+    rgba_out.resize(static_cast<size_t>(out_w) * out_h * 4);
 
     uint8_t* dst_slices[1] = { rgba_out.data() };
-    int dst_stride[1] = { w * 4 };
-    sws_scale(sws_.get(), src->data, src->linesize, 0, h, dst_slices, dst_stride);
+    int dst_stride[1] = { out_w * 4 };
+    sws_scale(sws_.get(), src->data, src->linesize, 0, out_h, dst_slices, dst_stride);
+
+    return true;
+}
+
+bool VideoDecoder::decode_into(const uint8_t* data,
+    size_t len,
+    uint8_t* rgba_dst,
+    size_t rgba_capacity,
+    int& out_w,
+    int& out_h)
+{
+    AVFrame* src = decode_frame(data, len, out_w, out_h);
+    if (!src) {
+        return false;
+    }
+
+    const size_t needed = static_cast<size_t>(out_w) * out_h * 4;
+    if (rgba_capacity < needed) {
+        return false;
+    }
+
+    uint8_t* dst_slices[1] = { rgba_dst };
+    int dst_stride[1] = { out_w * 4 };
+    sws_scale(sws_.get(), src->data, src->linesize, 0, out_h, dst_slices, dst_stride);
 
     return true;
 }

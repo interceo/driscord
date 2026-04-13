@@ -29,6 +29,7 @@ internal fun StreamTile(
     watching: Boolean,
     stats: StreamStats,
     streamVolume: Float,
+    vulkanActive: Boolean = false,
     onSetStreamVolume: (Float) -> Unit,
     onClick: () -> Unit,
     onJoin: () -> Unit,
@@ -81,7 +82,10 @@ internal fun StreamTile(
             }
         },
     ) {
-        if (bitmap != null) {
+        if (vulkanActive && watching) {
+            VulkanSurface(peerId = peerId, modifier = Modifier.fillMaxSize())
+            if (stats.width > 0) StatsOverlay(stats)
+        } else if (bitmap != null) {
             Image(
                 bitmap = bitmap,
                 contentDescription = "Stream from $peerId",
