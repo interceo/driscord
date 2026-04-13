@@ -1,9 +1,15 @@
 #include <gtest/gtest.h>
 
+#include "log.hpp"
 #include "video/video_codec.hpp"
 
 #include <cstring>
 #include <vector>
+
+struct SuppressLogs {
+    SuppressLogs() { driscord::set_min_log_level(driscord::LogLevel::None); }
+};
+static SuppressLogs suppress_logs_on_startup;
 
 // Synthetic BGRA frame filled with a solid colour.
 static std::vector<uint8_t> make_bgra(int w, int h,

@@ -254,6 +254,11 @@ size_t VideoReceiver::evict_before_sender_ts(utils::WallTimestamp cutoff)
     return n;
 }
 
+int64_t VideoReceiver::median_ow_delay_ms() const
+{
+    return jitter_.ow_delay_ms();
+}
+
 std::optional<utils::WallTimestamp> VideoReceiver::front_effective_ts() const
 {
     return jitter_.front_effective_ts();

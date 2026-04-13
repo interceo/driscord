@@ -11,16 +11,28 @@ ScreenSender::~ScreenSender()
     stop_sharing();
 }
 
+static int compute_base_bitrate_kbps(int max_w, int max_h, int fps)
+{
+    if (max_w <= 0 || max_h <= 0) {
+        return std::clamp(static_cast<int>(15000.0 * fps / 60.0), 1000, 50000);
+    }
+    constexpr double kRef = 8000.0;
+    const double scale = static_cast<double>(max_w) * max_h / (1920.0 * 1080.0)
+        * static_cast<double>(fps) / 60.0;
+    return std::clamp(static_cast<int>(kRef * scale), 500, 50000);
+}
+
 utils::Expected<void, VideoError> ScreenSender::start_sharing(const ScreenCaptureTarget& target,
     const size_t max_w,
     const size_t max_h,
     const size_t fps,
-    const size_t bitrate_kbps,
     bool share_audio,
     SendCb on_video,
     SendCb on_screen_audio)
 {
-    if (!video_sender_.start(fps, bitrate_kbps, std::move(on_video))) {
+    const int bitrate_kbps = compute_base_bitrate_kbps(
+        static_cast<int>(max_w), static_cast<int>(max_h), static_cast<int>(fps));
+    if (!video_sender_.start(fps, static_cast<size_t>(bitrate_kbps), std::move(on_video))) {
         return utils::Unexpected(VideoError::VideoSenderFailed);
     }
 
@@ -118,9 +130,9 @@ void ScreenSender::on_audio_captured_(const float* samples,
 // ScreenReceiver
 // ---------------------------------------------------------------------------
 
-ScreenReceiver::ScreenReceiver(int buffer_ms, int /*max_sync_gap_ms*/)
+ScreenReceiver::ScreenReceiver(int buffer_ms, int /*max_sync_gap_ms*/, int audio_jitter_ms)
     : video_buffer_ms_(buffer_ms)
-    , audio_jitter_ms_(buffer_ms)
+    , audio_jitter_ms_(audio_jitter_ms)
 {
 }
 
@@ -376,6 +388,46 @@ size_t ScreenReceiver::evict_video_before(utils::WallTimestamp cutoff)
         total += r->evict_before_sender_ts(cutoff);
     }
     return total;
+}
+
+size_t ScreenReceiver::evict_audio_before(utils::WallTimestamp cutoff)
+{
+    std::vector<std::shared_ptr<AudioReceiver>> receivers;
+    {
+        std::scoped_lock lk(audio_mutex_);
+        receivers.reserve(audio_receivers_.size());
+        for (auto& [_, r] : audio_receivers_) {
+            receivers.push_back(r);
+        }
+    }
+    size_t total = 0;
+    for (auto& r : receivers) {
+        total += r->evict_before_sender_ts(cutoff);
+    }
+    return total;
+}
+
+int64_t ScreenReceiver::video_median_ow_delay_ms() const
+{
+    std::shared_ptr<VideoReceiver> recv;
+    {
+        std::scoped_lock lk(video_mutex_);
+        recv = current_video_recv_locked();
+    }
+    return recv ? recv->median_ow_delay_ms() : -1;
+}
+
+int64_t ScreenReceiver::audio_median_ow_delay_ms() const
+{
+    std::scoped_lock lk(audio_mutex_);
+    int64_t best = -1;
+    for (const auto& [_, r] : audio_receivers_) {
+        const int64_t m = r->median_ow_delay_ms();
+        if (m >= 0 && (best < 0 || m < best)) {
+            best = m;
+        }
+    }
+    return best;
 }
 
 int64_t ScreenReceiver::video_front_age_ms() const

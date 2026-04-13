@@ -24,16 +24,9 @@ data class AppConfig(
     @SerialName("screen_fps") val screenFps: Int = 60,
     @SerialName("capture_width") val captureWidth: Int = 1920,
     @SerialName("capture_height") val captureHeight: Int = 1080,
-    @SerialName("video_bitrate_kbps") val videoBitrateKbps: Int = 8000,
-    @SerialName("gop_size") val gopSize: Int = 30,
-    @SerialName("voice_bitrate_kbps") val voiceBitrateKbps: Int = 64,
-    @SerialName("system_audio_bitrate_kbps") val systemAudioBitrateKbps: Int = 128,
     @SerialName("noise_gate_threshold") val noiseGateThreshold: Float = 0.01f,
-    @SerialName("voice_jitter_ms") val voiceJitterMs: Int = 80,
     @SerialName("mic_device_id") val micDeviceId: String = "",
     @SerialName("output_device_id") val outputDeviceId: String = "",
-    @SerialName("screen_buffer_ms") val screenBufferMs: Int = 120,
-    @SerialName("max_sync_gap_ms") val maxSyncGapMs: Int = 2000,
     @SerialName("turn_servers") val turnServers: List<TurnServerConfig> = emptyList(),
 ) {
     val serverUrl: String get() = "ws://$serverHost:$serverPort"
@@ -44,14 +37,7 @@ data class AppConfig(
             serverHost = serverHost.ifBlank { "localhost" },
             serverPort = serverPort.coerceIn(1, 65535),
             screenFps = screenFps.coerceIn(1, 240),
-            videoBitrateKbps = videoBitrateKbps.coerceIn(100, 100_000),
-            gopSize = gopSize.coerceIn(1, 240),
-            voiceBitrateKbps = voiceBitrateKbps.coerceIn(8, 512),
-            systemAudioBitrateKbps = systemAudioBitrateKbps.coerceIn(8, 512),
             noiseGateThreshold = noiseGateThreshold.coerceIn(0f, 1f),
-            voiceJitterMs = voiceJitterMs.coerceIn(0, 500),
-            screenBufferMs = screenBufferMs.coerceIn(0, 500),
-            maxSyncGapMs = maxSyncGapMs.coerceIn(100, 10_000),
         )
 
     companion object {
