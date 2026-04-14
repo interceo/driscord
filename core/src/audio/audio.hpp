@@ -20,7 +20,6 @@ enum class AudioError {
     SenderDeviceStartFailed,
     MixerDeviceStartFailed,
 };
-const char* to_string(AudioError e);
 
 class AudioSender {
 public:

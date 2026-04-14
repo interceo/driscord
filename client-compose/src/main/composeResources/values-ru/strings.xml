@@ -1,0 +1,54 @@
+<resources>
+    <!-- Sidebar -->
+    <string name="members">УЧАСТНИКИ</string>
+    <string name="server">Сервер</string>
+    <string name="connect">Подключиться</string>
+    <string name="connecting">Подключение…</string>
+    <string name="voice_connected">Голос подключён</string>
+    <string name="connected">Подключён</string>
+    <string name="offline">Оффлайн</string>
+    <string name="mic_volume">Громкость микрофона</string>
+    <string name="volume">Громкость</string>
+    <string name="mic">Микрофон</string>
+    <string name="screen">Экран</string>
+
+    <!-- Content panel -->
+    <string name="general">Основной</string>
+    <string name="stop_sharing">Остановить трансляцию</string>
+    <string name="share_screen">Поделиться экраном</string>
+    <string name="connect_to_begin">Подключитесь к серверу</string>
+    <string name="connecting_to_server">Подключение к серверу…</string>
+
+    <!-- Stream tile -->
+    <string name="watch">Смотреть</string>
+    <string name="mute">Заглушить</string>
+    <string name="mute_sound">Откл. звук</string>
+    <string name="leave_stream">Покинуть трансляцию</string>
+    <string name="buffering">Буферизация…</string>
+    <string name="click_to_watch">Нажмите для просмотра</string>
+
+    <!-- Share dialog -->
+    <string name="choose_what_to_share">Выберите, чем поделиться</string>
+    <string name="quality">Качество</string>
+    <string name="fps">FPS</string>
+    <string name="share_audio">Транслировать звук</string>
+    <string name="cancel">Отмена</string>
+    <string name="go_live">Начать</string>
+
+    <!-- Settings dialog -->
+    <string name="settings">Настройки</string>
+    <string name="audio">Аудио</string>
+    <string name="microphone">Микрофон</string>
+    <string name="output">Выход</string>
+    <string name="connection">Подключение</string>
+    <string name="server_host">Адрес сервера</string>
+    <string name="server_port">Порт сервера</string>
+    <string name="video">Видео</string>
+    <string name="capture_fps">FPS захвата</string>
+    <string name="settings_restart_note">* Настройки подключения и видео применяются после перезапуска</string>
+    <string name="save">Сохранить</string>
+    <string name="default_device">По умолчанию</string>
+
+    <!-- Peer label -->
+    <string name="you">вы</string>
+</resources>

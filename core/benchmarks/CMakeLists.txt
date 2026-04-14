@@ -22,17 +22,17 @@ set(BENCH_CORE_INCLUDE_DIRS
     ${CMAKE_SOURCE_DIR}/core/src/utils
 )
 
-# jitter_bench
-add_executable(jitter_bench jitter_bench.cpp)
-target_include_directories(jitter_bench PRIVATE ${BENCH_INCLUDE_DIRS})
-target_link_libraries(jitter_bench PRIVATE benchmark::benchmark_main)
+# bench_jitter
+add_executable(bench_jitter bench_jitter.cpp)
+target_include_directories(bench_jitter PRIVATE ${BENCH_INCLUDE_DIRS})
+target_link_libraries(bench_jitter PRIVATE benchmark::benchmark_main)
 
-# protocol_bench
-add_executable(protocol_bench protocol_bench.cpp)
-target_include_directories(protocol_bench PRIVATE ${BENCH_INCLUDE_DIRS})
-target_link_libraries(protocol_bench PRIVATE benchmark::benchmark_main)
+# bench_protocol
+add_executable(bench_protocol bench_protocol.cpp)
+target_include_directories(bench_protocol PRIVATE ${BENCH_INCLUDE_DIRS})
+target_link_libraries(bench_protocol PRIVATE benchmark::benchmark_main)
 
-# video_codec_bench (needs driscord_core for VideoEncoder/VideoDecoder)
-add_executable(video_codec_bench video_codec_bench.cpp)
-target_include_directories(video_codec_bench PRIVATE ${BENCH_CORE_INCLUDE_DIRS})
-target_link_libraries(video_codec_bench PRIVATE benchmark::benchmark_main driscord_core)
+# bench_video_codec (needs driscord_core for VideoEncoder/VideoDecoder)
+add_executable(bench_video_codec bench_video_codec.cpp)
+target_include_directories(bench_video_codec PRIVATE ${BENCH_CORE_INCLUDE_DIRS})
+target_link_libraries(bench_video_codec PRIVATE benchmark::benchmark_main driscord_core)

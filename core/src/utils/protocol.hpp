@@ -33,7 +33,6 @@ enum class VideoCodec : uint8_t {
     H264 = 0,
     HEVC = 1,
 };
-const char* to_string(VideoCodec c);
 
 struct VideoHeader {
     uint32_t width = 0;

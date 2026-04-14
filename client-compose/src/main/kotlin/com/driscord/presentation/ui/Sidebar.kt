@@ -40,8 +40,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.driscord.data.audio.AudioInputDevice
+import com.driscord.data.audio.AudioDevice
 import com.driscord.domain.model.ConnectionState
+import com.driscord.driscord_compose.generated.resources.*
 import com.driscord.presentation.AppIntent
 import com.driscord.presentation.AppUiState
 import com.driscord.presentation.ui.components.AvatarBox
@@ -59,14 +60,15 @@ import com.driscord.ui.SidebarBg
 import com.driscord.ui.TextMuted
 import com.driscord.ui.TextPrimary
 import com.driscord.ui.VoiceBg
+import org.jetbrains.compose.resources.stringResource
 
 @Composable
 fun Sidebar(
     state: AppUiState,
     onIntent: (AppIntent) -> Unit,
     onGetPeerVolume: (String) -> Float,
-    onListInputDevices: () -> List<AudioInputDevice>,
-    onListOutputDevices: () -> List<AudioInputDevice>,
+    onListInputDevices: () -> List<AudioDevice>,
+    onListOutputDevices: () -> List<AudioDevice>,
 ) {
     var serverUrl by remember(state.config.serverUrl) { mutableStateOf(state.config.serverUrl) }
     var expandedPeer by remember { mutableStateOf<String?>(null) }
@@ -164,7 +166,7 @@ private fun MembersList(
     ) {
         val memberCount = state.peers.size + if (state.connectionState == ConnectionState.Connected) 1 else 0
         Text(
-            text = "MEMBERS — $memberCount",
+            text = "${stringResource(Res.string.members)} — $memberCount",
             color = TextMuted,
             fontSize = 10.sp,
             letterSpacing = 0.5.sp,
@@ -188,10 +190,10 @@ private fun MembersList(
             )
             if (expandedPeer == state.localId) {
                 MemberExpanded(
-                    label = "Mic Volume",
+                    label = stringResource(Res.string.mic_volume),
                     value = state.outputVolume,
                     level = state.inputLevel,
-                    levelLabel = "Mic",
+                    levelLabel = stringResource(Res.string.mic),
                     active = state.muted,
                     onChange = { v -> onIntent(AppIntent.SetOutputVolume(v)) },
                 )
@@ -211,7 +213,7 @@ private fun MembersList(
             if (expandedPeer == peer.id) {
                 var pVol by remember(peer.id) { mutableStateOf(onGetPeerVolume(peer.id)) }
                 MemberExpanded(
-                    label = "Volume",
+                    label = stringResource(Res.string.volume),
                     value = pVol,
                     level = null,
                     levelLabel = null,
@@ -244,7 +246,7 @@ private fun ConnectionSection(
     when (state.connectionState) {
         ConnectionState.Disconnected -> {
             Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-                Text("Server", color = TextMuted, fontSize = 11.sp, letterSpacing = 0.3.sp)
+                Text(stringResource(Res.string.server), color = TextMuted, fontSize = 11.sp, letterSpacing = 0.3.sp)
                 Spacer(Modifier.height(4.dp))
                 OutlinedTextField(
                     value = serverUrl,
@@ -268,7 +270,7 @@ private fun ConnectionSection(
                     shape = RoundedCornerShape(4.dp),
                     contentPadding = PaddingValues(0.dp),
                 ) {
-                    Text("Connect", color = Color.White, fontSize = 13.sp)
+                    Text(stringResource(Res.string.connect), color = Color.White, fontSize = 13.sp)
                 }
             }
         }
@@ -283,7 +285,7 @@ private fun ConnectionSection(
             ) {
                 CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Connecting)
                 Spacer(Modifier.width(8.dp))
-                Text("Connecting…", color = Connecting, fontSize = 13.sp)
+                Text(stringResource(Res.string.connecting), color = Connecting, fontSize = 13.sp)
             }
         }
 
@@ -305,7 +307,7 @@ private fun ConnectedStatus(state: AppUiState, onIntent: (AppIntent) -> Unit) {
             SignalBars(modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(6.dp))
             Text(
-                text = "Voice Connected",
+                text = stringResource(Res.string.voice_connected),
                 color = Green,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -337,7 +339,7 @@ private fun ConnectedStatus(state: AppUiState, onIntent: (AppIntent) -> Unit) {
                 LiveBadge()
                 Spacer(Modifier.width(5.dp))
                 Text(
-                    text = state.shareTargetName.ifEmpty { "Screen" },
+                    text = state.shareTargetName.ifEmpty { stringResource(Res.string.screen) },
                     color = Green,
                     fontSize = 11.sp,
                     maxLines = 1,
@@ -383,7 +385,11 @@ private fun UserBar(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(if (connected) "Connected" else "Offline", color = TextMuted, fontSize = 10.sp)
+            Text(
+                if (connected) stringResource(Res.string.connected) else stringResource(Res.string.offline),
+                color = TextMuted,
+                fontSize = 10.sp,
+            )
         }
         if (connected) {
             IconActionButton(if (muted) "M!" else "M", muted, Red, onToggleMute)

@@ -1,6 +1,6 @@
 package com.driscord.presentation.viewmodel
 
-import com.driscord.data.audio.AudioInputDevice
+import com.driscord.data.audio.AudioDevice
 import com.driscord.data.audio.AudioService
 import com.driscord.data.config.ConfigRepository
 import com.driscord.data.connection.ConnectionService
@@ -26,6 +26,9 @@ class AppViewModel(
     ))
     val state: StateFlow<AppUiState> = _state.asStateFlow()
 
+    /** Frames are kept in a separate flow to avoid copying the full AppUiState on every frame. */
+    val frames: StateFlow<Map<String, ImageBitmap>> = videoService.frames
+
     init {
         // Merge service flows into single AppUiState
         scope.launch { connectionService.connectionState.collect { v -> _state.update { it.copy(connectionState = v) } } }
@@ -39,7 +42,6 @@ class AppViewModel(
         scope.launch { videoService.shareTargetName.collect { v -> _state.update { it.copy(shareTargetName = v) } } }
         scope.launch { videoService.watching.collect { v -> _state.update { it.copy(watching = v) } } }
         scope.launch { videoService.streamingPeers.collect { v -> _state.update { it.copy(streamingPeers = v) } } }
-        scope.launch { videoService.frames.collect { v -> _state.update { it.copy(frames = v) } } }
         scope.launch { videoService.streamStats.collect { v -> _state.update { it.copy(streamStats = v) } } }
         scope.launch { configRepository.config.collect { v -> _state.update { it.copy(config = v) } } }
 
@@ -109,8 +111,8 @@ class AppViewModel(
     // Synchronous getters — вызываются только при открытии меню/диалога, не нужны в state
     fun getPeerVolume(peerId: String): Float = audioService.getPeerVolume(peerId)
     fun getStreamVolume(): Float = videoService.getStreamVolume()
-    fun listInputDevices(): List<AudioInputDevice> = audioService.listInputDevices()
-    fun listOutputDevices(): List<AudioInputDevice> = audioService.listOutputDevices()
+    fun listInputDevices(): List<AudioDevice> = audioService.listInputDevices()
+    fun listOutputDevices(): List<AudioDevice> = audioService.listOutputDevices()
     fun listCaptureTargets(): List<CaptureTarget> = videoService.listCaptureTargets()
     fun grabThumbnail(target: CaptureTarget): ImageBitmap? = videoService.grabThumbnail(target)
 

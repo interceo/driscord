@@ -45,12 +45,14 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.driscord.domain.model.CaptureTarget
 import com.driscord.presentation.ui.components.DropdownSelect
+import com.driscord.driscord_compose.generated.resources.*
 import com.driscord.ui.Blurple
 import com.driscord.ui.DividerColor
 import com.driscord.ui.Green
 import com.driscord.ui.SidebarBg
 import com.driscord.ui.TextMuted
 import com.driscord.ui.TextPrimary
+import org.jetbrains.compose.resources.stringResource
 
 @Composable
 fun ShareDialog(
@@ -84,7 +86,7 @@ fun ShareDialog(
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = "Choose what to share",
+                    text = stringResource(Res.string.choose_what_to_share),
                     color = TextPrimary,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -149,11 +151,11 @@ fun ShareDialog(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     Column {
-                        Text("Quality", color = TextMuted, fontSize = 11.sp)
+                        Text(stringResource(Res.string.quality), color = TextMuted, fontSize = 11.sp)
                         DropdownSelect(qualities, quality) { quality = it }
                     }
                     Column {
-                        Text("FPS", color = TextMuted, fontSize = 11.sp)
+                        Text(stringResource(Res.string.fps), color = TextMuted, fontSize = 11.sp)
                         DropdownSelect(
                             options = fpsOptions.map { "$it" },
                             selectedIndex = fpsOptions.indexOf(fps),
@@ -167,12 +169,12 @@ fun ShareDialog(
                                 onCheckedChange = { shareAudio = it },
                                 colors = CheckboxDefaults.colors(checkedColor = Blurple),
                             )
-                            Text("Share Audio", color = TextPrimary, fontSize = 13.sp)
+                            Text(stringResource(Res.string.share_audio), color = TextPrimary, fontSize = 13.sp)
                         }
                     }
                     Spacer(Modifier.weight(1f))
                     TextButton(onClick = onDismiss) {
-                        Text("Cancel", color = TextMuted)
+                        Text(stringResource(Res.string.cancel), color = TextMuted)
                     }
                     Button(
                         onClick = { if (selectedIdx >= 0) onGo(targets[selectedIdx], quality, fps, shareAudio) },
@@ -180,7 +182,7 @@ fun ShareDialog(
                         colors = ButtonDefaults.buttonColors(backgroundColor = Green),
                         shape = RoundedCornerShape(4.dp),
                     ) {
-                        Text("Go Live", color = Color.White)
+                        Text(stringResource(Res.string.go_live), color = Color.White)
                     }
                 }
             }
