@@ -44,7 +44,7 @@ const char* to_string(VideoError e)
     return "Unknown";
 }
 
-const char* protocol::to_string(protocol::VideoCodec c)
+const char* to_string(protocol::VideoCodec c)
 {
     switch (c) {
     case protocol::VideoCodec::H264:

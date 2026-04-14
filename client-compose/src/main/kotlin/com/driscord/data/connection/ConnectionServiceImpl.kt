@@ -11,6 +11,9 @@ import kotlinx.serialization.json.Json
 class ConnectionServiceImpl(config: AppConfig) : ConnectionService {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private companion object {
+        const val CONNECT_TIMEOUT_MS = 15_000L
+    }
     private val json = Json { ignoreUnknownKeys = true }
 
     private val _connectionState = MutableStateFlow(ConnectionState.Disconnected)
@@ -36,13 +39,13 @@ class ConnectionServiceImpl(config: AppConfig) : ConnectionService {
         NativeDriscord.setOnPeerJoined { peerId ->
             scope.launch {
                 _peerJoinedEvents.emit(peerId)
-                withContext(Dispatchers.Main) { refreshPeers() }
+                refreshPeers()
             }
         }
         NativeDriscord.setOnPeerLeft { peerId ->
             scope.launch {
                 _peerLeftEvents.emit(peerId)
-                withContext(Dispatchers.Main) { refreshPeers() }
+                refreshPeers()
             }
         }
     }
@@ -50,19 +53,26 @@ class ConnectionServiceImpl(config: AppConfig) : ConnectionService {
     override fun connect(serverUrl: String) {
         if (_connectionState.value != ConnectionState.Disconnected) return
         _connectionState.value = ConnectionState.Connecting
-        val err = NativeDriscord.connect(serverUrl)
-        if (err != null) {
-            System.err.println("ConnectionService: connect failed: $err")
-            _connectionState.value = ConnectionState.Disconnected
-            return
-        }
         scope.launch {
-            while (isActive && !NativeDriscord.connected()) delay(100)
-            if (NativeDriscord.connected()) {
-                withContext(Dispatchers.Main) {
-                    _localId.value = NativeDriscord.localId()
-                    _connectionState.value = ConnectionState.Connected
+            val err = withContext(Dispatchers.IO) { NativeDriscord.connect(serverUrl) }
+            if (err != null) {
+                System.err.println("ConnectionService: connect failed: $err")
+                _connectionState.value = ConnectionState.Disconnected
+                return@launch
+            }
+            val deadline = System.currentTimeMillis() + CONNECT_TIMEOUT_MS
+            while (isActive && !NativeDriscord.connected()) {
+                if (System.currentTimeMillis() >= deadline) {
+                    System.err.println("ConnectionService: connect timed out")
+                    NativeDriscord.disconnect()
+                    _connectionState.value = ConnectionState.Disconnected
+                    return@launch
                 }
+                delay(100)
+            }
+            if (NativeDriscord.connected()) {
+                _localId.value = NativeDriscord.localId()
+                _connectionState.value = ConnectionState.Connected
             }
         }
     }
@@ -79,6 +89,11 @@ class ConnectionServiceImpl(config: AppConfig) : ConnectionService {
     }
 
     private fun refreshPeers() {
-        _peers.value = json.decodeFromString(NativeDriscord.peers())
+        _peers.value = runCatching {
+            json.decodeFromString<List<PeerInfo>>(NativeDriscord.peers())
+        }.getOrElse {
+            System.err.println("ConnectionService: refreshPeers decode failed: ${it.message}")
+            _peers.value
+        }
     }
 }

@@ -19,8 +19,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.driscord.domain.model.StreamStats
+import com.driscord.driscord_compose.generated.resources.*
 import com.driscord.presentation.ui.components.*
-import com.driscord.ui.*
+import com.driscord.ui.DividerColor
+import com.driscord.ui.Green
+import com.driscord.ui.Red
+import com.driscord.ui.StatsOverlayBg
+import com.driscord.ui.TextMuted
+import com.driscord.ui.TileOverlay
+import com.driscord.ui.Warning
+import org.jetbrains.compose.resources.stringResource
 
 @Composable
 internal fun StreamTile(
@@ -46,7 +54,6 @@ internal fun StreamTile(
             .background(Color(0xFF111214))
             .combinedClickable(onClick = { if (watching) onClick() else onJoin() }),
         onMenuOpened = {
-            // Refresh volume each time the menu opens so the slider isn't stale
             val current = currentStreamVolume
             vol = current
             isMuted = current == 0f
@@ -55,15 +62,15 @@ internal fun StreamTile(
             MenuHeader(peerId)
             if (!watching) {
                 DropdownMenuItem(onClick = { onJoin(); dismiss() }) {
-                    Text("▶  Смотреть", color = Green, fontSize = 13.sp)
+                    Text("▶  ${stringResource(Res.string.watch)}", color = Green, fontSize = 13.sp)
                 }
             } else {
-                VolumeSliderItem(label = "Громкость", vol = vol, onVolume = { v ->
+                VolumeSliderItem(label = stringResource(Res.string.volume), vol = vol, onVolume = { v ->
                     vol = v
                     isMuted = false
                     onSetStreamVolume(v)
                 })
-                CheckboxItem("Заглушить", isMuted) {
+                CheckboxItem(stringResource(Res.string.mute), isMuted) {
                     if (isMuted) {
                         vol = savedVol
                         onSetStreamVolume(savedVol)
@@ -76,7 +83,7 @@ internal fun StreamTile(
                 }
                 Divider(color = DividerColor)
                 DropdownMenuItem(onClick = { onLeave(); dismiss() }) {
-                    Text("Покинуть трансляцию", color = Red, fontSize = 13.sp)
+                    Text(stringResource(Res.string.leave_stream), color = Red, fontSize = 13.sp)
                 }
             }
         },
@@ -96,13 +103,13 @@ internal fun StreamTile(
                 modifier = Modifier.fillMaxSize(),
             ) {
                 Text(
-                    text = if (watching) "Buffering…" else "📺",
+                    text = if (watching) stringResource(Res.string.buffering) else "📺",
                     color = TextMuted,
                     fontSize = if (watching) 12.sp else 28.sp,
                 )
                 if (!watching) {
                     Spacer(Modifier.height(4.dp))
-                    Text("Click to watch", color = TextMuted, fontSize = 11.sp)
+                    Text(stringResource(Res.string.click_to_watch), color = TextMuted, fontSize = 11.sp)
                 }
             }
         }

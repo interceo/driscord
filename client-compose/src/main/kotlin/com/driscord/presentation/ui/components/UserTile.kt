@@ -27,10 +27,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.driscord.driscord_compose.generated.resources.*
 import com.driscord.ui.Green
 import com.driscord.ui.TextMuted
 import com.driscord.ui.TileBg
 import com.driscord.ui.TileOverlay
+import org.jetbrains.compose.resources.stringResource
 
 @Composable
 internal fun UserTile(
@@ -61,7 +63,6 @@ internal fun UserTile(
             .background(TileBg)
             .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier),
         onMenuOpened = {
-            // Refresh volume and derived mute flag each time the menu opens
             val current = currentOnGetVolume()
             vol = current
             peerMuted = current == 0f
@@ -69,19 +70,19 @@ internal fun UserTile(
         menuContent = { _ ->
             MenuHeader(peerId)
             if (isYou) {
-                VolumeSliderItem(label = "Громкость микрофона", vol = vol, onVolume = { v ->
+                VolumeSliderItem(label = stringResource(Res.string.mic_volume), vol = vol, onVolume = { v ->
                     vol = v
                     onSetVolume(v)
                 })
-                if (onToggleMute != null) CheckboxItem("Заглушить", muted) { onToggleMute() }
-                if (onToggleDeafen != null) CheckboxItem("Откл. звук", deafened) { onToggleDeafen() }
+                if (onToggleMute != null) CheckboxItem(stringResource(Res.string.mute), muted) { onToggleMute() }
+                if (onToggleDeafen != null) CheckboxItem(stringResource(Res.string.mute_sound), deafened) { onToggleDeafen() }
             } else {
-                VolumeSliderItem(label = "Громкость", vol = vol, onVolume = { v ->
+                VolumeSliderItem(label = stringResource(Res.string.volume), vol = vol, onVolume = { v ->
                     vol = v
                     peerMuted = false
                     onSetVolume(v)
                 })
-                CheckboxItem("Заглушить", peerMuted) {
+                CheckboxItem(stringResource(Res.string.mute), peerMuted) {
                     if (peerMuted) {
                         vol = savedVol
                         onSetVolume(savedVol)

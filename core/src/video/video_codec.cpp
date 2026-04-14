@@ -13,6 +13,7 @@ extern "C" {
 #include <string>
 #include <thread>
 
+#include "enum_strings.hpp"
 #include "log.hpp"
 #include "video_codec.hpp"
 

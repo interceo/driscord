@@ -21,7 +21,6 @@ enum class VideoError {
     VideoSenderFailed,
     CaptureStartFailed,
 };
-const char* to_string(VideoError e);
 
 struct AVCodecContext;
 struct SwsContext;

@@ -1,6 +1,5 @@
 package com.driscord.presentation
 
-import androidx.compose.ui.graphics.ImageBitmap
 import com.driscord.AppConfig
 import com.driscord.domain.model.ConnectionState
 import com.driscord.domain.model.PeerInfo
@@ -18,7 +17,6 @@ data class AppUiState(
     val shareTargetName: String = "",
     val watching: Boolean = false,
     val streamingPeers: List<String> = emptyList(),
-    val frames: Map<String, ImageBitmap> = emptyMap(),
     val streamStats: StreamStats = StreamStats(),
     val config: AppConfig = AppConfig(),
     val systemAudioAvailable: Boolean = false,

@@ -47,9 +47,7 @@ class VideoServiceImpl(
 
         NativeDriscord.setOnNewStreamingPeer { peerId ->
             scope.launch(Dispatchers.Main) {
-                if (peerId !in _streamingPeers.value)
-                    _streamingPeers.value += peerId
-                // Auto-join new peers while already watching.
+                _streamingPeers.update { if (peerId in it) it else it + peerId }
                 if (_watching.value) {
                     NativeDriscord.screenJoinStream(peerId)
                 }
@@ -57,15 +55,14 @@ class VideoServiceImpl(
         }
         NativeDriscord.setOnStreamingPeerRemoved { peerId ->
             scope.launch(Dispatchers.Main) {
-                _streamingPeers.value -= peerId
-                _frames.value -= peerId
+                _streamingPeers.update { it - peerId }
+                _frames.update { it - peerId }
             }
         }
         // Signaling-based streaming notifications (immediate, no video data dependency).
         NativeDriscord.setOnStreamingStarted { peerId ->
             scope.launch(Dispatchers.Main) {
-                if (peerId !in _streamingPeers.value)
-                    _streamingPeers.value += peerId
+                _streamingPeers.update { if (peerId in it) it else it + peerId }
                 if (_watching.value) {
                     NativeDriscord.screenJoinStream(peerId)
                 }
@@ -73,29 +70,35 @@ class VideoServiceImpl(
         }
         NativeDriscord.setOnStreamingStopped { peerId ->
             scope.launch(Dispatchers.Main) {
-                _streamingPeers.value -= peerId
-                _frames.value -= peerId
+                _streamingPeers.update { it - peerId }
+                _frames.update { it - peerId }
             }
         }
         NativeDriscord.setOnFrame { peerId, rgba, w, h ->
             scope.launch(Dispatchers.Main) {
-                _frames.value += (peerId to rgbaToImageBitmap(rgba, w, h))
+                _frames.update { it + (peerId to rgbaToImageBitmap(rgba, w, h)) }
             }
         }
         NativeDriscord.setOnFrameRemoved { peerId ->
-            scope.launch(Dispatchers.Main) { _frames.value -= peerId }
+            scope.launch(Dispatchers.Main) { _frames.update { it - peerId } }
         }
 
-        // Update loop: screen session tick + stats
+        // Screen session tick — drives C++ decode pipeline at frame rate
         scope.launch {
             while (isActive) {
                 NativeDriscord.screenUpdate()
-                withContext(Dispatchers.Main) {
-                    _sharing.value = NativeDriscord.screenSharing()
-                    _watching.value = NativeDriscord.videoWatching()
-                    _streamStats.value = json.decodeFromString(NativeDriscord.screenStats())
-                }
+                _sharing.value = NativeDriscord.screenSharing()
+                _watching.value = NativeDriscord.videoWatching()
                 delay(16)
+            }
+        }
+        // Stats polling — no need for 60 FPS, 4 Hz is enough for UI
+        scope.launch {
+            while (isActive) {
+                _streamStats.value = runCatching {
+                    json.decodeFromString<StreamStats>(NativeDriscord.screenStats())
+                }.getOrDefault(_streamStats.value)
+                delay(250)
             }
         }
     }
