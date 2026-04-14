@@ -17,8 +17,8 @@ class AppViewModel(
     private val audioService: AudioService,
     private val videoService: VideoService,
     private val configRepository: ConfigRepository,
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val _state = MutableStateFlow(AppUiState(
         systemAudioAvailable = videoService.systemAudioAvailable,
