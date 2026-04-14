@@ -98,7 +98,8 @@ TEST(VideoReceiver, DecodesFrameAfterLazyInit)
     // Feed several frames — HW decoders may need a priming pass.
     for (uint64_t fid = 1; fid <= 30 && !got_frame; ++fid) {
         const auto& out = enc.encode(bgra, W, H);
-        if (out.empty()) continue;
+        if (out.empty())
+            continue;
 
         auto pkt = make_video_packet(out, W, H, enc.codec());
         recv.push_video_packet(
