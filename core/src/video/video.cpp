@@ -150,9 +150,6 @@ void VideoReceiver::push_video_packet(
     if (data.size() <= protocol::VideoHeader::kWireSize) {
         return;
     }
-    if (!decoder_.ready()) {
-        return;
-    }
 
     const auto vh = protocol::VideoHeader::deserialize(data.data());
     if (vh.width == 0 || vh.height == 0 || vh.width > 7680 || vh.height > 4320) {

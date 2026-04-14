@@ -241,7 +241,7 @@ public:
     PushStatus push(uint64_t seq, Frame&& frame)
     {
         if (frame.empty()) {
-            return PushStatus::Late;
+            return PushStatus::Stored;
         }
         const auto ts = frame.sender_ts;
         return buf_.push(seq, std::make_unique<Frame>(std::move(frame)), ts);
