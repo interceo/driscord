@@ -1,5 +1,6 @@
 package com.driscord
 
+import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -12,11 +13,13 @@ import com.driscord.presentation.viewmodel.AppViewModel
 import com.driscord.presentation.ui.MainScreen
 
 fun main() = application {
-    val configRepo = ConfigRepositoryImpl()
-    val connectionSvc = ConnectionServiceImpl(configRepo.config.value)
-    val audioSvc = AudioServiceImpl()
-    val videoSvc = VideoServiceImpl(configRepo.config.value)
-    val viewModel = AppViewModel(connectionSvc, audioSvc, videoSvc, configRepo)
+    val viewModel = remember {
+        val configRepo = ConfigRepositoryImpl()
+        val connectionSvc = ConnectionServiceImpl(configRepo.config.value)
+        val audioSvc = AudioServiceImpl()
+        val videoSvc = VideoServiceImpl(configRepo.config.value)
+        AppViewModel(connectionSvc, audioSvc, videoSvc, configRepo)
+    }
 
     Window(
         onCloseRequest = { viewModel.close(); exitApplication() },

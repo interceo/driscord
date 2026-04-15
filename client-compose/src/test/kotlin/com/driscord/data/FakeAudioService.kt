@@ -1,6 +1,6 @@
 package com.driscord.data
 
-import com.driscord.data.audio.AudioInputDevice
+import com.driscord.data.audio.AudioDevice
 import com.driscord.data.audio.AudioService
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -52,10 +52,10 @@ class FakeAudioService : AudioService {
     override fun onPeerJoined(peerId: String) { peersJoined += peerId }
     override fun onPeerLeft(peerId: String) { peersLeft += peerId }
 
-    override fun listInputDevices(): List<AudioInputDevice> = emptyList()
+    override fun listInputDevices(): List<AudioDevice> = emptyList()
     override fun setInputDevice(id: String) { lastInputDevice = id }
 
-    override fun listOutputDevices(): List<AudioInputDevice> = emptyList()
+    override fun listOutputDevices(): List<AudioDevice> = emptyList()
     override fun setOutputDevice(id: String) { lastOutputDevice = id }
 
     override fun destroy() { destroyCalled++ }

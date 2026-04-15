@@ -84,11 +84,11 @@ class AudioServiceImpl : AudioService {
         NativeDriscord.audioOnPeerLeft(peerId)
     }
 
-    override fun listInputDevices(): List<AudioInputDevice> {
+    override fun listInputDevices(): List<AudioDevice> {
         @Serializable data class DeviceJson(val id: String, val name: String)
         return runCatching {
             Json.decodeFromString<List<DeviceJson>>(NativeDriscord.audioListInputDevices())
-                .map { AudioInputDevice(it.id, it.name) }
+                .map { AudioDevice(it.id, it.name) }
         }.getOrElse { emptyList() }
     }
 
@@ -96,11 +96,11 @@ class AudioServiceImpl : AudioService {
         NativeDriscord.audioSetInputDevice(id)
     }
 
-    override fun listOutputDevices(): List<AudioInputDevice> {
+    override fun listOutputDevices(): List<AudioDevice> {
         @Serializable data class DeviceJson(val id: String, val name: String)
         return runCatching {
             Json.decodeFromString<List<DeviceJson>>(NativeDriscord.audioListOutputDevices())
-                .map { AudioInputDevice(it.id, it.name) }
+                .map { AudioDevice(it.id, it.name) }
         }.getOrElse { emptyList() }
     }
 

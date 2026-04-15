@@ -18,7 +18,6 @@
 enum class TransportError {
     WebSocketCreateFailed,
 };
-const char* to_string(TransportError e);
 
 class Transport {
 public:

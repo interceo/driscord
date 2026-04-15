@@ -1,5 +1,6 @@
 #include "driscord_state.hpp"
 #include "jni_common.hpp"
+#include "utils/enum_strings.hpp"
 
 #define CORE() DriscordState::get().core
 
@@ -30,7 +31,7 @@ Java_com_driscord_jni_NativeDriscord_screenStartSharing(JNIEnv* env,
     auto r = CORE().screen_start_sharing(
         targetJson, static_cast<int>(maxW), static_cast<int>(maxH),
         static_cast<int>(fps), shareAudio == JNI_TRUE);
-    return r ? nullptr : env->NewStringUTF(to_string(r.error()));
+    return r ? nullptr : env->NewStringUTF(utils::to_string(r.error()));
 }
 
 JNIEXPORT void JNICALL

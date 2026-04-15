@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.driscord.domain.model.CaptureTarget
 import com.driscord.domain.model.ConnectionState
+import com.driscord.driscord_compose.generated.resources.*
 import com.driscord.presentation.AppIntent
 import com.driscord.presentation.AppUiState
 import com.driscord.presentation.ui.components.LiveBadge
@@ -50,10 +51,12 @@ import com.driscord.ui.Red
 import com.driscord.ui.SidebarBg
 import com.driscord.ui.TextMuted
 import com.driscord.ui.TextPrimary
+import org.jetbrains.compose.resources.stringResource
 
 @Composable
 fun ContentPanel(
     state: AppUiState,
+    frames: Map<String, ImageBitmap>,
     onIntent: (AppIntent) -> Unit,
     onGetPeerVolume: (String) -> Float,
     onStreamVolume: () -> Float,
@@ -89,6 +92,7 @@ fun ContentPanel(
             FocusedLayout(
                 focusedPeer = focusedPeer!!,
                 state = state,
+                frames = frames,
                 allPeers = allPeers,
                 onIntent = onIntent,
                 onGetPeerVolume = onGetPeerVolume,
@@ -100,6 +104,7 @@ fun ContentPanel(
             PeerGrid(
                 allPeers = allPeers,
                 state = state,
+                frames = frames,
                 onIntent = onIntent,
                 onGetPeerVolume = onGetPeerVolume,
                 onStreamVolume = onStreamVolume,
@@ -135,7 +140,8 @@ private fun DisconnectedPlaceholder(connecting: Boolean, modifier: Modifier = Mo
             Text("D", color = Blurple.copy(alpha = 0.3f), fontSize = 64.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             Text(
-                text = if (connecting) "Connecting to server…" else "Connect to a server to begin",
+                text = if (connecting) stringResource(Res.string.connecting_to_server)
+                       else stringResource(Res.string.connect_to_begin),
                 color = TextMuted,
                 fontSize = 14.sp,
             )
@@ -158,7 +164,7 @@ private fun Toolbar(state: AppUiState, onIntent: (AppIntent) -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            text = "General",
+            text = stringResource(Res.string.general),
             color = TextPrimary,
             fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,
@@ -177,7 +183,7 @@ private fun Toolbar(state: AppUiState, onIntent: (AppIntent) -> Unit) {
                     modifier = Modifier.height(28.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp),
                 ) {
-                    Text("Stop Sharing", color = Color.White, fontSize = 12.sp)
+                    Text(stringResource(Res.string.stop_sharing), color = Color.White, fontSize = 12.sp)
                 }
             }
         } else {
@@ -188,7 +194,7 @@ private fun Toolbar(state: AppUiState, onIntent: (AppIntent) -> Unit) {
                 modifier = Modifier.height(28.dp),
                 contentPadding = PaddingValues(horizontal = 12.dp),
             ) {
-                Text("Share Screen", color = Color.White, fontSize = 12.sp)
+                Text(stringResource(Res.string.share_screen), color = Color.White, fontSize = 12.sp)
             }
         }
     }
@@ -202,6 +208,7 @@ private fun Toolbar(state: AppUiState, onIntent: (AppIntent) -> Unit) {
 private fun PeerGrid(
     allPeers: List<String>,
     state: AppUiState,
+    frames: Map<String, ImageBitmap>,
     onIntent: (AppIntent) -> Unit,
     onGetPeerVolume: (String) -> Float,
     onStreamVolume: () -> Float,
@@ -233,7 +240,7 @@ private fun PeerGrid(
         items(state.streamingPeers, key = { "stream_$it" }) { peerId ->
             StreamTile(
                 peerId = peerId,
-                bitmap = state.frames[peerId],
+                bitmap = frames[peerId],
                 watching = state.watching,
                 stats = state.streamStats,
                 streamVolume = onStreamVolume(),
@@ -287,6 +294,7 @@ internal fun PeerTile(
 private fun FocusedLayout(
     focusedPeer: String,
     state: AppUiState,
+    frames: Map<String, ImageBitmap>,
     allPeers: List<String>,
     onIntent: (AppIntent) -> Unit,
     onGetPeerVolume: (String) -> Float,
@@ -300,7 +308,7 @@ private fun FocusedLayout(
             if (isStream) {
                 StreamTile(
                     peerId = focusedPeer,
-                    bitmap = state.frames[focusedPeer],
+                    bitmap = frames[focusedPeer],
                     watching = state.watching,
                     stats = state.streamStats,
                     streamVolume = onStreamVolume(),
@@ -334,7 +342,7 @@ private fun FocusedLayout(
                     if (isStr) {
                         StreamTile(
                             peerId = peerId,
-                            bitmap = state.frames[peerId],
+                            bitmap = frames[peerId],
                             watching = state.watching,
                             stats = state.streamStats,
                             streamVolume = onStreamVolume(),
@@ -364,7 +372,8 @@ private fun FocusedLayout(
 // Shared utility — used across ui package
 // ---------------------------------------------------------------------------
 
+@Composable
 internal fun peerLabel(peerId: String, localId: String): String = buildString {
     append(if (peerId.length > 14) peerId.take(14) + "…" else peerId)
-    if (peerId == localId) append(" (you)")
+    if (peerId == localId) append(" (${stringResource(Res.string.you)})")
 }

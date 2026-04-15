@@ -2,7 +2,7 @@ package com.driscord.data.audio
 
 import kotlinx.coroutines.flow.StateFlow
 
-data class AudioInputDevice(val id: String, val name: String)
+data class AudioDevice(val id: String, val name: String)
 
 interface AudioService {
     val muted: StateFlow<Boolean>
@@ -21,10 +21,10 @@ interface AudioService {
     fun onPeerJoined(peerId: String)
     fun onPeerLeft(peerId: String)
 
-    fun listInputDevices(): List<AudioInputDevice>
+    fun listInputDevices(): List<AudioDevice>
     fun setInputDevice(id: String)
 
-    fun listOutputDevices(): List<AudioInputDevice>
+    fun listOutputDevices(): List<AudioDevice>
     fun setOutputDevice(id: String)
 
     fun destroy()

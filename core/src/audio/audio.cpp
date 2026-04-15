@@ -1,6 +1,7 @@
 #define MINIAUDIO_IMPLEMENTATION
 #include "audio.hpp"
 
+#include "enum_strings.hpp"
 #include "log.hpp"
 #include "utils/ma_device.hpp"
 #include "utils/protocol.hpp"
@@ -251,22 +252,25 @@ utils::vector_view<const float> AudioReceiver::pop()
         miss_count_.inc();
         // PLC: ask Opus decoder to generate a concealment frame.
         const int samples = decoder_.decode_plc(decode_buf_.data(), opus::kFrameSize);
-        if (samples > 0) {
-            ++pop_count_;
-            if (channels_ > 1) {
-                for (int i = 0; i < samples; ++i) {
-                    float sum = 0.0f;
-                    for (int ch = 0; ch < channels_; ++ch) {
-                        sum += decode_buf_[static_cast<size_t>(i) * channels_ + ch];
-                    }
-                    mono_buf_[static_cast<size_t>(i)] = sum / channels_;
-                }
-                return utils::vector_view<const float>(mono_buf_.data(), samples);
-            }
+        if (samples <= 0) {
+            return utils::vector_view<const float>(nullptr, 0);
+        }
+
+        ++pop_count_;
+        if (channels_ == 1) {
             return utils::vector_view<const float>(decode_buf_.data(), samples);
         }
-        return utils::vector_view<const float>(nullptr, 0);
+
+        for (int i = 0; i < samples; ++i) {
+            float sum = 0.0f;
+            for (int ch = 0; ch < channels_; ++ch) {
+                sum += decode_buf_[static_cast<size_t>(i) * channels_ + ch];
+            }
+            mono_buf_[static_cast<size_t>(i)] = sum / channels_;
+        }
+        return utils::vector_view<const float>(mono_buf_.data(), samples);
     }
+
     if (!frame || frame->data.empty()) {
         return utils::vector_view<const float>(nullptr, 0);
     }
@@ -282,17 +286,18 @@ utils::vector_view<const float> AudioReceiver::pop()
     }
 
     ++pop_count_;
-    if (channels_ > 1) {
-        for (int i = 0; i < samples; ++i) {
-            float sum = 0.0f;
-            for (int ch = 0; ch < channels_; ++ch) {
-                sum += decode_buf_[static_cast<size_t>(i) * channels_ + ch];
-            }
-            mono_buf_[static_cast<size_t>(i)] = sum / channels_;
-        }
-        return utils::vector_view<const float>(mono_buf_.data(), samples);
+    if (channels_ < 1) {
+        return utils::vector_view<const float>(decode_buf_.data(), samples);
     }
-    return utils::vector_view<const float>(decode_buf_.data(), samples);
+
+    for (int i = 0; i < samples; ++i) {
+        float sum = 0.0f;
+        for (int ch = 0; ch < channels_; ++ch) {
+            sum += decode_buf_[static_cast<size_t>(i) * channels_ + ch];
+        }
+        mono_buf_[static_cast<size_t>(i)] = sum / channels_;
+    }
+    return utils::vector_view<const float>(mono_buf_.data(), samples);
 }
 
 size_t AudioReceiver::evict_old(utils::Duration max_delay)

@@ -1,5 +1,6 @@
 #include "driscord_state.hpp"
 #include "jni_common.hpp"
+#include "utils/enum_strings.hpp"
 
 #define CORE() DriscordState::get().core
 
@@ -29,7 +30,7 @@ Java_com_driscord_jni_NativeDriscord_connect(JNIEnv* env,
     auto url = env->GetStringUTFChars(jUrl, nullptr);
     auto r = CORE().transport.connect(url);
     env->ReleaseStringUTFChars(jUrl, url);
-    return r ? nullptr : env->NewStringUTF(to_string(r.error()));
+    return r ? nullptr : env->NewStringUTF(utils::to_string(r.error()));
 }
 
 JNIEXPORT void JNICALL Java_com_driscord_jni_NativeDriscord_disconnect(JNIEnv*,
