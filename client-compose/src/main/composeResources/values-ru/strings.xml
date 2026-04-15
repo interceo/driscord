@@ -51,4 +51,24 @@
 
     <!-- Peer label -->
     <string name="you">вы</string>
+
+    <!-- Auth -->
+    <string name="login">Войти</string>
+    <string name="register">Регистрация</string>
+    <string name="username">Имя пользователя</string>
+    <string name="password">Пароль</string>
+    <string name="email">Email</string>
+    <string name="logout">Выйти</string>
+
+    <!-- Servers &amp; channels -->
+    <string name="voice_channels">ГОЛОСОВЫЕ КАНАЛЫ</string>
+    <string name="text_channels">ТЕКСТОВЫЕ КАНАЛЫ</string>
+    <string name="create_server">Создать сервер</string>
+    <string name="server_name">Название сервера</string>
+    <string name="api_host">API хост</string>
+    <string name="api_port">API порт</string>
+    <string name="create_channel">Создать канал</string>
+    <string name="channel_name">Название канала</string>
+    <string name="voice">Голосовой</string>
+    <string name="text">Текстовый</string>
 </resources>
