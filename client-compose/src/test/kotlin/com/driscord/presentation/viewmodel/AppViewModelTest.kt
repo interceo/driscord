@@ -363,6 +363,15 @@ class AppViewModelTest {
     }
 
     @Test
+    fun `login success broadcasts username to connection service`() = runTest {
+        setup()
+        authRepository.loginResult = Result.success(Unit)
+        vm.onIntent(AppIntent.Login("alice", "secret"))
+
+        assertEquals(listOf("alice"), connectionService.setLocalUsernameCalls)
+    }
+
+    @Test
     fun `login success triggers server list refresh`() = runTest {
         setup()
         authRepository.loginResult = Result.success(Unit)
@@ -402,6 +411,15 @@ class AppViewModelTest {
 
         assertEquals(AuthStatus.LoggedIn, vm.state.value.authStatus)
         assertEquals("bob", vm.state.value.currentUsername)
+    }
+
+    @Test
+    fun `register success broadcasts username to connection service`() = runTest {
+        setup()
+        authRepository.registerResult = Result.success(Unit)
+        vm.onIntent(AppIntent.Register("bob", "bob@example.com", "pass"))
+
+        assertEquals(listOf("bob"), connectionService.setLocalUsernameCalls)
     }
 
     @Test

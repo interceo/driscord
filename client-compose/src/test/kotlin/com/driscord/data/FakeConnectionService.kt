@@ -23,6 +23,7 @@ class FakeConnectionService : ConnectionService {
     var connectCalls = mutableListOf<String>()
     var disconnectCalled = 0
     var destroyCalled = 0
+    var setLocalUsernameCalls = mutableListOf<String>()
 
     override fun connect(serverUrl: String) {
         connectCalls += serverUrl
@@ -34,5 +35,9 @@ class FakeConnectionService : ConnectionService {
 
     override fun destroy() {
         destroyCalled++
+    }
+
+    override fun setLocalUsername(username: String) {
+        setLocalUsernameCalls += username
     }
 }

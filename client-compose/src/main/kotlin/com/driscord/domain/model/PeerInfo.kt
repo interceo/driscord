@@ -6,4 +6,5 @@ import kotlinx.serialization.Serializable
 data class PeerInfo(
     val id: String,
     val connected: Boolean,
+    val username: String = "",
 )

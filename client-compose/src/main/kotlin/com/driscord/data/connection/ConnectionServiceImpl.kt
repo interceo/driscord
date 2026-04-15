@@ -48,6 +48,9 @@ class ConnectionServiceImpl(config: AppConfig) : ConnectionService {
                 refreshPeers()
             }
         }
+        NativeDriscord.setOnPeerIdentityReceived { _, _ ->
+            scope.launch { refreshPeers() }
+        }
     }
 
     override fun connect(serverUrl: String) {
@@ -86,6 +89,10 @@ class ConnectionServiceImpl(config: AppConfig) : ConnectionService {
 
     override fun destroy() {
         scope.cancel()
+    }
+
+    override fun setLocalUsername(username: String) {
+        NativeDriscord.setLocalUsername(username)
     }
 
     private fun refreshPeers() {

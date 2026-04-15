@@ -9,6 +9,10 @@ object NativeDriscord {
         fun invoke(peerId: String)
     }
 
+    fun interface BiStringCallback {
+        fun invoke(a: String, b: String)
+    }
+
     fun interface OnFrameCallback {
         fun invoke(
             peerId: String,
@@ -40,6 +44,9 @@ object NativeDriscord {
     @JvmStatic external fun setOnStreamingStarted(cb: StringCallback)
 
     @JvmStatic external fun setOnStreamingStopped(cb: StringCallback)
+
+    @JvmStatic external fun setLocalUsername(username: String)
+    @JvmStatic external fun setOnPeerIdentityReceived(cb: BiStringCallback)
 
     // -- Audio --
 

@@ -52,6 +52,12 @@ DriscordCore::DriscordCore()
         [this](const std::string& id) { video_transport.add_subscriber(id); });
     transport.on_watch_stopped(
         [this](const std::string& id) { video_transport.remove_subscriber(id); });
+    video_transport.on_peer_identity([this](const std::string& peer_id, const std::string& username) {
+        std::scoped_lock lk(cb_mtx_);
+        if (on_peer_identity_cb_) {
+            on_peer_identity_cb_(peer_id, username);
+        }
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -68,6 +74,13 @@ void DriscordCore::set_on_peer_left(StringCb cb)
 {
     std::scoped_lock lk(cb_mtx_);
     on_peer_left_cb_ = std::move(cb);
+}
+
+void DriscordCore::set_on_peer_identity(
+    std::function<void(const std::string&, const std::string&)> cb)
+{
+    std::scoped_lock lk(cb_mtx_);
+    on_peer_identity_cb_ = std::move(cb);
 }
 
 void DriscordCore::set_on_new_streaming_peer(StringCb cb)
@@ -200,9 +213,18 @@ std::string DriscordCore::peers_json() const
     auto ps = transport.peers();
     json arr = json::array();
     for (auto& p : ps) {
-        arr.push_back({ { "id", p.id }, { "connected", p.primary_open } });
+        arr.push_back({
+            { "id", p.id },
+            { "connected", p.primary_open },
+            { "username", video_transport.peer_username(p.id) },
+        });
     }
     return arr.dump();
+}
+
+void DriscordCore::set_local_username(const std::string& username)
+{
+    video_transport.set_local_username(username);
 }
 
 // ---------------------------------------------------------------------------

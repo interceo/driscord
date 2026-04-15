@@ -23,26 +23,35 @@ public:
 
     unsigned short bound_port() const;
 
-    // Atomically inserts the new session into the registry, snapshots the
-    // existing peers (for the welcome message) and broadcasts peer_joined to
-    // every pre-existing session. Returns the JSON-encoded welcome payload
-    // that the caller must send to the newly registered session. The welcome
-    // send itself happens OUTSIDE the critical section (Beast's async_write
-    // is posted on the session's own strand), so multiple concurrent joiners
-    // cannot miss each other.
+    // Atomically inserts the new session into its room, snapshots existing
+    // peers in that room (for the welcome message), and broadcasts peer_joined
+    // to every pre-existing session in the same room. Returns the JSON-encoded
+    // welcome payload. The welcome send itself happens OUTSIDE the critical
+    // section.
     std::string register_and_build_welcome(const std::string& id,
+        const std::string& room_id,
         std::shared_ptr<Session> s);
 
-    void unregister_session(const std::string& id);
-    void broadcast(const std::string& from_id, const std::string& msg);
-    void send_to(const std::string& target_id, const std::string& msg);
+    void unregister_session(const std::string& id, const std::string& room_id);
 
-    // Returns the current number of connected sessions. Useful for tests
-    // that want to assert cleanup after disconnect.
+    // Broadcast to all sessions in the same room except the sender.
+    void broadcast(const std::string& from_id,
+        const std::string& room_id,
+        const std::string& msg);
+
+    // Unicast: routes only within the given room.
+    void send_to(const std::string& target_id,
+        const std::string& room_id,
+        const std::string& msg);
+
+    // Total connected sessions across all rooms (for tests).
     size_t active_sessions() const;
+    // Sessions in a specific room (for tests).
+    size_t active_sessions(const std::string& room_id) const;
 
-    void add_streaming_peer(const std::string& id);
-    void remove_streaming_peer(const std::string& id);
+    void add_streaming_peer(const std::string& id, const std::string& room_id);
+    void remove_streaming_peer(const std::string& id,
+        const std::string& room_id);
 
 private:
     void do_accept();
@@ -50,9 +59,13 @@ private:
     boost::asio::io_context& io_context_;
     boost::asio::ip::tcp::acceptor acceptor_;
 
-    mutable std::mutex sessions_mutex_;
-    std::unordered_map<std::string, std::shared_ptr<Session>> sessions_;
-    std::unordered_set<std::string> streaming_peers_;
+    struct Room {
+        std::unordered_map<std::string, std::shared_ptr<Session>> sessions;
+        std::unordered_set<std::string> streaming_peers;
+    };
+
+    mutable std::mutex rooms_mutex_;
+    std::unordered_map<std::string, Room> rooms_;
 };
 
 } // namespace driscord
