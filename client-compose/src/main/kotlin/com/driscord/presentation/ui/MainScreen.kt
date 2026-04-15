@@ -7,13 +7,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import com.driscord.data.audio.AudioInputDevice
 import com.driscord.presentation.viewmodel.AppViewModel
 import com.driscord.ui.ContentBg
 
 @Composable
 fun MainScreen(viewModel: AppViewModel) {
     val state by viewModel.state.collectAsState()
+    val frames by viewModel.frames.collectAsState()
     val onIntent = viewModel::onIntent
 
     Row(modifier = Modifier.fillMaxSize().background(ContentBg)) {
@@ -27,6 +27,7 @@ fun MainScreen(viewModel: AppViewModel) {
         ContentPanel(
             modifier = Modifier.weight(1f),
             state = state,
+            frames = frames,
             onIntent = onIntent,
             onGetPeerVolume = viewModel::getPeerVolume,
             onStreamVolume = viewModel::getStreamVolume,

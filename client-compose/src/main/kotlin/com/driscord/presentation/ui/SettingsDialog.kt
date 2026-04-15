@@ -15,27 +15,35 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.driscord.AppConfig
-import com.driscord.data.audio.AudioInputDevice
-import com.driscord.ui.*
+import com.driscord.data.audio.AudioDevice
+import com.driscord.driscord_compose.generated.resources.*
+import com.driscord.ui.Blurple
+import com.driscord.ui.FieldBg
+import com.driscord.ui.FieldBgDark
+import com.driscord.ui.TextMuted
+import com.driscord.ui.TextPrimary
+import com.driscord.ui.VoiceBg
+import org.jetbrains.compose.resources.stringResource
 
 @Composable
 fun SettingsDialog(
     config: AppConfig,
     onDismiss: () -> Unit,
     onSave: (AppConfig) -> Unit,
-    onListInputDevices: () -> List<AudioInputDevice>,
-    onListOutputDevices: () -> List<AudioInputDevice>,
+    onListInputDevices: () -> List<AudioDevice>,
+    onListOutputDevices: () -> List<AudioDevice>,
 ) {
     var serverHost by remember { mutableStateOf(config.serverHost) }
     var serverPort by remember { mutableStateOf(config.serverPort.toString()) }
     var screenFps by remember { mutableStateOf(config.screenFps.toString()) }
 
     // Load device lists once on open; prepend "Default" (empty id = system default)
-    val inputOptions: List<AudioInputDevice> = remember {
-        listOf(AudioInputDevice("", "Default")) + onListInputDevices()
+    val defaultLabel = stringResource(Res.string.default_device)
+    val inputOptions: List<AudioDevice> = remember {
+        listOf(AudioDevice("", defaultLabel)) + onListInputDevices()
     }
-    val outputOptions: List<AudioInputDevice> = remember {
-        listOf(AudioInputDevice("", "Default")) + onListOutputDevices()
+    val outputOptions: List<AudioDevice> = remember {
+        listOf(AudioDevice("", defaultLabel)) + onListOutputDevices()
     }
     var selectedInputIdx by remember(config.micDeviceId, inputOptions) {
         mutableStateOf(inputOptions.indexOfFirst { it.id == config.micDeviceId }.coerceAtLeast(0))
@@ -59,14 +67,14 @@ fun SettingsDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text("Settings", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(Res.string.settings), color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(4.dp))
                 Divider(color = FieldBg)
                 Spacer(Modifier.height(4.dp))
 
-                SettingsGroup("Audio") {
+                SettingsGroup(stringResource(Res.string.audio)) {
                     SettingsDropdown(
-                        label = "Microphone",
+                        label = stringResource(Res.string.microphone),
                         options = inputOptions.map { it.name },
                         selectedIndex = selectedInputIdx,
                         expanded = inputMenuExpanded,
@@ -74,7 +82,7 @@ fun SettingsDialog(
                         onSelect = { selectedInputIdx = it; inputMenuExpanded = false },
                     )
                     SettingsDropdown(
-                        label = "Output",
+                        label = stringResource(Res.string.output),
                         options = outputOptions.map { it.name },
                         selectedIndex = selectedOutputIdx,
                         expanded = outputMenuExpanded,
@@ -83,18 +91,18 @@ fun SettingsDialog(
                     )
                 }
 
-                SettingsGroup("Connection") {
-                    SettingsField("Server Host", serverHost) { serverHost = it }
-                    SettingsField("Server Port", serverPort) { serverPort = it }
+                SettingsGroup(stringResource(Res.string.connection)) {
+                    SettingsField(stringResource(Res.string.server_host), serverHost) { serverHost = it }
+                    SettingsField(stringResource(Res.string.server_port), serverPort) { serverPort = it }
                 }
 
-                SettingsGroup("Video") {
-                    SettingsField("Capture FPS", screenFps) { screenFps = it }
+                SettingsGroup(stringResource(Res.string.video)) {
+                    SettingsField(stringResource(Res.string.capture_fps), screenFps) { screenFps = it }
                 }
 
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = "* Connection and Video settings take effect after restart",
+                    text = stringResource(Res.string.settings_restart_note),
                     color = TextMuted,
                     fontSize = 10.sp,
                 )
@@ -102,7 +110,7 @@ fun SettingsDialog(
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
-                        Text("Cancel", color = TextMuted)
+                        Text(stringResource(Res.string.cancel), color = TextMuted)
                     }
                     Button(
                         onClick = {
@@ -121,7 +129,7 @@ fun SettingsDialog(
                         colors = ButtonDefaults.buttonColors(backgroundColor = Blurple),
                         shape = RoundedCornerShape(4.dp),
                     ) {
-                        Text("Save", color = Color.White)
+                        Text(stringResource(Res.string.save), color = Color.White)
                     }
                 }
             }

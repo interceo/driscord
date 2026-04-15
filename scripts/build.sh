@@ -129,16 +129,16 @@ if [ "$ACTION" = "bench" ]; then
             -DBUILD_BENCHMARKS=ON -DBUILD_CORE=ON -DBUILD_SERVER=OFF -Wno-dev
     fi
     echo "==> Building benchmarks ($JOBS jobs)..."
-    cmake --build "$BUILD" --target jitter_bench protocol_bench video_codec_bench -j"$JOBS"
+    cmake --build "$BUILD" --target bench_jitter bench_protocol bench_video_codec -j"$JOBS"
     echo ""
-    echo "=== jitter_bench ==="
-    DRISCORD_LOG_LEVEL=none "$BUILD/core/benchmarks/jitter_bench"
+    echo "=== bench_jitter ==="
+    DRISCORD_LOG_LEVEL=none "$BUILD/core/benchmarks/bench_jitter"
     echo ""
-    echo "=== protocol_bench ==="
-    DRISCORD_LOG_LEVEL=none "$BUILD/core/benchmarks/protocol_bench"
+    echo "=== bench_protocol ==="
+    DRISCORD_LOG_LEVEL=none "$BUILD/core/benchmarks/bench_protocol"
     echo ""
-    echo "=== video_codec_bench ==="
-    DRISCORD_LOG_LEVEL=none "$BUILD/core/benchmarks/video_codec_bench"
+    echo "=== bench_video_codec ==="
+    DRISCORD_LOG_LEVEL=none "$BUILD/core/benchmarks/bench_video_codec"
     exit 0
 fi
 

@@ -3,6 +3,8 @@
 #include "utils/protocol.hpp"
 #include "video/video_codec.hpp"
 
+namespace utils {
+
 const char* to_string(AudioError e)
 {
     switch (e) {
@@ -44,7 +46,7 @@ const char* to_string(VideoError e)
     return "Unknown";
 }
 
-const char* protocol::to_string(protocol::VideoCodec c)
+const char* to_string(protocol::VideoCodec c)
 {
     switch (c) {
     case protocol::VideoCodec::H264:
@@ -53,4 +55,6 @@ const char* protocol::to_string(protocol::VideoCodec c)
         return "HEVC";
     }
     return "Unknown";
+}
+
 }

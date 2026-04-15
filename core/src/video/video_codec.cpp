@@ -13,6 +13,7 @@ extern "C" {
 #include <string>
 #include <thread>
 
+#include "enum_strings.hpp"
 #include "log.hpp"
 #include "video_codec.hpp"
 
@@ -439,7 +440,7 @@ utils::Expected<void, VideoError> VideoEncoder::init(const size_t width,
     measured_kbps_ = 0;
 
     LOG_INFO() << "video encoder: " << w << "x" << h << " @ " << f << " fps"
-               << " " << to_string(chosen_codec)
+               << " " << utils::to_string(chosen_codec)
                << " (" << codec->name << ") bitrate=" << bitrate << " kbps"
                << " gop=" << ctx_->gop_size;
     return { };

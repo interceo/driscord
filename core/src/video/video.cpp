@@ -1,6 +1,7 @@
 #include "video.hpp"
 
 #include "log.hpp"
+#include "utils/enum_strings.hpp"
 #include "utils/protocol.hpp"
 
 #include <cstring>
@@ -97,7 +98,7 @@ void VideoSender::encode_loop()
             if (auto r = video_encoder_.init(frame.width, frame.height, fps_,
                     base_bitrate_kbps_);
                 !r) {
-                LOG_ERROR() << "video encoder reinit failed: " << to_string(r.error());
+                LOG_ERROR() << "video encoder reinit failed: " << utils::to_string(r.error());
                 continue;
             }
         }
@@ -157,7 +158,7 @@ void VideoReceiver::push_video_packet(
     }
 
     if (!decoder_codec_.has_value() || *decoder_codec_ != vh.codec) {
-        LOG_INFO() << "video decoder: init " << to_string(vh.codec)
+        LOG_INFO() << "video decoder: init " << utils::to_string(vh.codec)
                    << " for peer " << peer_id_;
         if (!decoder_.init(vh.codec)) {
             LOG_ERROR() << "video decoder init failed for peer " << peer_id_;
