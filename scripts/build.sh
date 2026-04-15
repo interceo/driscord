@@ -74,10 +74,6 @@ fi
 
 # ===== API =====
 if [ "$TARGET" = "api" ]; then
-    if [ "$ACTION" = "test" ]; then
-        echo "No tests for API yet."
-        exit 0
-    fi
     if [ "$ACTION" = "bench" ]; then
         echo "No benchmarks for API yet."
         exit 0
@@ -87,6 +83,13 @@ if [ "$TARGET" = "api" ]; then
     if [ ! -d "$VENV_DIR" ]; then
         echo "==> Creating Python venv..."
         python3 -m venv "$VENV_DIR"
+    fi
+    if [ "$ACTION" = "test" ]; then
+        echo "==> Installing API dev dependencies..."
+        "$VENV_DIR/bin/pip" install -q -r "$API_DIR/requirements-dev.txt"
+        echo "==> Running pytest..."
+        cd "$API_DIR"
+        exec "$VENV_DIR/bin/pytest"
     fi
     echo "==> Installing API dependencies..."
     "$VENV_DIR/bin/pip" install -q -r "$API_DIR/requirements.txt"
