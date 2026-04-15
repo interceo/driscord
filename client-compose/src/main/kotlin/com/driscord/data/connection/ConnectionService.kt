@@ -14,4 +14,5 @@ interface ConnectionService {
     fun connect(serverUrl: String)
     fun disconnect()
     fun destroy()
+    fun setLocalUsername(username: String)
 }

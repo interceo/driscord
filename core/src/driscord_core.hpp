@@ -39,6 +39,7 @@ public:
     // -- Callback setters (thread-safe) --
     void set_on_peer_joined(StringCb cb);
     void set_on_peer_left(StringCb cb);
+    void set_on_peer_identity(std::function<void(const std::string&, const std::string&)> cb);
     void set_on_new_streaming_peer(StringCb cb);
     void set_on_streaming_peer_removed(StringCb cb);
     void set_on_frame(FrameCb cb);
@@ -48,6 +49,7 @@ public:
 
     // -- Transport (non-trivial) --
     std::string peers_json() const;
+    void set_local_username(const std::string& username);
 
     // -- Audio (cross-subsystem) --
     void audio_set_screen_audio_receiver(const std::string& peer, bool has_screen);
@@ -79,6 +81,7 @@ private:
     std::mutex cb_mtx_;
     StringCb on_peer_joined_cb_;
     StringCb on_peer_left_cb_;
+    std::function<void(const std::string&, const std::string&)> on_peer_identity_cb_;
     StringCb on_new_streaming_peer_cb_;
     StringCb on_streaming_peer_removed_cb_;
     FrameCb on_frame_cb_;

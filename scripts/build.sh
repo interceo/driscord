@@ -55,7 +55,18 @@ cmake_configure() {
 # ===== SERVER =====
 if [ "$TARGET" = "server" ]; then
     if [ "$ACTION" = "test" ]; then
-        echo "No tests for server yet."
+        echo "==> Configuring CMake for server tests ($BUILD_TYPE)..."
+        if command -v ninja &>/dev/null; then
+            cmake -S "$ROOT" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
+                -DBUILD_TESTS=ON -DBUILD_SERVER=ON -DBUILD_CORE=ON -Wno-dev
+        else
+            cmake -S "$ROOT" -B "$BUILD" -G "Unix Makefiles" -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
+                -DBUILD_TESTS=ON -DBUILD_SERVER=ON -DBUILD_CORE=ON -Wno-dev
+        fi
+        echo "==> Building server tests ($BUILD_TYPE, $JOBS jobs)..."
+        cmake --build "$BUILD" --target test_room_isolation -j"$JOBS"
+        cd "$BUILD"
+        ctest -R "test_room_isolation" --output-on-failure
         exit 0
     fi
     if [ "$ACTION" = "bench" ]; then

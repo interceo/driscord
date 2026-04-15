@@ -137,6 +137,7 @@ class AppViewModel(
                 authRepository.login(intent.username, intent.password)
                     .onSuccess {
                         val username = authRepository.currentUsername ?: ""
+                        connectionService.setLocalUsername(username)
                         _state.update { it.copy(authStatus = AuthStatus.LoggedIn, currentUsername = username) }
                         refreshServers()
                     }
@@ -149,6 +150,7 @@ class AppViewModel(
                 authRepository.register(intent.username, intent.email, intent.password)
                     .onSuccess {
                         val username = authRepository.currentUsername ?: ""
+                        connectionService.setLocalUsername(username)
                         _state.update { it.copy(authStatus = AuthStatus.LoggedIn, currentUsername = username) }
                         refreshServers()
                     }

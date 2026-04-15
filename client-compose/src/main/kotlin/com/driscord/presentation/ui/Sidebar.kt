@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.*
@@ -84,18 +85,13 @@ fun Sidebar(
 
         Divider(color = DividerColor, thickness = 1.dp)
         UserBar(
-            username = state.currentUsername.ifEmpty { state.localId.ifEmpty { "—" } },
+            username = state.currentUsername.ifEmpty { "—" },
             localId = state.localId,
             muted = state.muted,
             deafened = state.deafened,
-            sharing = state.sharing,
             connected = state.connectionState == ConnectionState.Connected,
             onToggleMute = { onIntent(AppIntent.ToggleMute) },
             onToggleDeafen = { onIntent(AppIntent.ToggleDeafen) },
-            onToggleShare = {
-                if (state.sharing) onIntent(AppIntent.StopSharing)
-                else onIntent(AppIntent.OpenShareDialog)
-            },
             onSettings = { onIntent(AppIntent.OpenSettings) },
             onLogout = { onIntent(AppIntent.Logout) },
         )
@@ -268,45 +264,107 @@ private fun ChannelRow(
 
 @Composable
 private fun ConnectionStatus(state: AppUiState, onIntent: (AppIntent) -> Unit) {
+    val channelName = state.channels.find { it.id == state.selectedChannelId }?.name
+    val serverName = state.servers.find { it.id == state.selectedServerId }?.name
+    val subtitle = when {
+        serverName != null && channelName != null -> "$serverName / $channelName"
+        channelName != null -> channelName
+        else -> null
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(VoiceBg)
-            .padding(horizontal = 10.dp, vertical = 7.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            when (state.connectionState) {
-                ConnectionState.Connecting -> {
+        when (state.connectionState) {
+            ConnectionState.Connecting -> {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 2.dp, color = Connecting)
                     Spacer(Modifier.width(6.dp))
-                    Text(stringResource(Res.string.connecting), color = Connecting, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    Text(stringResource(Res.string.connecting), color = Connecting, fontSize = 12.sp)
                 }
-                ConnectionState.Connected -> {
+            }
+            ConnectionState.Connected -> {
+                // Header row: signal + title + disconnect
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     SignalBars(modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text(stringResource(Res.string.voice_connected), color = Green, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(Res.string.voice_connected),
+                            color = Green,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                        )
+                        if (subtitle != null) {
+                            Text(
+                                text = subtitle,
+                                color = TextMuted,
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
                     Box(
-                        modifier = Modifier.size(18.dp).clip(RoundedCornerShape(3.dp)).background(FieldBg).clickable { onIntent(AppIntent.Disconnect) },
+                        modifier = Modifier
+                            .size(18.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(FieldBg)
+                            .clickable { onIntent(AppIntent.Disconnect) },
                         contentAlignment = Alignment.Center,
                     ) { Text("✕", color = Red, fontSize = 9.sp) }
                 }
-                else -> {}
+                // Share controls row
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ShareButton(
+                        label = stringResource(Res.string.share_screen),
+                        active = state.sharing,
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            if (state.sharing) onIntent(AppIntent.StopSharing)
+                            else onIntent(AppIntent.OpenShareDialog)
+                        },
+                    )
+                }
+                if (state.sharing) {
+                    Spacer(Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        LiveBadge()
+                        Spacer(Modifier.width(5.dp))
+                        Text(
+                            text = state.shareTargetName.ifEmpty { stringResource(Res.string.screen) },
+                            color = Green,
+                            fontSize = 10.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
             }
+            else -> {}
         }
-        if (state.connectionState == ConnectionState.Connected && state.sharing) {
-            Spacer(Modifier.height(3.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                LiveBadge()
-                Spacer(Modifier.width(5.dp))
-                Text(
-                    text = state.shareTargetName.ifEmpty { stringResource(Res.string.screen) },
-                    color = Green,
-                    fontSize = 10.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
+    }
+}
+
+@Composable
+private fun ShareButton(label: String, active: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(if (active) Blurple else FieldBg)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Text("◻", color = if (active) Color.White else TextMuted, fontSize = 10.sp)
+        Spacer(Modifier.width(4.dp))
+        Text(label, color = if (active) Color.White else TextMuted, fontSize = 11.sp, maxLines = 1)
     }
 }
 
@@ -337,9 +395,13 @@ private fun MembersList(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp),
         )
 
+        val localLabel = if (state.currentUsername.isNotEmpty())
+            "${state.currentUsername} (${stringResource(Res.string.you)})"
+        else
+            peerLabel(state.localId, state.localId)
         MemberRow(
             id = state.localId,
-            label = peerLabel(state.localId, state.localId),
+            label = localLabel,
             online = true,
             expanded = expandedPeer == state.localId,
             onClick = { onExpandPeer(state.localId) },
@@ -363,7 +425,7 @@ private fun MembersList(
         state.peers.forEach { peer ->
             MemberRow(
                 id = peer.id,
-                label = peerLabel(peer.id, state.localId),
+                label = peer.username.ifEmpty { peerLabel(peer.id, state.localId) },
                 online = peer.connected,
                 expanded = expandedPeer == peer.id,
                 onClick = { onExpandPeer(peer.id) },
@@ -399,11 +461,9 @@ private fun UserBar(
     localId: String,
     muted: Boolean,
     deafened: Boolean,
-    sharing: Boolean,
     connected: Boolean,
     onToggleMute: () -> Unit,
     onToggleDeafen: () -> Unit,
-    onToggleShare: () -> Unit,
     onSettings: () -> Unit,
     onLogout: () -> Unit,
 ) {
@@ -414,12 +474,23 @@ private fun UserBar(
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AvatarBox(peerId = localId.ifEmpty { username }, size = 28, fontSize = 12)
-        Spacer(Modifier.width(6.dp))
+        // Avatar with online indicator
+        Box {
+            AvatarBox(peerId = localId.ifEmpty { username }, size = 28, fontSize = 12)
+            if (connected) {
+                Box(
+                    modifier = Modifier
+                        .size(9.dp)
+                        .background(Green, CircleShape)
+                        .align(Alignment.BottomEnd),
+                )
+            }
+        }
+        Spacer(Modifier.width(7.dp))
+        // Username — takes all remaining space before buttons
         Column(modifier = Modifier.weight(1f)) {
-            val short = if (username.length > 12) username.take(12) + "…" else username
             Text(
-                text = short,
+                text = username,
                 color = TextPrimary,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
@@ -427,22 +498,36 @@ private fun UserBar(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                if (connected) stringResource(Res.string.connected) else stringResource(Res.string.offline),
-                color = TextMuted,
+                text = if (connected) stringResource(Res.string.connected) else stringResource(Res.string.offline),
+                color = if (connected) Green else TextMuted,
                 fontSize = 10.sp,
+                maxLines = 1,
             )
         }
+        // Fixed-width action area: at most 4 × 22dp + 3 × 2dp = 94dp
         if (connected) {
-            IconActionButton(if (muted) "M!" else "M", muted, Red, onToggleMute)
+            UserBarButton(if (muted) "M!" else "M", muted, Red, onToggleMute)
             Spacer(Modifier.width(2.dp))
-            IconActionButton(if (deafened) "H!" else "H", deafened, Red, onToggleDeafen)
-            Spacer(Modifier.width(2.dp))
-            IconActionButton(if (sharing) "◼" else "◻", sharing, Green, onToggleShare)
+            UserBarButton(if (deafened) "H!" else "H", deafened, Red, onToggleDeafen)
             Spacer(Modifier.width(2.dp))
         }
-        IconActionButton("⚙", false, TextMuted, onSettings)
+        UserBarButton("⚙", false, TextMuted, onSettings)
         Spacer(Modifier.width(2.dp))
-        IconActionButton("↪", false, TextMuted, onLogout)
+        UserBarButton("↪", false, TextMuted, onLogout)
+    }
+}
+
+@Composable
+private fun UserBarButton(label: String, active: Boolean, color: Color, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(22.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(if (active) color.copy(alpha = 0.2f) else Color.Transparent)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = if (active) color else TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
     }
 }
 

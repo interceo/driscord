@@ -49,6 +49,11 @@ public:
     void set_video_sink(VideoPacketCb video_cb, KeyframeCb kf_cb);
     void clear_video_sink();
 
+    // Identity exchange: broadcast our username to new peers on control-channel open.
+    void set_local_username(const std::string& username);
+    std::string peer_username(const std::string& peer_id) const;
+    void on_peer_identity(std::function<void(const std::string&, const std::string&)> cb);
+
 private:
     void on_chunk(const std::string& peer_id, const uint8_t* data, size_t len);
     void on_assembled(const std::string& peer_id,
@@ -74,4 +79,10 @@ private:
 
     // Keyed by peer_id to prevent frame_id collision across peers.
     std::unordered_map<std::string, utils::ChunkAssembler> peer_assembly_;
+
+    // Identity exchange
+    mutable std::mutex identity_mutex_;
+    std::string local_username_;
+    std::unordered_map<std::string, std::string> peer_usernames_;
+    std::function<void(const std::string&, const std::string&)> on_peer_identity_;
 };
