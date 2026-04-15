@@ -5,7 +5,11 @@
 #include "utils/protocol.hpp"
 #include "video/video_codec.hpp"
 
+namespace utils {
+
 const char* to_string(AudioError e);
 const char* to_string(TransportError e);
 const char* to_string(VideoError e);
 const char* to_string(protocol::VideoCodec c);
+
+}

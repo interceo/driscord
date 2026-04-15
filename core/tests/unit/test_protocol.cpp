@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "utils/enum_strings.hpp"
 #include "utils/protocol.hpp"
 
 #include <cstring>
@@ -139,8 +140,8 @@ TEST(VideoHeader, CodecRoundtrip)
 
 TEST(VideoCodecEnum, ToString)
 {
-    EXPECT_STREQ(protocol::to_string(protocol::VideoCodec::H264), "H264");
-    EXPECT_STREQ(protocol::to_string(protocol::VideoCodec::HEVC), "HEVC");
+    EXPECT_STREQ(utils::to_string(protocol::VideoCodec::H264), "H264");
+    EXPECT_STREQ(utils::to_string(protocol::VideoCodec::HEVC), "HEVC");
 }
 
 // ---- ChunkHeader ----
