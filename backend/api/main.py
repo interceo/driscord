@@ -1,9 +1,15 @@
+import logging
 from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI
 
-from config import settings
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
+from config import settings  # noqa: E402 — must be after logging.basicConfig
 from database import Base, engine
 from routers import auth, channels, health, servers, updates, users
 
