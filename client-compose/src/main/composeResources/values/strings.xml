@@ -51,4 +51,24 @@
 
     <!-- Peer label -->
     <string name="you">you</string>
+
+    <!-- Auth -->
+    <string name="login">Log In</string>
+    <string name="register">Register</string>
+    <string name="username">Username</string>
+    <string name="password">Password</string>
+    <string name="email">Email</string>
+    <string name="logout">Log Out</string>
+
+    <!-- Servers &amp; channels -->
+    <string name="voice_channels">VOICE CHANNELS</string>
+    <string name="text_channels">TEXT CHANNELS</string>
+    <string name="create_server">Create Server</string>
+    <string name="server_name">Server name</string>
+    <string name="api_host">API Host</string>
+    <string name="api_port">API Port</string>
+    <string name="create_channel">Create Channel</string>
+    <string name="channel_name">Channel name</string>
+    <string name="voice">Voice</string>
+    <string name="text">Text</string>
 </resources>

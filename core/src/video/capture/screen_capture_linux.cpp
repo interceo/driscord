@@ -279,9 +279,45 @@ public:
         std::string url;
 
         if (target.type == ScreenCaptureTarget::Window && !target.id.empty()) {
-            url = display;
-            av_dict_set(&opts, "window_id", target.id.c_str(), 0);
-            std::string vsize = std::to_string(target.width) + "x" + std::to_string(target.height);
+            // Compositors redirect windows off-screen so window_id capture via XGetImage
+            // fails with BadMatch. Instead, resolve the window's absolute screen position
+            // and capture that region from the root — the compositor's output is always
+            // readable there.
+            int abs_x = 0, abs_y = 0;
+            int cap_w = target.width, cap_h = target.height;
+            bool got_abs = false;
+
+            Display* dpy = XOpenDisplay(nullptr);
+            if (dpy) {
+                Window win { };
+                try {
+                    win = static_cast<Window>(std::stoul(target.id));
+                } catch (...) {
+                }
+
+                if (win) {
+                    Window child { };
+                    XWindowAttributes attrs { };
+                    if (XGetWindowAttributes(dpy, win, &attrs) && XTranslateCoordinates(dpy, win, DefaultRootWindow(dpy), 0, 0, &abs_x, &abs_y, &child)) {
+                        cap_w = attrs.width;
+                        cap_h = attrs.height;
+                        got_abs = true;
+                    }
+                }
+                XCloseDisplay(dpy);
+            }
+
+            if (got_abs) {
+                LOG_INFO() << "window capture: using root region at "
+                           << abs_x << "," << abs_y << " " << cap_w << "x" << cap_h;
+                url = display + "+" + std::to_string(abs_x) + "," + std::to_string(abs_y);
+            } else {
+                LOG_WARNING() << "window capture: could not resolve absolute position, "
+                                 "falling back to window_id (may fail under compositor)";
+                url = display;
+                av_dict_set(&opts, "window_id", target.id.c_str(), 0);
+            }
+            std::string vsize = std::to_string(cap_w) + "x" + std::to_string(cap_h);
             av_dict_set(&opts, "video_size", vsize.c_str(), 0);
         } else {
             url = display + "+" + std::to_string(target.x) + "," + std::to_string(target.y);
@@ -394,14 +430,26 @@ private:
 
     void capture_loop()
     {
+        int consecutive_errors = 0;
+        static constexpr int kMaxConsecutiveErrors = 20;
+
         while (running_) {
             int ret = av_read_frame(fmt_ctx_, pkt_);
             if (ret < 0) {
                 if (ret == AVERROR_EOF || stopping_) {
                     break;
                 }
+                ++consecutive_errors;
+                if (consecutive_errors == kMaxConsecutiveErrors) {
+                    LOG_WARNING() << "screen capture: " << consecutive_errors
+                                  << " consecutive read errors, stopping capture";
+                    running_ = false;
+                    break;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
                 continue;
             }
+            consecutive_errors = 0;
 
             if (pkt_->stream_index != video_idx_) {
                 av_packet_unref(pkt_);

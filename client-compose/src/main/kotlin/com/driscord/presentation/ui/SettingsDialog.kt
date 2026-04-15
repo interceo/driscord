@@ -35,6 +35,8 @@ fun SettingsDialog(
 ) {
     var serverHost by remember { mutableStateOf(config.serverHost) }
     var serverPort by remember { mutableStateOf(config.serverPort.toString()) }
+    var apiHost by remember { mutableStateOf(config.apiHost) }
+    var apiPort by remember { mutableStateOf(config.apiPort.toString()) }
     var screenFps by remember { mutableStateOf(config.screenFps.toString()) }
 
     // Load device lists once on open; prepend "Default" (empty id = system default)
@@ -94,6 +96,8 @@ fun SettingsDialog(
                 SettingsGroup(stringResource(Res.string.connection)) {
                     SettingsField(stringResource(Res.string.server_host), serverHost) { serverHost = it }
                     SettingsField(stringResource(Res.string.server_port), serverPort) { serverPort = it }
+                    SettingsField(stringResource(Res.string.api_host), apiHost) { apiHost = it }
+                    SettingsField(stringResource(Res.string.api_port), apiPort) { apiPort = it }
                 }
 
                 SettingsGroup(stringResource(Res.string.video)) {
@@ -118,6 +122,8 @@ fun SettingsDialog(
                                 config.copy(
                                     serverHost     = serverHost.ifBlank { "localhost" },
                                     serverPort     = serverPort.toIntOrNull() ?: config.serverPort,
+                                    apiHost        = apiHost.ifBlank { "localhost" },
+                                    apiPort        = apiPort.toIntOrNull() ?: config.apiPort,
                                     screenFps      = screenFps.toIntOrNull() ?: config.screenFps,
                                     micDeviceId    = inputOptions.getOrNull(selectedInputIdx)?.id ?: "",
                                     outputDeviceId = outputOptions.getOrNull(selectedOutputIdx)?.id ?: "",

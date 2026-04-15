@@ -1,9 +1,14 @@
 package com.driscord.presentation
 
 import com.driscord.AppConfig
+import com.driscord.domain.model.Channel
+import com.driscord.domain.model.ChannelKind
 import com.driscord.domain.model.ConnectionState
 import com.driscord.domain.model.PeerInfo
+import com.driscord.domain.model.Server
 import com.driscord.domain.model.StreamStats
+
+enum class AuthStatus { LoggedOut, LoggingIn, LoggedIn }
 
 data class AppUiState(
     val connectionState: ConnectionState = ConnectionState.Disconnected,
@@ -22,4 +27,18 @@ data class AppUiState(
     val systemAudioAvailable: Boolean = false,
     val showShareDialog: Boolean = false,
     val showSettings: Boolean = false,
+    // Auth
+    val authStatus: AuthStatus = AuthStatus.LoggedOut,
+    val currentUsername: String = "",
+    // Servers & channels
+    val servers: List<Server> = emptyList(),
+    val selectedServerId: Int? = null,
+    val channels: List<Channel> = emptyList(),
+    val selectedChannelId: Int? = null,
+    // Error feedback from API
+    val apiError: String? = null,
+    // Dialogs
+    val showCreateServerDialog: Boolean = false,
+    val showCreateChannelDialog: Boolean = false,
+    val createChannelDefaultKind: ChannelKind = ChannelKind.voice,
 )
