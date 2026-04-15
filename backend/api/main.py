@@ -1,7 +1,9 @@
 from contextlib import asynccontextmanager
 
+import uvicorn
 from fastapi import FastAPI
 
+from config import settings
 from database import Base, engine
 from routers import auth, channels, health, servers, updates, users
 
@@ -21,3 +23,7 @@ app.include_router(users.router)
 app.include_router(servers.router)
 app.include_router(channels.router)
 app.include_router(updates.router)
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=settings.api_port)

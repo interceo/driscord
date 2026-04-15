@@ -52,7 +52,8 @@ if [ "$TARGET" = "api" ]; then
         bash "$(dirname "$0")/build.sh" --api
     fi
     echo "==> Launching API server..."
-    exec "$VENV_DIR/bin/uvicorn" main:app --host 0.0.0.0 --port 8000 --app-dir "$API_DIR" "$@"
+    cd "$API_DIR"
+    exec "$VENV_DIR/bin/python" main.py "$@"
 fi
 
 # ===== CLIENT =====
