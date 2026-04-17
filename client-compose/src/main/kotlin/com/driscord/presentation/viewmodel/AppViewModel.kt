@@ -1,14 +1,18 @@
 package com.driscord.presentation.viewmodel
 
+import com.driscord.data.api.AuthRepository
+import com.driscord.data.api.ServerRepository
 import com.driscord.data.audio.AudioDevice
 import com.driscord.data.audio.AudioService
 import com.driscord.data.config.ConfigRepository
 import com.driscord.data.connection.ConnectionService
 import com.driscord.data.video.VideoService
 import com.driscord.domain.model.CaptureTarget
+import com.driscord.domain.model.ChannelKind
 import androidx.compose.ui.graphics.ImageBitmap
 import com.driscord.presentation.AppIntent
 import com.driscord.presentation.AppUiState
+import com.driscord.presentation.AuthStatus
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
@@ -17,6 +21,8 @@ class AppViewModel(
     private val audioService: AudioService,
     private val videoService: VideoService,
     private val configRepository: ConfigRepository,
+    private val authRepository: AuthRepository,
+    private val serverRepository: ServerRepository,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 ) {
 
@@ -60,6 +66,9 @@ class AppViewModel(
 
     fun onIntent(intent: AppIntent) {
         when (intent) {
+            // ------------------------------------------------------------------
+            // Voice connection
+            // ------------------------------------------------------------------
             is AppIntent.Connect -> {
                 val cfg = configRepository.config.value
                 connectionService.connect(intent.serverUrl)
@@ -72,12 +81,20 @@ class AppViewModel(
                 connectionService.disconnect()
                 audioService.stop()
                 videoService.stopSharing()
+                _state.update { it.copy(selectedChannelId = null) }
             }
+
+            // ------------------------------------------------------------------
+            // Audio
+            // ------------------------------------------------------------------
             AppIntent.ToggleMute -> audioService.toggleMute()
             AppIntent.ToggleDeafen -> audioService.toggleDeafen()
             is AppIntent.SetOutputVolume -> audioService.setOutputVolume(intent.volume)
             is AppIntent.SetPeerVolume -> audioService.setPeerVolume(intent.peerId, intent.volume)
 
+            // ------------------------------------------------------------------
+            // Screen share
+            // ------------------------------------------------------------------
             AppIntent.OpenShareDialog -> _state.update { it.copy(showShareDialog = true) }
             AppIntent.DismissShareDialog -> _state.update { it.copy(showShareDialog = false) }
             is AppIntent.StartSharing -> {
@@ -88,10 +105,16 @@ class AppViewModel(
             }
             AppIntent.StopSharing -> videoService.stopSharing()
 
+            // ------------------------------------------------------------------
+            // Stream watching
+            // ------------------------------------------------------------------
             AppIntent.JoinStream -> videoService.joinStream()
             AppIntent.LeaveStream -> videoService.leaveStream()
             is AppIntent.SetStreamVolume -> videoService.setStreamVolume(intent.peerId, intent.volume)
 
+            // ------------------------------------------------------------------
+            // Settings
+            // ------------------------------------------------------------------
             AppIntent.OpenSettings -> _state.update { it.copy(showSettings = true) }
             AppIntent.DismissSettings -> _state.update { it.copy(showSettings = false) }
             is AppIntent.SaveConfig -> {
@@ -105,10 +128,106 @@ class AppViewModel(
                 }
                 _state.update { it.copy(showSettings = false) }
             }
+
+            // ------------------------------------------------------------------
+            // Auth
+            // ------------------------------------------------------------------
+            is AppIntent.Login -> scope.launch {
+                _state.update { it.copy(authStatus = AuthStatus.LoggingIn, apiError = null) }
+                authRepository.login(intent.username, intent.password)
+                    .onSuccess {
+                        val username = authRepository.currentUsername ?: ""
+                        connectionService.setLocalUsername(username)
+                        _state.update { it.copy(authStatus = AuthStatus.LoggedIn, currentUsername = username) }
+                        refreshServers()
+                    }
+                    .onFailure { e ->
+                        _state.update { it.copy(authStatus = AuthStatus.LoggedOut, apiError = e.message) }
+                    }
+            }
+            is AppIntent.Register -> scope.launch {
+                _state.update { it.copy(authStatus = AuthStatus.LoggingIn, apiError = null) }
+                authRepository.register(intent.username, intent.email, intent.password)
+                    .onSuccess {
+                        val username = authRepository.currentUsername ?: ""
+                        connectionService.setLocalUsername(username)
+                        _state.update { it.copy(authStatus = AuthStatus.LoggedIn, currentUsername = username) }
+                        refreshServers()
+                    }
+                    .onFailure { e ->
+                        _state.update { it.copy(authStatus = AuthStatus.LoggedOut, apiError = e.message) }
+                    }
+            }
+            AppIntent.Logout -> {
+                authRepository.logout()
+                connectionService.disconnect()
+                audioService.stop()
+                videoService.stopSharing()
+                _state.update {
+                    AppUiState(
+                        systemAudioAvailable = videoService.systemAudioAvailable,
+                        config = configRepository.config.value,
+                    )
+                }
+            }
+            AppIntent.DismissApiError -> _state.update { it.copy(apiError = null) }
+
+            // ------------------------------------------------------------------
+            // Servers & channels
+            // ------------------------------------------------------------------
+            is AppIntent.SelectServer -> scope.launch {
+                _state.update { it.copy(selectedServerId = intent.serverId, channels = emptyList(), selectedChannelId = null) }
+                serverRepository.listChannels(intent.serverId)
+                    .onSuccess { channels -> _state.update { it.copy(channels = channels) } }
+                    .onFailure { e -> _state.update { it.copy(apiError = e.message) } }
+            }
+            is AppIntent.SelectChannel -> {
+                val channel = _state.value.channels.find { it.id == intent.channelId } ?: return
+                if (channel.kind != ChannelKind.voice) return
+                _state.update { it.copy(selectedChannelId = intent.channelId) }
+                // Connect to the signaling server; channel id passed as path segment
+                val url = configRepository.config.value.serverUrl + "/channels/${intent.channelId}"
+                onIntent(AppIntent.Connect(url))
+            }
+
+            AppIntent.OpenCreateServerDialog -> _state.update { it.copy(showCreateServerDialog = true) }
+            AppIntent.DismissCreateServerDialog -> _state.update { it.copy(showCreateServerDialog = false) }
+            is AppIntent.CreateServer -> scope.launch {
+                serverRepository.createServer(intent.name)
+                    .onSuccess { server ->
+                        _state.update { s ->
+                            s.copy(
+                                servers = s.servers + server,
+                                showCreateServerDialog = false,
+                            )
+                        }
+                    }
+                    .onFailure { e -> _state.update { it.copy(apiError = e.message) } }
+            }
+
+            is AppIntent.OpenCreateChannelDialog -> _state.update { it.copy(showCreateChannelDialog = true, createChannelDefaultKind = intent.defaultKind) }
+            AppIntent.DismissCreateChannelDialog -> _state.update { it.copy(showCreateChannelDialog = false) }
+            is AppIntent.CreateChannel -> scope.launch {
+                val serverId = _state.value.selectedServerId ?: return@launch
+                serverRepository.createChannel(serverId, intent.name, intent.kind)
+                    .onSuccess { channel ->
+                        _state.update { s ->
+                            s.copy(
+                                channels = (s.channels + channel).sortedWith(
+                                    compareBy({ it.kind.ordinal }, { it.position }, { it.id })
+                                ),
+                                showCreateChannelDialog = false,
+                            )
+                        }
+                    }
+                    .onFailure { e -> _state.update { it.copy(apiError = e.message) } }
+            }
         }
     }
 
-    // Synchronous getters — вызываются только при открытии меню/диалога, не нужны в state
+    // ------------------------------------------------------------------
+    // Synchronous getters — called only when opening menus/dialogs
+    // ------------------------------------------------------------------
     fun getPeerVolume(peerId: String): Float = audioService.getPeerVolume(peerId)
     fun getStreamVolume(): Float = videoService.getStreamVolume()
     fun listInputDevices(): List<AudioDevice> = audioService.listInputDevices()
@@ -121,5 +240,14 @@ class AppViewModel(
         videoService.destroy()
         audioService.destroy()
         connectionService.destroy()
+    }
+
+    // ------------------------------------------------------------------
+    // Private helpers
+    // ------------------------------------------------------------------
+    private suspend fun refreshServers() {
+        serverRepository.listServers()
+            .onSuccess { servers -> _state.update { it.copy(servers = servers) } }
+            .onFailure { e -> _state.update { it.copy(apiError = e.message) } }
     }
 }

@@ -9,6 +9,7 @@ compile_commands.json
 *.dll
 *.exe
 *.dylib
+*.pyc
 
 .DS_Store
 .vscode/

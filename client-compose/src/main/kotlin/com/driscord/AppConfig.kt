@@ -21,6 +21,8 @@ data class TurnServerConfig(
 data class AppConfig(
     @SerialName("server_host") val serverHost: String = "localhost",
     @SerialName("server_port") val serverPort: Int = 8080,
+    @SerialName("api_host") val apiHost: String = "localhost",
+    @SerialName("api_port") val apiPort: Int = 8000,
     @SerialName("screen_fps") val screenFps: Int = 60,
     @SerialName("capture_width") val captureWidth: Int = 1920,
     @SerialName("capture_height") val captureHeight: Int = 1080,
@@ -30,12 +32,15 @@ data class AppConfig(
     @SerialName("turn_servers") val turnServers: List<TurnServerConfig> = emptyList(),
 ) {
     val serverUrl: String get() = "ws://$serverHost:$serverPort"
+    val apiBaseUrl: String get() = "http://$apiHost:$apiPort"
 
     // Validation — same rules as config.cpp
     fun validated(): AppConfig =
         copy(
             serverHost = serverHost.ifBlank { "localhost" },
             serverPort = serverPort.coerceIn(1, 65535),
+            apiHost = apiHost.ifBlank { "localhost" },
+            apiPort = apiPort.coerceIn(1, 65535),
             screenFps = screenFps.coerceIn(1, 240),
             noiseGateThreshold = noiseGateThreshold.coerceIn(0f, 1f),
         )
@@ -70,65 +75,35 @@ data class AppConfig(
          *   2. ~/.config/driscord/config.json
          */
         fun loadDefault(): AppConfig {
-            val isWindows = System.getProperty("os.name").lowercase().contains("win")
-
-            val candidates: List<File> =
-                buildList {
-                    add(File("driscord.json"))
-
-                    if (isWindows) {
-                        val appData = System.getenv("LOCALAPPDATA")
-                        if (!appData.isNullOrBlank()) {
-                            add(File(appData, "driscord/config.json"))
-                        }
-                    } else {
-                        // 2. ~/.config/driscord/config.json  (XDG)
-                        val xdgConfig = System.getenv("XDG_CONFIG_HOME")
-                        val configDir =
-                            if (!xdgConfig.isNullOrBlank()) {
-                                File(xdgConfig)
-                            } else {
-                                File(System.getProperty("user.home"), ".config")
-                            }
-                        add(File(configDir, "driscord/config.json"))
-                    }
-                }
-
-            for (f in candidates) {
-                if (f.exists() && f.isFile) {
-                    println("[config] loaded from ${f.absolutePath}")
-                    return load(f.absolutePath)
-                }
+            val file = configCandidates().firstOrNull { it.exists() && it.isFile }
+            return if (file != null) {
+                println("[config] loaded from ${file.absolutePath}")
+                load(file.absolutePath)
+            } else {
+                println("[config] no config file found, using defaults")
+                AppConfig()
             }
-
-            println("[config] no config file found, using defaults")
-            return AppConfig()
         }
 
         /**
          * Returns the path that loadDefault() would use (the first candidate
          * that exists, or the primary candidate for saving if none exist yet).
          */
-        fun defaultConfigPath(): String {
+        fun defaultConfigPath(): String =
+            (configCandidates().firstOrNull { it.exists() } ?: configCandidates().first()).absolutePath
+
+        private fun configCandidates(): List<File> = buildList {
+            add(File("driscord.json"))
             val isWindows = System.getProperty("os.name").lowercase().contains("win")
-            val candidates: List<File> =
-                buildList {
-                    add(File("driscord.json"))
-                    if (isWindows) {
-                        val appData = System.getenv("LOCALAPPDATA")
-                        if (!appData.isNullOrBlank()) add(File(appData, "driscord/config.json"))
-                    } else {
-                        val xdgConfig = System.getenv("XDG_CONFIG_HOME")
-                        val configDir =
-                            if (!xdgConfig.isNullOrBlank()) {
-                                File(xdgConfig)
-                            } else {
-                                File(System.getProperty("user.home"), ".config")
-                            }
-                        add(File(configDir, "driscord/config.json"))
-                    }
-                }
-            return (candidates.firstOrNull { it.exists() } ?: candidates.first()).absolutePath
+            if (isWindows) {
+                val appData = System.getenv("LOCALAPPDATA")
+                if (!appData.isNullOrBlank()) add(File(appData, "driscord/config.json"))
+            } else {
+                val xdgConfig = System.getenv("XDG_CONFIG_HOME")
+                val configDir = if (!xdgConfig.isNullOrBlank()) File(xdgConfig)
+                                else File(System.getProperty("user.home"), ".config")
+                add(File(configDir, "driscord/config.json"))
+            }
         }
 
         /** Writes config as JSON to the given path, creating parent dirs as needed. */

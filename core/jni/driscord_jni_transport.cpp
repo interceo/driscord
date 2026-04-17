@@ -89,4 +89,21 @@ Java_com_driscord_jni_NativeDriscord_setOnStreamingStopped(JNIEnv* env,
     CORE().set_on_streaming_stopped(make_string_cb(env, cb));
 }
 
+JNIEXPORT void JNICALL
+Java_com_driscord_jni_NativeDriscord_setLocalUsername(JNIEnv* env,
+    jclass,
+    jstring jUsername)
+{
+    auto username = jni_jstring_to_utf8(env, jUsername);
+    CORE().set_local_username(username);
+}
+
+JNIEXPORT void JNICALL
+Java_com_driscord_jni_NativeDriscord_setOnPeerIdentityReceived(JNIEnv* env,
+    jclass,
+    jobject cb)
+{
+    CORE().set_on_peer_identity(make_bistring_cb(env, cb));
+}
+
 } // extern "C"

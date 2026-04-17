@@ -168,6 +168,32 @@ inline std::string jni_jstring_to_utf8(JNIEnv* env, jstring js)
 // replaced or destroyed.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Wrap a JNI BiStringCallback into a std::function<void(string, string)>.
+// ---------------------------------------------------------------------------
+
+inline std::function<void(const std::string&, const std::string&)> make_bistring_cb(
+    JNIEnv* env,
+    jobject listener)
+{
+    if (!listener) {
+        return nullptr;
+    }
+    auto ref = std::make_shared<JniRef>(env, listener, "invoke",
+        "(Ljava/lang/String;Ljava/lang/String;)V");
+    return [ref](const std::string& a, const std::string& b) {
+        auto* e = ref->attach();
+        if (!e) {
+            return;
+        }
+        jstring ja = jni_utf8_to_jstring(e, a);
+        jstring jb = jni_utf8_to_jstring(e, b);
+        e->CallVoidMethod(ref->obj, ref->mid, ja, jb);
+        e->DeleteLocalRef(ja);
+        e->DeleteLocalRef(jb);
+    };
+}
+
 inline std::function<void(const std::string&)> make_string_cb(
     JNIEnv* env,
     jobject listener)

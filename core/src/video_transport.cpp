@@ -10,6 +10,7 @@ namespace {
 
 constexpr uint8_t kKeyframeRequestTag = 0x01;
 constexpr uint8_t kStopStreamTag = 0x02;
+constexpr uint8_t kIdentityTag = 0x03;
 
 } // namespace
 
@@ -44,8 +45,8 @@ VideoTransport::VideoTransport(Transport& transport)
             },
     });
 
-    // Control channel: ordered, reliable — carries keyframe requests and stream
-    // lifecycle signals. Separate from video data to eliminate the len==1 ambiguity.
+    // Control channel: ordered, reliable — carries keyframe requests, stream
+    // lifecycle signals, and identity exchange (username).
     transport.register_channel({
         .label = channel::kControl,
         .unordered = false,
@@ -62,9 +63,36 @@ VideoTransport::VideoTransport(Transport& transport)
                     }
                 } else if (data[0] == kStopStreamTag) {
                     remove_streaming_peer(peer_id);
+                } else if (data[0] == kIdentityTag && len > 1) {
+                    std::string username(reinterpret_cast<const char*>(data + 1), len - 1);
+                    std::function<void(const std::string&, const std::string&)> cb;
+                    {
+                        std::scoped_lock lk(identity_mutex_);
+                        peer_usernames_[peer_id] = username;
+                        cb = on_peer_identity_;
+                    }
+                    if (cb) {
+                        cb(peer_id, username);
+                    }
                 }
             },
-        .on_open = nullptr,
+        .on_open =
+            [this](const std::string& peer_id) {
+                std::string username;
+                {
+                    std::scoped_lock lk(identity_mutex_);
+                    username = local_username_;
+                }
+                if (username.empty()) {
+                    return;
+                }
+                std::vector<uint8_t> pkt;
+                pkt.reserve(1 + username.size());
+                pkt.push_back(kIdentityTag);
+                pkt.insert(pkt.end(), username.begin(), username.end());
+                transport_.send_on_channel_to(channel::kControl, peer_id,
+                    pkt.data(), pkt.size());
+            },
         .on_close = nullptr,
     });
 }
@@ -212,6 +240,26 @@ void VideoTransport::clear_video_sink()
     std::scoped_lock lk(sink_mutex_);
     on_video_sink_ = nullptr;
     on_keyframe_needed_ = nullptr;
+}
+
+void VideoTransport::set_local_username(const std::string& username)
+{
+    std::scoped_lock lk(identity_mutex_);
+    local_username_ = username;
+}
+
+std::string VideoTransport::peer_username(const std::string& peer_id) const
+{
+    std::scoped_lock lk(identity_mutex_);
+    auto it = peer_usernames_.find(peer_id);
+    return it != peer_usernames_.end() ? it->second : "";
+}
+
+void VideoTransport::on_peer_identity(
+    std::function<void(const std::string&, const std::string&)> cb)
+{
+    std::scoped_lock lk(identity_mutex_);
+    on_peer_identity_ = std::move(cb);
 }
 
 void VideoTransport::on_assembled(const std::string& peer_id,
