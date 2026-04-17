@@ -15,6 +15,7 @@ FetchContent_MakeAvailable(googlebenchmark)
 set(BENCH_INCLUDE_DIRS
     ${CMAKE_SOURCE_DIR}/core/src/
     ${CMAKE_SOURCE_DIR}/core/src/utils
+    ${CMAKE_SOURCE_DIR}/core/tests/support
 )
 
 set(BENCH_CORE_INCLUDE_DIRS
@@ -36,3 +37,8 @@ target_link_libraries(bench_protocol PRIVATE benchmark::benchmark_main)
 add_executable(bench_video_codec bench_video_codec.cpp)
 target_include_directories(bench_video_codec PRIVATE ${BENCH_CORE_INCLUDE_DIRS})
 target_link_libraries(bench_video_codec PRIVATE benchmark::benchmark_main driscord_core)
+
+# bench_net_conditions (header-only NetworkConditioner, no driscord_core needed)
+add_executable(bench_net_conditions bench_net_conditions.cpp)
+target_include_directories(bench_net_conditions PRIVATE ${BENCH_INCLUDE_DIRS})
+target_link_libraries(bench_net_conditions PRIVATE benchmark::benchmark_main)

@@ -60,4 +60,6 @@ if(BUILD_SERVER)
 
     add_integration_test(test_datachannel_transport)
     add_integration_test(test_room_isolation)
+    add_integration_test(test_net_conditions)
+    set_tests_properties(test_net_conditions PROPERTIES TIMEOUT 180)
 endif()

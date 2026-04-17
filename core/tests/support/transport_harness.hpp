@@ -1,5 +1,6 @@
 #pragma once
 
+#include "net_cond.hpp"
 #include "signaling_test_fixture.hpp"
 #include "transport.hpp"
 #include "wait_helpers.hpp"
@@ -65,6 +66,9 @@ struct PeerNode {
     std::unique_ptr<Transport> transport;
     std::string label;
 
+    // Non-null when this node was constructed with a NetProfile.
+    std::shared_ptr<NetworkConditioner> conditioner;
+
     EventCollector<std::string> joined;
     EventCollector<std::string> left;
     EventCollector<std::string> streaming_started;
@@ -80,6 +84,25 @@ struct PeerNode {
         : transport(make_test_transport())
         , label(std::move(channel_label))
     {
+        register_transport_callbacks_();
+        register_channel_(/*conditioner=*/nullptr);
+    }
+
+    // Conditioned constructor: applies NetProfile impairments to the receive
+    // path of this node's primary data channel. Must be called before
+    // connect() so the wrapped callback is captured at DataChannel-open time.
+    PeerNode(std::string channel_label, NetProfile profile)
+        : transport(make_test_transport())
+        , label(std::move(channel_label))
+        , conditioner(std::make_shared<NetworkConditioner>(std::move(profile)))
+    {
+        register_transport_callbacks_();
+        register_channel_(conditioner.get());
+    }
+
+private:
+    void register_transport_callbacks_()
+    {
         transport->on_peer_joined(
             [this](const std::string& id) { joined.push(id); });
         transport->on_peer_left(
@@ -92,7 +115,12 @@ struct PeerNode {
             [this](const std::string& id) { watch_started.push(id); });
         transport->on_watch_stopped(
             [this](const std::string& id) { watch_stopped.push(id); });
+    }
 
+    // Registers the primary data channel. If cond is non-null the on_data
+    // callback is wrapped through the conditioner before registration.
+    void register_channel_(NetworkConditioner* cond)
+    {
         Transport::ChannelSpec spec;
         spec.label = label;
         spec.unordered = false;
@@ -101,16 +129,25 @@ struct PeerNode {
             channel_open.signal();
             channel_open_events.push(peer);
         };
-        spec.on_data = [this](const std::string& peer,
-                           const uint8_t* data,
-                           size_t len) {
+
+        PacketCb real_on_data = [this](const std::string& peer,
+                                    const uint8_t* data,
+                                    size_t len) {
             received.push(ReceivedPacket {
                 peer, std::vector<uint8_t>(data, data + len) });
         };
+
+        if (cond) {
+            spec.on_data = cond->wrap(std::move(real_on_data));
+        } else {
+            spec.on_data = std::move(real_on_data);
+        }
+
         spec.on_close = [](const std::string&) { };
         transport->register_channel(std::move(spec));
     }
 
+public:
     // Add a second (or third) channel with its own on_data collector.
     // Returns a shared pointer to the collector so the test can assert on
     // per-channel delivery.
