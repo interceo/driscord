@@ -47,7 +47,21 @@ public:
         return "ws://127.0.0.1:" + std::to_string(port_);
     }
 
+    // Returns a URL that joins a specific voice channel room, matching
+    // the path the Kotlin client sends: /channels/{id}
+    std::string ws_url(int channel_id) const
+    {
+        return "ws://127.0.0.1:" + std::to_string(port_)
+            + "/channels/" + std::to_string(channel_id);
+    }
+
     unsigned short port() const { return port_; }
+
+    size_t active_sessions() const { return server_->active_sessions(); }
+    size_t active_sessions(const std::string& room_id) const
+    {
+        return server_->active_sessions(room_id);
+    }
 
 private:
     boost::asio::io_context io_;

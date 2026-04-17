@@ -48,18 +48,16 @@ add_core_test(test_video_receiver)
 
 # --- Integration tests (need driscord_core + driscord_signaling) ---
 if(BUILD_SERVER)
-    add_executable(test_datachannel_transport
-        integration/test_datachannel_transport.cpp
-    )
-    target_include_directories(test_datachannel_transport PRIVATE
-        ${TEST_INCLUDE_DIRS}
-    )
-    target_link_libraries(test_datachannel_transport PRIVATE
-        GTest::gtest_main
-        driscord_core
-        driscord_signaling
-    )
-    add_test(NAME test_datachannel_transport
-        COMMAND test_datachannel_transport)
-    set_tests_properties(test_datachannel_transport PROPERTIES TIMEOUT 120)
+    # Helper to declare an integration test linked against both core and signaling.
+    function(add_integration_test name)
+        add_executable(${name} integration/${name}.cpp)
+        target_include_directories(${name} PRIVATE ${TEST_INCLUDE_DIRS})
+        target_link_libraries(${name} PRIVATE
+            GTest::gtest_main driscord_core driscord_signaling)
+        add_test(NAME ${name} COMMAND ${name})
+        set_tests_properties(${name} PROPERTIES TIMEOUT 120)
+    endfunction()
+
+    add_integration_test(test_datachannel_transport)
+    add_integration_test(test_room_isolation)
 endif()

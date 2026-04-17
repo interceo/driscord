@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import com.driscord.presentation.AuthStatus
 import com.driscord.presentation.viewmodel.AppViewModel
 import com.driscord.ui.ContentBg
 
@@ -16,7 +17,17 @@ fun MainScreen(viewModel: AppViewModel) {
     val frames by viewModel.frames.collectAsState()
     val onIntent = viewModel::onIntent
 
+    if (state.authStatus != AuthStatus.LoggedIn) {
+        LoginScreen(state = state, onIntent = onIntent)
+        return
+    }
+
     Row(modifier = Modifier.fillMaxSize().background(ContentBg)) {
+        ServerColumn(
+            servers = state.servers,
+            selectedServerId = state.selectedServerId,
+            onIntent = onIntent,
+        )
         Sidebar(
             state = state,
             onIntent = onIntent,

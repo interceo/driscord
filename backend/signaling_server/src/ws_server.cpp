@@ -3,6 +3,7 @@
 #include <boost/asio/post.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/beast/core.hpp>
+#include <boost/beast/http.hpp>
 #include <boost/beast/websocket.hpp>
 #include <deque>
 #include <iomanip>
@@ -10,6 +11,7 @@
 #include <nlohmann/json.hpp>
 #include <random>
 #include <sstream>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -33,6 +35,30 @@ std::string generate_id()
     return ss.str();
 }
 
+// Extracts the room identifier from a WebSocket upgrade request target.
+// "/channels/42"      → "42"
+// "/channels/42?x=1"  → "42"
+// anything else       → "default"
+std::string parse_room_id(std::string_view target)
+{
+    constexpr std::string_view kPrefix = "/channels/";
+    if (target.size() > kPrefix.size()
+        && target.substr(0, kPrefix.size()) == kPrefix) {
+        auto rest = target.substr(kPrefix.size());
+        auto q = rest.find('?');
+        if (q != std::string_view::npos) {
+            rest = rest.substr(0, q);
+        }
+        while (!rest.empty() && rest.back() == '/') {
+            rest.remove_suffix(1);
+        }
+        if (!rest.empty()) {
+            return std::string(rest);
+        }
+    }
+    return "default";
+}
+
 constexpr size_t kMaxMessageSize = 64 * 1024;
 constexpr size_t kMaxWriteQueueSize = 128;
 
@@ -50,6 +76,7 @@ public:
     }
 
     const std::string& id() const { return id_; }
+    const std::string& room_id() const { return room_id_; }
 
     void start()
     {
@@ -60,14 +87,17 @@ public:
                 res.set(http::field::server, "driscord/ws");
             }));
         ws_.read_message_max(kMaxMessageSize);
-        ws_.async_accept(
-            beast::bind_front_handler(&Session::on_accept, shared_from_this()));
+
+        // Read the HTTP upgrade request first so we can extract the URL path
+        // (which carries the channel/room ID) before accepting the WebSocket.
+        auto req = std::make_shared<http::request<http::string_body>>();
+        http::async_read(ws_.next_layer(), buffer_, *req,
+            beast::bind_front_handler(&Session::on_http_read, shared_from_this(),
+                req));
     }
 
-    // send() may be called from any thread (notably from other sessions'
-    // strands via WebSocketServer::broadcast / send_to). It is therefore
-    // protected by write_mutex_ and posts the actual write onto this
-    // session's strand so that ws_ is only ever touched from one place.
+    // send() may be called from any thread. Protected by write_mutex_ and
+    // posts the actual write onto this session's strand.
     void send(std::shared_ptr<std::string> msg)
     {
         bool start_write = false;
@@ -88,6 +118,23 @@ public:
     }
 
 private:
+    // Called after we've read the HTTP upgrade request. Extracts the room_id
+    // from the request target, then completes the WebSocket handshake.
+    void on_http_read(std::shared_ptr<http::request<http::string_body>> req,
+        beast::error_code ec,
+        std::size_t)
+    {
+        if (ec) {
+            LOG_ERROR() << "http read [" << id_ << "]: " << ec.message();
+            return;
+        }
+        room_id_ = parse_room_id(req->target());
+        LOG_INFO() << "session " << id_ << " joining room " << room_id_;
+
+        ws_.async_accept(*req,
+            beast::bind_front_handler(&Session::on_accept, shared_from_this()));
+    }
+
     // Runs on the session's strand.
     void do_write()
     {
@@ -128,26 +175,22 @@ private:
     void on_accept(beast::error_code ec)
     {
         if (ec) {
-            LOG_ERROR() << "accept: " << ec.message();
+            LOG_ERROR() << "accept [" << id_ << "]: " << ec.message();
             return;
         }
 
-        // Register atomically: snapshot existing sessions, insert self,
-        // broadcast peer_joined, and return the welcome payload — all under
-        // one critical section. This removes the old race window between
-        // build_welcome and register_session where two concurrent joiners
-        // could miss each other.
-        auto welcome = server_->register_and_build_welcome(id_,
+        auto welcome = server_->register_and_build_welcome(id_, room_id_,
             shared_from_this());
         send(std::make_shared<std::string>(std::move(welcome)));
 
-        LOG_INFO() << "session " << id_ << " connected";
+        LOG_INFO() << "session " << id_ << " connected (room=" << room_id_ << ")";
         do_read();
     }
 
     void do_read()
     {
-        ws_.async_read(buffer_, beast::bind_front_handler(&Session::on_read, shared_from_this()));
+        ws_.async_read(buffer_,
+            beast::bind_front_handler(&Session::on_read, shared_from_this()));
     }
 
     void on_read(beast::error_code ec, std::size_t)
@@ -157,7 +200,7 @@ private:
             return;
         }
         if (ec) {
-            LOG_ERROR() << "read: " << ec.message();
+            LOG_ERROR() << "read [" << id_ << "]: " << ec.message();
             on_close();
             return;
         }
@@ -171,19 +214,19 @@ private:
 
             std::string type = msg.value("type", "");
             if (type == "streaming_start") {
-                server_->add_streaming_peer(id_);
+                server_->add_streaming_peer(id_, room_id_);
             } else if (type == "streaming_stop") {
-                server_->remove_streaming_peer(id_);
+                server_->remove_streaming_peer(id_, room_id_);
             }
 
             if (msg.contains("to")) {
                 std::string to = msg["to"];
-                server_->send_to(to, msg.dump());
+                server_->send_to(to, room_id_, msg.dump());
             } else {
-                server_->broadcast(id_, msg.dump());
+                server_->broadcast(id_, room_id_, msg.dump());
             }
         } catch (const json::exception& e) {
-            LOG_ERROR() << "json parse error: " << e.what();
+            LOG_ERROR() << "json parse error [" << id_ << "]: " << e.what();
         }
 
         buffer_.consume(buffer_.size());
@@ -192,13 +235,14 @@ private:
 
     void on_close()
     {
-        server_->unregister_session(id_);
-        LOG_INFO() << "session " << id_ << " disconnected";
+        server_->unregister_session(id_, room_id_);
+        LOG_INFO() << "session " << id_ << " disconnected (room=" << room_id_ << ")";
     }
 
     beast::flat_buffer buffer_;
     websocket::stream<beast::tcp_stream> ws_;
     std::string id_;
+    std::string room_id_;
     std::shared_ptr<WebSocketServer> server_;
     std::mutex write_mutex_;
     std::deque<std::shared_ptr<std::string>> write_queue_;
@@ -223,8 +267,8 @@ void WebSocketServer::stop()
     boost::system::error_code ec;
     acceptor_.close(ec);
 
-    std::scoped_lock lk(sessions_mutex_);
-    sessions_.clear();
+    std::scoped_lock lk(rooms_mutex_);
+    rooms_.clear();
 }
 
 unsigned short WebSocketServer::bound_port() const
@@ -238,44 +282,38 @@ unsigned short WebSocketServer::bound_port() const
 }
 
 std::string WebSocketServer::register_and_build_welcome(const std::string& id,
+    const std::string& room_id,
     std::shared_ptr<Session> s)
 {
     std::vector<std::shared_ptr<Session>> existing;
     std::string welcome_payload;
     {
-        std::scoped_lock lk(sessions_mutex_);
+        std::scoped_lock lk(rooms_mutex_);
 
-        // Snapshot the existing peer IDs and streaming set while holding the
-        // lock — this becomes the welcome payload for the new session.
+        auto& room = rooms_[room_id];
+
         json welcome;
         welcome["type"] = "welcome";
         welcome["id"] = id;
         json peers = json::array();
-        existing.reserve(sessions_.size());
-        for (auto& [pid, session] : sessions_) {
+        existing.reserve(room.sessions.size());
+        for (auto& [pid, session] : room.sessions) {
             peers.push_back(pid);
             existing.push_back(session);
         }
         welcome["peers"] = std::move(peers);
 
         json streaming = json::array();
-        for (auto& sid : streaming_peers_) {
+        for (auto& sid : room.streaming_peers) {
             streaming.push_back(sid);
         }
         welcome["streaming_peers"] = std::move(streaming);
 
         welcome_payload = welcome.dump();
 
-        // Insert the new session under the SAME lock, so any other joiner
-        // that acquires the lock next sees both our snapshot and our
-        // presence consistently.
-        sessions_.emplace(id, std::move(s));
+        room.sessions.emplace(id, std::move(s));
     }
 
-    // Broadcast peer_joined to the previously-existing sessions OUTSIDE the
-    // lock. The new session does not receive its own peer_joined (it is not
-    // in `existing`). Calling Session::send here is safe because Session
-    // now uses its own write_mutex_ and posts writes to its own strand.
     json joined;
     joined["type"] = "peer_joined";
     joined["id"] = id;
@@ -287,16 +325,26 @@ std::string WebSocketServer::register_and_build_welcome(const std::string& id,
     return welcome_payload;
 }
 
-void WebSocketServer::unregister_session(const std::string& id)
+void WebSocketServer::unregister_session(const std::string& id,
+    const std::string& room_id)
 {
     std::vector<std::shared_ptr<Session>> remaining;
     {
-        std::scoped_lock lk(sessions_mutex_);
-        sessions_.erase(id);
-        streaming_peers_.erase(id);
-        remaining.reserve(sessions_.size());
-        for (auto& [_, session] : sessions_) {
+        std::scoped_lock lk(rooms_mutex_);
+        auto rit = rooms_.find(room_id);
+        if (rit == rooms_.end()) {
+            return;
+        }
+        auto& room = rit->second;
+        room.sessions.erase(id);
+        room.streaming_peers.erase(id);
+        remaining.reserve(room.sessions.size());
+        for (auto& [_, session] : room.sessions) {
             remaining.push_back(session);
+        }
+        // Remove empty rooms to avoid unbounded map growth.
+        if (room.sessions.empty()) {
+            rooms_.erase(rit);
         }
     }
 
@@ -310,13 +358,19 @@ void WebSocketServer::unregister_session(const std::string& id)
 }
 
 void WebSocketServer::broadcast(const std::string& from_id,
+    const std::string& room_id,
     const std::string& msg)
 {
     std::vector<std::shared_ptr<Session>> targets;
     {
-        std::scoped_lock lk(sessions_mutex_);
-        targets.reserve(sessions_.size());
-        for (auto& [pid, session] : sessions_) {
+        std::scoped_lock lk(rooms_mutex_);
+        auto rit = rooms_.find(room_id);
+        if (rit == rooms_.end()) {
+            return;
+        }
+        auto& room = rit->second;
+        targets.reserve(room.sessions.size());
+        for (auto& [pid, session] : room.sessions) {
             if (pid != from_id) {
                 targets.push_back(session);
             }
@@ -329,13 +383,18 @@ void WebSocketServer::broadcast(const std::string& from_id,
 }
 
 void WebSocketServer::send_to(const std::string& target_id,
+    const std::string& room_id,
     const std::string& msg)
 {
     std::shared_ptr<Session> target;
     {
-        std::scoped_lock lk(sessions_mutex_);
-        auto it = sessions_.find(target_id);
-        if (it != sessions_.end()) {
+        std::scoped_lock lk(rooms_mutex_);
+        auto rit = rooms_.find(room_id);
+        if (rit == rooms_.end()) {
+            return;
+        }
+        auto it = rit->second.sessions.find(target_id);
+        if (it != rit->second.sessions.end()) {
             target = it->second;
         }
     }
@@ -346,20 +405,36 @@ void WebSocketServer::send_to(const std::string& target_id,
 
 size_t WebSocketServer::active_sessions() const
 {
-    std::scoped_lock lk(sessions_mutex_);
-    return sessions_.size();
+    std::scoped_lock lk(rooms_mutex_);
+    size_t total = 0;
+    for (auto& [_, room] : rooms_) {
+        total += room.sessions.size();
+    }
+    return total;
 }
 
-void WebSocketServer::add_streaming_peer(const std::string& id)
+size_t WebSocketServer::active_sessions(const std::string& room_id) const
 {
-    std::scoped_lock lk(sessions_mutex_);
-    streaming_peers_.insert(id);
+    std::scoped_lock lk(rooms_mutex_);
+    auto it = rooms_.find(room_id);
+    return it != rooms_.end() ? it->second.sessions.size() : 0;
 }
 
-void WebSocketServer::remove_streaming_peer(const std::string& id)
+void WebSocketServer::add_streaming_peer(const std::string& id,
+    const std::string& room_id)
 {
-    std::scoped_lock lk(sessions_mutex_);
-    streaming_peers_.erase(id);
+    std::scoped_lock lk(rooms_mutex_);
+    rooms_[room_id].streaming_peers.insert(id);
+}
+
+void WebSocketServer::remove_streaming_peer(const std::string& id,
+    const std::string& room_id)
+{
+    std::scoped_lock lk(rooms_mutex_);
+    auto rit = rooms_.find(room_id);
+    if (rit != rooms_.end()) {
+        rit->second.streaming_peers.erase(id);
+    }
 }
 
 void WebSocketServer::do_accept()
