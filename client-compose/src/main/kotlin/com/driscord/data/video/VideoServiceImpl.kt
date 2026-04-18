@@ -155,11 +155,20 @@ class VideoServiceImpl(
     override fun grabThumbnail(target: CaptureTarget): ImageBitmap? {
         val maxW = 320; val maxH = 180
         val targetJson = json.encodeToString(CaptureTarget.serializer(), target)
-        val rgba = NativeDriscord.captureGrabThumbnail(targetJson, maxW, maxH) ?: return null
-        val pixels = rgba.size / 4
-        val w = maxW.coerceAtMost(pixels)
-        val h = if (w > 0) pixels / w else 0
-        if (w == 0 || h == 0) return null
+        val buf = NativeDriscord.captureGrabThumbnail(targetJson, maxW, maxH) ?: return null
+        if (buf.size < 8) return null
+
+        fun readLE32(off: Int): Int =
+            (buf[off].toInt() and 0xFF) or
+            ((buf[off + 1].toInt() and 0xFF) shl 8) or
+            ((buf[off + 2].toInt() and 0xFF) shl 16) or
+            ((buf[off + 3].toInt() and 0xFF) shl 24)
+
+        val w = readLE32(0)
+        val h = readLE32(4)
+        if (w <= 0 || h <= 0) return null
+        val rgba = buf.copyOfRange(8, buf.size)
+        if (rgba.size != w * h * 4) return null
         return rgbaToImageBitmap(rgba, w, h)
     }
 

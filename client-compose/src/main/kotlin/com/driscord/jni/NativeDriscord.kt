@@ -127,7 +127,7 @@ object NativeDriscord {
     /** Returns JSON array of CaptureTarget objects. */
     @JvmStatic external fun captureVideoListTargets(): String
 
-    /** Returns RGBA bytes, or null if no frame could be grabbed. */
+    /** Returns [width_le32, height_le32, RGBA bytes...], or null if no frame could be grabbed. */
     @JvmStatic external fun captureGrabThumbnail(
         targetJson: String,
         maxW: Int,
