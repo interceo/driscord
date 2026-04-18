@@ -114,35 +114,6 @@ if(NOT TARGET PkgConfig::FFMPEG)
     )
 endif()
 
-# ---------------------------------------------------------------------------
-# Prefer static FFmpeg so libcore.so / core.dll is self-contained.
-# On Linux: search for .a files in the same dirs pkg-config reported.
-# On Windows (cross-compile): already handled above with explicit .a paths.
-# ---------------------------------------------------------------------------
-if(NOT (CMAKE_CROSSCOMPILING AND WIN32) AND TARGET PkgConfig::FFMPEG)
-    set(_ff_static "")
-    foreach(_ff avcodec avformat avdevice swscale swresample avutil)
-        find_library(_ff_a_${_ff}
-            NAMES "lib${_ff}.a"
-            HINTS ${FFMPEG_LIBRARY_DIRS}
-            NO_DEFAULT_PATH
-        )
-        if(_ff_a_${_ff})
-            list(APPEND _ff_static "${_ff_a_${_ff}}")
-        endif()
-        unset(_ff_a_${_ff} CACHE)
-    endforeach()
-
-    list(LENGTH _ff_static _ff_static_count)
-    if(_ff_static_count EQUAL 6)
-        set_target_properties(PkgConfig::FFMPEG PROPERTIES
-            INTERFACE_LINK_LIBRARIES "${_ff_static}")
-        message(STATUS "FFmpeg: static .a found — baked into JNI library")
-    else()
-        message(STATUS "FFmpeg: static .a not available — using shared libs "
-            "(AppImage must bundle libav*.so or target system needs FFmpeg installed)")
-    endif()
-endif()
 
 # --- platform-specific screen capture ---
 if(APPLE)
