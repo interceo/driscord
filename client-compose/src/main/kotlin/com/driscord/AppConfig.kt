@@ -75,14 +75,23 @@ data class AppConfig(
          *   2. ~/.config/driscord/config.json
          */
         fun loadDefault(): AppConfig {
+            // 1. Prefer on-disk config (user-editable, survives app updates)
             val file = configCandidates().firstOrNull { it.exists() && it.isFile }
-            return if (file != null) {
+            if (file != null) {
                 println("[config] loaded from ${file.absolutePath}")
-                load(file.absolutePath)
-            } else {
-                println("[config] no config file found, using defaults")
-                AppConfig()
+                return load(file.absolutePath)
             }
+            // 2. Fall back to the bundled defaults embedded in the JAR at build time
+            //    (driscord.json copied in as driscord_defaults.json by embedDefaultConfig)
+            val stream = AppConfig::class.java.getResourceAsStream("/driscord_defaults.json")
+            if (stream != null) {
+                println("[config] loaded bundled defaults from JAR")
+                return runCatching {
+                    json.decodeFromString<AppConfig>(stream.bufferedReader().readText()).validated()
+                }.getOrElse { AppConfig() }
+            }
+            println("[config] no config file found, using hardcoded defaults")
+            return AppConfig()
         }
 
         /**
