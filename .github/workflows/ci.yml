@@ -201,18 +201,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install system dependencies + MinGW
+      - name: Install MinGW toolchain
         run: |
           sudo apt-get update -q
           sudo apt-get install -y \
             cmake ninja-build \
-            libssl-dev \
-            libavcodec-dev libavformat-dev libavdevice-dev \
-            libswscale-dev libswresample-dev libavutil-dev \
-            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
-            libwayland-dev libxkbcommon-dev \
-            libpulse-dev \
-            mingw-w64 gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+            mingw-w64 gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 \
+            libarchive-tools
 
       - name: Cache Boost headers
         id: cache-boost
@@ -235,20 +230,32 @@ jobs:
       - name: Set BOOST_ROOT
         run: echo "BOOST_ROOT=$HOME/boost-cache" >> $GITHUB_ENV
 
+      - name: Cache Windows prebuilt deps (FFmpeg + OpenSSL)
+        id: cache-win-deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            third_party/windows/
+            third_party/.cache/
+          key: win-deps-${{ hashFiles('third_party/fetch_win_deps.sh') }}
+
+      - name: Fetch Windows prebuilt deps (FFmpeg + OpenSSL)
+        if: steps.cache-win-deps.outputs.cache-hit != 'true'
+        run: ./third_party/fetch_win_deps.sh
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
 
-      - name: Cache CMake FetchContent dependencies
+      - name: Cache CMake FetchContent dependencies (Windows)
         uses: actions/cache@v4
         with:
-          path: .builds/cmake/linux-release/_deps
-          key: cmake-deps-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt') }}
-          restore-keys: cmake-deps-${{ runner.os }}-
+          path: .builds/cmake/windows-release/_deps
+          key: cmake-deps-windows-${{ hashFiles('**/CMakeLists.txt') }}
+          restore-keys: cmake-deps-windows-
 
       - name: Build client with Windows cross-compile
-        # build.sh logs a warning and skips the DLL if MinGW OpenSSL is not in the sysroot
         run: ./scripts/build.sh --windows
 
       - name: Upload Windows DLL artifact
@@ -257,3 +264,61 @@ jobs:
           name: driscord-windows-dll
           path: .builds/client/windows/release/
           if-no-files-found: warn
+
+  test-windows-cross:
+    name: Tests / Windows (Wine)
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MinGW toolchain + Wine
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y \
+            cmake ninja-build \
+            mingw-w64 gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 \
+            libarchive-tools wine64
+
+      - name: Cache Boost headers
+        id: cache-boost
+        uses: actions/cache@v4
+        with:
+          path: ~/boost-cache
+          key: boost-${{ env.BOOST_VERSION }}-${{ runner.os }}
+
+      - name: Download Boost headers
+        if: steps.cache-boost.outputs.cache-hit != 'true'
+        run: |
+          BOOST_VER_UNDER="${BOOST_VERSION//./_}"
+          wget -q "https://archives.boost.io/release/${BOOST_VERSION}/source/boost_${BOOST_VER_UNDER}.tar.gz"
+          mkdir -p ~/boost-cache/include
+          tar xzf "boost_${BOOST_VER_UNDER}.tar.gz" \
+            --strip-components=1 \
+            -C ~/boost-cache/include \
+            "boost_${BOOST_VER_UNDER}/boost"
+
+      - name: Set BOOST_ROOT
+        run: echo "BOOST_ROOT=$HOME/boost-cache" >> $GITHUB_ENV
+
+      - name: Cache Windows prebuilt deps (FFmpeg + OpenSSL)
+        id: cache-win-deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            third_party/windows/
+            third_party/.cache/
+          key: win-deps-${{ hashFiles('third_party/fetch_win_deps.sh') }}
+
+      - name: Fetch Windows prebuilt deps (FFmpeg + OpenSSL)
+        if: steps.cache-win-deps.outputs.cache-hit != 'true'
+        run: ./third_party/fetch_win_deps.sh
+
+      - name: Cache CMake FetchContent dependencies (Windows tests)
+        uses: actions/cache@v4
+        with:
+          path: .builds/cmake/windows-test/_deps
+          key: cmake-deps-windows-test-${{ hashFiles('**/CMakeLists.txt') }}
+          restore-keys: cmake-deps-windows-test-
+
+      - name: Build and run Windows tests under Wine
+        run: ./scripts/build.sh --windows --test

@@ -198,8 +198,55 @@ fi
 # ===== WINDOWS =====
 # ---------------------------------------------------------------------------
 if [ "$TARGET" = "windows" ]; then
-    if [ "$ACTION" = "test" ] || [ "$ACTION" = "bench" ]; then
-        echo "Tests/benchmarks are not available for the Windows target."
+    if [ "$ACTION" = "bench" ]; then
+        echo "Benchmarks are not available for the Windows cross-compile target."
+        exit 0
+    fi
+
+    if [ "$ACTION" = "test" ]; then
+        WIN_TEST_DIR="$BUILDS_DIR/cmake/windows-test"
+        TOOLCHAIN="$ROOT/cmake/toolchain-mingw64.cmake"
+        GEN_FLAGS=()
+        command -v ninja &>/dev/null && GEN_FLAGS=(-G Ninja)
+
+        if [ ! -f "$WIN_TEST_DIR/CMakeCache.txt" ]; then
+            echo "==> Configuring CMake (Windows/MinGW, tests)..."
+            cmake -S "$ROOT" -B "$WIN_TEST_DIR" "${GEN_FLAGS[@]}" \
+                -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DBUILD_SERVER=OFF \
+                -DBUILD_TESTS=ON \
+                -Wno-dev \
+                || { echo "ERROR: CMake Windows test configure failed." >&2; exit 1; }
+        fi
+
+        echo "==> Building Windows tests ($JOBS jobs)..."
+        cmake --build "$WIN_TEST_DIR" -j"$JOBS" \
+            || { echo "ERROR: Windows test build failed." >&2; exit 1; }
+
+        if ! command -v wine64 &>/dev/null && ! command -v wine &>/dev/null; then
+            echo "==> Wine not found — test executables built but not executed"
+            exit 0
+        fi
+
+        GCC_VMAJ=$(x86_64-w64-mingw32-g++-posix -dumpversion 2>/dev/null \
+                   || x86_64-w64-mingw32-g++ -dumpversion 2>/dev/null \
+                   || echo "12")
+        GCC_VMAJ="${GCC_VMAJ%%.*}"
+        WIN_DLL_PATH="/usr/lib/gcc/x86_64-w64-mingw32/${GCC_VMAJ}:/usr/x86_64-w64-mingw32/lib"
+        [ -d "$ROOT/third_party/windows/ffmpeg/bin"  ] && WIN_DLL_PATH="$WIN_DLL_PATH:$ROOT/third_party/windows/ffmpeg/bin"
+        [ -d "$ROOT/third_party/windows/openssl/bin" ] && WIN_DLL_PATH="$WIN_DLL_PATH:$ROOT/third_party/windows/openssl/bin"
+        export WINEPATH="${WIN_DLL_PATH}${WINEPATH:+:$WINEPATH}"
+        export WINEDEBUG=-all
+
+        echo "==> Initializing Wine prefix..."
+        wineboot --init 2>/dev/null || true
+
+        echo "==> Running Windows unit tests under Wine (network integration tests excluded)..."
+        cd "$WIN_TEST_DIR"
+        ctest --output-on-failure \
+            -E "test_datachannel_transport|test_room_isolation|test_net_conditions" \
+            --timeout 120
         exit 0
     fi
 
