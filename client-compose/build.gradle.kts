@@ -1,3 +1,4 @@
+import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import java.nio.file.Paths
 
 plugins {
@@ -58,18 +59,104 @@ tasks.withType<Test> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Native resource embedding
+//
+// DRISCORD_NATIVE_LIB_DIR (env var) points to the directory containing the
+// platform native library built by CMake.  When set, the library is copied
+// into Gradle's processed-resources output so it ends up inside the app JAR
+// (fatJar and nativeDistributions both pick it up automatically).
+//
+// At runtime NativeLoader extracts the bundled library to a temp file and
+// loads it — zero path-configuration required from the user.
+//
+// DRISCORD_EXTRA_NATIVE_DIR may point to a second platform's lib directory
+// (e.g. the Windows DLL dir when cross-compiling from Linux), producing a
+// cross-platform JAR.
+// ---------------------------------------------------------------------------
+val generatedNativeRes = layout.buildDirectory.dir("generated-native-resources")
+
+val embedNativeLib by tasks.registering(Copy::class) {
+    group = "build"
+    description = "Copies the native JNI library into the classpath resources"
+    val dirs = listOfNotNull(
+        System.getenv("DRISCORD_NATIVE_LIB_DIR"),
+        System.getenv("DRISCORD_EXTRA_NATIVE_DIR"),
+    ).filter { it.isNotBlank() }
+    enabled = dirs.isNotEmpty()
+    dirs.forEach { dir ->
+        from(dir) { include("libcore.so", "core.dll", "libcore.dylib") }
+    }
+    into(generatedNativeRes)
+}
+
+val embedDefaultConfig by tasks.registering(Copy::class) {
+    group = "build"
+    description = "Bundles driscord.json as /driscord_defaults.json in the classpath"
+    val configFile = rootDir.parentFile.resolve("driscord.json")
+    enabled = configFile.exists()
+    if (configFile.exists()) {
+        from(configFile) { rename { "driscord_defaults.json" } }
+    }
+    into(generatedNativeRes)
+}
+
+// Always add the generated dir as a resources source — it may be empty in
+// dev mode (when DRISCORD_NATIVE_LIB_DIR isn't set) which is fine.
+sourceSets.main.get().resources.srcDir(generatedNativeRes)
+tasks.named("processResources") { dependsOn(embedNativeLib, embedDefaultConfig) }
+
+// ---------------------------------------------------------------------------
+// Compose Desktop application
+// ---------------------------------------------------------------------------
 compose.desktop {
     application {
         mainClass = "com.driscord.MainKt"
-        // nativeDistributions убраны — используем fatJar + нативные DLL из C++ билда
-        jvmArgs("-Djava.library.path=${System.getenv("DRISCORD_NATIVE_LIB_DIR") ?: "."}")
+
+        // Dev mode (gradlew run): load native lib directly from the CMake build
+        // directory without JAR extraction.  During packaging (DRISCORD_PACKAGING=1)
+        // this arg is omitted so no build-machine path is baked into the launcher.
+        val isPackaging = System.getenv("DRISCORD_PACKAGING") != null
+        val devLibDir = System.getenv("DRISCORD_NATIVE_LIB_DIR")
+        if (!isPackaging && devLibDir != null) {
+            jvmArgs("-Djava.library.path=$devLibDir")
+        }
+
+        nativeDistributions {
+            // Linux AppImage — single self-contained executable.
+            // Windows Exe   — NSIS installer (requires jpackage on Windows;
+            //                 from Linux a portable zip is created by build.sh).
+            targetFormats(TargetFormat.AppImage)
+
+            packageName = "driscord"
+            packageVersion = project.version.toString()
+            description = "P2P voice and screen sharing"
+            vendor = "Driscord"
+            copyright = "© 2025 Driscord contributors"
+
+            linux {
+                packageName = "driscord"
+                appRelease = "1"
+                menuGroup = "Network"
+                val icon = rootDir.parentFile.resolve("packaging/icon.png")
+                if (icon.exists()) iconFile.set(icon)
+            }
+
+            windows {
+                shortcut = true
+                menuGroup = "Driscord"
+                val icon = rootDir.parentFile.resolve("packaging/icon.ico")
+                if (icon.exists()) iconFile.set(icon)
+            }
+        }
     }
 }
 
 // ---------------------------------------------------------------------------
-// fatJar — один uber-JAR со всеми Kotlin/Compose зависимостями внутри.
-// Запускается: java -jar driscord.jar  (JRE должна быть на машине пользователя,
-// но это тот же JDK, что нужен для сборки — никакого 500MB runtime bundle)
+// fatJar — uber-JAR with all Kotlin/Compose dependencies merged in.
+// When DRISCORD_NATIVE_LIB_DIR is set, the native library is also embedded
+// (via processResources → generatedNativeRes) making the JAR fully
+// self-contained for users who already have Java 21 installed.
 // ---------------------------------------------------------------------------
 tasks.register<Jar>("fatJar") {
     group = "build"
@@ -86,12 +173,11 @@ tasks.register<Jar>("fatJar") {
         )
     }
 
-    // Merge all runtime deps into one jar, skip duplicate META-INF signatures
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     from(configurations.runtimeClasspath.get().map { if (it.isDirectory) it else zipTree(it) })
     from(sourceSets.main.get().output)
 
     exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
 
-    dependsOn(tasks.named("compileKotlin"))
+    dependsOn(tasks.named("compileKotlin"), tasks.named("processResources"))
 }

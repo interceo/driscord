@@ -16,6 +16,7 @@ compile_commands.json
 .cache/
 .idea/
 .venv/
+third_party/windows/
 client-compose/.kotlin/
 client-compose/.gradle/
 

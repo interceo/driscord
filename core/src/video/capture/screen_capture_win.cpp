@@ -16,9 +16,12 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <Windows.h>
+
+// clang-format off
+#include <windows.h>
 #include <d3d11.h>
 #include <dxgi1_2.h>
+// clang-format on
 
 // --- helpers ----------------------------------------------------------------
 
@@ -124,6 +127,29 @@ std::vector<ScreenCaptureTarget> ScreenCapture::list_targets()
     return targets;
 }
 
+// --- Fix 6: GDI RAII — prevents leaks when CreateCompatibleDC/Bitmap return NULL
+
+struct GdiObjects {
+    HWND hwnd = nullptr;
+    HDC src_dc = nullptr;
+    HDC mem_dc = nullptr;
+    HBITMAP bmp = nullptr;
+    HGDIOBJ old = nullptr;
+
+    ~GdiObjects()
+    {
+        if (old && mem_dc)
+            SelectObject(mem_dc, old);
+        if (bmp)
+            DeleteObject(bmp);
+        if (mem_dc)
+            DeleteDC(mem_dc);
+        if (src_dc)
+            ReleaseDC(hwnd, src_dc);
+    }
+    bool valid() const { return src_dc && mem_dc && bmp; }
+};
+
 // --- thumbnail (BitBlt) -----------------------------------------------------
 
 ScreenCapture::Frame ScreenCapture::grab_thumbnail(
@@ -133,46 +159,49 @@ ScreenCapture::Frame ScreenCapture::grab_thumbnail(
 {
     Frame f;
 
-    HDC src_dc = nullptr;
     int src_x = 0, src_y = 0, src_w = 0, src_h = 0;
-    HWND hwnd = nullptr;
+    GdiObjects gdi;
 
     if (target.type == ScreenCaptureTarget::Window && !target.id.empty()) {
         try {
-            hwnd = reinterpret_cast<HWND>(
+            gdi.hwnd = reinterpret_cast<HWND>(
                 static_cast<uintptr_t>(std::stoull(target.id)));
         } catch (const std::exception&) {
             return f;
         }
-        if (!IsWindow(hwnd)) {
+        if (!IsWindow(gdi.hwnd)) {
+            return f;
+        }
+
+        gdi.src_dc = GetDC(gdi.hwnd);
+        if (!gdi.src_dc || !IsWindow(gdi.hwnd)) {
             return f;
         }
 
         RECT rect { };
-        GetClientRect(hwnd, &rect);
+        GetClientRect(gdi.hwnd, &rect);
         src_w = rect.right - rect.left;
         src_h = rect.bottom - rect.top;
-        src_dc = GetDC(hwnd);
     } else {
-        src_dc = GetDC(nullptr);
+        gdi.src_dc = GetDC(nullptr);
         src_x = target.x;
         src_y = target.y;
         src_w = target.width;
         src_h = target.height;
     }
 
-    if (!src_dc || src_w <= 0 || src_h <= 0) {
-        if (src_dc) {
-            ReleaseDC(hwnd, src_dc);
-        }
+    if (!gdi.src_dc || src_w <= 0 || src_h <= 0) {
         return f;
     }
 
-    HDC mem_dc = CreateCompatibleDC(src_dc);
-    HBITMAP bmp = CreateCompatibleBitmap(src_dc, src_w, src_h);
-    HGDIOBJ old_bmp = SelectObject(mem_dc, bmp);
+    gdi.mem_dc = CreateCompatibleDC(gdi.src_dc);
+    gdi.bmp = CreateCompatibleBitmap(gdi.src_dc, src_w, src_h);
+    if (!gdi.valid()) {
+        return f;
+    }
+    gdi.old = SelectObject(gdi.mem_dc, gdi.bmp);
 
-    BitBlt(mem_dc, 0, 0, src_w, src_h, src_dc, src_x, src_y, SRCCOPY);
+    BitBlt(gdi.mem_dc, 0, 0, src_w, src_h, gdi.src_dc, src_x, src_y, SRCCOPY);
 
     BITMAPINFOHEADER bi { };
     bi.biSize = sizeof(bi);
@@ -183,13 +212,8 @@ ScreenCapture::Frame ScreenCapture::grab_thumbnail(
     bi.biCompression = BI_RGB;
 
     std::vector<uint8_t> bgra(static_cast<size_t>(src_w) * src_h * 4);
-    GetDIBits(mem_dc, bmp, 0, static_cast<UINT>(src_h), bgra.data(),
+    GetDIBits(gdi.mem_dc, gdi.bmp, 0, static_cast<UINT>(src_h), bgra.data(),
         reinterpret_cast<BITMAPINFO*>(&bi), DIB_RGB_COLORS);
-
-    SelectObject(mem_dc, old_bmp);
-    DeleteObject(bmp);
-    DeleteDC(mem_dc);
-    ReleaseDC(hwnd, src_dc);
 
     int ow, oh;
     compute_output_size(src_w, src_h, max_w, max_h, ow, oh);
@@ -259,12 +283,9 @@ public:
 
     void stop() override
     {
-        if (!running_.exchange(false)) {
-            return;
-        }
-        if (thread_.joinable()) {
+        running_.store(false);
+        if (thread_.joinable())
             thread_.join();
-        }
         cleanup_dxgi();
         LOG_INFO() << "screen capture stopped";
     }
@@ -297,6 +318,7 @@ private:
             reinterpret_cast<void**>(&dxgi_device));
         if (FAILED(hr)) {
             LOG_ERROR() << "QueryInterface(IDXGIDevice) failed";
+            cleanup_dxgi();
             return false;
         }
 
@@ -305,14 +327,15 @@ private:
         dxgi_device->Release();
         if (FAILED(hr)) {
             LOG_ERROR() << "GetAdapter failed";
+            cleanup_dxgi();
             return false;
         }
 
-        // Find the DXGI output that matches target coordinates
         IDXGIOutput* output = find_output(adapter);
         adapter->Release();
         if (!output) {
             LOG_ERROR() << "no matching DXGI output found";
+            cleanup_dxgi();
             return false;
         }
 
@@ -327,6 +350,7 @@ private:
         output->Release();
         if (FAILED(hr)) {
             LOG_ERROR() << "QueryInterface(IDXGIOutput1) failed";
+            cleanup_dxgi();
             return false;
         }
 
@@ -334,6 +358,7 @@ private:
         output1->Release();
         if (FAILED(hr)) {
             LOG_ERROR() << "DuplicateOutput failed: 0x" << std::hex << hr;
+            cleanup_dxgi();
             return false;
         }
 
@@ -350,6 +375,7 @@ private:
         hr = device_->CreateTexture2D(&staging_desc, nullptr, &staging_tex_);
         if (FAILED(hr)) {
             LOG_ERROR() << "CreateTexture2D(staging) failed";
+            cleanup_dxgi();
             return false;
         }
 
@@ -363,9 +389,11 @@ private:
 
         for (UINT i = 0;; ++i) {
             IDXGIOutput* out = nullptr;
-            if (adapter->EnumOutputs(i, &out) == DXGI_ERROR_NOT_FOUND) {
+            HRESULT enum_hr = adapter->EnumOutputs(i, &out);
+            if (enum_hr == DXGI_ERROR_NOT_FOUND)
                 break;
-            }
+            if (FAILED(enum_hr))
+                break;
 
             DXGI_OUTPUT_DESC desc { };
             out->GetDesc(&desc);
@@ -450,7 +478,7 @@ private:
                 hr = context_->Map(staging_tex_, 0, D3D11_MAP_READ, 0, &mapped);
                 if (SUCCEEDED(hr)) {
                     deliver_dxgi_frame(static_cast<const uint8_t*>(mapped.pData),
-                        static_cast<int>(mapped.RowPitch), capture_w_,
+                        static_cast<size_t>(mapped.RowPitch), capture_w_,
                         capture_h_);
                     context_->Unmap(staging_tex_, 0);
                 }
@@ -473,7 +501,10 @@ private:
         while (running_) {
             auto t0 = std::chrono::steady_clock::now();
 
-            if (!IsWindow(hwnd_)) {
+            GdiObjects gdi;
+            gdi.hwnd = hwnd_;
+            gdi.src_dc = GetDC(hwnd_);
+            if (!gdi.src_dc || !IsWindow(hwnd_)) {
                 LOG_WARNING() << "captured window closed";
                 running_ = false;
                 break;
@@ -485,13 +516,12 @@ private:
             int h = rect.bottom - rect.top;
 
             if (w > 0 && h > 0) {
-                HDC wnd_dc = GetDC(hwnd_);
-                if (wnd_dc) {
-                    HDC mem_dc = CreateCompatibleDC(wnd_dc);
-                    HBITMAP bmp = CreateCompatibleBitmap(wnd_dc, w, h);
-                    HGDIOBJ old = SelectObject(mem_dc, bmp);
+                gdi.mem_dc = CreateCompatibleDC(gdi.src_dc);
+                gdi.bmp = CreateCompatibleBitmap(gdi.src_dc, w, h);
+                if (gdi.valid()) {
+                    gdi.old = SelectObject(gdi.mem_dc, gdi.bmp);
 
-                    BitBlt(mem_dc, 0, 0, w, h, wnd_dc, 0, 0, SRCCOPY);
+                    BitBlt(gdi.mem_dc, 0, 0, w, h, gdi.src_dc, 0, 0, SRCCOPY);
 
                     BITMAPINFOHEADER bi { };
                     bi.biSize = sizeof(bi);
@@ -502,13 +532,8 @@ private:
                     bi.biCompression = BI_RGB;
 
                     std::vector<uint8_t> bgra(static_cast<size_t>(w) * h * 4);
-                    GetDIBits(mem_dc, bmp, 0, static_cast<UINT>(h), bgra.data(),
+                    GetDIBits(gdi.mem_dc, gdi.bmp, 0, static_cast<UINT>(h), bgra.data(),
                         reinterpret_cast<BITMAPINFO*>(&bi), DIB_RGB_COLORS);
-
-                    SelectObject(mem_dc, old);
-                    DeleteObject(bmp);
-                    DeleteDC(mem_dc);
-                    ReleaseDC(hwnd_, wnd_dc);
 
                     int ow, oh;
                     compute_output_size(w, h, max_w_, max_h_, ow, oh);
@@ -538,12 +563,14 @@ private:
         }
     }
 
-    void deliver_dxgi_frame(const uint8_t* data, int row_pitch, int w, int h)
+    void deliver_dxgi_frame(const uint8_t* data, size_t row_pitch, int w, int h)
     {
+        const size_t src_stride = static_cast<size_t>(w) * 4;
+        if (row_pitch < src_stride)
+            return;
+
         int ow, oh;
         compute_output_size(w, h, max_w_, max_h_, ow, oh);
-
-        int src_stride = w * 4;
 
         Frame out;
         out.width = ow;
@@ -555,8 +582,8 @@ private:
                 std::memcpy(out.data.data(), data, out.data.size());
             } else {
                 for (int y = 0; y < h; ++y) {
-                    std::memcpy(out.data.data() + y * src_stride, data + y * row_pitch,
-                        static_cast<size_t>(src_stride));
+                    std::memcpy(out.data.data() + y * src_stride,
+                        data + y * row_pitch, src_stride);
                 }
             }
         } else {
@@ -565,8 +592,8 @@ private:
                 std::memcpy(full.data(), data, full.size());
             } else {
                 for (int y = 0; y < h; ++y) {
-                    std::memcpy(full.data() + y * src_stride, data + y * row_pitch,
-                        static_cast<size_t>(src_stride));
+                    std::memcpy(full.data() + y * src_stride,
+                        data + y * row_pitch, src_stride);
                 }
             }
             out.data.resize(static_cast<size_t>(ow) * oh * 4);
