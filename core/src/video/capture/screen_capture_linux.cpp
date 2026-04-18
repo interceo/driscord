@@ -181,12 +181,14 @@ ScreenCapture::Frame ScreenCapture::grab_thumbnail(
     if (target.type == ScreenCaptureTarget::Window && !target.id.empty()) {
         try {
             grab_win = static_cast<Window>(std::stoul(target.id));
-        } catch (const std::exception&) {
+        } catch (const std::exception& e) {
+            LOG_WARNING() << "grab_thumbnail: invalid window id '" << target.id << "': " << e.what();
             XCloseDisplay(dpy);
             return f;
         }
         XWindowAttributes attrs { };
         if (!XGetWindowAttributes(dpy, grab_win, &attrs)) {
+            LOG_WARNING() << "grab_thumbnail: XGetWindowAttributes failed for window " << target.id;
             XCloseDisplay(dpy);
             return f;
         }
@@ -292,7 +294,8 @@ public:
                 Window win { };
                 try {
                     win = static_cast<Window>(std::stoul(target.id));
-                } catch (...) {
+                } catch (const std::exception& e) {
+                    LOG_WARNING() << "start: invalid window id '" << target.id << "': " << e.what();
                 }
 
                 if (win) {
@@ -302,9 +305,13 @@ public:
                         cap_w = attrs.width;
                         cap_h = attrs.height;
                         got_abs = true;
+                    } else {
+                        LOG_WARNING() << "start: XGetWindowAttributes or XTranslateCoordinates failed for window " << target.id;
                     }
                 }
                 XCloseDisplay(dpy);
+            } else {
+                LOG_WARNING() << "start: XOpenDisplay failed, window position unknown";
             }
 
             if (got_abs) {
@@ -369,7 +376,18 @@ public:
         }
 
         dec_ctx_ = avcodec_alloc_context3(dec);
-        avcodec_parameters_to_context(dec_ctx_, par);
+        if (!dec_ctx_) {
+            LOG_ERROR() << "avcodec_alloc_context3 failed (OOM)";
+            cleanup();
+            return false;
+        }
+
+        if (avcodec_parameters_to_context(dec_ctx_, par) < 0) {
+            LOG_ERROR() << "avcodec_parameters_to_context failed";
+            cleanup();
+            return false;
+        }
+
         if (avcodec_open2(dec_ctx_, dec, nullptr) < 0) {
             LOG_ERROR() << "failed to open capture decoder";
             cleanup();
@@ -392,10 +410,20 @@ public:
         pkt_ = av_packet_alloc();
         frame_ = av_frame_alloc();
         bgra_frame_ = av_frame_alloc();
+        if (!pkt_ || !frame_ || !bgra_frame_) {
+            LOG_ERROR() << "av_packet/frame_alloc failed (OOM)";
+            cleanup();
+            return false;
+        }
+
         bgra_frame_->format = AV_PIX_FMT_BGRA;
         bgra_frame_->width = out_w_;
         bgra_frame_->height = out_h_;
-        av_frame_get_buffer(bgra_frame_, 0);
+        if (av_frame_get_buffer(bgra_frame_, 0) < 0) {
+            LOG_ERROR() << "av_frame_get_buffer failed (OOM)";
+            cleanup();
+            return false;
+        }
 
         running_ = true;
         thread_ = std::thread(&LinuxScreenCapture::capture_loop, this);
@@ -407,13 +435,10 @@ public:
 
     void stop() override
     {
-        if (!running_.exchange(false)) {
-            return;
-        }
         stopping_ = true;
-        if (thread_.joinable()) {
+        running_.store(false);
+        if (thread_.joinable())
             thread_.join();
-        }
         stopping_ = false;
         cleanup();
         LOG_INFO() << "screen capture stopped";
@@ -456,21 +481,35 @@ private:
                 continue;
             }
 
-            avcodec_send_packet(dec_ctx_, pkt_);
+            int sret = avcodec_send_packet(dec_ctx_, pkt_);
+            if (sret < 0 && sret != AVERROR(EAGAIN) && sret != AVERROR_EOF) {
+                LOG_WARNING() << "avcodec_send_packet: " << ff_err(sret);
+                av_packet_unref(pkt_);
+                continue;
+            }
+
             while (avcodec_receive_frame(dec_ctx_, frame_) >= 0) {
-                av_frame_make_writable(bgra_frame_);
+                if (av_frame_make_writable(bgra_frame_) < 0) {
+                    continue;
+                }
+
+                int stride = bgra_frame_->linesize[0];
+                auto row_bytes = static_cast<size_t>(out_w_) * 4;
+                if (stride <= 0 || static_cast<size_t>(stride) < row_bytes) {
+                    LOG_WARNING() << "capture: unexpected bgra linesize " << stride << ", skipping frame";
+                    continue;
+                }
+
                 sws_scale(sws_, frame_->data, frame_->linesize, 0, dec_ctx_->height,
                     bgra_frame_->data, bgra_frame_->linesize);
 
                 Frame out;
                 out.width = out_w_;
                 out.height = out_h_;
-                auto row_bytes = static_cast<size_t>(out_w_) * 4;
                 auto nbytes = row_bytes * out_h_;
                 out.data.resize(nbytes);
 
                 const uint8_t* src = bgra_frame_->data[0];
-                int stride = bgra_frame_->linesize[0];
                 if (static_cast<size_t>(stride) == row_bytes) {
                     std::memcpy(out.data.data(), src, nbytes);
                 } else {
