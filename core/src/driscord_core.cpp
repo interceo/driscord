@@ -284,7 +284,7 @@ std::string DriscordCore::capture_video_list_targets_json() const
         nlohmann::json::error_handler_t::replace);
 }
 
-std::vector<uint8_t> DriscordCore::capture_grab_thumbnail(
+DriscordCore::ThumbnailResult DriscordCore::capture_grab_thumbnail(
     const std::string& target_json,
     int max_w,
     int max_h)
@@ -294,7 +294,7 @@ std::vector<uint8_t> DriscordCore::capture_grab_thumbnail(
     if (frame.data.empty()) {
         return { };
     }
-    return frame.to_rgba();
+    return { frame.width, frame.height, frame.to_rgba() };
 }
 
 // ---------------------------------------------------------------------------

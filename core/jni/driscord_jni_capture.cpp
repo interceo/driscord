@@ -2,8 +2,11 @@
 #include "jni_common.hpp"
 
 #include "audio/capture/system_audio_capture.hpp"
+#include "utils/byte_utils.hpp"
 
 #define CORE() DriscordState::get().core
+
+static constexpr int kThumbnailHeaderSize = 8; // width_le32 + height_le32
 
 extern "C" {
 
@@ -29,16 +32,25 @@ Java_com_driscord_jni_NativeDriscord_captureGrabThumbnail(JNIEnv* env,
     jint maxH)
 {
     auto targetJson = jni_jstring_to_utf8(env, jTargetJson);
-    auto rgba = CORE().capture_grab_thumbnail(targetJson, static_cast<int>(maxW),
-        static_cast<int>(maxH));
+    auto thumb = CORE().capture_grab_thumbnail(targetJson,
+        static_cast<int>(maxW), static_cast<int>(maxH));
 
-    if (rgba.empty()) {
+    if (thumb.rgba.empty()) {
         return nullptr;
     }
 
-    jbyteArray out = env->NewByteArray(static_cast<jsize>(rgba.size()));
-    env->SetByteArrayRegion(out, 0, static_cast<jsize>(rgba.size()),
-        reinterpret_cast<const jbyte*>(rgba.data()));
+    auto totalSize = static_cast<jsize>(kThumbnailHeaderSize + thumb.rgba.size());
+    jbyteArray out = env->NewByteArray(totalSize);
+
+    uint8_t header[kThumbnailHeaderSize];
+    utils::write_u32_le(header, static_cast<uint32_t>(thumb.width));
+    utils::write_u32_le(header + 4, static_cast<uint32_t>(thumb.height));
+
+    env->SetByteArrayRegion(out, 0, kThumbnailHeaderSize,
+        reinterpret_cast<const jbyte*>(header));
+    env->SetByteArrayRegion(out, kThumbnailHeaderSize,
+        static_cast<jsize>(thumb.rgba.size()),
+        reinterpret_cast<const jbyte*>(thumb.rgba.data()));
     return out;
 }
 

@@ -60,7 +60,13 @@ public:
     // -- Capture (JSON serialisation logic) --
     std::string capture_audio_list_targets_json() const;
     std::string capture_video_list_targets_json() const;
-    std::vector<uint8_t> capture_grab_thumbnail(const std::string& target_json,
+
+    struct ThumbnailResult {
+        int width = 0;
+        int height = 0;
+        std::vector<uint8_t> rgba;
+    };
+    ThumbnailResult capture_grab_thumbnail(const std::string& target_json,
         int max_w,
         int max_h);
 
