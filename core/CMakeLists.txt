@@ -58,9 +58,35 @@ FetchContent_MakeAvailable(glfw libdatachannel opus miniaudio)
 add_library(miniaudio_lib INTERFACE)
 target_include_directories(miniaudio_lib INTERFACE ${miniaudio_SOURCE_DIR})
 
-# --- FFmpeg (system dependency) ---
+# --- FFmpeg ---
+# When cross-compiling for Windows, prefer prebuilt static libs from
+# third_party/windows/ffmpeg/ (populated by third_party/fetch_win_deps.sh).
+# The toolchain file already adds that path to CMAKE_PREFIX_PATH/FIND_ROOT_PATH,
+# so find_path/find_library will pick it up automatically via the fallback below.
+if(CMAKE_CROSSCOMPILING AND WIN32)
+    set(_WIN_FFMPEG "${CMAKE_SOURCE_DIR}/third_party/windows/ffmpeg")
+    if(EXISTS "${_WIN_FFMPEG}/include" AND EXISTS "${_WIN_FFMPEG}/lib")
+        set(_FF_INC  "${_WIN_FFMPEG}/include")
+        set(_FF_LIB  "${_WIN_FFMPEG}/lib")
+        # Link against static libs — FFmpeg is baked into core.dll,
+        # no separate av*.dll files needed alongside the app.
+        add_library(PkgConfig::FFMPEG INTERFACE IMPORTED)
+        set_target_properties(PkgConfig::FFMPEG PROPERTIES
+            INTERFACE_INCLUDE_DIRECTORIES "${_FF_INC}"
+            INTERFACE_LINK_LIBRARIES
+                "${_FF_LIB}/libavcodec.a;\
+${_FF_LIB}/libavformat.a;\
+${_FF_LIB}/libavdevice.a;\
+${_FF_LIB}/libswscale.a;\
+${_FF_LIB}/libswresample.a;\
+${_FF_LIB}/libavutil.a"
+        )
+        message(STATUS "FFmpeg (Windows cross): ${_WIN_FFMPEG}")
+    endif()
+endif()
+
 find_package(PkgConfig QUIET)
-if(PkgConfig_FOUND)
+if(NOT TARGET PkgConfig::FFMPEG AND PkgConfig_FOUND)
     pkg_check_modules(FFMPEG QUIET IMPORTED_TARGET
         libavcodec libavformat libavdevice libswscale libswresample libavutil)
 endif()
@@ -88,6 +114,36 @@ if(NOT TARGET PkgConfig::FFMPEG)
     )
 endif()
 
+# ---------------------------------------------------------------------------
+# Prefer static FFmpeg so libcore.so / core.dll is self-contained.
+# On Linux: search for .a files in the same dirs pkg-config reported.
+# On Windows (cross-compile): already handled above with explicit .a paths.
+# ---------------------------------------------------------------------------
+if(NOT (CMAKE_CROSSCOMPILING AND WIN32) AND TARGET PkgConfig::FFMPEG)
+    set(_ff_static "")
+    foreach(_ff avcodec avformat avdevice swscale swresample avutil)
+        find_library(_ff_a_${_ff}
+            NAMES "lib${_ff}.a"
+            HINTS ${FFMPEG_LIBRARY_DIRS}
+            NO_DEFAULT_PATH
+        )
+        if(_ff_a_${_ff})
+            list(APPEND _ff_static "${_ff_a_${_ff}}")
+        endif()
+        unset(_ff_a_${_ff} CACHE)
+    endforeach()
+
+    list(LENGTH _ff_static _ff_static_count)
+    if(_ff_static_count EQUAL 6)
+        set_target_properties(PkgConfig::FFMPEG PROPERTIES
+            INTERFACE_LINK_LIBRARIES "${_ff_static}")
+        message(STATUS "FFmpeg: static .a found — baked into JNI library")
+    else()
+        message(STATUS "FFmpeg: static .a not available — using shared libs "
+            "(AppImage must bundle libav*.so or target system needs FFmpeg installed)")
+    endif()
+endif()
+
 # --- platform-specific screen capture ---
 if(APPLE)
     set(CAPTURE_SOURCES src/video/capture/screen_capture_mac.cpp)
@@ -97,7 +153,7 @@ if(APPLE)
         COMPILE_FLAGS "-x objective-c++"
     )
 elseif(WIN32)
-    set(CAPTURE_SOURCES src/video/capture/screen_capture_win.cpp)
+    set(CAPTURE_SOURCES  src/video/capture/screen_capture_win.cpp)
     set(SYSTEM_AUDIO_SOURCES src/audio/capture/system_audio_capture_win.cpp)
 elseif(UNIX)
     set(CAPTURE_SOURCES src/video/capture/screen_capture_linux.cpp)
@@ -168,6 +224,8 @@ elseif(WIN32)
     target_link_libraries(driscord_core PRIVATE
         d3d11 dxgi gdi32 mfuuid mfplat mf strmiids
         ole32 wmcodecdspuuid ksuser mmdevapi
+        # Required when FFmpeg is statically linked (pulls in Windows crypto/net)
+        ws2_32 bcrypt secur32
     )
 elseif(UNIX)
     find_package(X11 REQUIRED)
@@ -247,6 +305,7 @@ if(JNI_FOUND)
         target_link_libraries(driscord_core_jni PRIVATE
             d3d11 dxgi gdi32 mfuuid mfplat mf strmiids
             ole32 wmcodecdspuuid ksuser mmdevapi
+            ws2_32 bcrypt secur32
         )
     elseif(UNIX)
         target_link_libraries(driscord_core_jni PRIVATE X11::X11 X11::Xrandr)

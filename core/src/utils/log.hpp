@@ -79,12 +79,10 @@ public:
         const auto tt = std::chrono::system_clock::to_time_t(now);
 
         std::tm tm { };
-#if defined(_WIN32) && !defined(__MINGW32__)
-        // MSVC / native Windows CRT — provides localtime_s
-        localtime_s(&tm, &tt);
+#if defined(_WIN32)
+        localtime_s(&tm, &tt); // Windows (MSVC + MinGW): localtime_s(tm*, time_t*)
 #else
-        // Linux, macOS, and MinGW cross-compile (which has localtime_r via POSIX)
-        localtime_r(&tt, &tm);
+        localtime_r(&tt, &tm); // POSIX (Linux, macOS)
 #endif
 
         std::scoped_lock lk(mtx);
