@@ -198,6 +198,14 @@ elseif(WIN32)
         # Required when FFmpeg is statically linked (pulls in Windows crypto/net)
         ws2_32 bcrypt secur32
     )
+    if(CMAKE_CROSSCOMPILING)
+        # FFmpeg from MSYS2 includes hwcontext_vaapi.o / hwcontext_vulkan.o
+        # which reference libva symbols. VA-API is Linux-only in driscord so
+        # these are never called at runtime — stubs satisfy the static linker.
+        add_library(va_win_stubs STATIC
+            "${CMAKE_SOURCE_DIR}/cmake/stubs/va_win_stubs.c")
+        target_link_libraries(driscord_core PRIVATE va_win_stubs)
+    endif()
 elseif(UNIX)
     find_package(X11 REQUIRED)
     if(NOT X11_Xrandr_FOUND)
