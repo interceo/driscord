@@ -86,7 +86,13 @@ val embedNativeLib by tasks.registering(Copy::class) {
     ).filter { it.isNotBlank() }
     enabled = dirs.isNotEmpty()
     dirs.forEach { dir ->
-        from(dir) { include("libcore.so", "core.dll", "libcore.dylib") }
+        // Pull every shared object in the staging dir — on Windows this is
+        // core.dll + the FFmpeg runtime DLLs (avcodec-*.dll etc.) that core.dll
+        // needs at load time. NativeLoader extracts all of them into one temp
+        // dir so Windows's loader can resolve core.dll's deps from there.
+        from(dir) {
+            include("*.dll", "*.so", "*.dylib")
+        }
     }
     into(generatedNativeRes)
 }

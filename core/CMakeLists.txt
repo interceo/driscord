@@ -66,22 +66,24 @@ target_include_directories(miniaudio_lib INTERFACE ${miniaudio_SOURCE_DIR})
 if(CMAKE_CROSSCOMPILING AND WIN32)
     set(_WIN_FFMPEG "${CMAKE_SOURCE_DIR}/third_party/windows/ffmpeg")
     if(EXISTS "${_WIN_FFMPEG}/include" AND EXISTS "${_WIN_FFMPEG}/lib")
-        set(_FF_INC  "${_WIN_FFMPEG}/include")
-        set(_FF_LIB  "${_WIN_FFMPEG}/lib")
-        # Link against static libs — FFmpeg is baked into core.dll,
-        # no separate av*.dll files needed alongside the app.
+        set(_FF_INC "${_WIN_FFMPEG}/include")
+        set(_FF_LIB "${_WIN_FFMPEG}/lib")
+        # Link against BtbN's shared (.dll.a) import libs. The FFmpeg DLLs
+        # (avcodec-*.dll, avformat-*.dll, etc.) must be shipped next to
+        # core.dll at runtime — build.sh copies them into the native staging
+        # dir, Gradle embeds them into the JAR, NativeLoader extracts them.
         add_library(PkgConfig::FFMPEG INTERFACE IMPORTED)
         set_target_properties(PkgConfig::FFMPEG PROPERTIES
             INTERFACE_INCLUDE_DIRECTORIES "${_FF_INC}"
             INTERFACE_LINK_LIBRARIES
-                "${_FF_LIB}/libavcodec.a;\
-${_FF_LIB}/libavformat.a;\
-${_FF_LIB}/libavdevice.a;\
-${_FF_LIB}/libswscale.a;\
-${_FF_LIB}/libswresample.a;\
-${_FF_LIB}/libavutil.a"
+                "${_FF_LIB}/libavcodec.dll.a;\
+${_FF_LIB}/libavformat.dll.a;\
+${_FF_LIB}/libavdevice.dll.a;\
+${_FF_LIB}/libswscale.dll.a;\
+${_FF_LIB}/libswresample.dll.a;\
+${_FF_LIB}/libavutil.dll.a"
         )
-        message(STATUS "FFmpeg (Windows cross): ${_WIN_FFMPEG}")
+        message(STATUS "FFmpeg (Windows cross, shared): ${_WIN_FFMPEG}")
     endif()
 endif()
 
@@ -256,7 +258,37 @@ endif()
 # ---------------------------------------------------------------------------
 # driscord_core_jni — shared library loaded by the Kotlin/Compose Desktop client
 # ---------------------------------------------------------------------------
-find_package(JNI QUIET)
+# When cross-compiling to Windows via MinGW, find_package(JNI) fails because
+# the toolchain restricts header search to CMAKE_FIND_ROOT_PATH and the host
+# Linux JDK isn't in there. Resolve JNI manually: use the host JDK's jni.h
+# (platform-agnostic) together with our vendored win32/jni_md.h.
+if(CMAKE_CROSSCOMPILING AND WIN32)
+    set(_HOST_JDK "$ENV{JAVA_HOME}")
+    if(NOT _HOST_JDK OR NOT EXISTS "${_HOST_JDK}/include/jni.h")
+        # Fallback: derive from `which java` like build.sh does.
+        find_program(_HOST_JAVA java)
+        if(_HOST_JAVA)
+            get_filename_component(_HOST_JAVA_REAL "${_HOST_JAVA}" REALPATH)
+            get_filename_component(_HOST_JDK "${_HOST_JAVA_REAL}" DIRECTORY)
+            get_filename_component(_HOST_JDK "${_HOST_JDK}" DIRECTORY)
+        endif()
+    endif()
+    if(EXISTS "${_HOST_JDK}/include/jni.h")
+        set(JNI_INCLUDE_DIRS
+            "${_HOST_JDK}/include"
+            "${CMAKE_SOURCE_DIR}/cmake/jni-win32"
+        )
+        # No JNI_LIBRARIES on Windows: JNI symbols resolve at load time
+        # against the JVM that dlopen's the DLL.
+        set(JNI_LIBRARIES "")
+        set(JNI_FOUND TRUE)
+        message(STATUS "JNI (Windows cross): host JDK ${_HOST_JDK} + vendored jni_md.h")
+    else()
+        message(WARNING "JNI (Windows cross): host JDK not found — core.dll will not be built")
+    endif()
+else()
+    find_package(JNI QUIET)
+endif()
 if(JNI_FOUND)
     add_library(driscord_core_jni SHARED
         jni/driscord_state.cpp

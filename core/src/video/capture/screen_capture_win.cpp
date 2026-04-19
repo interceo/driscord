@@ -1,9 +1,10 @@
 #include "screen_capture.hpp"
 #include "screen_capture_common.hpp"
+#include "utils/time.hpp"
 
 #include <atomic>
-#include <chrono>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -22,6 +23,23 @@
 #include <d3d11.h>
 #include <dxgi1_2.h>
 // clang-format on
+
+// --- COM RAII helper --------------------------------------------------------
+
+namespace {
+
+template <typename T>
+struct ComDeleter {
+    void operator()(T* p) const noexcept
+    {
+        if (p)
+            p->Release();
+    }
+};
+template <typename T>
+using ComPtr = std::unique_ptr<T, ComDeleter<T>>;
+
+} // namespace
 
 // --- helpers ----------------------------------------------------------------
 
@@ -300,39 +318,44 @@ private:
         D3D_FEATURE_LEVEL feature_levels[] = { D3D_FEATURE_LEVEL_11_0 };
         D3D_FEATURE_LEVEL feature_level { };
 
+        ID3D11Device* device_raw = nullptr;
+        ID3D11DeviceContext* context_raw = nullptr;
+
         HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
             0, feature_levels, 1, D3D11_SDK_VERSION,
-            &device_, &feature_level, &context_);
+            &device_raw, &feature_level, &context_raw);
         if (FAILED(hr)) {
             hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0,
-                feature_levels, 1, D3D11_SDK_VERSION, &device_,
-                &feature_level, &context_);
+                feature_levels, 1, D3D11_SDK_VERSION, &device_raw,
+                &feature_level, &context_raw);
         }
         if (FAILED(hr)) {
             LOG_ERROR() << "D3D11CreateDevice failed: 0x" << std::hex << hr;
             return false;
         }
+        device_.reset(device_raw);
+        context_.reset(context_raw);
 
-        IDXGIDevice* dxgi_device = nullptr;
+        IDXGIDevice* dxgi_device_raw = nullptr;
         hr = device_->QueryInterface(__uuidof(IDXGIDevice),
-            reinterpret_cast<void**>(&dxgi_device));
+            reinterpret_cast<void**>(&dxgi_device_raw));
         if (FAILED(hr)) {
             LOG_ERROR() << "QueryInterface(IDXGIDevice) failed";
             cleanup_dxgi();
             return false;
         }
+        ComPtr<IDXGIDevice> dxgi_device { dxgi_device_raw };
 
-        IDXGIAdapter* adapter = nullptr;
-        hr = dxgi_device->GetAdapter(&adapter);
-        dxgi_device->Release();
+        IDXGIAdapter* adapter_raw = nullptr;
+        hr = dxgi_device->GetAdapter(&adapter_raw);
         if (FAILED(hr)) {
             LOG_ERROR() << "GetAdapter failed";
             cleanup_dxgi();
             return false;
         }
+        ComPtr<IDXGIAdapter> adapter { adapter_raw };
 
-        IDXGIOutput* output = find_output(adapter);
-        adapter->Release();
+        ComPtr<IDXGIOutput> output = find_output(adapter.get());
         if (!output) {
             LOG_ERROR() << "no matching DXGI output found";
             cleanup_dxgi();
@@ -344,23 +367,24 @@ private:
         capture_w_ = output_desc.DesktopCoordinates.right - output_desc.DesktopCoordinates.left;
         capture_h_ = output_desc.DesktopCoordinates.bottom - output_desc.DesktopCoordinates.top;
 
-        IDXGIOutput1* output1 = nullptr;
+        IDXGIOutput1* output1_raw = nullptr;
         hr = output->QueryInterface(__uuidof(IDXGIOutput1),
-            reinterpret_cast<void**>(&output1));
-        output->Release();
+            reinterpret_cast<void**>(&output1_raw));
         if (FAILED(hr)) {
             LOG_ERROR() << "QueryInterface(IDXGIOutput1) failed";
             cleanup_dxgi();
             return false;
         }
+        ComPtr<IDXGIOutput1> output1 { output1_raw };
 
-        hr = output1->DuplicateOutput(device_, &duplication_);
-        output1->Release();
+        IDXGIOutputDuplication* duplication_raw = nullptr;
+        hr = output1->DuplicateOutput(device_.get(), &duplication_raw);
         if (FAILED(hr)) {
             LOG_ERROR() << "DuplicateOutput failed: 0x" << std::hex << hr;
             cleanup_dxgi();
             return false;
         }
+        duplication_.reset(duplication_raw);
 
         D3D11_TEXTURE2D_DESC staging_desc { };
         staging_desc.Width = static_cast<UINT>(capture_w_);
@@ -372,28 +396,31 @@ private:
         staging_desc.Usage = D3D11_USAGE_STAGING;
         staging_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
 
-        hr = device_->CreateTexture2D(&staging_desc, nullptr, &staging_tex_);
+        ID3D11Texture2D* staging_raw = nullptr;
+        hr = device_->CreateTexture2D(&staging_desc, nullptr, &staging_raw);
         if (FAILED(hr)) {
             LOG_ERROR() << "CreateTexture2D(staging) failed";
             cleanup_dxgi();
             return false;
         }
+        staging_tex_.reset(staging_raw);
 
         LOG_INFO() << "DXGI capture init: " << capture_w_ << "x" << capture_h_;
         return true;
     }
 
-    IDXGIOutput* find_output(IDXGIAdapter* adapter)
+    ComPtr<IDXGIOutput> find_output(IDXGIAdapter* adapter)
     {
-        IDXGIOutput* best = nullptr;
+        ComPtr<IDXGIOutput> best;
 
         for (UINT i = 0;; ++i) {
-            IDXGIOutput* out = nullptr;
-            HRESULT enum_hr = adapter->EnumOutputs(i, &out);
+            IDXGIOutput* out_raw = nullptr;
+            HRESULT enum_hr = adapter->EnumOutputs(i, &out_raw);
             if (enum_hr == DXGI_ERROR_NOT_FOUND)
                 break;
             if (FAILED(enum_hr))
                 break;
+            ComPtr<IDXGIOutput> out { out_raw };
 
             DXGI_OUTPUT_DESC desc { };
             out->GetDesc(&desc);
@@ -402,16 +429,11 @@ private:
             int oy = desc.DesktopCoordinates.top;
 
             if (ox == target_.x && oy == target_.y) {
-                if (best) {
-                    best->Release();
-                }
                 return out;
             }
 
             if (!best) {
-                best = out;
-            } else {
-                out->Release();
+                best = std::move(out);
             }
         }
         return best; // fallback to first output
@@ -419,22 +441,10 @@ private:
 
     void cleanup_dxgi()
     {
-        if (staging_tex_) {
-            staging_tex_->Release();
-            staging_tex_ = nullptr;
-        }
-        if (duplication_) {
-            duplication_->Release();
-            duplication_ = nullptr;
-        }
-        if (context_) {
-            context_->Release();
-            context_ = nullptr;
-        }
-        if (device_) {
-            device_->Release();
-            device_ = nullptr;
-        }
+        staging_tex_.reset();
+        duplication_.reset();
+        context_.reset();
+        device_.reset();
         capture_w_ = 0;
         capture_h_ = 0;
     }
@@ -444,12 +454,12 @@ private:
     void dxgi_capture_loop()
     {
         while (running_) {
-            auto t0 = std::chrono::steady_clock::now();
+            const auto t0 = utils::Now();
 
-            IDXGIResource* resource = nullptr;
+            IDXGIResource* resource_raw = nullptr;
             DXGI_OUTDUPL_FRAME_INFO frame_info { };
 
-            HRESULT hr = duplication_->AcquireNextFrame(100, &frame_info, &resource);
+            HRESULT hr = duplication_->AcquireNextFrame(100, &frame_info, &resource_raw);
             if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
                 continue;
             }
@@ -464,32 +474,30 @@ private:
                 }
                 continue;
             }
+            ComPtr<IDXGIResource> resource { resource_raw };
 
-            ID3D11Texture2D* frame_tex = nullptr;
+            ID3D11Texture2D* frame_tex_raw = nullptr;
             hr = resource->QueryInterface(__uuidof(ID3D11Texture2D),
-                reinterpret_cast<void**>(&frame_tex));
-            resource->Release();
+                reinterpret_cast<void**>(&frame_tex_raw));
 
             if (SUCCEEDED(hr) && running_) {
-                context_->CopyResource(staging_tex_, frame_tex);
-                frame_tex->Release();
+                ComPtr<ID3D11Texture2D> frame_tex { frame_tex_raw };
+                context_->CopyResource(staging_tex_.get(), frame_tex.get());
 
                 D3D11_MAPPED_SUBRESOURCE mapped { };
-                hr = context_->Map(staging_tex_, 0, D3D11_MAP_READ, 0, &mapped);
+                hr = context_->Map(staging_tex_.get(), 0, D3D11_MAP_READ, 0, &mapped);
                 if (SUCCEEDED(hr)) {
                     deliver_dxgi_frame(static_cast<const uint8_t*>(mapped.pData),
                         static_cast<size_t>(mapped.RowPitch), capture_w_,
                         capture_h_);
-                    context_->Unmap(staging_tex_, 0);
+                    context_->Unmap(staging_tex_.get(), 0);
                 }
-            } else if (frame_tex) {
-                frame_tex->Release();
             }
 
             duplication_->ReleaseFrame();
 
-            auto elapsed = std::chrono::steady_clock::now() - t0;
-            auto target_dur = std::chrono::microseconds(frame_interval_us_);
+            const auto elapsed = utils::Elapsed(t0);
+            const auto target_dur = std::chrono::microseconds(frame_interval_us_);
             if (elapsed < target_dur) {
                 std::this_thread::sleep_for(target_dur - elapsed);
             }
@@ -499,7 +507,7 @@ private:
     void bitblt_capture_loop()
     {
         while (running_) {
-            auto t0 = std::chrono::steady_clock::now();
+            const auto t0 = utils::Now();
 
             GdiObjects gdi;
             gdi.hwnd = hwnd_;
@@ -555,8 +563,8 @@ private:
                 }
             }
 
-            auto elapsed = std::chrono::steady_clock::now() - t0;
-            auto target_dur = std::chrono::microseconds(frame_interval_us_);
+            const auto elapsed = utils::Elapsed(t0);
+            const auto target_dur = std::chrono::microseconds(frame_interval_us_);
             if (elapsed < target_dur) {
                 std::this_thread::sleep_for(target_dur - elapsed);
             }
@@ -616,10 +624,10 @@ private:
     int frame_interval_us_ = 16666;
 
     // DXGI (monitor capture)
-    ID3D11Device* device_ = nullptr;
-    ID3D11DeviceContext* context_ = nullptr;
-    IDXGIOutputDuplication* duplication_ = nullptr;
-    ID3D11Texture2D* staging_tex_ = nullptr;
+    ComPtr<ID3D11Device> device_;
+    ComPtr<ID3D11DeviceContext> context_;
+    ComPtr<IDXGIOutputDuplication> duplication_;
+    ComPtr<ID3D11Texture2D> staging_tex_;
     int capture_w_ = 0;
     int capture_h_ = 0;
 
