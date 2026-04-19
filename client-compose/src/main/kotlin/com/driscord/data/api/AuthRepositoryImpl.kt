@@ -8,6 +8,15 @@ class AuthRepositoryImpl(private val client: ApiClient) : AuthRepository {
     override val isLoggedIn: Boolean get() = client.accessToken != null
     override val currentUsername: String? get() = _username
 
+    init {
+        SessionStore.load()?.let { session ->
+            client.accessToken = session.accessToken
+            refreshToken = session.refreshToken
+            _username = session.username
+            println("[session] restored for ${session.username}")
+        }
+    }
+
     override suspend fun login(username: String, password: String): Result<Unit> {
         val result = client.post(
             "/auth/login",
@@ -19,6 +28,7 @@ class AuthRepositoryImpl(private val client: ApiClient) : AuthRepository {
             client.accessToken = tokens.accessToken
             refreshToken = tokens.refreshToken
             _username = username
+            SessionStore.save(SessionData(tokens.accessToken, tokens.refreshToken, username))
         }
     }
 
@@ -33,6 +43,7 @@ class AuthRepositoryImpl(private val client: ApiClient) : AuthRepository {
             client.accessToken = tokens.accessToken
             refreshToken = tokens.refreshToken
             _username = username
+            SessionStore.save(SessionData(tokens.accessToken, tokens.refreshToken, username))
         }
     }
 
@@ -40,5 +51,6 @@ class AuthRepositoryImpl(private val client: ApiClient) : AuthRepository {
         client.accessToken = null
         refreshToken = null
         _username = null
+        SessionStore.clear()
     }
 }
