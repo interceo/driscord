@@ -355,6 +355,18 @@ bool SystemAudioCapture::available()
     return true;
 }
 
+// WASAPI loopback always captures the default render endpoint — no sink
+// selection is exposed to the caller on Windows.
+std::vector<AudioCaptureTarget> SystemAudioCapture::list_sinks()
+{
+    return {};
+}
+
+std::vector<AudioCaptureTarget> SystemAudioCapture::list_sources()
+{
+    return {};
+}
+
 std::unique_ptr<SystemAudioCapture> SystemAudioCapture::create()
 {
     return std::make_unique<SystemAudioCaptureWin>();

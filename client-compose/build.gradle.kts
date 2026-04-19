@@ -150,6 +150,7 @@ compose.desktop {
                 "java.net.http",      // HttpClient used by ApiClient
                 "java.naming",        // required by some TLS/SSL paths
                 "jdk.crypto.ec",      // EC cipher suites for TLS
+                "jdk.unsupported",    // sun.misc.Unsafe — required by JNA (java-keyring)
             )
 
             packageName = "driscord"

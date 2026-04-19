@@ -186,6 +186,17 @@ bool SystemAudioCapture::available()
     return false;
 }
 
+// ScreenCaptureKit captures system audio as a whole — no per-sink selection.
+std::vector<AudioCaptureTarget> SystemAudioCapture::list_sinks()
+{
+    return {};
+}
+
+std::vector<AudioCaptureTarget> SystemAudioCapture::list_sources()
+{
+    return {};
+}
+
 std::unique_ptr<SystemAudioCapture> SystemAudioCapture::create()
 {
     if (!available()) {

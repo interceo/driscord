@@ -239,10 +239,12 @@ if [ "$TARGET" = "windows" ]; then
                    || x86_64-w64-mingw32-g++ -dumpversion 2>/dev/null \
                    || echo "12")
         GCC_VMAJ="${GCC_VMAJ%%.*}"
-        WIN_DLL_PATH="/usr/lib/gcc/x86_64-w64-mingw32/${GCC_VMAJ}:/usr/x86_64-w64-mingw32/lib"
-        [ -d "$ROOT/third_party/windows/ffmpeg/bin"  ] && WIN_DLL_PATH="$WIN_DLL_PATH:$ROOT/third_party/windows/ffmpeg/bin"
-        [ -d "$ROOT/third_party/windows/openssl/bin" ] && WIN_DLL_PATH="$WIN_DLL_PATH:$ROOT/third_party/windows/openssl/bin"
-        export WINEPATH="${WIN_DLL_PATH}${WINEPATH:+:$WINEPATH}"
+        # Wine requires Windows-style paths (Z:/) separated by semicolons.
+        unix_to_wine() { echo "Z:$(echo "$1" | sed 's|/|\\|g')"; }
+        WIN_DLL_PATH="$(unix_to_wine "/usr/lib/gcc/x86_64-w64-mingw32/${GCC_VMAJ}");$(unix_to_wine "/usr/x86_64-w64-mingw32/bin")"
+        [ -d "$ROOT/third_party/windows/ffmpeg/bin"  ] && WIN_DLL_PATH="$WIN_DLL_PATH;$(unix_to_wine "$ROOT/third_party/windows/ffmpeg/bin")"
+        [ -d "$ROOT/third_party/windows/openssl/bin" ] && WIN_DLL_PATH="$WIN_DLL_PATH;$(unix_to_wine "$ROOT/third_party/windows/openssl/bin")"
+        export WINEPATH="${WIN_DLL_PATH}${WINEPATH:+;$WINEPATH}"
         export WINEDEBUG=-all
 
         echo "==> Initializing Wine prefix..."
@@ -361,12 +363,13 @@ fi
 
 # --- Test ---
 if [ "$ACTION" = "test" ]; then
+    TEST_BUILD="$BUILDS_DIR/cmake/linux-test"
     echo "==> Configuring CMake for tests ($BUILD_TYPE)..."
-    cmake_configure "$LINUX_BUILD" \
+    cmake_configure "$TEST_BUILD" \
         -DBUILD_TESTS=ON -DBUILD_SERVER=ON -DBUILD_CORE=ON
     echo "==> Building tests ($BUILD_TYPE, $JOBS jobs)..."
-    cmake --build "$LINUX_BUILD" -j"$JOBS"
-    cd "$LINUX_BUILD"
+    cmake --build "$TEST_BUILD" -j"$JOBS"
+    cd "$TEST_BUILD"
     ctest --output-on-failure
     exit 0
 fi
