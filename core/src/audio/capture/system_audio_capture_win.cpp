@@ -359,12 +359,12 @@ bool SystemAudioCapture::available()
 // selection is exposed to the caller on Windows.
 std::vector<AudioCaptureTarget> SystemAudioCapture::list_sinks()
 {
-    return {};
+    return { };
 }
 
 std::vector<AudioCaptureTarget> SystemAudioCapture::list_sources()
 {
-    return {};
+    return { };
 }
 
 std::unique_ptr<SystemAudioCapture> SystemAudioCapture::create()
