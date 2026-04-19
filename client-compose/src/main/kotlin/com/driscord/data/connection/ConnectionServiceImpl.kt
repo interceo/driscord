@@ -88,6 +88,7 @@ class ConnectionServiceImpl(config: AppConfig) : ConnectionService {
     }
 
     override fun destroy() {
+        NativeDriscord.disconnect()
         scope.cancel()
     }
 
