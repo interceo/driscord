@@ -10,7 +10,6 @@ import java.io.File
 
 @Serializable
 data class SessionData(
-    val accessToken: String,
     val refreshToken: String,
     val username: String,
 )

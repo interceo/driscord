@@ -5,12 +5,11 @@ class AuthRepositoryImpl(private val client: ApiClient) : AuthRepository {
     private var _username: String? = null
     private var refreshToken: String? = null
 
-    override val isLoggedIn: Boolean get() = client.accessToken != null
+    override val isLoggedIn: Boolean get() = refreshToken != null
     override val currentUsername: String? get() = _username
 
     init {
         SessionStore.load()?.let { session ->
-            client.accessToken = session.accessToken
             refreshToken = session.refreshToken
             _username = session.username
             println("[session] restored for ${session.username}")
@@ -28,7 +27,7 @@ class AuthRepositoryImpl(private val client: ApiClient) : AuthRepository {
             client.accessToken = tokens.accessToken
             refreshToken = tokens.refreshToken
             _username = username
-            SessionStore.save(SessionData(tokens.accessToken, tokens.refreshToken, username))
+            SessionStore.save(SessionData(tokens.refreshToken, username))
         }
     }
 
@@ -43,7 +42,7 @@ class AuthRepositoryImpl(private val client: ApiClient) : AuthRepository {
             client.accessToken = tokens.accessToken
             refreshToken = tokens.refreshToken
             _username = username
-            SessionStore.save(SessionData(tokens.accessToken, tokens.refreshToken, username))
+            SessionStore.save(SessionData(tokens.refreshToken, username))
         }
     }
 
@@ -58,7 +57,7 @@ class AuthRepositoryImpl(private val client: ApiClient) : AuthRepository {
         return result.map { tokens ->
             client.accessToken = tokens.accessToken
             refreshToken = tokens.refreshToken
-            SessionStore.save(SessionData(tokens.accessToken, tokens.refreshToken, _username ?: ""))
+            SessionStore.save(SessionData(tokens.refreshToken, _username ?: ""))
         }
     }
 

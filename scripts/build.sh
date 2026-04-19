@@ -348,7 +348,7 @@ if [ "$TARGET" = "windows" ]; then
                 [ -f "$dll" ] && cp "$dll" "$OUT_WIN/"
             done
         fi
-        cp "$ROOT/driscord.json" "$OUT_WIN/"
+        cp "$ROOT/config.json" "$OUT_WIN/"
 
         echo ""
         echo "==> Windows client ready: $OUT_WIN"
@@ -498,7 +498,7 @@ echo "==> Building Kotlin/Compose client (fatJar)..."
 ls "$LINUX_BUILD/core/libcore."* &>/dev/null 2>&1 \
     && cp "$LINUX_BUILD/core/libcore."* "$OUT/"
 
-cp "$ROOT/driscord.json" "$OUT/"
+cp "$ROOT/config.json" "$OUT/"
 
 cat > "$OUT/driscord.sh" << 'LAUNCHER'
 #!/usr/bin/env sh

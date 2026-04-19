@@ -98,7 +98,7 @@ data class AppConfig(
             (configCandidates().firstOrNull { it.exists() } ?: configCandidates().first()).absolutePath
 
         private fun configCandidates(): List<File> = buildList {
-            add(File("driscord.json"))
+            add(File("config.json"))
             val isWindows = System.getProperty("os.name").lowercase().contains("win")
             if (isWindows) {
                 val appData = System.getenv("LOCALAPPDATA")

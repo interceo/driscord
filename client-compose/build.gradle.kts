@@ -106,8 +106,8 @@ val embedNativeLib by tasks.registering(Copy::class) {
 
 val embedDefaultConfig by tasks.registering(Copy::class) {
     group = "build"
-    description = "Bundles driscord.json as /driscord_defaults.json in the classpath"
-    val configFile = rootDir.parentFile.resolve("driscord.json")
+    description = "Bundles config.json as /driscord_defaults.json in the classpath"
+    val configFile = rootDir.parentFile.resolve("config.json")
     enabled = configFile.exists()
     if (configFile.exists()) {
         from(configFile) { rename { "driscord_defaults.json" } }
