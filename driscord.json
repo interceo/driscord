@@ -1,17 +1,12 @@
 {
-    "server_host": "88.201.132.70",
-    "server_port": 9001,
+    "server": "interceo.sknt.ru:9001",
+    "api": "interceo.sknt.ru:9002",
     "video_bitrate_kbps": 8000,
     "turn_servers": [
         {
-            "url": "turn:88.201.132.70:3478",
+            "url": "turn:interceo.sknt.ru:3478",
             "user": "driscord",
             "pass": "driscordpass"
         }
-    ],
-    "voice_jitter_ms": 200,
-    "screen_buffer_ms": 500,
-    "max_sync_gap_ms": 2000,
-    "hold_threshold_ms": 50,
-    "drain_threshold_ms": 50
+    ]
 }

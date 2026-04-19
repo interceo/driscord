@@ -19,10 +19,8 @@ data class TurnServerConfig(
 
 @Serializable
 data class AppConfig(
-    @SerialName("server_host") val serverHost: String = "localhost",
-    @SerialName("server_port") val serverPort: Int = 8080,
-    @SerialName("api_host") val apiHost: String = "localhost",
-    @SerialName("api_port") val apiPort: Int = 8000,
+    @SerialName("server") val server: String = "localhost:9001",
+    @SerialName("api") val api: String = "localhost:9002",
     @SerialName("screen_fps") val screenFps: Int = 60,
     @SerialName("capture_width") val captureWidth: Int = 1920,
     @SerialName("capture_height") val captureHeight: Int = 1080,
@@ -31,16 +29,14 @@ data class AppConfig(
     @SerialName("output_device_id") val outputDeviceId: String = "",
     @SerialName("turn_servers") val turnServers: List<TurnServerConfig> = emptyList(),
 ) {
-    val serverUrl: String get() = "ws://$serverHost:$serverPort"
-    val apiBaseUrl: String get() = "http://$apiHost:$apiPort"
+    val serverUrl: String get() = "ws://${server.ifBlank { "localhost:9001" }}"
+    val apiBaseUrl: String get() = "http://${api.ifBlank { "localhost:9002" }}"
 
     // Validation — same rules as config.cpp
     fun validated(): AppConfig =
         copy(
-            serverHost = serverHost.ifBlank { "localhost" },
-            serverPort = serverPort.coerceIn(1, 65535),
-            apiHost = apiHost.ifBlank { "localhost" },
-            apiPort = apiPort.coerceIn(1, 65535),
+            server = server.ifBlank { "localhost:9001" },
+            api = api.ifBlank { "localhost:9002" },
             screenFps = screenFps.coerceIn(1, 240),
             noiseGateThreshold = noiseGateThreshold.coerceIn(0f, 1f),
         )

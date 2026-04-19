@@ -109,14 +109,23 @@ build_windows_dll() {
             -DCMAKE_TOOLCHAIN_FILE="$toolchain" \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_SERVER=OFF \
+            -DBUILD_LAUNCHER=ON \
             -Wno-dev \
             || { echo "ERROR: CMake Windows configure failed." >&2; return 1; }
+    else
+        # Update cache in case of pre-existing build without BUILD_LAUNCHER
+        cmake "$WIN_BUILD_DIR" -DBUILD_LAUNCHER=ON -Wno-dev \
+            || { echo "ERROR: CMake Windows reconfigure failed." >&2; return 1; }
     fi
 
     echo "==> Building JNI DLL (Windows, $JOBS jobs)..."
     cmake --build "$WIN_BUILD_DIR" --target driscord_core_jni -j"$JOBS" 2>/dev/null \
         || cmake --build "$WIN_BUILD_DIR" --target driscord_core -j"$JOBS" \
         || { echo "ERROR: Windows JNI build failed." >&2; return 1; }
+
+    echo "==> Building launcher EXE (Windows)..."
+    cmake --build "$WIN_BUILD_DIR" --target driscord_launcher -j"$JOBS" \
+        || { echo "ERROR: Launcher build failed." >&2; return 1; }
 }
 
 # Downloads appimagetool to BUILDS_DIR/tools/ if not already on PATH.
@@ -258,6 +267,12 @@ if [ "$TARGET" = "windows" ]; then
             "$WIN_BUILD_DIR/core/libcore.dll"; do
         [ -f "$candidate" ] && WIN_DLL="$candidate" && break
     done
+    WIN_LAUNCHER=""
+    for candidate in \
+            "$WIN_BUILD_DIR/launcher/driscord.exe" \
+            "$WIN_BUILD_DIR/launcher/driscord_launcher.exe"; do
+        [ -f "$candidate" ] && WIN_LAUNCHER="$candidate" && break
+    done
 
     ensure_gradlew
 
@@ -292,7 +307,7 @@ if [ "$TARGET" = "windows" ]; then
 
     if [ "$ACTION" = "package" ]; then
         # ----------------------------------------------------------------
-        # Windows portable zip — JAR + JRE + launcher bat
+        # Windows portable zip — driscord.exe + JAR + bundled JRE
         # ----------------------------------------------------------------
         WIN_JRE_CACHE="$BUILDS_DIR/windows-jre-cache"
         WIN_JRE_ARCHIVE="$WIN_JRE_CACHE/jre21-win.zip"
@@ -313,37 +328,25 @@ if [ "$TARGET" = "windows" ]; then
             rmdir "$WIN_JRE_DIR/$JRE_INNER"
         fi
 
-        cat > "$OUT_WIN/driscord.bat" << 'BAT'
-@echo off
-setlocal
-set "DIR=%~dp0"
-"%DIR%jre\bin\java.exe" -jar "%DIR%driscord.jar"
-endlocal
-BAT
+        [ -n "$WIN_LAUNCHER" ] && cp "$WIN_LAUNCHER" "$OUT_WIN/driscord.exe"
 
         APP_VER=$(grep -oP 'version\s*=\s*"\K[^"]+' "$ROOT/client-compose/build.gradle.kts" | head -1)
         WIN_ZIP="$OUT_WIN/Driscord-${APP_VER}-windows-x64.zip"
-        (cd "$OUT_WIN" && zip -r "$WIN_ZIP" driscord.jar driscord.bat jre/)
+        (cd "$OUT_WIN" && zip -r "$WIN_ZIP" driscord.exe driscord.jar jre/)
 
         echo ""
         echo "==> Windows distribution ready: $OUT_WIN"
         ls -lh "$OUT_WIN"
     else
-        # dev build: DLL + FFmpeg runtime DLLs + JAR + minimal launcher
-        [ -n "$WIN_DLL" ] && cp "$WIN_DLL" "$OUT_WIN/core.dll"
+        # dev build: DLL + FFmpeg runtime DLLs + JAR + launcher
+        [ -n "$WIN_DLL" ]      && cp "$WIN_DLL"      "$OUT_WIN/core.dll"
+        [ -n "$WIN_LAUNCHER" ] && cp "$WIN_LAUNCHER" "$OUT_WIN/driscord.exe"
         if [ -d "$ROOT/third_party/windows/ffmpeg/bin" ]; then
             for dll in "$ROOT/third_party/windows/ffmpeg/bin"/*.dll; do
                 [ -f "$dll" ] && cp "$dll" "$OUT_WIN/"
             done
         fi
         cp "$ROOT/driscord.json" "$OUT_WIN/"
-        cat > "$OUT_WIN/driscord.bat" << 'BAT'
-@echo off
-setlocal
-set "DIR=%~dp0"
-java -Djava.library.path="%DIR%" -jar "%DIR%driscord.jar" %*
-endlocal
-BAT
 
         echo ""
         echo "==> Windows client ready: $OUT_WIN"
