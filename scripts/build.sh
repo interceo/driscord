@@ -348,7 +348,8 @@ if [ "$TARGET" = "windows" ]; then
                 [ -f "$dll" ] && cp "$dll" "$OUT_WIN/"
             done
         fi
-        cp "$ROOT/config.json" "$OUT_WIN/"
+        [ -f "$ROOT/config.json" ] && cp "$ROOT/config.json" "$OUT_WIN/" \
+            || echo "WARN: config.json not found — skipping (add manually before distributing)"
 
         echo ""
         echo "==> Windows client ready: $OUT_WIN"
@@ -498,7 +499,8 @@ echo "==> Building Kotlin/Compose client (fatJar)..."
 ls "$LINUX_BUILD/core/libcore."* &>/dev/null 2>&1 \
     && cp "$LINUX_BUILD/core/libcore."* "$OUT/"
 
-cp "$ROOT/config.json" "$OUT/"
+[ -f "$ROOT/config.json" ] && cp "$ROOT/config.json" "$OUT/" \
+    || echo "WARN: config.json not found — skipping (add manually before distributing)"
 
 cat > "$OUT/driscord.sh" << 'LAUNCHER'
 #!/usr/bin/env sh
