@@ -8,7 +8,7 @@ import com.driscord.domain.model.PeerInfo
 import com.driscord.domain.model.Server
 import com.driscord.domain.model.StreamStats
 
-enum class AuthStatus { LoggedOut, LoggingIn, LoggedIn }
+enum class AuthStatus { LoggedOut, LoggingIn, Restoring, LoggedIn }
 
 data class AppUiState(
     val connectionState: ConnectionState = ConnectionState.Disconnected,

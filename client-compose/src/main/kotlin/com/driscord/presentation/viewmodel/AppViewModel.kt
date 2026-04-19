@@ -63,12 +63,22 @@ class AppViewModel(
             }
         }
 
-        // Restore persisted session
+        // Restore persisted session: refresh token on every startup
         if (authRepository.isLoggedIn) {
-            val username = authRepository.currentUsername ?: ""
-            connectionService.setLocalUsername(username)
-            _state.update { it.copy(authStatus = AuthStatus.LoggedIn, currentUsername = username) }
-            scope.launch { refreshServers() }
+            _state.update { it.copy(authStatus = AuthStatus.Restoring) }
+            scope.launch {
+                authRepository.refreshSession()
+                    .onSuccess {
+                        val username = authRepository.currentUsername ?: ""
+                        connectionService.setLocalUsername(username)
+                        _state.update { it.copy(authStatus = AuthStatus.LoggedIn, currentUsername = username) }
+                        refreshServers()
+                    }
+                    .onFailure {
+                        authRepository.logout()
+                        _state.update { it.copy(authStatus = AuthStatus.LoggedOut) }
+                    }
+            }
         }
     }
 

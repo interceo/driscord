@@ -47,6 +47,21 @@ class AuthRepositoryImpl(private val client: ApiClient) : AuthRepository {
         }
     }
 
+    override suspend fun refreshSession(): Result<Unit> {
+        val token = refreshToken ?: return Result.failure(Exception("no refresh token"))
+        val result = client.post(
+            "/auth/refresh",
+            RefreshRequest(token),
+            RefreshRequest.serializer(),
+            TokenResponse.serializer(),
+        )
+        return result.map { tokens ->
+            client.accessToken = tokens.accessToken
+            refreshToken = tokens.refreshToken
+            SessionStore.save(SessionData(tokens.accessToken, tokens.refreshToken, _username ?: ""))
+        }
+    }
+
     override fun logout() {
         client.accessToken = null
         refreshToken = null
