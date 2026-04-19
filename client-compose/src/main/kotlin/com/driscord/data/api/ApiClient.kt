@@ -82,6 +82,23 @@ class ApiClient(private val baseUrl: String) {
         }.onFailure { logError("POST $path", it) }
     }
 
+    /** POST with no request body; deserializes JSON response. */
+    suspend fun <T> postEmpty(
+        path: String,
+        responseDeserializer: DeserializationStrategy<T>,
+    ): Result<T> = withContext(Dispatchers.IO) {
+        runCatching {
+            val req = requestBuilder(path)
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build()
+            log("POST ${req.uri()}")
+            val resp = http.send(req, HttpResponse.BodyHandlers.ofString())
+            log("POST ${req.uri()} → ${resp.statusCode()}")
+            checkStatus(resp)
+            json.decodeFromString(responseDeserializer, resp.body())
+        }.onFailure { logError("POST $path", it) }
+    }
+
     suspend fun delete(path: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val req = requestBuilder(path).DELETE().build()

@@ -240,6 +240,49 @@ class AppViewModel(
                     }
                     .onFailure { e -> _state.update { it.copy(apiError = e.message) } }
             }
+
+            // ------------------------------------------------------------------
+            // Invites
+            // ------------------------------------------------------------------
+            is AppIntent.CreateInvite -> scope.launch {
+                val serverName = _state.value.servers.find { it.id == intent.serverId }?.name ?: ""
+                serverRepository.createInvite(intent.serverId)
+                    .onSuccess { code ->
+                        _state.update {
+                            it.copy(
+                                inviteDialogCode = code,
+                                inviteDialogServerName = serverName,
+                                showJoinByInviteDialog = false,
+                            )
+                        }
+                    }
+                    .onFailure { e -> _state.update { it.copy(apiError = e.message) } }
+            }
+            AppIntent.OpenJoinByInviteDialog -> _state.update {
+                it.copy(showJoinByInviteDialog = true, inviteDialogCode = null)
+            }
+            AppIntent.DismissInviteDialog -> _state.update {
+                it.copy(
+                    showJoinByInviteDialog = false,
+                    inviteDialogCode = null,
+                    inviteDialogServerName = "",
+                )
+            }
+            is AppIntent.AcceptInvite -> scope.launch {
+                serverRepository.acceptInvite(intent.code)
+                    .onSuccess { serverId ->
+                        _state.update {
+                            it.copy(
+                                showJoinByInviteDialog = false,
+                                inviteDialogCode = null,
+                                inviteDialogServerName = "",
+                            )
+                        }
+                        refreshServers()
+                        onIntent(AppIntent.SelectServer(serverId))
+                    }
+                    .onFailure { e -> _state.update { it.copy(apiError = e.message) } }
+            }
         }
     }
 

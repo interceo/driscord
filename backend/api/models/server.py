@@ -23,6 +23,9 @@ class Server(Base):
     channels: Mapped[list["Channel"]] = relationship(  # noqa: F821
         back_populates="server", cascade="all, delete-orphan"
     )
+    invites: Mapped[list["ServerInvite"]] = relationship(
+        back_populates="server", cascade="all, delete-orphan"
+    )
 
 
 class ServerMember(Base):
@@ -37,3 +40,17 @@ class ServerMember(Base):
     )
 
     server: Mapped["Server"] = relationship(back_populates="members")
+
+
+class ServerInvite(Base):
+    __tablename__ = "server_invites"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(16), unique=True, index=True)
+    server_id: Mapped[int] = mapped_column(ForeignKey("servers.id", ondelete="CASCADE"), index=True)
+    creator_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    server: Mapped["Server"] = relationship(back_populates="invites")

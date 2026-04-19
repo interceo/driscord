@@ -69,4 +69,13 @@
     <string name="channel_name">Channel name</string>
     <string name="voice">Voice</string>
     <string name="text">Text</string>
+
+    <!-- Invites -->
+    <string name="create_invite">Create Invite</string>
+    <string name="join_by_invite">Join by Invite</string>
+    <string name="invite_code">Invite code</string>
+    <string name="join">Join</string>
+    <string name="copy">Copy</string>
+    <string name="copied">Copied</string>
+    <string name="invite_share_hint">Share this code with anyone you want to invite:</string>
 </resources>

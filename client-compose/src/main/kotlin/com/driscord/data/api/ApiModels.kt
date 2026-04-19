@@ -52,3 +52,20 @@ data class ChannelResponse(
 
 @Serializable
 data class CreateChannelRequest(val name: String, val kind: String, val position: Int = 0)
+
+// ---------------------------------------------------------------------------
+// Invites
+// ---------------------------------------------------------------------------
+
+@Serializable
+data class InviteResponse(
+    val code: String,
+    @SerialName("server_id") val serverId: Int,
+    @SerialName("creator_id") val creatorId: Int,
+)
+
+@Serializable
+data class InviteAcceptResponse(
+    @SerialName("server_id") val serverId: Int,
+    val status: String,
+)

@@ -11,4 +11,6 @@ interface ServerRepository {
     suspend fun leaveServer(serverId: Int): Result<Unit>
     suspend fun listChannels(serverId: Int): Result<List<Channel>>
     suspend fun createChannel(serverId: Int, name: String, kind: ChannelKind): Result<Channel>
+    suspend fun createInvite(serverId: Int): Result<String>
+    suspend fun acceptInvite(code: String): Result<Int>
 }

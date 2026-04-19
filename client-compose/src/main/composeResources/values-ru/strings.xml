@@ -69,4 +69,13 @@
     <string name="channel_name">Название канала</string>
     <string name="voice">Голосовой</string>
     <string name="text">Текстовый</string>
+
+    <!-- Invites -->
+    <string name="create_invite">Создать инвайт</string>
+    <string name="join_by_invite">Войти по инвайту</string>
+    <string name="invite_code">Код инвайта</string>
+    <string name="join">Присоединиться</string>
+    <string name="copy">Копировать</string>
+    <string name="copied">Скопировано</string>
+    <string name="invite_share_hint">Поделитесь этим кодом с теми, кого хотите пригласить:</string>
 </resources>

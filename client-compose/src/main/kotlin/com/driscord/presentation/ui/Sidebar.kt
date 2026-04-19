@@ -49,7 +49,12 @@ fun Sidebar(
             .background(SidebarBg),
     ) {
         // Header — server name or app name
-        SidebarHeader(serverName = selectedServer?.name ?: "DRISCORD")
+        SidebarHeader(
+            serverName = selectedServer?.name ?: "DRISCORD",
+            onInvite = if (selectedServer != null) {
+                { onIntent(AppIntent.CreateInvite(selectedServer.id)) }
+            } else null,
+        )
         Divider(color = DividerColor, thickness = 1.dp)
 
         // Channel list (top section) — shown whenever a server is selected
@@ -121,6 +126,19 @@ fun Sidebar(
             onCreate = { name, kind -> onIntent(AppIntent.CreateChannel(name, kind)) },
         )
     }
+
+    if (state.inviteDialogCode != null) {
+        InviteCodeDialog(
+            code = state.inviteDialogCode,
+            serverName = state.inviteDialogServerName,
+            onDismiss = { onIntent(AppIntent.DismissInviteDialog) },
+        )
+    } else if (state.showJoinByInviteDialog) {
+        JoinByInviteDialog(
+            onDismiss = { onIntent(AppIntent.DismissInviteDialog) },
+            onJoin = { code -> onIntent(AppIntent.AcceptInvite(code)) },
+        )
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -128,7 +146,7 @@ fun Sidebar(
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun SidebarHeader(serverName: String) {
+private fun SidebarHeader(serverName: String, onInvite: (() -> Unit)? = null) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -145,6 +163,18 @@ private fun SidebarHeader(serverName: String) {
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
+        if (onInvite != null) {
+            Box(
+                modifier = Modifier
+                    .size(20.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(FieldBg)
+                    .clickable(onClick = onInvite),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("+", color = TextMuted, fontSize = 14.sp, lineHeight = 14.sp)
+            }
+        }
     }
 }
 
@@ -734,6 +764,110 @@ private fun CreateServerDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit
             }
         },
         dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(Res.string.cancel), color = TextMuted)
+            }
+        },
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Invite dialogs
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun JoinByInviteDialog(onDismiss: () -> Unit, onJoin: (String) -> Unit) {
+    var code by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        backgroundColor = SidebarBg,
+        title = {
+            Text(
+                stringResource(Res.string.join_by_invite),
+                color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+            )
+        },
+        text = {
+            OutlinedTextField(
+                value = code,
+                onValueChange = { code = it.trim() },
+                singleLine = true,
+                label = { Text(stringResource(Res.string.invite_code), color = TextMuted, fontSize = 12.sp) },
+                colors = TextFieldDefaults.outlinedTextFieldColors(
+                    textColor = TextPrimary,
+                    unfocusedBorderColor = FieldBg,
+                    focusedBorderColor = Blurple,
+                    backgroundColor = BottomBg,
+                    cursorColor = Blurple,
+                ),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { if (code.isNotBlank()) onJoin(code) }, enabled = code.isNotBlank()) {
+                Text(stringResource(Res.string.join), color = Blurple)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(Res.string.cancel), color = TextMuted)
+            }
+        },
+    )
+}
+
+@Composable
+private fun InviteCodeDialog(code: String, serverName: String, onDismiss: () -> Unit) {
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    var copied by remember(code) { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        backgroundColor = SidebarBg,
+        title = {
+            Text(
+                if (serverName.isNotEmpty()) "${stringResource(Res.string.create_invite)} — $serverName"
+                else stringResource(Res.string.create_invite),
+                color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    stringResource(Res.string.invite_share_hint),
+                    color = TextMuted, fontSize = 12.sp,
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(BottomBg)
+                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = code,
+                        color = TextPrimary,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 1.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = {
+                        clipboard.setText(androidx.compose.ui.text.AnnotatedString(code))
+                        copied = true
+                    }) {
+                        Text(
+                            if (copied) stringResource(Res.string.copied)
+                            else stringResource(Res.string.copy),
+                            color = Blurple,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
             TextButton(onClick = onDismiss) {
                 Text(stringResource(Res.string.cancel), color = TextMuted)
             }
