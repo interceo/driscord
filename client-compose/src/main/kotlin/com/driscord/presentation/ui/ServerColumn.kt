@@ -64,7 +64,7 @@ fun ServerColumn(
             }
         }
 
-        // Add server button
+        // Add server / join by invite buttons
         Spacer(Modifier.height(4.dp))
         Divider(color = DividerColor, thickness = 1.dp, modifier = Modifier.padding(horizontal = 12.dp))
         Spacer(Modifier.height(4.dp))
@@ -73,6 +73,13 @@ fun ServerColumn(
             selected = false,
             color = FieldBg,
             onClick = { onIntent(AppIntent.OpenCreateServerDialog) },
+        )
+        Spacer(Modifier.height(4.dp))
+        ServerIcon(
+            letter = "⤴",
+            selected = false,
+            color = FieldBg,
+            onClick = { onIntent(AppIntent.OpenJoinByInviteDialog) },
         )
         Spacer(Modifier.height(8.dp))
     }

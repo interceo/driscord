@@ -11,7 +11,7 @@ logging.basicConfig(
 
 from config import settings  # noqa: E402 — must be after logging.basicConfig
 from database import Base, engine
-from routers import auth, channels, health, servers, updates, users
+from routers import auth, channels, health, invites, servers, updates, users
 
 
 @asynccontextmanager
@@ -28,6 +28,8 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(servers.router)
 app.include_router(channels.router)
+app.include_router(invites.server_invites_router)
+app.include_router(invites.invites_router)
 app.include_router(updates.router)
 
 

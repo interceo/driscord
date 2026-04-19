@@ -27,3 +27,17 @@ class ServerMemberResponse(BaseModel):
     user_id: int
     username: str
     joined_at: datetime
+
+
+class ServerInviteResponse(BaseModel):
+    code: str
+    server_id: int
+    creator_id: int
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class InviteAcceptResponse(BaseModel):
+    server_id: int
+    status: str

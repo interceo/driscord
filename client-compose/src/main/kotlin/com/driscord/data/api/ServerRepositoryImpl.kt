@@ -36,6 +36,18 @@ class ServerRepositoryImpl(private val client: ApiClient) : ServerRepository {
             CreateChannelRequest.serializer(),
             ChannelResponse.serializer(),
         ).map { it.toDomain() }
+
+    override suspend fun createInvite(serverId: Int): Result<String> =
+        client.postEmpty(
+            "/servers/$serverId/invites/",
+            InviteResponse.serializer(),
+        ).map { it.code }
+
+    override suspend fun acceptInvite(code: String): Result<Int> =
+        client.postEmpty(
+            "/invites/$code",
+            InviteAcceptResponse.serializer(),
+        ).map { it.serverId }
 }
 
 private fun ServerResponse.toDomain() = Server(id, name, description, ownerId)

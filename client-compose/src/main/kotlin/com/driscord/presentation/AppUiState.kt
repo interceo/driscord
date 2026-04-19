@@ -41,4 +41,7 @@ data class AppUiState(
     val showCreateServerDialog: Boolean = false,
     val showCreateChannelDialog: Boolean = false,
     val createChannelDefaultKind: ChannelKind = ChannelKind.voice,
+    val showJoinByInviteDialog: Boolean = false,
+    val inviteDialogCode: String? = null,
+    val inviteDialogServerName: String = "",
 )
