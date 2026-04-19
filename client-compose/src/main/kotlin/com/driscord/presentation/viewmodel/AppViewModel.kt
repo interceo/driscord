@@ -62,6 +62,14 @@ class AppViewModel(
                 audioService.onPeerLeft(peerId)
             }
         }
+
+        // Restore persisted session
+        if (authRepository.isLoggedIn) {
+            val username = authRepository.currentUsername ?: ""
+            connectionService.setLocalUsername(username)
+            _state.update { it.copy(authStatus = AuthStatus.LoggedIn, currentUsername = username) }
+            scope.launch { refreshServers() }
+        }
     }
 
     fun onIntent(intent: AppIntent) {

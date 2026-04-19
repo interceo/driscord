@@ -57,6 +57,21 @@ if [ "$TARGET" = "api" ]; then
 fi
 
 # ===== CLIENT =====
+
+# --- Release: run the AppImage ---
+if [ "$BUILD_TYPE" = "release" ] && [ "$GDB_MODE" -eq 0 ]; then
+    APPIMAGE_DIR="$ROOT/.builds/client/linux/release"
+    APPIMAGE=$(ls "$APPIMAGE_DIR"/Driscord-*.AppImage 2>/dev/null | head -1)
+    if [ -z "$APPIMAGE" ]; then
+        echo "ERROR: AppImage not found in $APPIMAGE_DIR"
+        echo "  Build it first with: ./scripts/build.sh --package"
+        exit 1
+    fi
+    echo "==> Launching Driscord (AppImage): $APPIMAGE"
+    exec "$APPIMAGE"
+fi
+
+# --- Debug / GDB: run via Gradle ---
 find_native_lib() {
     local candidates=(
         "$BUILD/core/libcore.so"
@@ -73,9 +88,7 @@ find_native_lib() {
 
 if ! NATIVE_DIR=$(find_native_lib); then
     echo "==> JNI library not found — building..."
-    TYPE_FLAG="--release"
-    [ "$BUILD_TYPE" = "debug" ] && TYPE_FLAG="--debug"
-    bash "$(dirname "$0")/build.sh" $TYPE_FLAG
+    bash "$(dirname "$0")/build.sh" --debug
     NATIVE_DIR=$(find_native_lib) || {
         echo "ERROR: libcore not found even after build."
         echo "  Make sure JNI headers are available (install openjdk-dev / jdk-devel)."
@@ -95,7 +108,6 @@ fi
 
 export DRISCORD_NATIVE_LIB_DIR="$NATIVE_DIR"
 
-# --- GDB mode ---
 if [ "$GDB_MODE" -eq 1 ]; then
     if ! command -v gdb &>/dev/null; then
         echo "ERROR: gdb not found. Install with: sudo pacman -S gdb"
@@ -144,7 +156,6 @@ WRAPPER
     PATH="$WRAP_DIR:$PATH" exec "$COMPOSE_DIR/gradlew" -p "$COMPOSE_DIR" run
 fi
 
-# --- Normal mode ---
-echo "==> Launching Driscord ($BUILD_TYPE) ..."
+echo "==> Launching Driscord (debug via Gradle) ..."
 echo "    Native lib dir: $NATIVE_DIR"
 exec "$COMPOSE_DIR/gradlew" -p "$COMPOSE_DIR" run
