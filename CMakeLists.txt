@@ -56,3 +56,8 @@ option(BUILD_BENCHMARKS "Build benchmarks" OFF)
 if(BUILD_BENCHMARKS)
     add_subdirectory(core/benchmarks)
 endif()
+
+option(BUILD_LAUNCHER "Build the Windows EXE launcher" OFF)
+if(BUILD_LAUNCHER)
+    add_subdirectory(launcher)
+endif()

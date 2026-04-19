@@ -99,27 +99,33 @@ build_windows_dll() {
         return 1
     fi
 
+    # JAVA_HOME is forwarded through `cmake` env so CMakeLists.txt can locate
+    # the host JDK's jni.h when cross-compiling (see core/CMakeLists.txt).
     local jdk_home="${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(which java)")")")}"
-    local win_jni_flag=""
-    if [ -d "$jdk_home/include/win32" ]; then
-        win_jni_flag="-DJNI_INCLUDE_DIRS_EXTRA=$jdk_home/include;$jdk_home/include/win32"
-    fi
 
     if [ ! -f "$WIN_BUILD_DIR/CMakeCache.txt" ]; then
         echo "==> Configuring CMake (Windows/MinGW)..."
-        cmake -S "$ROOT" -B "$WIN_BUILD_DIR" \
+        JAVA_HOME="$jdk_home" cmake -S "$ROOT" -B "$WIN_BUILD_DIR" \
             -DCMAKE_TOOLCHAIN_FILE="$toolchain" \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_SERVER=OFF \
+            -DBUILD_LAUNCHER=ON \
             -Wno-dev \
-            ${win_jni_flag:+"$win_jni_flag"} \
             || { echo "ERROR: CMake Windows configure failed." >&2; return 1; }
+    else
+        # Update cache in case of pre-existing build without BUILD_LAUNCHER
+        cmake "$WIN_BUILD_DIR" -DBUILD_LAUNCHER=ON -Wno-dev \
+            || { echo "ERROR: CMake Windows reconfigure failed." >&2; return 1; }
     fi
 
     echo "==> Building JNI DLL (Windows, $JOBS jobs)..."
     cmake --build "$WIN_BUILD_DIR" --target driscord_core_jni -j"$JOBS" 2>/dev/null \
         || cmake --build "$WIN_BUILD_DIR" --target driscord_core -j"$JOBS" \
         || { echo "ERROR: Windows JNI build failed." >&2; return 1; }
+
+    echo "==> Building launcher EXE (Windows)..."
+    cmake --build "$WIN_BUILD_DIR" --target driscord_launcher -j"$JOBS" \
+        || { echo "ERROR: Launcher build failed." >&2; return 1; }
 }
 
 # Downloads appimagetool to BUILDS_DIR/tools/ if not already on PATH.
@@ -198,8 +204,57 @@ fi
 # ===== WINDOWS =====
 # ---------------------------------------------------------------------------
 if [ "$TARGET" = "windows" ]; then
-    if [ "$ACTION" = "test" ] || [ "$ACTION" = "bench" ]; then
-        echo "Tests/benchmarks are not available for the Windows target."
+    if [ "$ACTION" = "bench" ]; then
+        echo "Benchmarks are not available for the Windows cross-compile target."
+        exit 0
+    fi
+
+    if [ "$ACTION" = "test" ]; then
+        WIN_TEST_DIR="$BUILDS_DIR/cmake/windows-test"
+        TOOLCHAIN="$ROOT/cmake/toolchain-mingw64.cmake"
+        GEN_FLAGS=()
+        command -v ninja &>/dev/null && GEN_FLAGS=(-G Ninja)
+
+        if [ ! -f "$WIN_TEST_DIR/CMakeCache.txt" ]; then
+            echo "==> Configuring CMake (Windows/MinGW, tests)..."
+            cmake -S "$ROOT" -B "$WIN_TEST_DIR" "${GEN_FLAGS[@]}" \
+                -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DBUILD_SERVER=OFF \
+                -DBUILD_TESTS=ON \
+                -Wno-dev \
+                || { echo "ERROR: CMake Windows test configure failed." >&2; exit 1; }
+        fi
+
+        echo "==> Building Windows tests ($JOBS jobs)..."
+        cmake --build "$WIN_TEST_DIR" -j"$JOBS" \
+            || { echo "ERROR: Windows test build failed." >&2; exit 1; }
+
+        if ! command -v wine64 &>/dev/null && ! command -v wine &>/dev/null; then
+            echo "==> Wine not found — test executables built but not executed"
+            exit 0
+        fi
+
+        GCC_VMAJ=$(x86_64-w64-mingw32-g++-posix -dumpversion 2>/dev/null \
+                   || x86_64-w64-mingw32-g++ -dumpversion 2>/dev/null \
+                   || echo "12")
+        GCC_VMAJ="${GCC_VMAJ%%.*}"
+        # Wine requires Windows-style paths (Z:/) separated by semicolons.
+        unix_to_wine() { echo "Z:$(echo "$1" | sed 's|/|\\|g')"; }
+        WIN_DLL_PATH="$(unix_to_wine "/usr/lib/gcc/x86_64-w64-mingw32/${GCC_VMAJ}");$(unix_to_wine "/usr/x86_64-w64-mingw32/bin")"
+        [ -d "$ROOT/third_party/windows/ffmpeg/bin"  ] && WIN_DLL_PATH="$WIN_DLL_PATH;$(unix_to_wine "$ROOT/third_party/windows/ffmpeg/bin")"
+        [ -d "$ROOT/third_party/windows/openssl/bin" ] && WIN_DLL_PATH="$WIN_DLL_PATH;$(unix_to_wine "$ROOT/third_party/windows/openssl/bin")"
+        export WINEPATH="${WIN_DLL_PATH}${WINEPATH:+;$WINEPATH}"
+        export WINEDEBUG=-all
+
+        echo "==> Initializing Wine prefix..."
+        wineboot --init 2>/dev/null || true
+
+        echo "==> Running Windows unit tests under Wine (network integration tests excluded)..."
+        cd "$WIN_TEST_DIR"
+        ctest --output-on-failure \
+            -E "test_datachannel_transport|test_room_isolation|test_net_conditions" \
+            --timeout 120
         exit 0
     fi
 
@@ -214,6 +269,12 @@ if [ "$TARGET" = "windows" ]; then
             "$WIN_BUILD_DIR/core/libcore.dll"; do
         [ -f "$candidate" ] && WIN_DLL="$candidate" && break
     done
+    WIN_LAUNCHER=""
+    for candidate in \
+            "$WIN_BUILD_DIR/launcher/driscord.exe" \
+            "$WIN_BUILD_DIR/launcher/driscord_launcher.exe"; do
+        [ -f "$candidate" ] && WIN_LAUNCHER="$candidate" && break
+    done
 
     ensure_gradlew
 
@@ -223,6 +284,16 @@ if [ "$TARGET" = "windows" ]; then
         NATIVE_STAGING="$BUILDS_DIR/native-staging-win"
         rm -rf "$NATIVE_STAGING" && mkdir -p "$NATIVE_STAGING"
         cp "$WIN_DLL" "$NATIVE_STAGING/core.dll"
+        # FFmpeg runtime DLLs — core.dll loads them at startup. Pattern matches
+        # BtbN's naming (avcodec-61.dll etc.) and any companion DLLs BtbN ships.
+        FFMPEG_BIN="$ROOT/third_party/windows/ffmpeg/bin"
+        if [ -d "$FFMPEG_BIN" ]; then
+            for dll in "$FFMPEG_BIN"/*.dll; do
+                # Skip ffmpeg/ffplay/ffprobe executables (FFmpeg ships .exe, but
+                # shell glob is *.dll so we only hit libs anyway).
+                [ -f "$dll" ] && cp "$dll" "$NATIVE_STAGING/"
+            done
+        fi
         export DRISCORD_NATIVE_LIB_DIR="$NATIVE_STAGING"
     else
         unset DRISCORD_NATIVE_LIB_DIR || true
@@ -238,7 +309,7 @@ if [ "$TARGET" = "windows" ]; then
 
     if [ "$ACTION" = "package" ]; then
         # ----------------------------------------------------------------
-        # Windows portable zip — JAR + JRE + launcher bat
+        # Windows portable zip — driscord.exe + JAR + bundled JRE
         # ----------------------------------------------------------------
         WIN_JRE_CACHE="$BUILDS_DIR/windows-jre-cache"
         WIN_JRE_ARCHIVE="$WIN_JRE_CACHE/jre21-win.zip"
@@ -259,32 +330,26 @@ if [ "$TARGET" = "windows" ]; then
             rmdir "$WIN_JRE_DIR/$JRE_INNER"
         fi
 
-        cat > "$OUT_WIN/driscord.bat" << 'BAT'
-@echo off
-setlocal
-set "DIR=%~dp0"
-"%DIR%jre\bin\java.exe" -jar "%DIR%driscord.jar"
-endlocal
-BAT
+        [ -n "$WIN_LAUNCHER" ] && cp "$WIN_LAUNCHER" "$OUT_WIN/driscord.exe"
 
         APP_VER=$(grep -oP 'version\s*=\s*"\K[^"]+' "$ROOT/client-compose/build.gradle.kts" | head -1)
         WIN_ZIP="$OUT_WIN/Driscord-${APP_VER}-windows-x64.zip"
-        (cd "$OUT_WIN" && zip -r "$WIN_ZIP" driscord.jar driscord.bat jre/)
+        (cd "$OUT_WIN" && zip -r "$WIN_ZIP" driscord.exe driscord.jar jre/)
 
         echo ""
         echo "==> Windows distribution ready: $OUT_WIN"
         ls -lh "$OUT_WIN"
     else
-        # dev build: DLL + JAR + minimal launcher
-        [ -n "$WIN_DLL" ] && cp "$WIN_DLL" "$OUT_WIN/"
-        cp "$ROOT/driscord.json" "$OUT_WIN/"
-        cat > "$OUT_WIN/driscord.bat" << 'BAT'
-@echo off
-setlocal
-set "DIR=%~dp0"
-java -Djava.library.path="%DIR%" -jar "%DIR%driscord.jar" %*
-endlocal
-BAT
+        # dev build: DLL + FFmpeg runtime DLLs + JAR + launcher
+        [ -n "$WIN_DLL" ]      && cp "$WIN_DLL"      "$OUT_WIN/core.dll"
+        [ -n "$WIN_LAUNCHER" ] && cp "$WIN_LAUNCHER" "$OUT_WIN/driscord.exe"
+        if [ -d "$ROOT/third_party/windows/ffmpeg/bin" ]; then
+            for dll in "$ROOT/third_party/windows/ffmpeg/bin"/*.dll; do
+                [ -f "$dll" ] && cp "$dll" "$OUT_WIN/"
+            done
+        fi
+        [ -f "$ROOT/config.json" ] && cp "$ROOT/config.json" "$OUT_WIN/" \
+            || echo "WARN: config.json not found — skipping (add manually before distributing)"
 
         echo ""
         echo "==> Windows client ready: $OUT_WIN"
@@ -299,12 +364,13 @@ fi
 
 # --- Test ---
 if [ "$ACTION" = "test" ]; then
+    TEST_BUILD="$BUILDS_DIR/cmake/linux-test"
     echo "==> Configuring CMake for tests ($BUILD_TYPE)..."
-    cmake_configure "$LINUX_BUILD" \
+    cmake_configure "$TEST_BUILD" \
         -DBUILD_TESTS=ON -DBUILD_SERVER=ON -DBUILD_CORE=ON
     echo "==> Building tests ($BUILD_TYPE, $JOBS jobs)..."
-    cmake --build "$LINUX_BUILD" -j"$JOBS"
-    cd "$LINUX_BUILD"
+    cmake --build "$TEST_BUILD" -j"$JOBS"
+    cd "$TEST_BUILD"
     ctest --output-on-failure
     exit 0
 fi
@@ -433,7 +499,8 @@ echo "==> Building Kotlin/Compose client (fatJar)..."
 ls "$LINUX_BUILD/core/libcore."* &>/dev/null 2>&1 \
     && cp "$LINUX_BUILD/core/libcore."* "$OUT/"
 
-cp "$ROOT/driscord.json" "$OUT/"
+[ -f "$ROOT/config.json" ] && cp "$ROOT/config.json" "$OUT/" \
+    || echo "WARN: config.json not found — skipping (add manually before distributing)"
 
 cat > "$OUT/driscord.sh" << 'LAUNCHER'
 #!/usr/bin/env sh

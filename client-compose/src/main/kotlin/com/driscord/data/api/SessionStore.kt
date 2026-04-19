@@ -6,10 +6,10 @@ import com.github.javakeyring.PasswordAccessException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.io.File
 
 @Serializable
 data class SessionData(
-    val accessToken: String,
     val refreshToken: String,
     val username: String,
 )
@@ -19,35 +19,46 @@ internal object SessionStore {
     private const val ACCOUNT = "session"
     private val json = Json { ignoreUnknownKeys = true }
 
+    private val fallbackFile: File get() {
+        val base = System.getenv("XDG_CONFIG_HOME")
+            ?.let { File(it) }
+            ?: File(System.getProperty("user.home"), ".config")
+        return File(base, "driscord/session.json")
+    }
+
     private fun keyring(): Keyring? = try {
         Keyring.create()
     } catch (_: BackendNotSupportedException) {
-        println("[session] OS keyring unavailable — session will not be persisted")
         null
     }
 
-    fun load(): SessionData? = try {
-        val raw = keyring()?.getPassword(SERVICE, ACCOUNT) ?: return null
-        json.decodeFromString<SessionData>(raw)
-    } catch (_: PasswordAccessException) {
-        null
-    } catch (_: Exception) {
-        null
+    fun load(): SessionData? {
+        val raw = runCatching {
+            keyring()?.getPassword(SERVICE, ACCOUNT)
+        }.getOrNull() ?: runCatching {
+            fallbackFile.takeIf { it.exists() }?.readText()
+        }.getOrNull() ?: return null
+        return runCatching { json.decodeFromString<SessionData>(raw) }.getOrNull()
     }
 
     fun save(session: SessionData) {
-        try {
-            keyring()?.setPassword(SERVICE, ACCOUNT, json.encodeToString(session))
-        } catch (_: Exception) {
-            println("[session] failed to save session to OS keyring")
+        val raw = json.encodeToString(session)
+        val keyringOk = runCatching {
+            val k = keyring() ?: return@runCatching false
+            k.setPassword(SERVICE, ACCOUNT, raw)
+            true
+        }.getOrElse { false }
+
+        if (!keyringOk) {
+            runCatching {
+                fallbackFile.parentFile?.mkdirs()
+                fallbackFile.writeText(raw)
+            }.onFailure { println("[session] failed to persist session: ${it.message}") }
         }
     }
 
     fun clear() {
-        try {
-            keyring()?.deletePassword(SERVICE, ACCOUNT)
-        } catch (_: PasswordAccessException) {
-            // already absent — fine
-        } catch (_: Exception) {}
+        runCatching { keyring()?.deletePassword(SERVICE, ACCOUNT) }
+        runCatching { if (fallbackFile.exists()) fallbackFile.delete() }
     }
 }

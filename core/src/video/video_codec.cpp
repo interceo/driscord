@@ -1,5 +1,6 @@
 extern "C" {
 #include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
 #include <libavutil/hwcontext.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/log.h>
@@ -23,6 +24,10 @@ namespace ff {
 void CodecContextDeleter::operator()(AVCodecContext* ctx) const noexcept
 {
     avcodec_free_context(&ctx);
+}
+void FormatContextDeleter::operator()(AVFormatContext* ctx) const noexcept
+{
+    avformat_close_input(&ctx);
 }
 void SwsContextDeleter::operator()(SwsContext* ctx) const noexcept
 {

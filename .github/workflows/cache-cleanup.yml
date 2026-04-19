@@ -1,0 +1,54 @@
+name: Cache Cleanup
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 3 * * 0'  # weekly, Sunday 03:00 UTC
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    name: Delete stale caches
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete stale caches by prefix
+        run: |
+          PREFIXES=(
+            "cmake-deps-Linux-"
+            "cmake-deps-windows-"
+            "cmake-deps-windows-test-"
+            "win-deps-"
+            "gradle-Linux-"
+          )
+
+          for PREFIX in "${PREFIXES[@]}"; do
+            echo "==> Checking prefix: $PREFIX"
+
+            # Collect all cache IDs with this prefix, sorted newest-first.
+            # Keep the first (newest); delete the rest.
+            STALE=$(gh cache list \
+              --repo "${{ github.repository }}" \
+              --limit 100 \
+              --json id,key,createdAt \
+              --jq "
+                [.[] | select(.key | startswith(\"$PREFIX\"))]
+                | sort_by(.createdAt) | reverse
+                | .[1:][]
+                | .id
+              ")
+
+            if [ -z "$STALE" ]; then
+              echo "    nothing to delete"
+              continue
+            fi
+
+            for ID in $STALE; do
+              echo "    deleting cache $ID"
+              gh cache delete "$ID" --repo "${{ github.repository }}" || true
+            done
+          done
+        env:
+          GH_TOKEN: ${{ github.token }}

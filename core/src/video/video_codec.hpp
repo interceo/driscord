@@ -23,6 +23,7 @@ enum class VideoError {
 };
 
 struct AVCodecContext;
+struct AVFormatContext;
 struct SwsContext;
 struct AVFrame;
 struct AVPacket;
@@ -33,6 +34,9 @@ struct AVBufferRef;
 namespace ff {
 struct CodecContextDeleter {
     void operator()(AVCodecContext*) const noexcept;
+};
+struct FormatContextDeleter {
+    void operator()(AVFormatContext*) const noexcept;
 };
 struct SwsContextDeleter {
     void operator()(SwsContext*) const noexcept;
@@ -45,6 +49,7 @@ struct PacketDeleter {
 };
 
 using CodecContextPtr = std::unique_ptr<AVCodecContext, CodecContextDeleter>;
+using FormatContextPtr = std::unique_ptr<AVFormatContext, FormatContextDeleter>;
 using SwsContextPtr = std::unique_ptr<SwsContext, SwsContextDeleter>;
 using FramePtr = std::unique_ptr<AVFrame, FrameDeleter>;
 using PacketPtr = std::unique_ptr<AVPacket, PacketDeleter>;

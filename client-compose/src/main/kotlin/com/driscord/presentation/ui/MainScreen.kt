@@ -17,9 +17,10 @@ fun MainScreen(viewModel: AppViewModel) {
     val frames by viewModel.frames.collectAsState()
     val onIntent = viewModel::onIntent
 
-    if (state.authStatus != AuthStatus.LoggedIn) {
-        LoginScreen(state = state, onIntent = onIntent)
-        return
+    when (state.authStatus) {
+        AuthStatus.Restoring -> { RestoringScreen(); return }
+        AuthStatus.LoggedIn  -> Unit
+        else                 -> { LoginScreen(state = state, onIntent = onIntent); return }
     }
 
     Row(modifier = Modifier.fillMaxSize().background(ContentBg)) {

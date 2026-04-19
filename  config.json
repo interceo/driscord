@@ -1,0 +1,12 @@
+{
+    "server": "interceo.sknt.ru:9001",
+    "api": "interceo.sknt.ru:9002",
+    "video_bitrate_kbps": 8000,
+    "turn_servers": [
+        {
+            "url": "turn:interceo.sknt.ru:3478",
+            "user": "driscord",
+            "pass": "driscordpass"
+        }
+    ]
+}

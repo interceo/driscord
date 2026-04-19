@@ -41,8 +41,7 @@
     <string name="microphone">Microphone</string>
     <string name="output">Output</string>
     <string name="connection">Connection</string>
-    <string name="server_host">Server Host</string>
-    <string name="server_port">Server Port</string>
+    <string name="server_address">Server</string>
     <string name="video">Video</string>
     <string name="capture_fps">Capture FPS</string>
     <string name="settings_restart_note">* Connection and Video settings take effect after restart</string>
@@ -65,8 +64,7 @@
     <string name="text_channels">TEXT CHANNELS</string>
     <string name="create_server">Create Server</string>
     <string name="server_name">Server name</string>
-    <string name="api_host">API Host</string>
-    <string name="api_port">API Port</string>
+    <string name="api_address">API</string>
     <string name="create_channel">Create Channel</string>
     <string name="channel_name">Channel name</string>
     <string name="voice">Voice</string>

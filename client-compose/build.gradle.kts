@@ -38,6 +38,13 @@ kotlin {
     jvmToolchain(21)
 }
 
+configurations.all {
+    resolutionStrategy {
+        force("org.jetbrains.kotlinx:kotlinx-serialization-core:1.8.0")
+        force("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0")
+    }
+}
+
 dependencies {
     implementation(compose.desktop.currentOs)
     implementation(compose.components.resources)
@@ -86,15 +93,21 @@ val embedNativeLib by tasks.registering(Copy::class) {
     ).filter { it.isNotBlank() }
     enabled = dirs.isNotEmpty()
     dirs.forEach { dir ->
-        from(dir) { include("libcore.so", "core.dll", "libcore.dylib") }
+        // Pull every shared object in the staging dir — on Windows this is
+        // core.dll + the FFmpeg runtime DLLs (avcodec-*.dll etc.) that core.dll
+        // needs at load time. NativeLoader extracts all of them into one temp
+        // dir so Windows's loader can resolve core.dll's deps from there.
+        from(dir) {
+            include("*.dll", "*.so", "*.dylib")
+        }
     }
     into(generatedNativeRes)
 }
 
 val embedDefaultConfig by tasks.registering(Copy::class) {
     group = "build"
-    description = "Bundles driscord.json as /driscord_defaults.json in the classpath"
-    val configFile = rootDir.parentFile.resolve("driscord.json")
+    description = "Bundles config.json as /driscord_defaults.json in the classpath"
+    val configFile = rootDir.parentFile.resolve("config.json")
     enabled = configFile.exists()
     if (configFile.exists()) {
         from(configFile) { rename { "driscord_defaults.json" } }
@@ -123,11 +136,22 @@ compose.desktop {
             jvmArgs("-Djava.library.path=$devLibDir")
         }
 
+        buildTypes.release.proguard {
+            configurationFiles.from(project.file("proguard-rules.pro"))
+        }
+
         nativeDistributions {
             // Linux AppImage — single self-contained executable.
             // Windows Exe   — NSIS installer (requires jpackage on Windows;
             //                 from Linux a portable zip is created by build.sh).
             targetFormats(TargetFormat.AppImage)
+
+            modules(
+                "java.net.http",      // HttpClient used by ApiClient
+                "java.naming",        // required by some TLS/SSL paths
+                "jdk.crypto.ec",      // EC cipher suites for TLS
+                "jdk.unsupported",    // sun.misc.Unsafe — required by JNA (java-keyring)
+            )
 
             packageName = "driscord"
             packageVersion = project.version.toString()

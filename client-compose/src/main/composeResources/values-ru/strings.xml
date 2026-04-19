@@ -41,8 +41,7 @@
     <string name="microphone">Микрофон</string>
     <string name="output">Выход</string>
     <string name="connection">Подключение</string>
-    <string name="server_host">Адрес сервера</string>
-    <string name="server_port">Порт сервера</string>
+    <string name="server_address">Сервер</string>
     <string name="video">Видео</string>
     <string name="capture_fps">FPS захвата</string>
     <string name="settings_restart_note">* Настройки подключения и видео применяются после перезапуска</string>
@@ -65,8 +64,7 @@
     <string name="text_channels">ТЕКСТОВЫЕ КАНАЛЫ</string>
     <string name="create_server">Создать сервер</string>
     <string name="server_name">Название сервера</string>
-    <string name="api_host">API хост</string>
-    <string name="api_port">API порт</string>
+    <string name="api_address">API</string>
     <string name="create_channel">Создать канал</string>
     <string name="channel_name">Название канала</string>
     <string name="voice">Голосовой</string>

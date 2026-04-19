@@ -8,10 +8,12 @@ extern "C" {
 
 #include "screen_capture.hpp"
 #include "screen_capture_common.hpp"
+#include "video/video_codec.hpp"
 
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <thread>
 
@@ -21,6 +23,68 @@ extern "C" {
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/extensions/Xrandr.h>
+
+// --- X11 RAII helpers -------------------------------------------------------
+
+namespace {
+
+struct DisplayDeleter {
+    void operator()(Display* d) const noexcept
+    {
+        if (d)
+            XCloseDisplay(d);
+    }
+};
+using DisplayPtr = std::unique_ptr<Display, DisplayDeleter>;
+
+struct XRRScreenResourcesDeleter {
+    void operator()(XRRScreenResources* r) const noexcept
+    {
+        if (r)
+            XRRFreeScreenResources(r);
+    }
+};
+using XRRScreenResourcesPtr = std::unique_ptr<XRRScreenResources, XRRScreenResourcesDeleter>;
+
+struct XRRCrtcInfoDeleter {
+    void operator()(XRRCrtcInfo* c) const noexcept
+    {
+        if (c)
+            XRRFreeCrtcInfo(c);
+    }
+};
+using XRRCrtcInfoPtr = std::unique_ptr<XRRCrtcInfo, XRRCrtcInfoDeleter>;
+
+struct XRROutputInfoDeleter {
+    void operator()(XRROutputInfo* o) const noexcept
+    {
+        if (o)
+            XRRFreeOutputInfo(o);
+    }
+};
+using XRROutputInfoPtr = std::unique_ptr<XRROutputInfo, XRROutputInfoDeleter>;
+
+struct XImageDeleter {
+    void operator()(XImage* img) const noexcept
+    {
+        if (img)
+            XDestroyImage(img);
+    }
+};
+using XImagePtr = std::unique_ptr<XImage, XImageDeleter>;
+
+// XFree handles allocations returned by XGetWindowProperty, XFetchName, etc.
+struct XFreeDeleter {
+    void operator()(void* p) const noexcept
+    {
+        if (p)
+            XFree(p);
+    }
+};
+template <typename T>
+using XFreePtr = std::unique_ptr<T, XFreeDeleter>;
+
+} // namespace
 
 // --- target enumeration -----------------------------------------------------
 
@@ -32,22 +96,20 @@ static std::string x11_window_name(Display* dpy, Window win)
     Atom type { };
     int format { };
     unsigned long nitems { }, after { };
-    unsigned char* data = nullptr;
+    unsigned char* raw = nullptr;
 
     if (XGetWindowProperty(dpy, win, net_wm_name, 0, 256, False, utf8, &type,
-            &format, &nitems, &after, &data)
+            &format, &nitems, &after, &raw)
             == Success
-        && data && nitems > 0) {
-        std::string name(reinterpret_cast<char*>(data), nitems);
-        XFree(data);
-        return name;
+        && raw && nitems > 0) {
+        XFreePtr<unsigned char> data { raw };
+        return { reinterpret_cast<char*>(data.get()), nitems };
     }
 
-    char* wm_name = nullptr;
-    if (XFetchName(dpy, win, &wm_name) && wm_name) {
-        std::string name(wm_name);
-        XFree(wm_name);
-        return name;
+    char* wm_name_raw = nullptr;
+    if (XFetchName(dpy, win, &wm_name_raw) && wm_name_raw) {
+        XFreePtr<char> wm_name { wm_name_raw };
+        return { wm_name.get() };
     }
     return { };
 }
@@ -56,33 +118,30 @@ std::vector<ScreenCaptureTarget> ScreenCapture::list_targets()
 {
     std::vector<ScreenCaptureTarget> targets;
 
-    Display* dpy = XOpenDisplay(nullptr);
+    DisplayPtr dpy { XOpenDisplay(nullptr) };
     if (!dpy) {
         return targets;
     }
 
-    int screen = DefaultScreen(dpy);
-    Window root = RootWindow(dpy, screen);
+    int screen = DefaultScreen(dpy.get());
+    Window root = RootWindow(dpy.get(), screen);
 
-    XRRScreenResources* res = XRRGetScreenResources(dpy, root);
-    if (res) {
+    if (XRRScreenResourcesPtr res { XRRGetScreenResources(dpy.get(), root) }) {
         targets.reserve(res->ncrtc);
         for (int i = 0; i < res->ncrtc; ++i) {
-            XRRCrtcInfo* crtc = XRRGetCrtcInfo(dpy, res, res->crtcs[i]);
+            XRRCrtcInfoPtr crtc { XRRGetCrtcInfo(dpy.get(), res.get(), res->crtcs[i]) };
             if (!crtc) {
                 continue;
             }
             if (crtc->mode == None || crtc->width == 0 || crtc->height == 0) {
-                XRRFreeCrtcInfo(crtc);
                 continue;
             }
 
             std::string name = "Monitor " + std::to_string(i + 1);
             if (crtc->noutput > 0) {
-                XRROutputInfo* output = XRRGetOutputInfo(dpy, res, crtc->outputs[0]);
+                XRROutputInfoPtr output { XRRGetOutputInfo(dpy.get(), res.get(), crtc->outputs[0]) };
                 if (output) {
                     name = std::string(output->name, static_cast<size_t>(output->nameLen));
-                    XRRFreeOutputInfo(output);
                 }
             }
             name += " (" + std::to_string(crtc->width) + "x" + std::to_string(crtc->height) + ")";
@@ -96,15 +155,12 @@ std::vector<ScreenCaptureTarget> ScreenCapture::list_targets()
             t.x = crtc->x;
             t.y = crtc->y;
             targets.emplace_back(std::move(t));
-
-            XRRFreeCrtcInfo(crtc);
         }
-        XRRFreeScreenResources(res);
     }
 
     if (targets.empty()) {
         XWindowAttributes root_attrs { };
-        XGetWindowAttributes(dpy, root, &root_attrs);
+        XGetWindowAttributes(dpy.get(), root, &root_attrs);
         ScreenCaptureTarget t;
         t.type = ScreenCaptureTarget::Monitor;
         t.id = "0";
@@ -114,20 +170,21 @@ std::vector<ScreenCaptureTarget> ScreenCapture::list_targets()
         targets.emplace_back(std::move(t));
     }
 
-    Atom net_client_list = XInternAtom(dpy, "_NET_CLIENT_LIST", False);
+    Atom net_client_list = XInternAtom(dpy.get(), "_NET_CLIENT_LIST", False);
     Atom type { };
     int format { };
     unsigned long nitems { }, after { };
-    unsigned char* data = nullptr;
+    unsigned char* raw = nullptr;
 
-    if (XGetWindowProperty(dpy, root, net_client_list, 0, ~0L, False, XA_WINDOW,
-            &type, &format, &nitems, &after, &data)
+    if (XGetWindowProperty(dpy.get(), root, net_client_list, 0, ~0L, False, XA_WINDOW,
+            &type, &format, &nitems, &after, &raw)
             == Success
-        && data) {
-        auto* windows = reinterpret_cast<Window*>(data);
+        && raw) {
+        XFreePtr<unsigned char> data { raw };
+        auto* windows = reinterpret_cast<Window*>(data.get());
         for (unsigned long i = 0; i < nitems; ++i) {
             XWindowAttributes attrs { };
-            if (!XGetWindowAttributes(dpy, windows[i], &attrs)) {
+            if (!XGetWindowAttributes(dpy.get(), windows[i], &attrs)) {
                 continue;
             }
             if (attrs.map_state != IsViewable) {
@@ -137,7 +194,7 @@ std::vector<ScreenCaptureTarget> ScreenCapture::list_targets()
                 continue;
             }
 
-            std::string name = x11_window_name(dpy, windows[i]);
+            std::string name = x11_window_name(dpy.get(), windows[i]);
             if (name.empty()) {
                 continue;
             }
@@ -152,10 +209,8 @@ std::vector<ScreenCaptureTarget> ScreenCapture::list_targets()
             t.height = attrs.height;
             targets.emplace_back(std::move(t));
         }
-        XFree(data);
     }
 
-    XCloseDisplay(dpy);
     return targets;
 }
 
@@ -167,13 +222,13 @@ ScreenCapture::Frame ScreenCapture::grab_thumbnail(
     int max_h)
 {
     Frame f;
-    Display* dpy = XOpenDisplay(nullptr);
+    DisplayPtr dpy { XOpenDisplay(nullptr) };
     if (!dpy) {
         return f;
     }
 
-    int scr = DefaultScreen(dpy);
-    Window root = RootWindow(dpy, scr);
+    int scr = DefaultScreen(dpy.get());
+    Window root = RootWindow(dpy.get(), scr);
 
     int src_x = 0, src_y = 0, src_w = 0, src_h = 0;
     Window grab_win = root;
@@ -183,13 +238,11 @@ ScreenCapture::Frame ScreenCapture::grab_thumbnail(
             grab_win = static_cast<Window>(std::stoul(target.id));
         } catch (const std::exception& e) {
             LOG_WARNING() << "grab_thumbnail: invalid window id '" << target.id << "': " << e.what();
-            XCloseDisplay(dpy);
             return f;
         }
         XWindowAttributes attrs { };
-        if (!XGetWindowAttributes(dpy, grab_win, &attrs)) {
+        if (!XGetWindowAttributes(dpy.get(), grab_win, &attrs)) {
             LOG_WARNING() << "grab_thumbnail: XGetWindowAttributes failed for window " << target.id;
-            XCloseDisplay(dpy);
             return f;
         }
         src_w = attrs.width;
@@ -199,17 +252,14 @@ ScreenCapture::Frame ScreenCapture::grab_thumbnail(
         src_y = target.y;
         src_w = target.width;
         src_h = target.height;
-        grab_win = root;
     }
 
     if (src_w <= 0 || src_h <= 0) {
-        XCloseDisplay(dpy);
         return f;
     }
 
-    XImage* img = XGetImage(dpy, grab_win, src_x, src_y, static_cast<unsigned>(src_w),
-        static_cast<unsigned>(src_h), AllPlanes, ZPixmap);
-    XCloseDisplay(dpy);
+    XImagePtr img { XGetImage(dpy.get(), grab_win, src_x, src_y, static_cast<unsigned>(src_w),
+        static_cast<unsigned>(src_h), AllPlanes, ZPixmap) };
     if (!img) {
         return f;
     }
@@ -217,7 +267,7 @@ ScreenCapture::Frame ScreenCapture::grab_thumbnail(
     std::vector<uint8_t> bgra(static_cast<size_t>(src_w) * src_h * 4);
     for (int y = 0; y < src_h; ++y) {
         for (int x = 0; x < src_w; ++x) {
-            unsigned long pixel = XGetPixel(img, x, y);
+            unsigned long pixel = XGetPixel(img.get(), x, y);
             size_t idx = (static_cast<size_t>(y) * src_w + x) * 4;
             bgra[idx + 0] = static_cast<uint8_t>(pixel & 0xFF);
             bgra[idx + 1] = static_cast<uint8_t>((pixel >> 8) & 0xFF);
@@ -225,7 +275,6 @@ ScreenCapture::Frame ScreenCapture::grab_thumbnail(
             bgra[idx + 3] = 255;
         }
     }
-    XDestroyImage(img);
 
     int ow, oh;
     compute_output_size(src_w, src_h, max_w, max_h, ow, oh);
@@ -289,8 +338,7 @@ public:
             int cap_w = target.width, cap_h = target.height;
             bool got_abs = false;
 
-            Display* dpy = XOpenDisplay(nullptr);
-            if (dpy) {
+            if (DisplayPtr dpy { XOpenDisplay(nullptr) }) {
                 Window win { };
                 try {
                     win = static_cast<Window>(std::stoul(target.id));
@@ -301,7 +349,7 @@ public:
                 if (win) {
                     Window child { };
                     XWindowAttributes attrs { };
-                    if (XGetWindowAttributes(dpy, win, &attrs) && XTranslateCoordinates(dpy, win, DefaultRootWindow(dpy), 0, 0, &abs_x, &abs_y, &child)) {
+                    if (XGetWindowAttributes(dpy.get(), win, &attrs) && XTranslateCoordinates(dpy.get(), win, DefaultRootWindow(dpy.get()), 0, 0, &abs_x, &abs_y, &child)) {
                         cap_w = attrs.width;
                         cap_h = attrs.height;
                         got_abs = true;
@@ -309,7 +357,6 @@ public:
                         LOG_WARNING() << "start: XGetWindowAttributes or XTranslateCoordinates failed for window " << target.id;
                     }
                 }
-                XCloseDisplay(dpy);
             } else {
                 LOG_WARNING() << "start: XOpenDisplay failed, window position unknown";
             }
@@ -334,21 +381,27 @@ public:
 
         av_dict_set(&opts, "draw_mouse", "1", 0);
 
-        fmt_ctx_ = avformat_alloc_context();
-        fmt_ctx_->interrupt_callback.callback = interrupt_cb;
-        fmt_ctx_->interrupt_callback.opaque = this;
+        AVFormatContext* fmt_raw = avformat_alloc_context();
+        if (!fmt_raw) {
+            LOG_ERROR() << "avformat_alloc_context failed (OOM)";
+            av_dict_free(&opts);
+            return false;
+        }
+        fmt_raw->interrupt_callback.callback = interrupt_cb;
+        fmt_raw->interrupt_callback.opaque = this;
 
         LOG_INFO() << "opening capture: " << url;
 
-        int ret = avformat_open_input(&fmt_ctx_, url.c_str(), ifmt, &opts);
+        int ret = avformat_open_input(&fmt_raw, url.c_str(), ifmt, &opts);
         av_dict_free(&opts);
         if (ret < 0) {
             LOG_ERROR() << "avformat_open_input failed: " << ff_err(ret);
-            fmt_ctx_ = nullptr;
+            // avformat_open_input frees fmt_raw and sets it to nullptr on failure.
             return false;
         }
+        fmt_ctx_.reset(fmt_raw);
 
-        if (avformat_find_stream_info(fmt_ctx_, nullptr) < 0) {
+        if (avformat_find_stream_info(fmt_ctx_.get(), nullptr) < 0) {
             LOG_ERROR() << "avformat_find_stream_info failed";
             cleanup();
             return false;
@@ -375,20 +428,20 @@ public:
             return false;
         }
 
-        dec_ctx_ = avcodec_alloc_context3(dec);
+        dec_ctx_ = ff::CodecContextPtr { avcodec_alloc_context3(dec) };
         if (!dec_ctx_) {
             LOG_ERROR() << "avcodec_alloc_context3 failed (OOM)";
             cleanup();
             return false;
         }
 
-        if (avcodec_parameters_to_context(dec_ctx_, par) < 0) {
+        if (avcodec_parameters_to_context(dec_ctx_.get(), par) < 0) {
             LOG_ERROR() << "avcodec_parameters_to_context failed";
             cleanup();
             return false;
         }
 
-        if (avcodec_open2(dec_ctx_, dec, nullptr) < 0) {
+        if (avcodec_open2(dec_ctx_.get(), dec, nullptr) < 0) {
             LOG_ERROR() << "failed to open capture decoder";
             cleanup();
             return false;
@@ -398,18 +451,17 @@ public:
         int src_h = dec_ctx_->height;
         compute_output_size(src_w, src_h, max_w_, max_h_, out_w_, out_h_);
 
-        sws_ = sws_getContext(src_w, src_h, dec_ctx_->pix_fmt, out_w_, out_h_,
-            AV_PIX_FMT_BGRA, SWS_BILINEAR, nullptr, nullptr,
-            nullptr);
+        sws_ = ff::SwsContextPtr { sws_getContext(src_w, src_h, dec_ctx_->pix_fmt, out_w_, out_h_,
+            AV_PIX_FMT_BGRA, SWS_BILINEAR, nullptr, nullptr, nullptr) };
         if (!sws_) {
             LOG_ERROR() << "sws_getContext (capture) failed";
             cleanup();
             return false;
         }
 
-        pkt_ = av_packet_alloc();
-        frame_ = av_frame_alloc();
-        bgra_frame_ = av_frame_alloc();
+        pkt_ = ff::PacketPtr { av_packet_alloc() };
+        frame_ = ff::FramePtr { av_frame_alloc() };
+        bgra_frame_ = ff::FramePtr { av_frame_alloc() };
         if (!pkt_ || !frame_ || !bgra_frame_) {
             LOG_ERROR() << "av_packet/frame_alloc failed (OOM)";
             cleanup();
@@ -419,7 +471,7 @@ public:
         bgra_frame_->format = AV_PIX_FMT_BGRA;
         bgra_frame_->width = out_w_;
         bgra_frame_->height = out_h_;
-        if (av_frame_get_buffer(bgra_frame_, 0) < 0) {
+        if (av_frame_get_buffer(bgra_frame_.get(), 0) < 0) {
             LOG_ERROR() << "av_frame_get_buffer failed (OOM)";
             cleanup();
             return false;
@@ -459,7 +511,7 @@ private:
         static constexpr int kMaxConsecutiveErrors = 20;
 
         while (running_) {
-            int ret = av_read_frame(fmt_ctx_, pkt_);
+            int ret = av_read_frame(fmt_ctx_.get(), pkt_.get());
             if (ret < 0) {
                 if (ret == AVERROR_EOF || stopping_) {
                     break;
@@ -477,19 +529,19 @@ private:
             consecutive_errors = 0;
 
             if (pkt_->stream_index != video_idx_) {
-                av_packet_unref(pkt_);
+                av_packet_unref(pkt_.get());
                 continue;
             }
 
-            int sret = avcodec_send_packet(dec_ctx_, pkt_);
+            int sret = avcodec_send_packet(dec_ctx_.get(), pkt_.get());
             if (sret < 0 && sret != AVERROR(EAGAIN) && sret != AVERROR_EOF) {
                 LOG_WARNING() << "avcodec_send_packet: " << ff_err(sret);
-                av_packet_unref(pkt_);
+                av_packet_unref(pkt_.get());
                 continue;
             }
 
-            while (avcodec_receive_frame(dec_ctx_, frame_) >= 0) {
-                if (av_frame_make_writable(bgra_frame_) < 0) {
+            while (avcodec_receive_frame(dec_ctx_.get(), frame_.get()) >= 0) {
+                if (av_frame_make_writable(bgra_frame_.get()) < 0) {
                     continue;
                 }
 
@@ -500,7 +552,7 @@ private:
                     continue;
                 }
 
-                sws_scale(sws_, frame_->data, frame_->linesize, 0, dec_ctx_->height,
+                sws_scale(sws_.get(), frame_->data, frame_->linesize, 0, dec_ctx_->height,
                     bgra_frame_->data, bgra_frame_->linesize);
 
                 Frame out;
@@ -524,31 +576,18 @@ private:
                 }
             }
 
-            av_packet_unref(pkt_);
+            av_packet_unref(pkt_.get());
         }
     }
 
     void cleanup()
     {
-        if (bgra_frame_) {
-            av_frame_free(&bgra_frame_);
-        }
-        if (frame_) {
-            av_frame_free(&frame_);
-        }
-        if (pkt_) {
-            av_packet_free(&pkt_);
-        }
-        if (sws_) {
-            sws_freeContext(sws_);
-            sws_ = nullptr;
-        }
-        if (dec_ctx_) {
-            avcodec_free_context(&dec_ctx_);
-        }
-        if (fmt_ctx_) {
-            avformat_close_input(&fmt_ctx_);
-        }
+        bgra_frame_.reset();
+        frame_.reset();
+        pkt_.reset();
+        sws_.reset();
+        dec_ctx_.reset();
+        fmt_ctx_.reset();
         video_idx_ = -1;
         out_w_ = 0;
         out_h_ = 0;
@@ -561,12 +600,12 @@ private:
     int max_w_ = 1920;
     int max_h_ = 1080;
 
-    AVFormatContext* fmt_ctx_ = nullptr;
-    AVCodecContext* dec_ctx_ = nullptr;
-    SwsContext* sws_ = nullptr;
-    AVPacket* pkt_ = nullptr;
-    AVFrame* frame_ = nullptr;
-    AVFrame* bgra_frame_ = nullptr;
+    ff::FormatContextPtr fmt_ctx_;
+    ff::CodecContextPtr dec_ctx_;
+    ff::SwsContextPtr sws_;
+    ff::PacketPtr pkt_;
+    ff::FramePtr frame_;
+    ff::FramePtr bgra_frame_;
     int video_idx_ = -1;
     int out_w_ = 0;
     int out_h_ = 0;

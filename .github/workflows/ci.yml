@@ -247,8 +247,18 @@ jobs:
           key: cmake-deps-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt') }}
           restore-keys: cmake-deps-${{ runner.os }}-
 
+      - name: Cache Windows third-party prebuilts (FFmpeg + OpenSSL)
+        id: cache-win-deps
+        uses: actions/cache@v4
+        with:
+          path: third_party/windows
+          key: win-deps-${{ hashFiles('third_party/fetch_win_deps.sh') }}
+
+      - name: Fetch Windows prebuilt dependencies
+        if: steps.cache-win-deps.outputs.cache-hit != 'true'
+        run: ./third_party/fetch_win_deps.sh
+
       - name: Build client with Windows cross-compile
-        # build.sh logs a warning and skips the DLL if MinGW OpenSSL is not in the sysroot
         run: ./scripts/build.sh --windows
 
       - name: Upload Windows DLL artifact
