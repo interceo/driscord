@@ -43,6 +43,7 @@ internal fun UserTile(
     isYou: Boolean = false,
     muted: Boolean = false,
     deafened: Boolean = false,
+    avatarUrl: String? = null,
     onGetVolume: () -> Float = { 1f },
     onSetVolume: (Float) -> Unit = {},
     onToggleMute: (() -> Unit)? = null,
@@ -103,6 +104,7 @@ internal fun UserTile(
             size = 48,
             fontSize = 22,
             modifier = Modifier.align(Alignment.Center),
+            avatarUrl = avatarUrl,
         )
 
         Box(

@@ -45,6 +45,7 @@ add_unit_test(test_chunk_assembler)
 add_unit_test(test_expected)
 add_core_test(test_video_codec)
 add_core_test(test_video_receiver)
+add_core_test(test_audio_receiver)
 
 # --- Integration tests (need driscord_core + driscord_signaling) ---
 if(BUILD_SERVER)

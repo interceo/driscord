@@ -16,4 +16,3 @@ class UserResponse(BaseModel):
 
 class UserUpdateRequest(BaseModel):
     display_name: str | None = None
-    avatar_url: str | None = None

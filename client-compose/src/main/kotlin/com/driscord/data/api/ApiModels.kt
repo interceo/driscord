@@ -54,6 +54,24 @@ data class ChannelResponse(
 data class CreateChannelRequest(val name: String, val kind: String, val position: Int = 0)
 
 // ---------------------------------------------------------------------------
+// User profile
+// ---------------------------------------------------------------------------
+
+@Serializable
+data class UserProfileResponse(
+    val id: Int,
+    val username: String,
+    val email: String,
+    @SerialName("display_name") val displayName: String? = null,
+    @SerialName("avatar_url") val avatarUrl: String? = null,
+)
+
+@Serializable
+data class UpdateProfileRequest(
+    @SerialName("display_name") val displayName: String? = null,
+)
+
+// ---------------------------------------------------------------------------
 // Invites
 // ---------------------------------------------------------------------------
 

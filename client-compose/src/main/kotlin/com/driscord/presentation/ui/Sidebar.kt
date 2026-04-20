@@ -81,8 +81,10 @@ fun Sidebar(
 
         Divider(color = DividerColor, thickness = 1.dp)
         UserBar(
-            username = state.currentUsername.ifEmpty { "—" },
-            localId = state.localId,
+            displayName = state.currentUserProfile?.displayName
+                ?: state.currentUsername.ifEmpty { "—" },
+            localId = state.localId.ifEmpty { state.currentUsername },
+            avatarUrl = state.currentUserProfile?.avatarUrl,
             muted = state.muted,
             deafened = state.deafened,
             connected = state.connectionState == ConnectionState.Connected,
@@ -96,8 +98,12 @@ fun Sidebar(
     if (state.showSettings) {
         SettingsDialog(
             config = state.config,
+            userProfile = state.currentUserProfile,
+            profileSaving = state.profileSaving,
             onDismiss = { onIntent(AppIntent.DismissSettings) },
             onSave = { onIntent(AppIntent.SaveConfig(it)) },
+            onUpdateDisplayName = { onIntent(AppIntent.UpdateDisplayName(it)) },
+            onUploadAvatar = { bytes, ext -> onIntent(AppIntent.UploadAvatar(bytes, ext)) },
             onListInputDevices = onListInputDevices,
             onListOutputDevices = onListOutputDevices,
         )
@@ -234,8 +240,9 @@ private fun VoiceChannelPeers(
     onIntent: (AppIntent) -> Unit,
     onGetPeerVolume: (String) -> Float,
 ) {
-    val localLabel = if (state.currentUsername.isNotEmpty())
-        "${state.currentUsername} (${stringResource(Res.string.you)})"
+    val localName = state.currentUserProfile?.displayName ?: state.currentUsername
+    val localLabel = if (localName.isNotEmpty())
+        "$localName (${stringResource(Res.string.you)})"
     else
         peerLabel(state.localId, state.localId)
 
@@ -246,6 +253,7 @@ private fun VoiceChannelPeers(
         muted = state.muted,
         deafened = state.deafened,
         isYou = true,
+        avatarUrl = state.currentUserProfile?.avatarUrl,
         onGetVolume = { state.outputVolume },
         onSetVolume = { v -> onIntent(AppIntent.SetOutputVolume(v)) },
         onToggleMute = { onIntent(AppIntent.ToggleMute) },
@@ -255,11 +263,12 @@ private fun VoiceChannelPeers(
     state.peers.forEach { peer ->
         VoicePeerRow(
             id = peer.id,
-            label = peer.username.ifEmpty { peerLabel(peer.id, state.localId) },
+            label = peer.displayName ?: peer.username.ifEmpty { peerLabel(peer.id, state.localId) },
             online = peer.connected,
             muted = false,
             deafened = false,
             isYou = false,
+            avatarUrl = peer.avatarUrl,
             onGetVolume = { onGetPeerVolume(peer.id) },
             onSetVolume = { v -> onIntent(AppIntent.SetPeerVolume(peer.id, v)) },
         )
@@ -274,6 +283,7 @@ private fun VoicePeerRow(
     muted: Boolean,
     deafened: Boolean,
     isYou: Boolean,
+    avatarUrl: String? = null,
     onGetVolume: () -> Float,
     onSetVolume: (Float) -> Unit,
     onToggleMute: (() -> Unit)? = null,
@@ -338,7 +348,7 @@ private fun VoicePeerRow(
                 .padding(start = 28.dp, end = 8.dp, top = 2.dp, bottom = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            AvatarBox(peerId = id, size = 18, fontSize = 9)
+            AvatarBox(peerId = id, size = 18, fontSize = 9, avatarUrl = avatarUrl)
             Spacer(Modifier.width(6.dp))
             Text(
                 text = label,
@@ -535,8 +545,9 @@ private fun ShareButton(label: String, active: Boolean, modifier: Modifier, onCl
 
 @Composable
 private fun UserBar(
-    username: String,
+    displayName: String,
     localId: String,
+    avatarUrl: String?,
     muted: Boolean,
     deafened: Boolean,
     connected: Boolean,
@@ -554,7 +565,7 @@ private fun UserBar(
     ) {
         // Avatar with online indicator
         Box {
-            AvatarBox(peerId = localId.ifEmpty { username }, size = 28, fontSize = 12)
+            AvatarBox(peerId = localId, size = 28, fontSize = 12, avatarUrl = avatarUrl)
             if (connected) {
                 Box(
                     modifier = Modifier
@@ -565,10 +576,10 @@ private fun UserBar(
             }
         }
         Spacer(Modifier.width(7.dp))
-        // Username — takes all remaining space before buttons
+        // Display name — takes all remaining space before buttons
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = username,
+                text = displayName,
                 color = TextPrimary,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,

@@ -268,14 +268,23 @@ internal fun PeerTile(
     modifier: Modifier = Modifier,
 ) {
     val isYou = peerId == state.localId
+    val peer = if (!isYou) state.peers.find { it.id == peerId } else null
+    val label = when {
+        isYou -> peerLabel(peerId, state.localId)
+        peer?.displayName != null -> peer.displayName
+        peer?.username?.isNotEmpty() == true -> peer.username
+        else -> peerLabel(peerId, state.localId)
+    }
+    val avatarUrl = if (isYou) state.currentUserProfile?.avatarUrl else peer?.avatarUrl
     UserTile(
         peerId = peerId,
-        label = peerLabel(peerId, state.localId),
+        label = label,
         online = isYou || state.peers.any { it.id == peerId && it.connected },
         isStreaming = peerId in state.streamingPeers,
         isYou = isYou,
         muted = isYou && state.muted,
         deafened = isYou && state.deafened,
+        avatarUrl = avatarUrl,
         onGetVolume = if (isYou) ({ state.outputVolume }) else ({ onGetPeerVolume(peerId) }),
         onSetVolume = if (isYou) { v -> onIntent(AppIntent.SetOutputVolume(v)) }
                       else { v -> onIntent(AppIntent.SetPeerVolume(peerId, v)) },

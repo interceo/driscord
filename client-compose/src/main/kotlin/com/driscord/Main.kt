@@ -8,6 +8,7 @@ import androidx.compose.ui.window.rememberWindowState
 import com.driscord.data.api.ApiClient
 import com.driscord.data.api.AuthRepositoryImpl
 import com.driscord.data.api.ServerRepositoryImpl
+import com.driscord.data.api.UserRepositoryImpl
 import com.driscord.data.audio.AudioServiceImpl
 import com.driscord.data.config.ConfigRepositoryImpl
 import com.driscord.data.connection.ConnectionServiceImpl
@@ -24,10 +25,11 @@ fun main() {
             val apiClient = ApiClient(cfg.apiBaseUrl)
             val authRepo = AuthRepositoryImpl(apiClient)
             val serverRepo = ServerRepositoryImpl(apiClient)
+            val userRepo = UserRepositoryImpl(apiClient)
             val connectionSvc = ConnectionServiceImpl(cfg)
             val audioSvc = AudioServiceImpl()
             val videoSvc = VideoServiceImpl(cfg)
-            AppViewModel(connectionSvc, audioSvc, videoSvc, configRepo, authRepo, serverRepo)
+            AppViewModel(connectionSvc, audioSvc, videoSvc, configRepo, authRepo, serverRepo, userRepo)
         }
 
         Window(

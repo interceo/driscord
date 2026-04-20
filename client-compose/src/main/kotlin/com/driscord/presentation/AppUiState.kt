@@ -7,8 +7,10 @@ import com.driscord.domain.model.ConnectionState
 import com.driscord.domain.model.PeerInfo
 import com.driscord.domain.model.Server
 import com.driscord.domain.model.StreamStats
+import com.driscord.domain.model.UserProfile
 
 enum class AuthStatus { LoggedOut, LoggingIn, Restoring, LoggedIn }
+enum class SettingsPage { MyAccount, Audio, Advanced }
 
 data class AppUiState(
     val connectionState: ConnectionState = ConnectionState.Disconnected,
@@ -30,6 +32,9 @@ data class AppUiState(
     // Auth
     val authStatus: AuthStatus = AuthStatus.LoggedOut,
     val currentUsername: String = "",
+    val currentUserProfile: UserProfile? = null,
+    val profileSaving: Boolean = false,
+    val profileError: String? = null,
     // Servers & channels
     val servers: List<Server> = emptyList(),
     val selectedServerId: Int? = null,

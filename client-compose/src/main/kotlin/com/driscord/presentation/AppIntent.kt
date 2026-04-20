@@ -46,6 +46,10 @@ sealed interface AppIntent {
     object DismissCreateChannelDialog : AppIntent
     data class CreateChannel(val name: String, val kind: com.driscord.domain.model.ChannelKind) : AppIntent
 
+    // Profile
+    data class UpdateDisplayName(val name: String) : AppIntent
+    data class UploadAvatar(val bytes: ByteArray, val extension: String) : AppIntent
+
     // Invites
     data class CreateInvite(val serverId: Int) : AppIntent
     object OpenJoinByInviteDialog : AppIntent
