@@ -17,3 +17,7 @@
 # Suppress duplicate-class notes produced by multiple serialization jars on classpath
 -dontnote kotlin.**
 -dontwarn kotlin.**
+
+# Bytecode optimisation is handled by HotSpot JIT at runtime — skip ProGuard's
+# 5-pass optimisation phase to significantly reduce packaging time.
+-dontoptimize
