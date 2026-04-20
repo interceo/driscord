@@ -220,14 +220,14 @@ class AppViewModel(
             is AppIntent.UpdateDisplayName -> scope.launch {
                 _state.update { it.copy(profileSaving = true, profileError = null) }
                 userRepository.updateProfile(displayName = intent.name.ifBlank { null })
-                    .onSuccess { profile -> _state.update { it.copy(currentUserProfile = profile, profileSaving = false) } }
+                    .onSuccess { profile -> _state.update { it.copy(currentUserProfile = profile.copy(avatarUrl = resolveAvatarUrl(profile)), profileSaving = false) } }
                     .onFailure { e -> _state.update { it.copy(profileSaving = false, profileError = e.message) } }
             }
             is AppIntent.UploadAvatar -> scope.launch {
                 val userId = _state.value.currentUserProfile?.id ?: return@launch
                 _state.update { it.copy(profileSaving = true, profileError = null) }
                 userRepository.uploadAvatar(userId, intent.bytes, intent.extension)
-                    .onSuccess { profile -> _state.update { it.copy(currentUserProfile = profile, profileSaving = false) } }
+                    .onSuccess { profile -> _state.update { it.copy(currentUserProfile = profile.copy(avatarUrl = resolveAvatarUrl(profile)), profileSaving = false) } }
                     .onFailure { e -> _state.update { it.copy(profileSaving = false, profileError = e.message) } }
             }
             AppIntent.DismissApiError -> _state.update { it.copy(apiError = null) }
@@ -354,16 +354,22 @@ class AppViewModel(
             .onFailure { e -> _state.update { it.copy(apiError = e.message) } }
     }
 
+    private fun resolveAvatarUrl(profile: com.driscord.domain.model.UserProfile): String? {
+        if (profile.avatarUrl == null) return null
+        return "${configRepository.config.value.apiBaseUrl}/users/${profile.id}/avatar"
+    }
+
     private suspend fun loadProfile() {
         userRepository.getProfile()
-            .onSuccess { profile -> _state.update { it.copy(currentUserProfile = profile) } }
+            .onSuccess { profile ->
+                _state.update { it.copy(currentUserProfile = profile.copy(avatarUrl = resolveAvatarUrl(profile))) }
+            }
     }
 
     private suspend fun fetchPeerProfile(peerId: String, username: String) {
         userRepository.getUserByUsername(username)
             .onSuccess { profile ->
-                val apiBase = configRepository.config.value.apiBaseUrl
-                val avatarUrl = if (profile.avatarUrl != null) "$apiBase/users/${profile.id}/avatar" else null
+                val avatarUrl = resolveAvatarUrl(profile)
                 _state.update { s ->
                     s.copy(peers = s.peers.map { p ->
                         if (p.id == peerId) p.copy(userId = profile.id, displayName = profile.displayName, avatarUrl = avatarUrl)

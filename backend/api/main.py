@@ -1,6 +1,7 @@
 import logging
 from contextlib import asynccontextmanager
 
+import sqlalchemy
 import uvicorn
 from fastapi import FastAPI
 
@@ -18,6 +19,11 @@ from routers import auth, channels, health, invites, servers, updates, users
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.execute(
+            sqlalchemy.text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(512)"
+            )
+        )
     yield
 
 
