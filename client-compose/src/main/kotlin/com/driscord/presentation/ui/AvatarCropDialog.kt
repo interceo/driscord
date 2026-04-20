@@ -4,6 +4,7 @@ package com.driscord.presentation.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -106,6 +107,7 @@ fun AvatarCropDialog(
                     modifier = Modifier
                         .size(PREVIEW_DP.dp)
                         .background(Color.Black)
+                        .clipToBounds()
                         // Drag / pinch-zoom
                         .pointerInput(Unit) {
                             detectTransformGestures { _, pan, zoom, _ ->
