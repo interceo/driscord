@@ -10,13 +10,15 @@ class AuthManager : public QObject {
     Q_PROPERTY(QString username READ username NOTIFY authChanged)
     Q_PROPERTY(int userId READ userId NOTIFY authChanged)
     Q_PROPERTY(QString avatarUrl READ avatarUrl NOTIFY authChanged)
+    Q_PROPERTY(QString displayName READ displayName NOTIFY authChanged)
 public:
     explicit AuthManager(ApiClient* api, SessionStore* session, QObject* parent = nullptr);
 
-    bool    loggedIn()  const;
-    QString username()  const;
-    int     userId()    const;
-    QString avatarUrl() const;
+    bool    loggedIn()    const;
+    QString username()    const;
+    int     userId()      const;
+    QString avatarUrl()   const;
+    QString displayName() const;
 
     Q_INVOKABLE void login(const QString& username, const QString& password);
     Q_INVOKABLE void registerUser(const QString& username, const QString& email, const QString& password);
@@ -38,6 +40,7 @@ private:
     QString       m_username;
     QString       m_refreshToken;
     QString       m_avatarUrl;
+    QString       m_displayName;
     int           m_userId = 0;
     bool          m_loggedIn = false;
 };

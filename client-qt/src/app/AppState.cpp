@@ -124,7 +124,7 @@ void AppState::loadInitialData() {
     QVariantMap p;
     p["id"]          = uid;
     p["username"]    = m_auth->username();
-    p["displayName"] = m_auth->username();
+    p["displayName"] = m_auth->displayName();
     if (!m_auth->avatarUrl().isEmpty())
         p["avatarUrl"] = QStringLiteral("%1/users/%2/avatar").arg(m_apiBaseUrl).arg(uid);
     else
@@ -146,7 +146,8 @@ void AppState::fetchCurrentUserProfile() {
         QVariantMap p;
         p["id"]          = json["id"].toInt();
         p["username"]    = json["username"].toString();
-        p["displayName"] = json["display_name"].toString();
+        QString dn = json["display_name"].toString();
+        p["displayName"] = dn.isEmpty() ? json["username"].toString() : dn;
         int uid = json["id"].toInt();
         QString avatarUrl;
         if (!json["avatar_url"].isNull())

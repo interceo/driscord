@@ -234,12 +234,12 @@ Rectangle {
 
                 AvatarBox {
                     size: 28
-                    displayName: authManager.username
+                    displayName: appState.userProfile.displayName || authManager.username
                     avatarUrl: appState.userProfile.avatarUrl ?? ""
                 }
 
                 Text {
-                    text: authManager.username; color: "white"
+                    text: appState.userProfile.displayName || authManager.username; color: "white"
                     font.pixelSize: 13; Layout.fillWidth: true
                     elide: Text.ElideRight
                 }
@@ -290,11 +290,11 @@ Rectangle {
                 spacing: 8
                 AvatarBox {
                     size: 28
-                    displayName: authManager.username
+                    displayName: appState.userProfile.displayName || authManager.username
                     avatarUrl: appState.userProfile.avatarUrl ?? ""
                 }
                 Text {
-                    text: authManager.username; color: "white"; font.pixelSize: 13; Layout.fillWidth: true
+                    text: appState.userProfile.displayName || authManager.username; color: "white"; font.pixelSize: 13; Layout.fillWidth: true
                     elide: Text.ElideRight
                 }
                 ToolButton {

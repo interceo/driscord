@@ -5,10 +5,11 @@
 AuthManager::AuthManager(ApiClient* api, SessionStore* session, QObject* parent)
     : QObject(parent), m_api(api), m_session(session) {}
 
-bool    AuthManager::loggedIn()  const { return m_loggedIn; }
-QString AuthManager::username()  const { return m_username; }
-int     AuthManager::userId()    const { return m_userId; }
-QString AuthManager::avatarUrl() const { return m_avatarUrl; }
+bool    AuthManager::loggedIn()    const { return m_loggedIn; }
+QString AuthManager::username()    const { return m_username; }
+int     AuthManager::userId()      const { return m_userId; }
+QString AuthManager::avatarUrl()   const { return m_avatarUrl; }
+QString AuthManager::displayName() const { return m_displayName.isEmpty() ? m_username : m_displayName; }
 
 void AuthManager::applyTokenResponse(const QJsonObject& json, const QString& username) {
     auto access  = json["access_token"].toString();
@@ -19,6 +20,7 @@ void AuthManager::applyTokenResponse(const QJsonObject& json, const QString& use
     m_username     = username;
     m_userId       = uid;
     m_avatarUrl    = json["avatar_url"].toString();
+    m_displayName  = json["display_name"].toString();
     m_loggedIn     = true;
     m_session->save({refresh, username, uid});
     emit authChanged();

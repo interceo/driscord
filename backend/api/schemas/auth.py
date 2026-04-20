@@ -18,6 +18,7 @@ class TokenResponse(BaseModel):
     user_id: int
     token_type: str = "bearer"
     avatar_url: str | None = None
+    display_name: str | None = None
 
 
 class RefreshRequest(BaseModel):
