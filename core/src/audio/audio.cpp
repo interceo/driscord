@@ -286,7 +286,7 @@ utils::vector_view<const float> AudioReceiver::pop()
     }
 
     ++pop_count_;
-    if (channels_ < 1) {
+    if (channels_ == 1) {
         return utils::vector_view<const float>(decode_buf_.data(), samples);
     }
 

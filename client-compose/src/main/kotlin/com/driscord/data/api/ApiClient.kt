@@ -99,6 +99,82 @@ class ApiClient(private val baseUrl: String) {
         }.onFailure { logError("POST $path", it) }
     }
 
+    suspend fun <B, T> patch(
+        path: String,
+        body: B,
+        bodySerializer: SerializationStrategy<B>,
+        responseDeserializer: DeserializationStrategy<T>,
+    ): Result<T> = withContext(Dispatchers.IO) {
+        runCatching {
+            val bodyStr = json.encodeToString(bodySerializer, body)
+            val req = requestBuilder(path)
+                .header("Content-Type", "application/json")
+                .method("PATCH", HttpRequest.BodyPublishers.ofString(bodyStr))
+                .build()
+            log("PATCH ${req.uri()}")
+            val resp = http.send(req, HttpResponse.BodyHandlers.ofString())
+            log("PATCH ${req.uri()} → ${resp.statusCode()}")
+            checkStatus(resp)
+            json.decodeFromString(responseDeserializer, resp.body())
+        }.onFailure { logError("PATCH $path", it) }
+    }
+
+    suspend fun <T> postMultipart(
+        path: String,
+        fieldName: String,
+        filename: String,
+        bytes: ByteArray,
+        mimeType: String,
+        responseDeserializer: DeserializationStrategy<T>,
+    ): Result<T> = withContext(Dispatchers.IO) {
+        runCatching {
+            val boundary = "DriscordBoundary${System.nanoTime()}"
+            val nl = "\r\n"
+            val header = "--$boundary$nl" +
+                "Content-Disposition: form-data; name=\"$fieldName\"; filename=\"$filename\"$nl" +
+                "Content-Type: $mimeType$nl$nl"
+            val footer = "$nl--$boundary--$nl"
+            val body = header.toByteArray() + bytes + footer.toByteArray()
+            val req = requestBuilder(path)
+                .header("Content-Type", "multipart/form-data; boundary=$boundary")
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body))
+                .build()
+            log("POST(multipart) ${req.uri()}")
+            val resp = http.send(req, HttpResponse.BodyHandlers.ofString())
+            log("POST(multipart) ${req.uri()} → ${resp.statusCode()}")
+            checkStatus(resp)
+            json.decodeFromString(responseDeserializer, resp.body())
+        }.onFailure { logError("POST(multipart) $path", it) }
+    }
+
+    suspend fun <T> putMultipart(
+        path: String,
+        fieldName: String,
+        filename: String,
+        bytes: ByteArray,
+        mimeType: String,
+        responseDeserializer: DeserializationStrategy<T>,
+    ): Result<T> = withContext(Dispatchers.IO) {
+        runCatching {
+            val boundary = "DriscordBoundary${System.nanoTime()}"
+            val nl = "\r\n"
+            val header = "--$boundary$nl" +
+                "Content-Disposition: form-data; name=\"$fieldName\"; filename=\"$filename\"$nl" +
+                "Content-Type: $mimeType$nl$nl"
+            val footer = "$nl--$boundary--$nl"
+            val body = header.toByteArray() + bytes + footer.toByteArray()
+            val req = requestBuilder(path)
+                .header("Content-Type", "multipart/form-data; boundary=$boundary")
+                .method("PUT", HttpRequest.BodyPublishers.ofByteArray(body))
+                .build()
+            log("PUT(multipart) ${req.uri()}")
+            val resp = http.send(req, HttpResponse.BodyHandlers.ofString())
+            log("PUT(multipart) ${req.uri()} → ${resp.statusCode()}")
+            checkStatus(resp)
+            json.decodeFromString(responseDeserializer, resp.body())
+        }.onFailure { logError("PUT(multipart) $path", it) }
+    }
+
     suspend fun delete(path: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val req = requestBuilder(path).DELETE().build()

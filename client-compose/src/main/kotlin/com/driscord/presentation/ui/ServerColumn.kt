@@ -8,8 +8,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.Divider
+import androidx.compose.material.DropdownMenu
+import androidx.compose.material.DropdownMenuItem
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -18,8 +24,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.driscord.domain.model.Server
+import com.driscord.driscord_compose.generated.resources.Res
+import com.driscord.driscord_compose.generated.resources.create_server
+import com.driscord.driscord_compose.generated.resources.join_by_invite
 import com.driscord.presentation.AppIntent
 import com.driscord.ui.*
+import org.jetbrains.compose.resources.stringResource
 
 @Composable
 fun ServerColumn(
@@ -64,24 +74,44 @@ fun ServerColumn(
             }
         }
 
-        // Add server / join by invite buttons
+        // Add server menu (+ button with dropdown: create / join by invite)
         Spacer(Modifier.height(4.dp))
         Divider(color = DividerColor, thickness = 1.dp, modifier = Modifier.padding(horizontal = 12.dp))
         Spacer(Modifier.height(4.dp))
+        AddServerMenu(onIntent = onIntent)
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun AddServerMenu(onIntent: (AppIntent) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box {
         ServerIcon(
             letter = "+",
             selected = false,
             color = FieldBg,
-            onClick = { onIntent(AppIntent.OpenCreateServerDialog) },
+            onClick = { expanded = true },
         )
-        Spacer(Modifier.height(4.dp))
-        ServerIcon(
-            letter = "⤴",
-            selected = false,
-            color = FieldBg,
-            onClick = { onIntent(AppIntent.OpenJoinByInviteDialog) },
-        )
-        Spacer(Modifier.height(8.dp))
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.background(SidebarBg),
+        ) {
+            DropdownMenuItem(onClick = {
+                expanded = false
+                onIntent(AppIntent.OpenCreateServerDialog)
+            }) {
+                Text(stringResource(Res.string.create_server), color = TextPrimary, fontSize = 12.sp)
+            }
+            DropdownMenuItem(onClick = {
+                expanded = false
+                onIntent(AppIntent.OpenJoinByInviteDialog)
+            }) {
+                Text(stringResource(Res.string.join_by_invite), color = TextPrimary, fontSize = 12.sp)
+            }
+        }
     }
 }
 

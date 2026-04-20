@@ -37,7 +37,11 @@
 
     <!-- Settings dialog -->
     <string name="settings">Настройки</string>
+    <string name="user_settings">Настройки пользователя</string>
+    <string name="app_settings">Настройки приложения</string>
+    <string name="my_account">Моя учётная запись</string>
     <string name="audio">Аудио</string>
+    <string name="advanced">Расширенные</string>
     <string name="microphone">Микрофон</string>
     <string name="output">Выход</string>
     <string name="connection">Подключение</string>
@@ -46,7 +50,14 @@
     <string name="capture_fps">FPS захвата</string>
     <string name="settings_restart_note">* Настройки подключения и видео применяются после перезапуска</string>
     <string name="save">Сохранить</string>
+    <string name="save_changes">Сохранить изменения</string>
+    <string name="change">Изменить</string>
     <string name="default_device">По умолчанию</string>
+    <string name="display_name">Отображаемое имя</string>
+    <string name="display_name_placeholder">Вы не задали отображаемое имя.</string>
+    <string name="edit_avatar">Редактировать фото профиля</string>
+    <string name="scale">Масштаб</string>
+    <string name="apply">Применить</string>
 
     <!-- Peer label -->
     <string name="you">вы</string>

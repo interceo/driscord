@@ -2,6 +2,7 @@ package com.driscord.presentation.viewmodel
 
 import com.driscord.data.api.AuthRepository
 import com.driscord.data.api.ServerRepository
+import com.driscord.data.api.UserRepository
 import com.driscord.data.audio.AudioDevice
 import com.driscord.data.audio.AudioService
 import com.driscord.data.config.ConfigRepository
@@ -23,6 +24,7 @@ class AppViewModel(
     private val configRepository: ConfigRepository,
     private val authRepository: AuthRepository,
     private val serverRepository: ServerRepository,
+    private val userRepository: UserRepository,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 ) {
 
@@ -32,6 +34,8 @@ class AppViewModel(
     ))
     val state: StateFlow<AppUiState> = _state.asStateFlow()
 
+    private val lookedUpPeers = mutableSetOf<String>()
+
     /** Frames are kept in a separate flow to avoid copying the full AppUiState on every frame. */
     val frames: StateFlow<Map<String, ImageBitmap>> = videoService.frames
 
@@ -39,7 +43,22 @@ class AppViewModel(
         // Merge service flows into single AppUiState
         scope.launch { connectionService.connectionState.collect { v -> _state.update { it.copy(connectionState = v) } } }
         scope.launch { connectionService.localId.collect { v -> _state.update { it.copy(localId = v) } } }
-        scope.launch { connectionService.peers.collect { v -> _state.update { it.copy(peers = v) } } }
+        scope.launch {
+            connectionService.peers.collect { newPeers ->
+                val oldPeers = _state.value.peers
+                val merged = newPeers.map { newPeer ->
+                    val old = oldPeers.find { it.id == newPeer.id }
+                    if (old != null) newPeer.copy(userId = old.userId, displayName = old.displayName, avatarUrl = old.avatarUrl)
+                    else newPeer
+                }
+                _state.update { it.copy(peers = merged) }
+                newPeers.forEach { peer ->
+                    if (peer.username.isNotEmpty() && lookedUpPeers.add(peer.id)) {
+                        scope.launch { fetchPeerProfile(peer.id, peer.username) }
+                    }
+                }
+            }
+        }
         scope.launch { audioService.muted.collect { v -> _state.update { it.copy(muted = v) } } }
         scope.launch { audioService.deafened.collect { v -> _state.update { it.copy(deafened = v) } } }
         scope.launch { audioService.outputVolume.collect { v -> _state.update { it.copy(outputVolume = v) } } }
@@ -60,6 +79,7 @@ class AppViewModel(
         scope.launch {
             connectionService.peerLeftEvents.collect { peerId ->
                 audioService.onPeerLeft(peerId)
+                lookedUpPeers.remove(peerId)
             }
         }
 
@@ -73,6 +93,7 @@ class AppViewModel(
                         connectionService.setLocalUsername(username)
                         _state.update { it.copy(authStatus = AuthStatus.LoggedIn, currentUsername = username) }
                         refreshServers()
+                        loadProfile()
                     }
                     .onFailure {
                         authRepository.logout()
@@ -99,6 +120,7 @@ class AppViewModel(
                 connectionService.disconnect()
                 audioService.stop()
                 videoService.stopSharing()
+                lookedUpPeers.clear()
                 _state.update { it.copy(selectedChannelId = null) }
             }
 
@@ -158,6 +180,7 @@ class AppViewModel(
                         connectionService.setLocalUsername(username)
                         _state.update { it.copy(authStatus = AuthStatus.LoggedIn, currentUsername = username) }
                         refreshServers()
+                        loadProfile()
                     }
                     .onFailure { e ->
                         _state.update { it.copy(authStatus = AuthStatus.LoggedOut, apiError = e.message) }
@@ -171,6 +194,7 @@ class AppViewModel(
                         connectionService.setLocalUsername(username)
                         _state.update { it.copy(authStatus = AuthStatus.LoggedIn, currentUsername = username) }
                         refreshServers()
+                        loadProfile()
                     }
                     .onFailure { e ->
                         _state.update { it.copy(authStatus = AuthStatus.LoggedOut, apiError = e.message) }
@@ -181,12 +205,30 @@ class AppViewModel(
                 connectionService.disconnect()
                 audioService.stop()
                 videoService.stopSharing()
+                lookedUpPeers.clear()
                 _state.update {
                     AppUiState(
                         systemAudioAvailable = videoService.systemAudioAvailable,
                         config = configRepository.config.value,
                     )
                 }
+            }
+
+            // ------------------------------------------------------------------
+            // Profile
+            // ------------------------------------------------------------------
+            is AppIntent.UpdateDisplayName -> scope.launch {
+                _state.update { it.copy(profileSaving = true, profileError = null) }
+                userRepository.updateProfile(displayName = intent.name.ifBlank { null })
+                    .onSuccess { profile -> _state.update { it.copy(currentUserProfile = profile, profileSaving = false) } }
+                    .onFailure { e -> _state.update { it.copy(profileSaving = false, profileError = e.message) } }
+            }
+            is AppIntent.UploadAvatar -> scope.launch {
+                val userId = _state.value.currentUserProfile?.id ?: return@launch
+                _state.update { it.copy(profileSaving = true, profileError = null) }
+                userRepository.uploadAvatar(userId, intent.bytes, intent.extension)
+                    .onSuccess { profile -> _state.update { it.copy(currentUserProfile = profile, profileSaving = false) } }
+                    .onFailure { e -> _state.update { it.copy(profileSaving = false, profileError = e.message) } }
             }
             AppIntent.DismissApiError -> _state.update { it.copy(apiError = null) }
 
@@ -310,5 +352,24 @@ class AppViewModel(
         serverRepository.listServers()
             .onSuccess { servers -> _state.update { it.copy(servers = servers) } }
             .onFailure { e -> _state.update { it.copy(apiError = e.message) } }
+    }
+
+    private suspend fun loadProfile() {
+        userRepository.getProfile()
+            .onSuccess { profile -> _state.update { it.copy(currentUserProfile = profile) } }
+    }
+
+    private suspend fun fetchPeerProfile(peerId: String, username: String) {
+        userRepository.getUserByUsername(username)
+            .onSuccess { profile ->
+                val apiBase = configRepository.config.value.apiBaseUrl
+                val avatarUrl = if (profile.avatarUrl != null) "$apiBase/users/${profile.id}/avatar" else null
+                _state.update { s ->
+                    s.copy(peers = s.peers.map { p ->
+                        if (p.id == peerId) p.copy(userId = profile.id, displayName = profile.displayName, avatarUrl = avatarUrl)
+                        else p
+                    })
+                }
+            }
     }
 }

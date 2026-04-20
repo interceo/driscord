@@ -54,6 +54,12 @@ class AudioServiceImpl : AudioService {
         val next = !NativeDriscord.audioSelfMuted()
         NativeDriscord.audioSetSelfMuted(next)
         _muted.value = next
+        // Unmuting while deafened also undeafens — otherwise you'd have mic on
+        // with no sound, which is rarely what the user wants.
+        if (!next && NativeDriscord.audioDeafened()) {
+            NativeDriscord.audioSetDeafened(false)
+            _deafened.value = false
+        }
     }
 
     override fun toggleDeafen() {
