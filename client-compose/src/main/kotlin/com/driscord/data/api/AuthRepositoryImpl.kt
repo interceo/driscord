@@ -3,15 +3,18 @@ package com.driscord.data.api
 class AuthRepositoryImpl(private val client: ApiClient) : AuthRepository {
 
     private var _username: String? = null
+    private var _userId: Int? = null
     private var refreshToken: String? = null
 
     override val isLoggedIn: Boolean get() = refreshToken != null
     override val currentUsername: String? get() = _username
+    override val currentUserId: Int? get() = _userId
 
     init {
         SessionStore.load()?.let { session ->
             refreshToken = session.refreshToken
             _username = session.username
+            _userId = session.userId
             println("[session] restored for ${session.username}")
         }
     }
@@ -27,7 +30,8 @@ class AuthRepositoryImpl(private val client: ApiClient) : AuthRepository {
             client.accessToken = tokens.accessToken
             refreshToken = tokens.refreshToken
             _username = username
-            SessionStore.save(SessionData(tokens.refreshToken, username))
+            _userId = tokens.userId
+            SessionStore.save(SessionData(tokens.refreshToken, username, tokens.userId))
         }
     }
 
@@ -42,7 +46,8 @@ class AuthRepositoryImpl(private val client: ApiClient) : AuthRepository {
             client.accessToken = tokens.accessToken
             refreshToken = tokens.refreshToken
             _username = username
-            SessionStore.save(SessionData(tokens.refreshToken, username))
+            _userId = tokens.userId
+            SessionStore.save(SessionData(tokens.refreshToken, username, tokens.userId))
         }
     }
 
@@ -57,7 +62,8 @@ class AuthRepositoryImpl(private val client: ApiClient) : AuthRepository {
         return result.map { tokens ->
             client.accessToken = tokens.accessToken
             refreshToken = tokens.refreshToken
-            SessionStore.save(SessionData(tokens.refreshToken, _username ?: ""))
+            _userId = tokens.userId
+            SessionStore.save(SessionData(tokens.refreshToken, _username ?: "", tokens.userId))
         }
     }
 

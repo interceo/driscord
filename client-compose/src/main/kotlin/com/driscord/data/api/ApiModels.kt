@@ -20,6 +20,7 @@ data class RefreshRequest(@SerialName("refresh_token") val refreshToken: String)
 data class TokenResponse(
     @SerialName("access_token") val accessToken: String,
     @SerialName("refresh_token") val refreshToken: String,
+    @SerialName("user_id") val userId: Int,
 )
 
 // ---------------------------------------------------------------------------
@@ -61,7 +62,6 @@ data class CreateChannelRequest(val name: String, val kind: String, val position
 data class UserProfileResponse(
     val id: Int,
     val username: String,
-    val email: String,
     @SerialName("display_name") val displayName: String? = null,
     @SerialName("avatar_url") val avatarUrl: String? = null,
 )

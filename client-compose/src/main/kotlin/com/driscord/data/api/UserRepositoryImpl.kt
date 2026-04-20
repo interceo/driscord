@@ -4,12 +4,12 @@ import com.driscord.domain.model.UserProfile
 
 class UserRepositoryImpl(private val client: ApiClient) : UserRepository {
 
-    override suspend fun getProfile(): Result<UserProfile> =
-        client.get("/users/me", UserProfileResponse.serializer()).map { it.toDomain() }
+    override suspend fun getUserById(id: Int): Result<UserProfile> =
+        client.get("/users/$id", UserProfileResponse.serializer()).map { it.toDomain() }
 
-    override suspend fun updateProfile(displayName: String?): Result<UserProfile> =
+    override suspend fun updateProfile(userId: Int, displayName: String?): Result<UserProfile> =
         client.patch(
-            "/users/me",
+            "/users/$userId",
             UpdateProfileRequest(displayName = displayName),
             UpdateProfileRequest.serializer(),
             UserProfileResponse.serializer(),
@@ -41,7 +41,7 @@ class UserRepositoryImpl(private val client: ApiClient) : UserRepository {
     private fun UserProfileResponse.toDomain() = UserProfile(
         id          = id,
         username    = username,
-        email       = email,
+        email       = null,
         displayName = displayName,
         avatarUrl   = avatarUrl,
     )

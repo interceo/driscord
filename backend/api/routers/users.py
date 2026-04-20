@@ -15,28 +15,9 @@ _EXT_MAP = {"image/jpeg": "jpg", "image/png": "png", "image/gif": "gif", "image/
 _MAX_AVATAR_BYTES = 5 * 1024 * 1024
 
 
-@router.get("/me", response_model=UserResponse)
-async def get_me(current_user: User = Depends(get_current_user)):
-    return current_user
-
-
-@router.patch("/me", response_model=UserResponse)
-async def update_me(
-    body: UserUpdateRequest,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    if body.display_name is not None:
-        current_user.display_name = body.display_name
-    await db.commit()
-    await db.refresh(current_user)
-    return current_user
-
-
 @router.get("/lookup", response_model=UserResponse)
 async def lookup_user(
     username: str,
-    _current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(User).where(User.username == username))
@@ -49,7 +30,6 @@ async def lookup_user(
 @router.get("/{user_id}/avatar")
 async def get_avatar(
     user_id: int,
-    _current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(User).where(User.id == user_id))
@@ -87,10 +67,25 @@ async def upload_avatar(
     return current_user
 
 
+@router.patch("/{user_id}", response_model=UserResponse)
+async def update_user(
+    user_id: int,
+    body: UserUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if current_user.id != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot modify another user's profile")
+    if body.display_name is not None:
+        current_user.display_name = body.display_name
+    await db.commit()
+    await db.refresh(current_user)
+    return current_user
+
+
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user(
     user_id: int,
-    _current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(User).where(User.id == user_id))

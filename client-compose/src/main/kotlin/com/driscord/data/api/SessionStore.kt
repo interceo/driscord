@@ -12,6 +12,7 @@ import java.io.File
 data class SessionData(
     val refreshToken: String,
     val username: String,
+    val userId: Int,
 )
 
 internal object SessionStore {

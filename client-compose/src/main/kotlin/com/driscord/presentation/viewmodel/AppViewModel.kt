@@ -219,7 +219,8 @@ class AppViewModel(
             // ------------------------------------------------------------------
             is AppIntent.UpdateDisplayName -> scope.launch {
                 _state.update { it.copy(profileSaving = true, profileError = null) }
-                userRepository.updateProfile(displayName = intent.name.ifBlank { null })
+                val userId = _state.value.currentUserProfile?.id ?: return@launch
+                userRepository.updateProfile(userId, displayName = intent.name.ifBlank { null })
                     .onSuccess { profile -> _state.update { it.copy(currentUserProfile = profile.copy(avatarUrl = resolveAvatarUrl(profile)), profileSaving = false) } }
                     .onFailure { e -> _state.update { it.copy(profileSaving = false, profileError = e.message) } }
             }
@@ -360,7 +361,8 @@ class AppViewModel(
     }
 
     private suspend fun loadProfile() {
-        userRepository.getProfile()
+        val userId = authRepository.currentUserId ?: return
+        userRepository.getUserById(userId)
             .onSuccess { profile ->
                 _state.update { it.copy(currentUserProfile = profile.copy(avatarUrl = resolveAvatarUrl(profile))) }
             }
