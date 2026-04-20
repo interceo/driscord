@@ -465,6 +465,7 @@ DESKTOP
         "$APPIMAGETOOL_CMD" --version &>/dev/null 2>&1 \
             || APPIMAGETOOL_CMD="appimagetool --appimage-extract-and-run"
 
+        rm -f "$APPIMAGE_DEST"
         ARCH=x86_64 $APPIMAGETOOL_CMD "$APPDIR_TMP" "$APPIMAGE_DEST" 2>&1
         chmod +x "$APPIMAGE_DEST"
         echo ""
