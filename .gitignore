@@ -26,4 +26,3 @@ client-compose/.gradle/
 *.db
 backend/api/.venv/
 
-PLAN.md
