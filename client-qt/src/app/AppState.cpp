@@ -10,6 +10,10 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QDateTime>
+#include <QBuffer>
+#include <QImage>
+#include <QPainter>
+#include <QUrl>
 
 AppState::AppState(AuthManager* auth, ServerRepository* servers, UserRepository* users,
                    DriscordBridge* bridge, const QString& signalingUrl,
@@ -107,16 +111,29 @@ void AppState::connectBridgeSignals() {
         emit peersChanged();
     });
 
-    connect(m_bridge, &DriscordBridge::streamingStarted,      this, &AppState::sharingChanged);
-    connect(m_bridge, &DriscordBridge::streamingStopped,      this, &AppState::sharingChanged);
-    connect(m_bridge, &DriscordBridge::newStreamingPeer,      this, [this](const QString& id) {
-        if (!m_streamingPeers.contains(id)) m_streamingPeers.append(id);
+    auto addStreamingPeer = [this](const QString& id) {
+        if (m_streamingPeers.contains(id)) return;
+        m_streamingPeers.append(id);
         emit streamingPeersChanged();
-    });
-    connect(m_bridge, &DriscordBridge::streamingPeerRemoved,  this, [this](const QString& id) {
-        m_streamingPeers.removeAll(id);
+    };
+    auto removeStreamingPeer = [this](const QString& id) {
+        if (!m_streamingPeers.removeAll(id)) return;
         emit streamingPeersChanged();
-    });
+        if (m_watchedPeerId == id) {
+            m_watchedPeerId.clear();
+            emit watchedPeerChanged();
+        }
+    };
+    // streamingStarted/Stopped come from the signaling server (welcome msg +
+    // streaming_start broadcast) — these fire BEFORE we receive any chunks,
+    // which is what makes a remote peer's stream tile appear at all.
+    connect(m_bridge, &DriscordBridge::streamingStarted,     this, addStreamingPeer);
+    connect(m_bridge, &DriscordBridge::streamingStopped,     this, removeStreamingPeer);
+    // newStreamingPeer/streamingPeerRemoved come from the video transport
+    // (chunk-assembly path) — kept as a fallback in case the signaling
+    // announcement was missed.
+    connect(m_bridge, &DriscordBridge::newStreamingPeer,     this, addStreamingPeer);
+    connect(m_bridge, &DriscordBridge::streamingPeerRemoved, this, removeStreamingPeer);
 }
 
 void AppState::loadInitialData() {
@@ -151,8 +168,9 @@ void AppState::fetchCurrentUserProfile() {
         int uid = json["id"].toInt();
         QString avatarUrl;
         if (!json["avatar_url"].isNull())
-            avatarUrl = QStringLiteral("%1/users/%2/avatar")
-                        .arg(m_apiBaseUrl).arg(uid);
+            avatarUrl = QStringLiteral("%1/users/%2/avatar?t=%3")
+                        .arg(m_apiBaseUrl).arg(uid)
+                        .arg(QDateTime::currentMSecsSinceEpoch());
         p["avatarUrl"] = avatarUrl;
         m_userProfile = p;
         emit userProfileChanged();
@@ -234,8 +252,10 @@ void AppState::leaveVoiceChannel() {
     m_connectionState = QStringLiteral("disconnected");
     m_peers.clear();
     m_streamingPeers.clear();
+    m_watchedPeerId.clear();
     emit peersChanged();
     emit streamingPeersChanged();
+    emit watchedPeerChanged();
     emit connectionChanged();
 }
 
@@ -248,8 +268,20 @@ void AppState::startSharing(const QString& tj, int w, int h, int fps, bool audio
     emit sharingChanged();
 }
 void AppState::stopSharing()             { m_bridge->stopSharing(); emit sharingChanged(); }
-void AppState::joinStream(const QString& id) { m_bridge->joinStream(id); }
-void AppState::leaveStream()             { m_bridge->leaveStream(); }
+void AppState::joinStream(const QString& id) {
+    if (m_watchedPeerId == id) return;
+    if (!m_watchedPeerId.isEmpty()) m_bridge->leaveStream();
+    m_bridge->joinStream(id);
+    m_watchedPeerId = id;
+    emit watchedPeerChanged();
+}
+void AppState::leaveStream() {
+    m_bridge->leaveStream();
+    if (!m_watchedPeerId.isEmpty()) {
+        m_watchedPeerId.clear();
+        emit watchedPeerChanged();
+    }
+}
 
 void AppState::createServer(const QString& name, const QString& desc) {
     m_serverRepo->createServer(name, desc, [this](bool ok, QJsonObject) {
@@ -290,6 +322,33 @@ void AppState::uploadAvatar(const QByteArray& data, const QString& ext) {
     m_userRepo->uploadAvatar(uid, data, ext, [this](bool ok, QJsonObject) {
         if (ok) fetchCurrentUserProfile();
     });
+}
+
+void AppState::uploadAvatarCropped(const QString& imagePath, qreal scale, qreal offsetX, qreal offsetY) {
+    QString localPath = imagePath.startsWith("file://") ? QUrl(imagePath).toLocalFile() : imagePath;
+    QImage src(localPath);
+    if (src.isNull()) return;
+
+    int scaledW = qRound(src.width()  * scale);
+    int scaledH = qRound(src.height() * scale);
+    QImage scaled = src.scaled(scaledW, scaledH, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+
+    constexpr int OUT = 256;
+    int drawX = qRound(offsetX + (OUT - scaledW) / 2.0);
+    int drawY = qRound(offsetY + (OUT - scaledH) / 2.0);
+
+    QImage result(OUT, OUT, QImage::Format_RGB32);
+    result.fill(QColor("#1e1f22"));
+    QPainter p(&result);
+    p.setRenderHint(QPainter::SmoothPixmapTransform);
+    p.drawImage(drawX, drawY, scaled);
+    p.end();
+
+    QByteArray ba;
+    QBuffer buf(&ba);
+    buf.open(QIODevice::WriteOnly);
+    result.save(&buf, "PNG");
+    uploadAvatar(ba, "png");
 }
 
 QString AppState::captureVideoTargetsJson() const {

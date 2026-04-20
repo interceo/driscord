@@ -134,32 +134,6 @@ Dialog {
         }
     }
 
-    // Grab target: clipped to 0×0 to stay invisible, but visible:true so grabToImage works.
-    // grabToImage renders the item independently of parent clipping.
-    Item {
-        width: 0; height: 0
-        clip: true
-
-        Rectangle {
-            id: grabTarget
-            width: 256; height: 256
-            color: "#1e1f22"
-            radius: 128
-            layer.enabled: true
-            clip: true
-
-            Image {
-                source: cropImg.source
-                width: cropImg.width
-                height: cropImg.height
-                x: cropImg.x - (previewArea.width  - grabTarget.width)  / 2
-                y: cropImg.y - (previewArea.height - grabTarget.height) / 2
-                fillMode: Image.Stretch
-                smooth: true
-            }
-        }
-    }
-
     footer: DialogButtonBox {
         background: Rectangle { color: "#313338" }
         Button {
@@ -178,9 +152,6 @@ Dialog {
     }
 
     onAccepted: {
-        grabTarget.grabToImage(function(result) {
-            result.saveToFile("/tmp/driscord_avatar.png")
-            appState.uploadAvatarFromFile("/tmp/driscord_avatar.png")
-        })
+        appState.uploadAvatarCropped(root.imagePath, root.cropScale, root.offsetX, root.offsetY)
     }
 }

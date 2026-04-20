@@ -19,6 +19,16 @@ static DriscordCore* g_core = nullptr;
 DriscordBridge::DriscordBridge(QObject* parent) : QObject(parent) {
     g_core = new DriscordCore();
 
+    // ~60Hz tick — drives ScreenSession::update() which decodes queued chunks
+    // and invokes on_frame_cb_. Started/stopped with the screen session.
+    m_screenTickTimer = new QTimer(this);
+    m_screenTickTimer->setInterval(16);
+    QObject::connect(m_screenTickTimer, &QTimer::timeout, this, [] {
+        if (g_core && g_core->screen_session.has_value()) {
+            g_core->screen_session->update();
+        }
+    });
+
     g_core->transport.on_connected([this]() {
         QMetaObject::invokeMethod(this, [this] { emit wsConnected(); }, Qt::QueuedConnection);
     });
@@ -133,8 +143,14 @@ bool DriscordBridge::peerMuted(const QString& id) const        { return g_core->
 
 // -- Screen / Video --
 
-void DriscordBridge::initScreenSession()   { g_core->init_screen_session(); }
-void DriscordBridge::deinitScreenSession() { g_core->deinit_screen_session(); }
+void DriscordBridge::initScreenSession()   {
+    g_core->init_screen_session();
+    m_screenTickTimer->start();
+}
+void DriscordBridge::deinitScreenSession() {
+    m_screenTickTimer->stop();
+    g_core->deinit_screen_session();
+}
 
 QString DriscordBridge::captureVideoTargetsJson() const {
     return QString::fromStdString(g_core->capture_video_list_targets_json());

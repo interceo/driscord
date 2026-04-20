@@ -37,6 +37,7 @@ class AppState : public QObject {
     // Screen sharing
     Q_PROPERTY(bool sharing READ sharing NOTIFY sharingChanged)
     Q_PROPERTY(QVariantList streamingPeers READ streamingPeers NOTIFY streamingPeersChanged)
+    Q_PROPERTY(QString watchedPeerId READ watchedPeerId NOTIFY watchedPeerChanged)
 
     // Network / call stats (polled while connected)
     Q_PROPERTY(int          avgRttMs    READ avgRttMs    NOTIFY connectionStatsChanged)
@@ -73,6 +74,7 @@ public:
     int          lastRttMs()        const { return m_lastRttMs; }
     QVariantList rttHistory()       const { return m_rttHistory; }
     QString      primaryPeerId()    const { return m_primaryPeerId; }
+    QString      watchedPeerId()    const { return m_watchedPeerId; }
 
     void setApiError(const QString& e);
 
@@ -93,6 +95,7 @@ public:
     Q_INVOKABLE void updateDisplayName(const QString& name);
     Q_INVOKABLE void uploadAvatar(const QByteArray& data, const QString& ext);
     Q_INVOKABLE void uploadAvatarFromFile(const QString& path);
+    Q_INVOKABLE void uploadAvatarCropped(const QString& imagePath, qreal scale, qreal offsetX, qreal offsetY);
     Q_INVOKABLE QString captureVideoTargetsJson() const;
 
     void loadInitialData();
@@ -110,6 +113,7 @@ signals:
     void audioLevelsChanged();
     void sharingChanged();
     void streamingPeersChanged();
+    void watchedPeerChanged();
     void connectionStatsChanged();
 
 private:
@@ -140,6 +144,7 @@ private:
     int     m_avgRttMs   = -1;
     int     m_lastRttMs  = -1;
     QString m_primaryPeerId;
+    QString m_watchedPeerId;
     QVariantList m_rttHistory;       // each entry: {"t": ms, "rtt": int}
     QString m_signalingUrl;
     QString m_apiBaseUrl;
