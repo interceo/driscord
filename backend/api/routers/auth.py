@@ -34,6 +34,7 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     return TokenResponse(
         access_token=create_access_token(user.id),
         refresh_token=create_refresh_token(user.id),
+        user_id=user.id,
     )
 
 
@@ -48,6 +49,7 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     return TokenResponse(
         access_token=create_access_token(user.id),
         refresh_token=create_refresh_token(user.id),
+        user_id=user.id,
     )
 
 
@@ -68,4 +70,5 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     return TokenResponse(
         access_token=create_access_token(user.id),
         refresh_token=create_refresh_token(user.id),
+        user_id=user.id,
     )

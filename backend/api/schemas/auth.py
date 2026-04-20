@@ -15,6 +15,7 @@ class LoginRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
+    user_id: int
     token_type: str = "bearer"
 
 
