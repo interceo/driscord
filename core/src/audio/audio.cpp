@@ -121,6 +121,7 @@ utils::Expected<void, AudioError> AudioSender::start(PacketCallback on_packet,
     capture_pos_ = 0;
     send_seq_ = 0;
     encoder_ = std::move(enc);
+    encoder_->set_packet_loss_pct(expected_loss_pct_.load(std::memory_order_relaxed));
     device_ = std::move(dev);
     running_ = true;
 
@@ -152,6 +153,41 @@ void AudioSender::stop()
         .reset(); // MaDevice destructor calls ma_device_stop + ma_device_uninit
     encoder_.reset();
     LOG_INFO() << "AudioSender: stopped";
+}
+
+void AudioSender::set_noise_suppression_enabled(bool on)
+{
+    ns_enabled_.store(on, std::memory_order_relaxed);
+    LOG_INFO() << "AudioSender: noise suppression " << (on ? "on" : "off")
+               << " (RNNoise pending)";
+}
+
+void AudioSender::set_vad_enabled(bool on)
+{
+    vad_enabled_.store(on, std::memory_order_relaxed);
+    LOG_INFO() << "AudioSender: VAD " << (on ? "on" : "off") << " (gate pending)";
+}
+
+void AudioSender::set_vad_thresholds(float open, float close)
+{
+    open = std::clamp(open, 0.0f, 1.0f);
+    close = std::clamp(close, 0.0f, open);
+    vad_open_.store(open, std::memory_order_relaxed);
+    vad_close_.store(close, std::memory_order_relaxed);
+}
+
+void AudioSender::set_vad_hangover_ms(int ms)
+{
+    vad_hangover_ms_.store(std::max(0, ms), std::memory_order_relaxed);
+}
+
+void AudioSender::set_expected_loss_pct(int pct)
+{
+    pct = std::clamp(pct, 0, 30);
+    expected_loss_pct_.store(pct, std::memory_order_relaxed);
+    if (encoder_) {
+        encoder_->set_packet_loss_pct(pct);
+    }
 }
 
 void AudioSender::on_capture(const float* input, uint32_t frames)

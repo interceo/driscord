@@ -51,6 +51,23 @@ public:
     void set_noise_gate(float threshold) { noise_gate_ = threshold; }
     float noise_gate() const noexcept { return noise_gate_; }
 
+    // Stubs for upcoming DSP features (RNNoise, VAD-gate). They store state
+    // so the UI can persist user intent today; activation logic lands with
+    // the dedicated implementation PRs.
+    void set_noise_suppression_enabled(bool on);
+    bool noise_suppression_enabled() const noexcept { return ns_enabled_; }
+    void set_vad_enabled(bool on);
+    bool vad_enabled() const noexcept { return vad_enabled_; }
+    void set_vad_thresholds(float open, float close);
+    float vad_open_threshold() const noexcept { return vad_open_; }
+    float vad_close_threshold() const noexcept { return vad_close_; }
+    void set_vad_hangover_ms(int ms);
+    int vad_hangover_ms() const noexcept { return vad_hangover_ms_; }
+
+    // Live-tunable Opus in-band FEC redundancy. Values clamped to [0, 30].
+    void set_expected_loss_pct(int pct);
+    int expected_loss_pct() const noexcept { return expected_loss_pct_; }
+
     float input_level() const noexcept { return input_level_; }
 
 private:
@@ -60,6 +77,13 @@ private:
     std::atomic<bool> muted_ { false };
     std::atomic<float> noise_gate_ { 0.0f };
     std::atomic<float> input_level_ { 0.0f };
+
+    std::atomic<bool> ns_enabled_ { false };
+    std::atomic<bool> vad_enabled_ { false };
+    std::atomic<float> vad_open_ { 0.6f };
+    std::atomic<float> vad_close_ { 0.3f };
+    std::atomic<int> vad_hangover_ms_ { 200 };
+    std::atomic<int> expected_loss_pct_ { 10 };
 
     std::string device_id_; // empty = default device
     int bitrate_bps_ = 64000;

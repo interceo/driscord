@@ -12,6 +12,7 @@ set(CLIENT_SOURCES
     src/api/ApiClient.cpp
     src/api/AuthManager.cpp
     src/api/SessionStore.cpp
+    src/api/AudioSettingsStore.cpp
     src/api/ServerRepository.cpp
     src/api/UserRepository.cpp
 )
