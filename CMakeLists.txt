@@ -57,11 +57,6 @@ if(BUILD_BENCHMARKS)
     add_subdirectory(core/benchmarks)
 endif()
 
-option(BUILD_LAUNCHER "Build the Windows EXE launcher" OFF)
-if(BUILD_LAUNCHER)
-    add_subdirectory(launcher)
-endif()
-
 option(BUILD_QT_CLIENT "Build the Qt/QML client" OFF)
 if(BUILD_QT_CLIENT)
     add_subdirectory(client-qt)

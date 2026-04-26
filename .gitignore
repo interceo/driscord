@@ -18,8 +18,6 @@ compile_commands.json
 .idea/
 .venv/
 third_party/windows/
-client-compose/.kotlin/
-client-compose/.gradle/
 
 *.log
 .env

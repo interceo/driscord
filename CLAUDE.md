@@ -5,15 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Run
 
 ```bash
-# Build Compose client (release, default)
+# Build Qt client (release, default)
 ./scripts/build.sh
-
-# Build Compose client (debug)
 ./scripts/build.sh --debug
-
-# Build Qt client
-./scripts/build.sh --qt
-./scripts/build.sh --qt --debug
 
 # Build signaling server
 ./scripts/build.sh --server
@@ -22,26 +16,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Build API (create venv + install deps)
 ./scripts/build.sh --api
 
-# Cross-compile Windows client
-./scripts/build.sh --windows
-
-# Package distributables
-./scripts/build.sh --package           # Linux AppImage
-./scripts/build.sh --windows --package # Windows portable zip (JRE + EXE + JAR)
-
 # Tests & benchmarks (target + action are independent axes)
-./scripts/build.sh --test             # test core (client)
-./scripts/build.sh --bench            # bench core (client)
+./scripts/build.sh --test             # test core
+./scripts/build.sh --bench            # bench core
 ./scripts/build.sh --server --test    # test server
 ./scripts/build.sh --api --test       # test API (pytest)
-
-# Run Compose client
-./scripts/run.sh
-./scripts/run.sh --debug
+./scripts/build.sh --windows --test   # core tests on Windows under Wine (MinGW)
 
 # Run Qt client
-./scripts/run.sh --qt
-./scripts/run.sh --qt --debug
+./scripts/run.sh
+./scripts/run.sh --debug
 
 # Run signaling server
 ./scripts/run.sh --server
@@ -50,13 +34,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Run API server
 ./scripts/run.sh --api
 
-# Debug with GDB (Compose client only)
+# Debug Qt client with GDB
 ./scripts/run.sh --gdb
 ```
 
 Build outputs:
-- `.builds/client/linux/{release,debug}/` — driscord.jar + libcore.so (or AppImage after `--package`)
-- `.builds/client/windows/release/` — driscord.jar + core.dll (+ driscord.exe/JRE after `--package`)
 - `.builds/cmake/qt-{release,debug}/client-qt/driscord_client` — Qt client binary
 - `.builds/server/{release,debug}/` — driscord_server
 
@@ -68,7 +50,7 @@ API config is loaded from `backend/api/.env` (see `.env.example` for template).
 
 ## Architecture
 
-Driscord is a WebRTC-based P2P voice and screen-sharing app (Discord-like) with four layers:
+Driscord is a WebRTC-based P2P voice and screen-sharing app (Discord-like) with three backend/library layers plus a Qt client:
 
 ### 1. Signaling Server (`backend/signaling_server/`)
 Boost.Beast WebSocket relay — purely a message router for SDP/ICE negotiation. It never touches audio/video data. All real-time media flows P2P directly between clients.
@@ -85,10 +67,8 @@ The core has two parallel transport systems:
 
 **Transport layer** (`transport.cpp`): manages the WebSocket signaling connection and all WebRTC peer connections. Each peer gets multiple DataChannels (audio, video, control, optionally system audio).
 
-### 4. UI Clients
-Two parallel clients share the same `driscord_core`:
-- **Compose**: `client-compose/` — Kotlin + Compose Desktop (JVM). Calls into `driscord_core` through JNI (`core/jni/`) — shipped as `libcore.so` / `core.dll`. Produces a fat JAR wrapped in an AppImage (Linux) or portable zip with bundled JRE (Windows).
-- **Qt**: `client-qt/` — Qt6 / QML. Links `driscord_core` directly as a C++ library (no JNI). Enabled via `-DBUILD_QT_CLIENT=ON`; requires `Qt6::{Quick,Network,Widgets,QuickDialogs2}`. C++↔QML bridging lives in `client-qt/src/app/DriscordBridge.*`.
+### 4. UI Client (`client-qt/`)
+Qt6 / QML application. Links `driscord_core` directly as a C++ library. Enabled via `-DBUILD_QT_CLIENT=ON`; requires `Qt6::{Quick,Network,Widgets,QuickDialogs2}`. C++↔QML bridging lives in `client-qt/src/app/DriscordBridge.*`.
 
 ### Wire Protocol (`core/src/utils/protocol.hpp`)
 Custom binary headers prepended to all media packets:
