@@ -16,6 +16,4 @@ jobs:
         run: pip install clang-format
 
       - name: Check formatting
-        run: |
-          find core/ backend/signaling_server/ \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' \) \
-            | xargs clang-format --dry-run --Werror
+        run: ./scripts/format.sh --check

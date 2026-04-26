@@ -102,7 +102,6 @@ mic samples → AEC (если enabled) → RNNoise (если enabled) → VAD ga
 - `core/src/audio/rnnoise_denoiser.{hpp,cpp}` — **новый**.
 - `core/src/audio/echo_canceller.{hpp,cpp}` — **новый**.
 - `core/src/audio/vad_gate.{hpp,cpp}` — **новый** (state-machine, использует VAD prob).
-- `core/jni/driscord_jni_audio.cpp` — JNI-обёртки для новых toggle'ов.
 - `client-qt/src/app/DriscordBridge.{h,cpp}` — Q_INVOKABLE для NS/VAD/AEC.
 
 ## Что переиспользуем (не изобретаем заново)
@@ -145,7 +144,7 @@ mic samples → AEC (если enabled) → RNNoise (если enabled) → VAD ga
 3. VadGate + замена статического noise_gate (A3).
 4. Opus FEC флаги (A4) — самый короткий.
 5. EchoCanceller + reference-буфер в AudioMixer (A2).
-6. Проброс всех toggle'ов в JNI и Qt bridge (выравнивание integrations).
+6. Проброс всех toggle'ов в Qt bridge.
 7. Тесты и интеграционная валидация.
 
 Каждый шаг — отдельный коммит, чтобы легко откатить при регрессии.

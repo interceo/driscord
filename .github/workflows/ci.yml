@@ -114,7 +114,7 @@ jobs:
           path: .builds/server/release/driscord_server
 
   build-client:
-    name: Build / Client (Linux)
+    name: Build / Qt Client (Linux)
     runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
@@ -129,7 +129,16 @@ jobs:
             libswscale-dev libswresample-dev libavutil-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
             libwayland-dev libxkbcommon-dev \
-            libpulse-dev
+            libpulse-dev \
+            libgl1-mesa-dev libegl1-mesa-dev
+
+      # Ubuntu's apt qt6-base-dev is 6.4.2; client-qt requires 6.5+ (uses
+      # QQmlApplicationEngine::loadFromModule). Pull a newer Qt from upstream.
+      - name: Install Qt 6.7
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.3'
+          cache: true
 
       - name: Cache Boost headers
         id: cache-boost
@@ -152,33 +161,21 @@ jobs:
       - name: Set BOOST_ROOT
         run: echo "BOOST_ROOT=$HOME/boost-cache" >> $GITHUB_ENV
 
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Cache Gradle home
-        uses: actions/cache@v4
-        with:
-          path: .builds/gradle-home
-          key: gradle-${{ runner.os }}-${{ hashFiles('client-compose/build.gradle*', 'client-compose/gradle/wrapper/gradle-wrapper.properties') }}
-          restore-keys: gradle-${{ runner.os }}-
-
       - name: Cache CMake FetchContent dependencies
         uses: actions/cache@v4
         with:
-          path: .builds/cmake/linux-release/_deps
-          key: cmake-deps-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt') }}
-          restore-keys: cmake-deps-${{ runner.os }}-
+          path: .builds/cmake/qt-release/_deps
+          key: cmake-deps-qt-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt') }}
+          restore-keys: cmake-deps-qt-${{ runner.os }}-
 
-      - name: Build client (JNI + fatJar)
-        run: ./scripts/build.sh
+      - name: Build Qt client
+        run: ./scripts/build.sh --qt
 
-      - name: Upload artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: driscord-client-linux
-          path: .builds/client/linux/release/
+          path: .builds/cmake/qt-release/client-qt/driscord_client
 
   build-api:
     name: Build / API
@@ -196,7 +193,7 @@ jobs:
         run: ./scripts/build.sh --api
 
   build-windows-cross:
-    name: Build / Windows DLL (cross-compile)
+    name: Build / Windows core tests (cross-compile)
     runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
@@ -207,12 +204,12 @@ jobs:
           sudo apt-get install -y \
             cmake ninja-build \
             libssl-dev \
-            libavcodec-dev libavformat-dev libavdevice-dev \
-            libswscale-dev libswresample-dev libavutil-dev \
-            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
-            libwayland-dev libxkbcommon-dev \
-            libpulse-dev \
             mingw-w64 gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+          # Select POSIX threading variant (required for std::thread / std::mutex)
+          sudo update-alternatives --set x86_64-w64-mingw32-gcc \
+            /usr/bin/x86_64-w64-mingw32-gcc-posix
+          sudo update-alternatives --set x86_64-w64-mingw32-g++ \
+            /usr/bin/x86_64-w64-mingw32-g++-posix
 
       - name: Cache Boost headers
         id: cache-boost
@@ -235,17 +232,12 @@ jobs:
       - name: Set BOOST_ROOT
         run: echo "BOOST_ROOT=$HOME/boost-cache" >> $GITHUB_ENV
 
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-
       - name: Cache CMake FetchContent dependencies
         uses: actions/cache@v4
         with:
-          path: .builds/cmake/linux-release/_deps
-          key: cmake-deps-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt') }}
-          restore-keys: cmake-deps-${{ runner.os }}-
+          path: .builds/cmake/windows-test/_deps
+          key: cmake-deps-windows-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt') }}
+          restore-keys: cmake-deps-windows-${{ runner.os }}-
 
       - name: Cache Windows third-party prebuilts (FFmpeg + OpenSSL)
         id: cache-win-deps
@@ -258,12 +250,5 @@ jobs:
         if: steps.cache-win-deps.outputs.cache-hit != 'true'
         run: ./third_party/fetch_win_deps.sh
 
-      - name: Build client with Windows cross-compile
-        run: ./scripts/build.sh --windows
-
-      - name: Upload Windows DLL artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: driscord-windows-dll
-          path: .builds/client/windows/release/
-          if-no-files-found: warn
+      - name: Build core tests for Windows (no Wine on CI — build only)
+        run: ./scripts/build.sh --windows --test

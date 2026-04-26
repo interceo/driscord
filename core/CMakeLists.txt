@@ -5,9 +5,6 @@ project(driscord_core LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Required so that driscord_core's objects can be linked into driscord_core_jni (.so)
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-
 include(FetchContent)
 
 # --- GLFW ---
@@ -68,10 +65,6 @@ if(CMAKE_CROSSCOMPILING AND WIN32)
     if(EXISTS "${_WIN_FFMPEG}/include" AND EXISTS "${_WIN_FFMPEG}/lib")
         set(_FF_INC "${_WIN_FFMPEG}/include")
         set(_FF_LIB "${_WIN_FFMPEG}/lib")
-        # Link against BtbN's shared (.dll.a) import libs. The FFmpeg DLLs
-        # (avcodec-*.dll, avformat-*.dll, etc.) must be shipped next to
-        # core.dll at runtime — build.sh copies them into the native staging
-        # dir, Gradle embeds them into the JAR, NativeLoader extracts them.
         add_library(PkgConfig::FFMPEG INTERFACE IMPORTED)
         set_target_properties(PkgConfig::FFMPEG PROPERTIES
             INTERFACE_INCLUDE_DIRECTORIES "${_FF_INC}"
@@ -157,8 +150,6 @@ add_library(driscord_core STATIC
     ${SYSTEM_AUDIO_SOURCES}
 )
 
-set_target_properties(driscord_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
-
 target_include_directories(driscord_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/audio
@@ -172,7 +163,7 @@ target_link_libraries(driscord_core PRIVATE
     PkgConfig::FFMPEG
 )
 # PUBLIC: these headers are included by driscord_core's public .hpp files,
-# so consumers (driscord_core_jni) need their include paths too.
+# so consumers need their include paths too.
 #   config.hpp       → fmt/compile.h, fmt/format.h
 #   transport.hpp    → rtc/rtc.hpp, nlohmann/json.hpp
 target_link_libraries(driscord_core PUBLIC
@@ -229,108 +220,4 @@ if(MSVC)
     )
 else()
     target_compile_options(driscord_core PRIVATE -Wall -Wextra -Wpedantic)
-endif()
-
-# ---------------------------------------------------------------------------
-# driscord_core_jni — shared library loaded by the Kotlin/Compose Desktop client
-# ---------------------------------------------------------------------------
-# When cross-compiling to Windows via MinGW, find_package(JNI) fails because
-# the toolchain restricts header search to CMAKE_FIND_ROOT_PATH and the host
-# Linux JDK isn't in there. Resolve JNI manually: use the host JDK's jni.h
-# (platform-agnostic) together with our vendored win32/jni_md.h.
-if(CMAKE_CROSSCOMPILING AND WIN32)
-    set(_HOST_JDK "$ENV{JAVA_HOME}")
-    if(NOT _HOST_JDK OR NOT EXISTS "${_HOST_JDK}/include/jni.h")
-        # Fallback: derive from `which java` like build.sh does.
-        find_program(_HOST_JAVA java)
-        if(_HOST_JAVA)
-            get_filename_component(_HOST_JAVA_REAL "${_HOST_JAVA}" REALPATH)
-            get_filename_component(_HOST_JDK "${_HOST_JAVA_REAL}" DIRECTORY)
-            get_filename_component(_HOST_JDK "${_HOST_JDK}" DIRECTORY)
-        endif()
-    endif()
-    if(EXISTS "${_HOST_JDK}/include/jni.h")
-        set(JNI_INCLUDE_DIRS
-            "${_HOST_JDK}/include"
-            "${CMAKE_SOURCE_DIR}/cmake/jni-win32"
-        )
-        # No JNI_LIBRARIES on Windows: JNI symbols resolve at load time
-        # against the JVM that dlopen's the DLL.
-        set(JNI_LIBRARIES "")
-        set(JNI_FOUND TRUE)
-        message(STATUS "JNI (Windows cross): host JDK ${_HOST_JDK} + vendored jni_md.h")
-    else()
-        message(WARNING "JNI (Windows cross): host JDK not found — core.dll will not be built")
-    endif()
-else()
-    find_package(JNI QUIET)
-endif()
-if(JNI_FOUND)
-    add_library(driscord_core_jni SHARED
-        jni/driscord_state.cpp
-        jni/driscord_jni_transport.cpp
-        jni/driscord_jni_audio.cpp
-        jni/driscord_jni_video.cpp
-        jni/driscord_jni_capture.cpp
-        jni/driscord_jni_screen.cpp
-    )
-
-    set_target_properties(driscord_core_jni PROPERTIES OUTPUT_NAME "core")
-
-    target_include_directories(driscord_core_jni PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/jni
-        ${CMAKE_CURRENT_SOURCE_DIR}/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/audio
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/video
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/utils
-        ${JNI_INCLUDE_DIRS}
-    )
-
-    target_link_libraries(driscord_core_jni PRIVATE driscord_core ${JNI_LIBRARIES})
-
-    # Transitive deps driscord_core was built with
-    target_link_libraries(driscord_core_jni PRIVATE
-        datachannel-static
-        Opus::opus
-        nlohmann_json::nlohmann_json
-        miniaudio_lib
-        PkgConfig::FFMPEG
-        fmt::fmt
-    )
-
-    if(APPLE)
-        target_link_libraries(driscord_core_jni PRIVATE
-            ${AUDIOTOOLBOX_FRAMEWORK}
-            ${COREAUDIO_FRAMEWORK}
-            ${COREFOUNDATION_FRAMEWORK}
-            ${COREGRAPHICS_FRAMEWORK}
-            ${COREMEDIA_FRAMEWORK}
-        )
-        if(SCREENCAPTUREKIT_FRAMEWORK)
-            target_link_libraries(driscord_core_jni PRIVATE ${SCREENCAPTUREKIT_FRAMEWORK})
-        endif()
-    elseif(WIN32)
-        target_link_libraries(driscord_core_jni PRIVATE
-            d3d11 dxgi gdi32 mfuuid mfplat mf strmiids
-            ole32 wmcodecdspuuid ksuser mmdevapi
-            ws2_32 bcrypt secur32
-        )
-    elseif(UNIX)
-        target_link_libraries(driscord_core_jni PRIVATE X11::X11 X11::Xrandr)
-        if(PULSE_SIMPLE AND PULSE)
-            target_link_libraries(driscord_core_jni PRIVATE ${PULSE_SIMPLE} ${PULSE})
-        endif()
-    endif()
-
-    if(MSVC)
-        target_compile_options(driscord_core_jni PRIVATE /W4)
-        target_compile_definitions(driscord_core_jni PRIVATE
-            _WIN32_WINNT=0x0A00 _CRT_SECURE_NO_WARNINGS NOMINMAX)
-    else()
-        target_compile_options(driscord_core_jni PRIVATE -Wall -Wextra -Wpedantic)
-    endif()
-
-    message(STATUS "driscord_core_jni target configured (JNI found at ${JNI_INCLUDE_DIRS})")
-else()
-    message(STATUS "JNI not found — skipping driscord_core_jni shared library")
 endif()
