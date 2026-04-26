@@ -6,13 +6,32 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import settings
 from dependencies import get_current_user, get_db
 from models.user import User
-from schemas.user import UserResponse, UserUpdateRequest
+from schemas.user import MeResponse, UserResponse, UserUpdateRequest
 
 router = APIRouter(prefix="/users", tags=["users"])
 
 _ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 _EXT_MAP = {"image/jpeg": "jpg", "image/png": "png", "image/gif": "gif", "image/webp": "webp"}
 _MAX_AVATAR_BYTES = 5 * 1024 * 1024
+
+
+# Must be declared before /{user_id} so FastAPI doesn't route "me" as an id.
+@router.get("/me", response_model=MeResponse)
+async def get_me(current_user: User = Depends(get_current_user)):
+    return current_user
+
+
+@router.patch("/me", response_model=MeResponse)
+async def update_me(
+    body: UserUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if body.display_name is not None:
+        current_user.display_name = body.display_name
+    await db.commit()
+    await db.refresh(current_user)
+    return current_user
 
 
 @router.get("/lookup", response_model=UserResponse)

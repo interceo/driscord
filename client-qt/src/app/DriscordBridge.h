@@ -4,6 +4,7 @@
 #include <QStringList>
 #include <QTimer>
 #include "FrameProvider.h"
+#include "ThumbnailProvider.h"
 
 // Wraps DriscordCore — all methods callable from QML via Q_INVOKABLE.
 // Callbacks from the core are forwarded to the main thread via QMetaObject::invokeMethod.
@@ -14,6 +15,7 @@ public:
     ~DriscordBridge();
 
     void setFrameProvider(FrameProvider* fp);
+    void setThumbnailProvider(ThumbnailProvider* tp);
 
     // Transport
     Q_INVOKABLE void addTurnServer(const QString& url, const QString& user, const QString& pass);
@@ -50,6 +52,7 @@ public:
     Q_INVOKABLE void deinitScreenSession();
     Q_INVOKABLE QString captureVideoTargetsJson() const;
     Q_INVOKABLE QString captureAudioTargetsJson() const;
+    Q_INVOKABLE QString grabThumbnail(const QString& targetJson, int maxW, int maxH);
     Q_INVOKABLE void startSharing(const QString& targetJson, int maxW, int maxH, int fps, bool audio);
     Q_INVOKABLE void stopSharing();
     Q_INVOKABLE bool sharing() const;
@@ -75,7 +78,8 @@ signals:
     void frameUpdated(const QString& peerId);
 
 private:
-    FrameProvider* m_frameProvider = nullptr;
+    FrameProvider*     m_frameProvider     = nullptr;
+    ThumbnailProvider* m_thumbnailProvider = nullptr;
     // Drives ScreenSession::update() at ~60Hz so decoded video frames are
     // delivered to on_frame_cb_. Without this tick, the receiver decodes
     // chunks but never hands frames to the UI.

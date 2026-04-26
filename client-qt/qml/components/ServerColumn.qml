@@ -37,9 +37,11 @@ Rectangle {
             width: 48; height: 48; radius: 24
             color: addArea.containsMouse ? "#3ba55c" : "#313338"
             Behavior on color { ColorAnimation { duration: 120 } }
-            Text {
-                anchors.centerIn: parent; text: "+"; color: addArea.containsMouse ? "white" : "#3ba55c"
-                font.pixelSize: 24
+            IconBox {
+                anchors.centerIn: parent
+                source: "qrc:/icons/plus.svg"
+                color: addArea.containsMouse ? "white" : "#3ba55c"
+                size: 22
             }
             MouseArea {
                 id: addArea; anchors.fill: parent; hoverEnabled: true

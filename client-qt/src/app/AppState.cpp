@@ -68,10 +68,11 @@ void AppState::connectBridgeSignals() {
     });
 
     connect(m_bridge, &DriscordBridge::peerJoined, this, [this](const QString& id) {
-        QVariantMap peer{{"id", id}, {"username", ""}, {"avatarUrl", ""}};
+        QVariantMap peer{
+            {"id", id}, {"username", ""}, {"displayName", ""}, {"avatarUrl", ""}
+        };
         m_peers.append(peer);
         emit peersChanged();
-        m_bridge->audioStart();
     });
     connect(m_bridge, &DriscordBridge::peerLeft, this, [this](const QString& id) {
         m_peers.removeIf([&id](const QVariant& v) {
@@ -86,7 +87,7 @@ void AppState::connectBridgeSignals() {
             if (m.value("id") == id) {
                 m["username"] = username;
                 v = m;
-                // Fetch avatar
+                // Fetch avatar + display name
                 m_userRepo->getUserByUsername(username, [this, id](bool ok, QJsonObject json) {
                     if (!ok) return;
                     int uid = json["id"].toInt();
@@ -94,11 +95,15 @@ void AppState::connectBridgeSignals() {
                     if (!json["avatar_url"].isNull())
                         avatarUrl = m_apiBaseUrl
                                     + QStringLiteral("/users/%1/avatar").arg(uid);
+                    QString displayName = json["display_name"].toString();
+                    if (displayName.isEmpty())
+                        displayName = json["username"].toString();
                     for (auto& pv : m_peers) {
                         auto pm = pv.toMap();
                         if (pm.value("id") == id) {
-                            pm["userId"]    = uid;
-                            pm["avatarUrl"] = avatarUrl;
+                            pm["userId"]      = uid;
+                            pm["avatarUrl"]   = avatarUrl;
+                            pm["displayName"] = displayName;
                             pv = pm;
                             break;
                         }
@@ -156,15 +161,16 @@ void AppState::loadInitialData() {
 }
 
 void AppState::fetchCurrentUserProfile() {
-    int uid = m_auth->userId();
-    if (uid <= 0) return;
-    m_userRepo->getUserById(uid, [this](bool ok, QJsonObject json) {
+    if (m_auth->userId() <= 0) return;
+    // Use /users/me so we get private fields (email) — /users/{id} omits them.
+    m_userRepo->getMe([this](bool ok, QJsonObject json) {
         if (!ok) return;
         QVariantMap p;
         p["id"]          = json["id"].toInt();
         p["username"]    = json["username"].toString();
         QString dn = json["display_name"].toString();
         p["displayName"] = dn.isEmpty() ? json["username"].toString() : dn;
+        p["email"]       = json["email"].toString();
         int uid = json["id"].toInt();
         QString avatarUrl;
         if (!json["avatar_url"].isNull())

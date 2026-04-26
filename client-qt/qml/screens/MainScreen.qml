@@ -29,7 +29,6 @@ Item {
         ContentPanel {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            onShareRequested: shareDialog.open()
         }
     }
 

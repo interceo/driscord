@@ -7,6 +7,7 @@ set(CLIENT_SOURCES
     src/main.cpp
     src/app/AppState.cpp
     src/app/AppConfig.cpp
+    src/app/AvatarTintProvider.cpp
     src/app/DriscordBridge.cpp
     src/api/ApiClient.cpp
     src/api/AuthManager.cpp
@@ -28,6 +29,8 @@ qt_add_qml_module(driscord_client
         qml/components/Sidebar.qml
         qml/components/ContentPanel.qml
         qml/components/AvatarBox.qml
+        qml/components/IconBox.qml
+        qml/components/IconButton.qml
         qml/components/VideoTile.qml
         qml/dialogs/SettingsDialog.qml
         qml/dialogs/ShareDialog.qml
@@ -39,6 +42,25 @@ qt_add_qml_module(driscord_client
     SOURCES
         src/app/FrameProvider.h
         src/app/FrameProvider.cpp
+        src/app/ThumbnailProvider.h
+        src/app/ThumbnailProvider.cpp
+)
+
+qt_add_resources(driscord_client "icons"
+    PREFIX "/icons"
+    BASE resources/icons
+    FILES
+        resources/icons/volume.svg
+        resources/icons/signal.svg
+        resources/icons/mic.svg
+        resources/icons/mic-off.svg
+        resources/icons/headphones.svg
+        resources/icons/headphones-off.svg
+        resources/icons/monitor.svg
+        resources/icons/monitor-off.svg
+        resources/icons/settings.svg
+        resources/icons/x.svg
+        resources/icons/plus.svg
 )
 
 target_include_directories(driscord_client PRIVATE src)

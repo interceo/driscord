@@ -12,6 +12,13 @@ void UserRepository::getUserById(int id, std::function<void(bool, QJsonObject)> 
         });
 }
 
+void UserRepository::getMe(std::function<void(bool, QJsonObject)> cb) {
+    m_api->get(QStringLiteral("/users/me"),
+        [cb](QNetworkReply::NetworkError err, QJsonObject json) {
+            cb(err == QNetworkReply::NoError, json);
+        });
+}
+
 void UserRepository::updateProfile(int userId, const QString& displayName,
                                     std::function<void(bool, QJsonObject)> cb) {
     QJsonObject body{{"display_name", displayName}};

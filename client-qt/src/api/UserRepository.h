@@ -10,6 +10,7 @@ public:
     explicit UserRepository(ApiClient* api, QObject* parent = nullptr);
 
     void getUserById(int id, std::function<void(bool, QJsonObject)> cb);
+    void getMe(std::function<void(bool, QJsonObject)> cb);
     void updateProfile(int userId, const QString& displayName,
                        std::function<void(bool, QJsonObject)> cb);
     void uploadAvatar(int userId, const QByteArray& data, const QString& ext,

@@ -60,6 +60,19 @@ DriscordCore::DriscordCore()
     });
 }
 
+DriscordCore::~DriscordCore()
+{
+    // Tear down peer connections and data channels while audio_transport
+    // and video_transport are still alive. AudioTransport/VideoTransport
+    // registered on_data/on_close lambdas that capture `this`; those lambdas
+    // are stored inside Transport's per-peer data-channel handlers. Letting
+    // the default member-destruction order run would trigger
+    // Transport::disconnect() from ~Transport AFTER ~VideoTransport /
+    // ~AudioTransport, firing those callbacks on freed objects.
+    screen_session.reset();
+    transport.disconnect();
+}
+
 // ---------------------------------------------------------------------------
 // Callback setters
 // ---------------------------------------------------------------------------

@@ -8,12 +8,6 @@ Transport::Transport()
 {
     rtc_config_.iceServers.push_back(
         rtc::IceServer("stun:stun.l.google.com:19302"));
-    rtc_config_.iceServers.push_back(
-        rtc::IceServer("stun:stun1.l.google.com:19302"));
-    rtc_config_.iceServers.push_back(
-        rtc::IceServer("stun:stun2.l.google.com:19302"));
-    rtc_config_.iceServers.push_back(
-        rtc::IceServer("stun:stun.cloudflare.com:3478"));
     // Each video frame is chunked to 60 KB at the application level
     // (VideoTransport), so SCTP never sees messages larger than ~61 KB. 128 KB
     // gives enough headroom.

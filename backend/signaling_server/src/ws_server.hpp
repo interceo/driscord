@@ -53,6 +53,10 @@ public:
     void remove_streaming_peer(const std::string& id,
         const std::string& room_id);
 
+    // Snapshot of all rooms and their sessions for the /presence HTTP endpoint.
+    // Returns a JSON string: { "<room_id>": [ { "id": "...", "username": "..." }, ... ], ... }
+    std::string presence_json() const;
+
 private:
     void do_accept();
 

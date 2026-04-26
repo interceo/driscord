@@ -69,9 +69,17 @@ Rectangle {
                             Layout.preferredHeight: 32
                             radius: 4
                             color: appState.selectedChannelId === channel.id ? "#3c3f45" : "transparent"
-                            Text {
-                                anchors { left: parent.left; verticalCenter: parent.verticalCenter; leftMargin: 16 }
-                                text: "🔊 " + channel.name; color: "#dcddde"; font.pixelSize: 14
+                            RowLayout {
+                                anchors {
+                                    left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter
+                                    leftMargin: 16; rightMargin: 8
+                                }
+                                spacing: 6
+                                IconBox { source: "qrc:/icons/volume.svg"; size: 16; color: "#b9bbbe" }
+                                Text {
+                                    text: channel.name; color: "#dcddde"; font.pixelSize: 14
+                                    Layout.fillWidth: true; elide: Text.ElideRight
+                                }
                             }
                             MouseArea {
                                 anchors.fill: parent; cursorShape: Qt.PointingHandCursor
@@ -97,13 +105,13 @@ Rectangle {
                                 color: "#dcddde"; font.pixelSize: 13
                                 Layout.fillWidth: true; elide: Text.ElideRight
                             }
-                            Text {
+                            IconBox {
                                 visible: appState.muted
-                                text: "M"; color: "#ed4245"; font { pixelSize: 10; bold: true }
+                                source: "qrc:/icons/mic-off.svg"; color: "#ed4245"; size: 14
                             }
-                            Text {
+                            IconBox {
                                 visible: appState.deafened
-                                text: "H"; color: "#ed4245"; font { pixelSize: 10; bold: true }
+                                source: "qrc:/icons/headphones-off.svg"; color: "#ed4245"; size: 14
                             }
                         }
 
@@ -111,18 +119,21 @@ Rectangle {
                         Repeater {
                             model: isJoined ? appState.peers : []
                             delegate: RowLayout {
+                                readonly property string label:
+                                    (modelData.displayName && modelData.displayName.length > 0)
+                                        ? modelData.displayName
+                                        : (modelData.username && modelData.username.length > 0
+                                           ? modelData.username : modelData.id)
                                 Layout.fillWidth: true
                                 Layout.leftMargin: 28
                                 spacing: 6
                                 AvatarBox {
                                     size: 18
-                                    displayName: modelData.username
+                                    displayName: label
                                     avatarUrl: modelData.avatarUrl ?? ""
                                 }
                                 Text {
-                                    text: modelData.username && modelData.username.length > 0
-                                          ? modelData.username
-                                          : modelData.id
+                                    text: label
                                     color: "#dcddde"; font.pixelSize: 13
                                     Layout.fillWidth: true; elide: Text.ElideRight
                                 }
@@ -168,11 +179,11 @@ Rectangle {
                         running: voiceStatusBanner.isConnecting
                         visible: running
                     }
-                    Text {
+                    IconBox {
                         anchors.centerIn: parent
-                        text: "📶"
+                        source: "qrc:/icons/signal.svg"
                         color: voiceStatusBanner.statusColor
-                        font.pixelSize: 16
+                        size: 18
                         visible: !voiceStatusBanner.isConnecting
                     }
                     MouseArea {
@@ -212,8 +223,9 @@ Rectangle {
                     }
                 }
 
-                ToolButton {
-                    text: "✕"; font.pixelSize: 14
+                IconButton {
+                    icon.source: "qrc:/icons/x.svg"
+                    iconSize: 16
                     onClicked: appState.leaveVoiceChannel()
                     ToolTip.visible: hovered; ToolTip.text: qsTr("Disconnect")
                 }
@@ -245,33 +257,32 @@ Rectangle {
                 }
 
                 // Mute
-                ToolButton {
-                    icon.name: appState.muted ? "microphone-off" : "microphone"
-                    text: appState.muted ? "🎙️✗" : "🎙️"
-                    font.pixelSize: 14
+                IconButton {
+                    icon.source: appState.muted ? "qrc:/icons/mic-off.svg" : "qrc:/icons/mic.svg"
+                    iconColor: appState.muted ? "#ed4245" : "#dcddde"
                     onClicked: appState.setMuted(!appState.muted)
                     ToolTip.visible: hovered; ToolTip.text: appState.muted ? "Unmute" : "Mute"
                 }
 
                 // Deafen
-                ToolButton {
-                    text: appState.deafened ? "🔇" : "🔊"
-                    font.pixelSize: 14
+                IconButton {
+                    icon.source: appState.deafened ? "qrc:/icons/headphones-off.svg" : "qrc:/icons/headphones.svg"
+                    iconColor: appState.deafened ? "#ed4245" : "#dcddde"
                     onClicked: appState.setDeafened(!appState.deafened)
                     ToolTip.visible: hovered; ToolTip.text: appState.deafened ? "Undeafen" : "Deafen"
                 }
 
                 // Share
-                ToolButton {
-                    text: appState.sharing ? "🟥" : "🖥️"
-                    font.pixelSize: 14
+                IconButton {
+                    icon.source: appState.sharing ? "qrc:/icons/monitor-off.svg" : "qrc:/icons/monitor.svg"
+                    iconColor: appState.sharing ? "#ed4245" : "#dcddde"
                     onClicked: appState.sharing ? appState.stopSharing() : root.shareRequested()
                     ToolTip.visible: hovered; ToolTip.text: appState.sharing ? "Stop sharing" : "Share screen"
                 }
 
                 // Settings
-                ToolButton {
-                    text: "⚙️"; font.pixelSize: 14
+                IconButton {
+                    icon.source: "qrc:/icons/settings.svg"
                     onClicked: root.settingsRequested()
                     ToolTip.visible: hovered; ToolTip.text: "Settings"
                 }
@@ -297,8 +308,8 @@ Rectangle {
                     text: appState.userProfile.displayName || authManager.username; color: "white"; font.pixelSize: 13; Layout.fillWidth: true
                     elide: Text.ElideRight
                 }
-                ToolButton {
-                    text: "⚙️"; font.pixelSize: 14
+                IconButton {
+                    icon.source: "qrc:/icons/settings.svg"
                     onClicked: root.settingsRequested()
                 }
             }

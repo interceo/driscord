@@ -1,6 +1,7 @@
 #include "DriscordBridge.h"
 #include <QMetaObject>
 #include <QThread>
+#include <QThreadPool>
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -93,6 +94,19 @@ DriscordBridge::~DriscordBridge() {
 }
 
 void DriscordBridge::setFrameProvider(FrameProvider* fp) { m_frameProvider = fp; }
+void DriscordBridge::setThumbnailProvider(ThumbnailProvider* tp) { m_thumbnailProvider = tp; }
+
+QString DriscordBridge::grabThumbnail(const QString& targetJson, int maxW, int maxH) {
+    if (!m_thumbnailProvider) return {};
+    auto result = g_core->capture_grab_thumbnail(targetJson.toStdString(), maxW, maxH);
+    if (result.rgba.empty() || result.width <= 0 || result.height <= 0) return {};
+
+    QImage img(result.rgba.data(), result.width, result.height, QImage::Format_RGBA8888);
+    auto obj = QJsonDocument::fromJson(targetJson.toUtf8()).object();
+    QString key = QString::number(obj["type"].toInt()) + ":" + obj["id"].toString();
+    m_thumbnailProvider->store(key, img.copy());
+    return "image://thumbs/" + key;
+}
 
 // -- Transport --
 
@@ -113,7 +127,14 @@ QString DriscordBridge::transportStatsJson() const { return QString::fromStdStri
 
 // -- Audio --
 
-void DriscordBridge::audioStart() { g_core->audio_transport.start(); }
+// Run audio device init on a worker thread — first-time miniaudio device
+// init can take 500 ms-2 s on Linux/PulseAudio, which would otherwise freeze
+// the UI thread between the user's click and the connected banner.
+void DriscordBridge::audioStart() {
+    QThreadPool::globalInstance()->start([] {
+        g_core->audio_transport.start();
+    });
+}
 void DriscordBridge::audioStop()  { g_core->audio_transport.stop(); }
 
 void DriscordBridge::setMuted(bool m)    { g_core->audio_transport.set_self_muted(m); }
