@@ -1,19 +1,19 @@
+#include <QCoreApplication>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
-#include <QCoreApplication>
 
+#include "api/ApiClient.h"
+#include "api/AuthManager.h"
+#include "api/ServerRepository.h"
+#include "api/SessionStore.h"
+#include "api/UserRepository.h"
 #include "app/AppConfig.h"
 #include "app/AppState.h"
 #include "app/AvatarTintProvider.h"
 #include "app/DriscordBridge.h"
 #include "app/FrameProvider.h"
 #include "app/ThumbnailProvider.h"
-#include "api/ApiClient.h"
-#include "api/AuthManager.h"
-#include "api/SessionStore.h"
-#include "api/ServerRepository.h"
-#include "api/UserRepository.h"
 
 int main(int argc, char* argv[])
 {
@@ -30,19 +30,19 @@ int main(int argc, char* argv[])
 
     AppConfig cfg = AppConfig::load();
 
-    auto* apiClient    = new ApiClient(&app);
+    auto* apiClient = new ApiClient(&app);
     apiClient->setBaseUrl(cfg.apiBaseUrl());
 
     auto* sessionStore = new SessionStore(&app);
-    auto* authManager  = new AuthManager(apiClient, sessionStore, &app);
-    auto* serverRepo   = new ServerRepository(apiClient, &app);
-    auto* userRepo     = new UserRepository(apiClient, &app);
-    auto* bridge       = new DriscordBridge(&app);
-    auto* frameProvider= new FrameProvider;
-    auto* thumbProvider= new ThumbnailProvider;
-    auto* avatarTint   = new AvatarTintProvider(&app);
-    auto* appState     = new AppState(authManager, serverRepo, userRepo, bridge,
-                                      cfg.signalingUrl(), cfg.apiBaseUrl(), &app);
+    auto* authManager = new AuthManager(apiClient, sessionStore, &app);
+    auto* serverRepo = new ServerRepository(apiClient, &app);
+    auto* userRepo = new UserRepository(apiClient, &app);
+    auto* bridge = new DriscordBridge(&app);
+    auto* frameProvider = new FrameProvider;
+    auto* thumbProvider = new ThumbnailProvider;
+    auto* avatarTint = new AvatarTintProvider(&app);
+    auto* appState = new AppState(authManager, serverRepo, userRepo, bridge,
+        cfg.signalingUrl(), cfg.apiBaseUrl(), &app);
 
     bridge->setFrameProvider(frameProvider);
     bridge->setThumbnailProvider(thumbProvider);
@@ -54,13 +54,12 @@ int main(int argc, char* argv[])
     QQmlApplicationEngine engine;
     engine.addImageProvider("frames", frameProvider);
     engine.addImageProvider("thumbs", thumbProvider);
-    engine.rootContext()->setContextProperty("appState",    appState);
+    engine.rootContext()->setContextProperty("appState", appState);
     engine.rootContext()->setContextProperty("authManager", authManager);
-    engine.rootContext()->setContextProperty("bridge",      bridge);
-    engine.rootContext()->setContextProperty("avatarTint",  avatarTint);
+    engine.rootContext()->setContextProperty("bridge", bridge);
+    engine.rootContext()->setContextProperty("avatarTint", avatarTint);
 
-    QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
-        &app, []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);
+    QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app, []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);
     engine.loadFromModule("driscord", "Main");
 
     return app.exec();

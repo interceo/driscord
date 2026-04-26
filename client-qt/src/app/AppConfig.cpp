@@ -1,14 +1,15 @@
 #include "AppConfig.h"
+#include <QDebug>
+#include <QDir>
 #include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QJsonArray>
-#include <QDir>
-#include <QDebug>
 
-static QString findConfigFile() {
+static QString findConfigFile()
+{
     // 1. CWD — user-editable, survives app updates (mirrors Kotlin configCandidates)
-    for (const QString& name : {"config.json", "driscord.json"}) {
+    for (const QString& name : { "config.json", "driscord.json" }) {
         QString p = QDir::currentPath() + "/" + name;
         if (QFile::exists(p)) {
             qDebug().noquote() << "[config] loaded from" << p;
@@ -35,27 +36,33 @@ static QString findConfigFile() {
     }
 #endif
     qDebug().noquote() << "[config] no config file found, using defaults";
-    return {};
+    return { };
 }
 
-AppConfig AppConfig::load() {
+AppConfig AppConfig::load()
+{
     AppConfig cfg;
     QString path = findConfigFile();
-    if (path.isEmpty()) return cfg;
+    if (path.isEmpty())
+        return cfg;
 
     QFile f(path);
-    if (!f.open(QFile::ReadOnly)) return cfg;
+    if (!f.open(QFile::ReadOnly))
+        return cfg;
 
     auto doc = QJsonDocument::fromJson(f.readAll());
     auto obj = doc.object();
 
-    if (obj.contains("server")) cfg.server    = obj["server"].toString();
-    if (obj.contains("api"))    cfg.api        = obj["api"].toString();
-    if (obj.contains("screen_fps")) cfg.screenFps = obj["screen_fps"].toInt(60);
+    if (obj.contains("server"))
+        cfg.server = obj["server"].toString();
+    if (obj.contains("api"))
+        cfg.api = obj["api"].toString();
+    if (obj.contains("screen_fps"))
+        cfg.screenFps = obj["screen_fps"].toInt(60);
 
     for (const auto& v : obj["turn_servers"].toArray()) {
         auto t = v.toObject();
-        cfg.turnServers.append({t["url"].toString(), t["user"].toString(), t["pass"].toString()});
+        cfg.turnServers.append({ t["url"].toString(), t["user"].toString(), t["pass"].toString() });
     }
     return cfg;
 }

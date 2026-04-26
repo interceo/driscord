@@ -1,10 +1,10 @@
 #pragma once
+#include "FrameProvider.h"
+#include "ThumbnailProvider.h"
 #include <QObject>
 #include <QString>
 #include <QStringList>
 #include <QTimer>
-#include "FrameProvider.h"
-#include "ThumbnailProvider.h"
 
 // Wraps DriscordCore — all methods callable from QML via Q_INVOKABLE.
 // Callbacks from the core are forwarded to the main thread via QMetaObject::invokeMethod.
@@ -78,7 +78,7 @@ signals:
     void frameUpdated(const QString& peerId);
 
 private:
-    FrameProvider*     m_frameProvider     = nullptr;
+    FrameProvider* m_frameProvider = nullptr;
     ThumbnailProvider* m_thumbnailProvider = nullptr;
     // Drives ScreenSession::update() at ~60Hz so decoded video frames are
     // delivered to on_frame_cb_. Without this tick, the receiver decodes

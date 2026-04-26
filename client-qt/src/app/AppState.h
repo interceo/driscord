@@ -1,8 +1,8 @@
 #pragma once
-#include <QObject>
 #include <QJsonArray>
-#include <QVariantList>
+#include <QObject>
 #include <QTimer>
+#include <QVariantList>
 
 class AuthManager;
 class ServerRepository;
@@ -29,9 +29,9 @@ class AppState : public QObject {
     Q_PROPERTY(QString localId READ localId NOTIFY connectionChanged)
 
     // Audio
-    Q_PROPERTY(bool muted     READ muted     NOTIFY audioStateChanged)
-    Q_PROPERTY(bool deafened  READ deafened  NOTIFY audioStateChanged)
-    Q_PROPERTY(float inputLevel  READ inputLevel  NOTIFY audioLevelsChanged)
+    Q_PROPERTY(bool muted READ muted NOTIFY audioStateChanged)
+    Q_PROPERTY(bool deafened READ deafened NOTIFY audioStateChanged)
+    Q_PROPERTY(float inputLevel READ inputLevel NOTIFY audioLevelsChanged)
     Q_PROPERTY(float outputLevel READ outputLevel NOTIFY audioLevelsChanged)
 
     // Screen sharing
@@ -40,41 +40,41 @@ class AppState : public QObject {
     Q_PROPERTY(QString watchedPeerId READ watchedPeerId NOTIFY watchedPeerChanged)
 
     // Network / call stats (polled while connected)
-    Q_PROPERTY(int          avgRttMs    READ avgRttMs    NOTIFY connectionStatsChanged)
-    Q_PROPERTY(int          lastRttMs   READ lastRttMs   NOTIFY connectionStatsChanged)
-    Q_PROPERTY(QVariantList rttHistory  READ rttHistory  NOTIFY connectionStatsChanged)
-    Q_PROPERTY(QString      primaryPeerId READ primaryPeerId NOTIFY connectionStatsChanged)
+    Q_PROPERTY(int avgRttMs READ avgRttMs NOTIFY connectionStatsChanged)
+    Q_PROPERTY(int lastRttMs READ lastRttMs NOTIFY connectionStatsChanged)
+    Q_PROPERTY(QVariantList rttHistory READ rttHistory NOTIFY connectionStatsChanged)
+    Q_PROPERTY(QString primaryPeerId READ primaryPeerId NOTIFY connectionStatsChanged)
 
 public:
-    explicit AppState(AuthManager*     auth,
-                      ServerRepository* servers,
-                      UserRepository*   users,
-                      DriscordBridge*   bridge,
-                      const QString&    signalingUrl,
-                      const QString&    apiBaseUrl,
-                      QObject* parent = nullptr);
+    explicit AppState(AuthManager* auth,
+        ServerRepository* servers,
+        UserRepository* users,
+        DriscordBridge* bridge,
+        const QString& signalingUrl,
+        const QString& apiBaseUrl,
+        QObject* parent = nullptr);
 
-    QVariantMap  userProfile()      const { return m_userProfile; }
-    QString      apiError()         const { return m_apiError; }
-    QVariantList servers()          const { return m_servers; }
-    int          selectedServerId() const { return m_selectedServerId; }
-    QVariantList channels()         const { return m_channels; }
-    int          selectedChannelId()const { return m_selectedChannelId; }
-    QVariantList peers()            const { return m_peers; }
-    bool         connected()        const;
-    QString      connectionState()  const { return m_connectionState; }
-    QString      localId()          const;
-    bool         muted()            const;
-    bool         deafened()         const;
-    float        inputLevel()       const;
-    float        outputLevel()      const;
-    bool         sharing()          const;
-    QVariantList streamingPeers()   const { return m_streamingPeers; }
-    int          avgRttMs()         const { return m_avgRttMs; }
-    int          lastRttMs()        const { return m_lastRttMs; }
-    QVariantList rttHistory()       const { return m_rttHistory; }
-    QString      primaryPeerId()    const { return m_primaryPeerId; }
-    QString      watchedPeerId()    const { return m_watchedPeerId; }
+    QVariantMap userProfile() const { return m_userProfile; }
+    QString apiError() const { return m_apiError; }
+    QVariantList servers() const { return m_servers; }
+    int selectedServerId() const { return m_selectedServerId; }
+    QVariantList channels() const { return m_channels; }
+    int selectedChannelId() const { return m_selectedChannelId; }
+    QVariantList peers() const { return m_peers; }
+    bool connected() const;
+    QString connectionState() const { return m_connectionState; }
+    QString localId() const;
+    bool muted() const;
+    bool deafened() const;
+    float inputLevel() const;
+    float outputLevel() const;
+    bool sharing() const;
+    QVariantList streamingPeers() const { return m_streamingPeers; }
+    int avgRttMs() const { return m_avgRttMs; }
+    int lastRttMs() const { return m_lastRttMs; }
+    QVariantList rttHistory() const { return m_rttHistory; }
+    QString primaryPeerId() const { return m_primaryPeerId; }
+    QString watchedPeerId() const { return m_watchedPeerId; }
 
     void setApiError(const QString& e);
 
@@ -124,28 +124,28 @@ private:
     void pollConnectionStats();
     void resetConnectionStats();
 
-    AuthManager*      m_auth;
+    AuthManager* m_auth;
     ServerRepository* m_serverRepo;
-    UserRepository*   m_userRepo;
-    DriscordBridge*   m_bridge;
+    UserRepository* m_userRepo;
+    DriscordBridge* m_bridge;
 
-    QVariantMap  m_userProfile;
-    QString      m_apiError;
+    QVariantMap m_userProfile;
+    QString m_apiError;
     QVariantList m_servers;
-    int          m_selectedServerId  = -1;
+    int m_selectedServerId = -1;
     QVariantList m_channels;
-    int          m_selectedChannelId = -1;
+    int m_selectedChannelId = -1;
     QVariantList m_peers;
     QVariantList m_streamingPeers;
 
     QString m_connectionState = QStringLiteral("disconnected"); // disconnected | connecting | connected
     QTimer* m_levelTimer;
     QTimer* m_statsTimer = nullptr;
-    int     m_avgRttMs   = -1;
-    int     m_lastRttMs  = -1;
+    int m_avgRttMs = -1;
+    int m_lastRttMs = -1;
     QString m_primaryPeerId;
     QString m_watchedPeerId;
-    QVariantList m_rttHistory;       // each entry: {"t": ms, "rtt": int}
+    QVariantList m_rttHistory; // each entry: {"t": ms, "rtt": int}
     QString m_signalingUrl;
     QString m_apiBaseUrl;
 };

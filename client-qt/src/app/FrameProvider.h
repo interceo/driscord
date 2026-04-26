@@ -1,8 +1,8 @@
 #pragma once
-#include <QQuickImageProvider>
 #include <QHash>
 #include <QImage>
 #include <QMutex>
+#include <QQuickImageProvider>
 
 // Thread-safe image provider for live video frames.
 // DriscordBridge calls updateFrame() from any thread;
@@ -17,6 +17,6 @@ public:
     QImage requestImage(const QString& id, QSize* size, const QSize& requestedSize) override;
 
 private:
-    QMutex             m_mutex;
+    QMutex m_mutex;
     QHash<QString, QImage> m_frames;
 };

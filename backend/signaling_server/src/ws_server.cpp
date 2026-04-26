@@ -70,9 +70,12 @@ std::string url_decode(std::string_view s)
             out.push_back(' ');
         } else if (c == '%' && i + 2 < s.size()) {
             auto hex = [](char h) -> int {
-                if (h >= '0' && h <= '9') return h - '0';
-                if (h >= 'a' && h <= 'f') return h - 'a' + 10;
-                if (h >= 'A' && h <= 'F') return h - 'A' + 10;
+                if (h >= '0' && h <= '9')
+                    return h - '0';
+                if (h >= 'a' && h <= 'f')
+                    return h - 'a' + 10;
+                if (h >= 'A' && h <= 'F')
+                    return h - 'A' + 10;
                 return -1;
             };
             int hi = hex(s[i + 1]);
@@ -95,7 +98,8 @@ std::string url_decode(std::string_view s)
 std::string parse_query_param(std::string_view target, std::string_view key)
 {
     auto q = target.find('?');
-    if (q == std::string_view::npos) return {};
+    if (q == std::string_view::npos)
+        return { };
     auto qs = target.substr(q + 1);
     while (!qs.empty()) {
         auto amp = qs.find('&');
@@ -104,10 +108,11 @@ std::string parse_query_param(std::string_view target, std::string_view key)
         if (eq != std::string_view::npos && pair.substr(0, eq) == key) {
             return url_decode(pair.substr(eq + 1));
         }
-        if (amp == std::string_view::npos) break;
+        if (amp == std::string_view::npos)
+            break;
         qs = qs.substr(amp + 1);
     }
-    return {};
+    return { };
 }
 
 constexpr size_t kMaxMessageSize = 64 * 1024;
@@ -209,7 +214,8 @@ private:
         std::string_view target = req->target();
         auto path_end = target.find('?');
         std::string_view path = (path_end == std::string_view::npos)
-            ? target : target.substr(0, path_end);
+            ? target
+            : target.substr(0, path_end);
 
         if (req->method() == http::verb::get && path == "/presence") {
             res->result(http::status::ok);

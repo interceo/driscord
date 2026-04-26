@@ -1,8 +1,8 @@
 #pragma once
-#include <QObject>
-#include <QString>
 #include "ApiClient.h"
 #include "SessionStore.h"
+#include <QObject>
+#include <QString>
 
 class AuthManager : public QObject {
     Q_OBJECT
@@ -14,10 +14,10 @@ class AuthManager : public QObject {
 public:
     explicit AuthManager(ApiClient* api, SessionStore* session, QObject* parent = nullptr);
 
-    bool    loggedIn()    const;
-    QString username()    const;
-    int     userId()      const;
-    QString avatarUrl()   const;
+    bool loggedIn() const;
+    QString username() const;
+    int userId() const;
+    QString avatarUrl() const;
     QString displayName() const;
 
     Q_INVOKABLE void login(const QString& username, const QString& password);
@@ -35,12 +35,12 @@ signals:
 private:
     void applyTokenResponse(const QJsonObject& json, const QString& username);
 
-    ApiClient*    m_api;
+    ApiClient* m_api;
     SessionStore* m_session;
-    QString       m_username;
-    QString       m_refreshToken;
-    QString       m_avatarUrl;
-    QString       m_displayName;
-    int           m_userId = 0;
-    bool          m_loggedIn = false;
+    QString m_username;
+    QString m_refreshToken;
+    QString m_avatarUrl;
+    QString m_displayName;
+    int m_userId = 0;
+    bool m_loggedIn = false;
 };

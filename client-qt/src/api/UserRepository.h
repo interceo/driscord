@@ -1,8 +1,8 @@
 #pragma once
-#include <QObject>
-#include <QJsonObject>
-#include <functional>
 #include "ApiClient.h"
+#include <QJsonObject>
+#include <QObject>
+#include <functional>
 
 class UserRepository : public QObject {
     Q_OBJECT
@@ -12,9 +12,9 @@ public:
     void getUserById(int id, std::function<void(bool, QJsonObject)> cb);
     void getMe(std::function<void(bool, QJsonObject)> cb);
     void updateProfile(int userId, const QString& displayName,
-                       std::function<void(bool, QJsonObject)> cb);
+        std::function<void(bool, QJsonObject)> cb);
     void uploadAvatar(int userId, const QByteArray& data, const QString& ext,
-                      std::function<void(bool, QJsonObject)> cb);
+        std::function<void(bool, QJsonObject)> cb);
     void getUserByUsername(const QString& username, std::function<void(bool, QJsonObject)> cb);
 
 private:

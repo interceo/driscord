@@ -13,9 +13,9 @@ if [[ "${1:-}" == "--check" ]]; then
     MODE="check"
 fi
 
-FILES=$(find "$ROOT/core" "$ROOT/backend/signaling_server" \
+FILES=$(find "$ROOT/core" "$ROOT/backend/signaling_server" "$ROOT/client-qt" \
     \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' \) \
-    ! -path '*/.builds/*' ! -path '*/_deps/*')
+    ! -path '*/.builds/*' ! -path '*/_deps/*' ! -path '*/build/*')
 
 if [[ -z "$FILES" ]]; then
     echo "No files to format."

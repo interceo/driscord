@@ -1,7 +1,7 @@
 #pragma once
-#include <QObject>
-#include <QJsonArray>
 #include "ApiClient.h"
+#include <QJsonArray>
+#include <QObject>
 
 class ServerRepository : public QObject {
     Q_OBJECT
@@ -10,10 +10,10 @@ public:
 
     void listServers(std::function<void(bool, QJsonArray)> cb);
     void createServer(const QString& name, const QString& description,
-                      std::function<void(bool, QJsonObject)> cb);
+        std::function<void(bool, QJsonObject)> cb);
     void listChannels(int serverId, std::function<void(bool, QJsonArray)> cb);
     void createChannel(int serverId, const QString& name, const QString& kind,
-                       std::function<void(bool, QJsonObject)> cb);
+        std::function<void(bool, QJsonObject)> cb);
     void createInvite(int serverId, std::function<void(bool, QJsonObject)> cb);
     void acceptInvite(const QString& code, std::function<void(bool, QJsonObject)> cb);
 

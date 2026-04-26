@@ -1,9 +1,9 @@
 #pragma once
-#include <QObject>
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QObject>
 #include <functional>
 
 class ApiClient : public QObject {
@@ -25,11 +25,11 @@ public:
     void patch(const QString& path, const QJsonObject& body, JsonCb cb);
     void del(const QString& path, JsonCb cb);
     void putMultipart(const QString& path,
-                      const QString& fieldName,
-                      const QString& fileName,
-                      const QByteArray& data,
-                      const QString& mimeType,
-                      JsonCb cb);
+        const QString& fieldName,
+        const QString& fileName,
+        const QByteArray& data,
+        const QString& mimeType,
+        JsonCb cb);
 
 private:
     QNetworkRequest makeRequest(const QString& path) const;

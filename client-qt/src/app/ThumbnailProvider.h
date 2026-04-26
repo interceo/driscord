@@ -1,8 +1,8 @@
 #pragma once
-#include <QQuickImageProvider>
 #include <QHash>
 #include <QImage>
 #include <QMutex>
+#include <QQuickImageProvider>
 
 class ThumbnailProvider : public QQuickImageProvider {
 public:
@@ -12,6 +12,6 @@ public:
     QImage requestImage(const QString& id, QSize* size, const QSize& requestedSize) override;
 
 private:
-    QMutex                 m_mutex;
+    QMutex m_mutex;
     QHash<QString, QImage> m_thumbs;
 };
