@@ -8,6 +8,23 @@ Rectangle {
 
     signal shareRequested
 
+    // Fullscreen overlay state — empty when no stream is fullscreened.
+    property string fullscreenPeerId: ""
+    property string fullscreenPeerName: ""
+    property bool   fullscreenHasFrame: false
+
+    function openFullscreen(peerId, peerName) {
+        if (appState.watchedPeerId !== peerId) appState.joinStream(peerId)
+        root.fullscreenHasFrame = false
+        root.fullscreenPeerName = peerName
+        root.fullscreenPeerId   = peerId
+    }
+    function closeFullscreen() {
+        root.fullscreenPeerId   = ""
+        root.fullscreenPeerName = ""
+        root.fullscreenHasFrame = false
+    }
+
     // Build a unified model: local user + remote peers + a separate tile for
     // each streaming peer. Recomputed on connection/peer changes.
     function buildTiles() {
@@ -108,6 +125,8 @@ Rectangle {
                     readonly property bool isStream: modelData.kind === "stream"
                     readonly property bool isYou:    modelData.kind === "peer" && modelData.isYou
                     readonly property bool watching: isStream && appState.watchedPeerId === modelData.id
+                    property bool hasFrame: false
+                    onWatchingChanged: if (!watching) hasFrame = false
 
                     color: isStream ? "#111214" : "#1e1f22"
                     border.color: isYou ? "#5865f2" : "transparent"
@@ -128,8 +147,8 @@ Rectangle {
                         anchors.fill: parent
                         fillMode: Image.PreserveAspectFit
                         cache: false
-                        source: tile.watching ? ("image://frames/" + modelData.id) : ""
-                        visible: tile.isStream && tile.watching && status === Image.Ready
+                        source: tile.watching && tile.hasFrame ? ("image://frames/" + modelData.id) : ""
+                        visible: tile.isStream && tile.watching && tile.hasFrame && status === Image.Ready
                     }
 
                     ColumnLayout {
@@ -181,10 +200,18 @@ Rectangle {
                     MouseArea {
                         anchors.fill: parent
                         enabled: tile.isStream
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
                         cursorShape: tile.isStream ? Qt.PointingHandCursor : Qt.ArrowCursor
-                        onClicked: {
-                            if (tile.watching) appState.leaveStream()
-                            else               appState.joinStream(modelData.id)
+                        onClicked: (mouse) => {
+                            if (mouse.button === Qt.RightButton) {
+                                if (tile.watching) {
+                                    leaveConfirm.peerId   = modelData.id
+                                    leaveConfirm.peerName = modelData.username ?? ""
+                                    leaveConfirm.open()
+                                }
+                            } else {
+                                root.openFullscreen(modelData.id, modelData.username ?? "")
+                            }
                         }
                     }
 
@@ -193,12 +220,16 @@ Rectangle {
                         enabled: tile.isStream
                         function onFrameUpdated(pid) {
                             if (pid === modelData.id && tile.watching) {
+                                tile.hasFrame = true
                                 videoImg.source = ""
                                 videoImg.source = "image://frames/" + modelData.id
                             }
                         }
                         function onFrameRemoved(pid) {
-                            if (pid === modelData.id) videoImg.source = ""
+                            if (pid === modelData.id) {
+                                tile.hasFrame = false
+                                videoImg.source = ""
+                            }
                         }
                     }
                 }
@@ -210,6 +241,152 @@ Rectangle {
                 text: appState.connected ? qsTr("No streams") : qsTr("Join a voice channel")
                 color: "#72767d"; font.pixelSize: 18
             }
+        }
+    }
+
+    // ---- Fullscreen stream overlay ----
+    Popup {
+        id: fullscreenPopup
+        parent: Overlay.overlay
+        x: 0; y: 0
+        width:  parent ? parent.width  : 0
+        height: parent ? parent.height : 0
+        modal: true
+        padding: 0
+        visible: root.fullscreenPeerId !== ""
+        closePolicy: Popup.CloseOnEscape
+        onClosed: root.closeFullscreen()
+        background: Rectangle { color: "#000000" }
+
+        contentItem: Item {
+            Image {
+                id: fsImage
+                anchors.fill: parent
+                fillMode: Image.PreserveAspectFit
+                cache: false
+                source: root.fullscreenPeerId !== "" && root.fullscreenHasFrame
+                        ? ("image://frames/" + root.fullscreenPeerId) : ""
+                visible: status === Image.Ready
+            }
+
+            Text {
+                anchors.centerIn: parent
+                visible: !fsImage.visible
+                text: qsTr("Buffering…")
+                color: "#b9bbbe"
+                font.pixelSize: 18
+            }
+
+            // Stream name (top-left)
+            Rectangle {
+                anchors { top: parent.top; left: parent.left; margins: 16 }
+                width: fsName.implicitWidth + 16
+                height: 28; radius: 4
+                color: "#000000aa"
+                Text {
+                    id: fsName
+                    anchors.centerIn: parent
+                    text: root.fullscreenPeerName
+                    color: "white"; font.pixelSize: 13
+                }
+            }
+
+            // Close button (top-right)
+            Rectangle {
+                anchors { top: parent.top; right: parent.right; margins: 16 }
+                width: 36; height: 36; radius: 18
+                color: "#000000aa"
+                Text {
+                    anchors.centerIn: parent
+                    text: "✕"; color: "white"
+                    font { pixelSize: 18; bold: true }
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: fullscreenPopup.close()
+                }
+            }
+
+            // RMB inside the fullscreen view also opens the leave popup
+            MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.RightButton
+                z: -1
+                onClicked: {
+                    leaveConfirm.peerId   = root.fullscreenPeerId
+                    leaveConfirm.peerName = root.fullscreenPeerName
+                    leaveConfirm.open()
+                }
+            }
+        }
+
+        Connections {
+            target: bridge
+            enabled: root.fullscreenPeerId !== ""
+            function onFrameUpdated(pid) {
+                if (pid !== root.fullscreenPeerId) return
+                root.fullscreenHasFrame = true
+                fsImage.source = ""
+                fsImage.source = "image://frames/" + root.fullscreenPeerId
+            }
+            function onFrameRemoved(pid) {
+                if (pid === root.fullscreenPeerId) {
+                    root.fullscreenHasFrame = false
+                    fsImage.source = ""
+                }
+            }
+        }
+
+        // Auto-close if the stream goes away or the user leaves it elsewhere.
+        Connections {
+            target: appState
+            function onWatchedPeerChanged() {
+                if (root.fullscreenPeerId !== ""
+                    && appState.watchedPeerId !== root.fullscreenPeerId) {
+                    fullscreenPopup.close()
+                }
+            }
+            function onStreamingPeersChanged() {
+                if (root.fullscreenPeerId === "") return
+                var still = false
+                for (var i = 0; i < appState.streamingPeers.length; i++) {
+                    if (appState.streamingPeers[i] === root.fullscreenPeerId) {
+                        still = true; break
+                    }
+                }
+                if (!still) fullscreenPopup.close()
+            }
+        }
+    }
+
+    // ---- Leave-stream confirmation ----
+    Dialog {
+        id: leaveConfirm
+        property string peerId: ""
+        property string peerName: ""
+        title: qsTr("Leave stream?")
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        width: 320
+
+        Text {
+            width: parent.width
+            text: leaveConfirm.peerName.length > 0
+                  ? qsTr("Stop watching %1?").arg(leaveConfirm.peerName)
+                  : qsTr("Stop watching this stream?")
+            color: "white"
+            wrapMode: Text.Wrap
+        }
+
+        footer: DialogButtonBox {
+            Button { text: qsTr("Cancel"); DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
+            Button { text: qsTr("Leave");  DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
+        }
+
+        onAccepted: {
+            if (appState.watchedPeerId === leaveConfirm.peerId) appState.leaveStream()
+            if (root.fullscreenPeerId === leaveConfirm.peerId) fullscreenPopup.close()
         }
     }
 }
