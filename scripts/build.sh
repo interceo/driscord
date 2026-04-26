@@ -47,6 +47,7 @@ for arg in "$@"; do
         --server)  TARGET="server" ;;
         --api)     TARGET="api" ;;
         --windows) TARGET="windows" ;;
+        --qt)      TARGET="qt" ;;
         --test)    ACTION="test" ;;
         --bench)   ACTION="bench" ;;
         --package) ACTION="package" ;;
@@ -197,6 +198,28 @@ if [ "$TARGET" = "api" ]; then
     echo "==> Installing API dependencies..."
     "$VENV_DIR/bin/pip" install -q -r "$API_DIR/requirements.txt"
     echo "==> API ready. Run with: ./scripts/run.sh --api"
+    exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# ===== QT CLIENT =====
+# ---------------------------------------------------------------------------
+if [ "$TARGET" = "qt" ]; then
+    QT_BUILD="$BUILDS_DIR/cmake/qt-$TYPE_LOWER"
+
+    if [ ! -f "$QT_BUILD/CMakeCache.txt" ]; then
+        echo "==> Configuring CMake for Qt client ($BUILD_TYPE)..."
+        cmake -S "$ROOT" -B "$QT_BUILD" \
+            -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
+            -DBUILD_QT_CLIENT=ON \
+            -DBUILD_SERVER=OFF \
+            -DBUILD_LAUNCHER=OFF \
+            -Wno-dev
+    fi
+
+    echo "==> Building Qt client ($JOBS jobs)..."
+    cmake --build "$QT_BUILD" --target driscord_client -j"$JOBS"
+    echo "==> Qt client ready: $QT_BUILD/client-qt/driscord_client"
     exit 0
 fi
 

@@ -7,6 +7,8 @@
 #   ./scripts/run.sh --server             # run server (release)
 #   ./scripts/run.sh --server --debug     # run server (debug)
 #   ./scripts/run.sh --api                # run API server
+#   ./scripts/run.sh --qt                 # run Qt client (release)
+#   ./scripts/run.sh --qt --debug         # run Qt client (debug build)
 #   ./scripts/run.sh --gdb                # run client under GDB
 set -euo pipefail
 
@@ -24,6 +26,7 @@ for arg in "$@"; do
         --release) BUILD_TYPE="release" ;;
         --server)  TARGET="server" ;;
         --api)     TARGET="api" ;;
+        --qt)      TARGET="qt" ;;
         --gdb)     GDB_MODE=1 ;;
     esac
 done
@@ -54,6 +57,19 @@ if [ "$TARGET" = "api" ]; then
     echo "==> Launching API server..."
     cd "$API_DIR"
     exec "$VENV_DIR/bin/python" main.py "$@"
+fi
+
+# ===== QT CLIENT =====
+if [ "$TARGET" = "qt" ]; then
+    QT_BIN="$ROOT/.builds/cmake/qt-$BUILD_TYPE/client-qt/driscord_client"
+    if [ ! -f "$QT_BIN" ]; then
+        echo "==> Qt client binary not found — building..."
+        TYPE_FLAG="--release"
+        [ "$BUILD_TYPE" = "debug" ] && TYPE_FLAG="--debug"
+        bash "$(dirname "$0")/build.sh" --qt $TYPE_FLAG
+    fi
+    echo "==> Launching Qt client ($BUILD_TYPE)..."
+    exec "$QT_BIN"
 fi
 
 # ===== CLIENT =====

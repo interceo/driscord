@@ -59,6 +59,62 @@ std::string parse_room_id(std::string_view target)
     return "default";
 }
 
+// Decode percent-escapes and '+' in a URL query value.
+std::string url_decode(std::string_view s)
+{
+    std::string out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        const char c = s[i];
+        if (c == '+') {
+            out.push_back(' ');
+        } else if (c == '%' && i + 2 < s.size()) {
+            auto hex = [](char h) -> int {
+                if (h >= '0' && h <= '9')
+                    return h - '0';
+                if (h >= 'a' && h <= 'f')
+                    return h - 'a' + 10;
+                if (h >= 'A' && h <= 'F')
+                    return h - 'A' + 10;
+                return -1;
+            };
+            int hi = hex(s[i + 1]);
+            int lo = hex(s[i + 2]);
+            if (hi >= 0 && lo >= 0) {
+                out.push_back(static_cast<char>((hi << 4) | lo));
+                i += 2;
+            } else {
+                out.push_back(c);
+            }
+        } else {
+            out.push_back(c);
+        }
+    }
+    return out;
+}
+
+// Extract the value of a query parameter from a request target.
+// parse_query_param("/channels/42?u=alice&x=1", "u") → "alice"
+std::string parse_query_param(std::string_view target, std::string_view key)
+{
+    auto q = target.find('?');
+    if (q == std::string_view::npos)
+        return { };
+    auto qs = target.substr(q + 1);
+    while (!qs.empty()) {
+        auto amp = qs.find('&');
+        auto pair = (amp == std::string_view::npos) ? qs : qs.substr(0, amp);
+        auto eq = pair.find('=');
+        if (eq != std::string_view::npos && pair.substr(0, eq) == key) {
+            return url_decode(pair.substr(eq + 1));
+        }
+        if (amp == std::string_view::npos)
+            break;
+        qs = qs.substr(amp + 1);
+    }
+    return { };
+}
+
 constexpr size_t kMaxMessageSize = 64 * 1024;
 constexpr size_t kMaxWriteQueueSize = 128;
 
@@ -77,6 +133,7 @@ public:
 
     const std::string& id() const { return id_; }
     const std::string& room_id() const { return room_id_; }
+    const std::string& username() const { return username_; }
 
     void start()
     {
@@ -118,8 +175,9 @@ public:
     }
 
 private:
-    // Called after we've read the HTTP upgrade request. Extracts the room_id
-    // from the request target, then completes the WebSocket handshake.
+    // Called after we've read the HTTP upgrade request. Either responds to a
+    // plain HTTP GET (currently only /presence) or extracts the room_id from
+    // the request target and completes the WebSocket handshake.
     void on_http_read(std::shared_ptr<http::request<http::string_body>> req,
         beast::error_code ec,
         std::size_t)
@@ -128,11 +186,56 @@ private:
             LOG_ERROR() << "http read [" << id_ << "]: " << ec.message();
             return;
         }
+
+        // Plain HTTP request (no Upgrade: websocket header) → presence endpoint.
+        if (!websocket::is_upgrade(*req)) {
+            handle_http_request(std::move(req));
+            return;
+        }
+
         room_id_ = parse_room_id(req->target());
-        LOG_INFO() << "session " << id_ << " joining room " << room_id_;
+        username_ = parse_query_param(req->target(), "u");
+        LOG_INFO() << "session " << id_ << " joining room " << room_id_
+                   << " as '" << username_ << "'";
 
         ws_.async_accept(*req,
             beast::bind_front_handler(&Session::on_accept, shared_from_this()));
+    }
+
+    void handle_http_request(
+        std::shared_ptr<http::request<http::string_body>> req)
+    {
+        auto res = std::make_shared<http::response<http::string_body>>();
+        res->version(req->version());
+        res->keep_alive(false);
+        res->set(http::field::server, "driscord/ws");
+        res->set("Access-Control-Allow-Origin", "*");
+
+        std::string_view target = req->target();
+        auto path_end = target.find('?');
+        std::string_view path = (path_end == std::string_view::npos)
+            ? target
+            : target.substr(0, path_end);
+
+        if (req->method() == http::verb::get && path == "/presence") {
+            res->result(http::status::ok);
+            res->set(http::field::content_type, "application/json");
+            res->body() = server_->presence_json();
+        } else {
+            res->result(http::status::not_found);
+            res->set(http::field::content_type, "text/plain");
+            res->body() = "not found";
+        }
+        res->prepare_payload();
+
+        http::async_write(ws_.next_layer(), *res,
+            [self = shared_from_this(), res](beast::error_code wec, std::size_t) {
+                if (wec) {
+                    LOG_ERROR() << "http write [" << self->id_ << "]: " << wec.message();
+                }
+                beast::error_code shut;
+                self->ws_.next_layer().socket().shutdown(tcp::socket::shutdown_send, shut);
+            });
     }
 
     // Runs on the session's strand.
@@ -243,6 +346,7 @@ private:
     websocket::stream<beast::tcp_stream> ws_;
     std::string id_;
     std::string room_id_;
+    std::string username_;
     std::shared_ptr<WebSocketServer> server_;
     std::mutex write_mutex_;
     std::deque<std::shared_ptr<std::string>> write_queue_;
@@ -323,6 +427,23 @@ std::string WebSocketServer::register_and_build_welcome(const std::string& id,
     }
 
     return welcome_payload;
+}
+
+std::string WebSocketServer::presence_json() const
+{
+    json out = json::object();
+    std::scoped_lock lk(rooms_mutex_);
+    for (const auto& [room_id, room] : rooms_) {
+        json arr = json::array();
+        for (const auto& [pid, session] : room.sessions) {
+            arr.push_back({
+                { "id", pid },
+                { "username", session ? session->username() : "" },
+            });
+        }
+        out[room_id] = std::move(arr);
+    }
+    return out.dump();
 }
 
 void WebSocketServer::unregister_session(const std::string& id,

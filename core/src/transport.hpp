@@ -61,6 +61,8 @@ public:
         return local_id_;
     }
 
+    void on_connected(std::function<void()> cb) { on_connected_ = std::move(cb); }
+    void on_disconnected(std::function<void()> cb) { on_disconnected_ = std::move(cb); }
     void on_peer_joined(PeerEventCb cb) { on_peer_joined_ = std::move(cb); }
     void on_peer_left(PeerEventCb cb) { on_peer_left_ = std::move(cb); }
     void on_streaming_started(PeerEventCb cb)
@@ -146,6 +148,8 @@ private:
     std::vector<ChannelSpec> channel_specs_;
     std::string primary_channel_;
 
+    std::function<void()> on_connected_;
+    std::function<void()> on_disconnected_;
     PeerEventCb on_peer_joined_;
     PeerEventCb on_peer_left_;
     PeerEventCb on_streaming_started_;

@@ -159,7 +159,7 @@ add_library(driscord_core STATIC
 
 set_target_properties(driscord_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-target_include_directories(driscord_core PRIVATE
+target_include_directories(driscord_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/audio
     ${CMAKE_CURRENT_SOURCE_DIR}/src/video

@@ -8,12 +8,6 @@ Transport::Transport()
 {
     rtc_config_.iceServers.push_back(
         rtc::IceServer("stun:stun.l.google.com:19302"));
-    rtc_config_.iceServers.push_back(
-        rtc::IceServer("stun:stun1.l.google.com:19302"));
-    rtc_config_.iceServers.push_back(
-        rtc::IceServer("stun:stun2.l.google.com:19302"));
-    rtc_config_.iceServers.push_back(
-        rtc::IceServer("stun:stun.cloudflare.com:3478"));
     // Each video frame is chunked to 60 KB at the application level
     // (VideoTransport), so SCTP never sees messages larger than ~61 KB. 128 KB
     // gives enough headroom.
@@ -98,11 +92,15 @@ utils::Expected<void, TransportError> Transport::connect(const std::string& ws_u
     ws->onOpen([this]() {
         LOG_INFO() << "ws connected to " << ws_url_;
         ws_connected_ = true;
+        if (on_connected_)
+            on_connected_();
     });
 
     ws->onClosed([this]() {
         LOG_INFO() << "ws disconnected";
         ws_connected_ = false;
+        if (on_disconnected_)
+            on_disconnected_();
     });
 
     ws->onError([](std::string error) { LOG_ERROR() << "ws error: " << error; });

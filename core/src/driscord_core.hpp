@@ -24,6 +24,7 @@ public:
     std::optional<ScreenSession> screen_session;
 
     DriscordCore();
+    ~DriscordCore();
 
     // ScreenSession lifecycle — wires core objects together.
     void init_screen_session();
