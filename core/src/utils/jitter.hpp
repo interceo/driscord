@@ -148,6 +148,22 @@ public:
         return fn(*peek->data->data);
     }
 
+    // Like with_front but also passes the seq-gap between the next-expected
+    // slot and the actually-available frame. A gap of 0 means the next frame
+    // is exactly the one expected (relevant for Opus FEC, which only carries
+    // the immediately-preceding frame).
+    template <typename F>
+    auto peek_next_with_gap(F&& fn) const
+        -> std::optional<std::invoke_result_t<F, const T&, size_t>>
+    {
+        std::scoped_lock lk(mutex_);
+        auto peek = ring_.peek_next();
+        if (!peek) {
+            return std::nullopt;
+        }
+        return fn(*peek->data->data, peek->skipped);
+    }
+
     utils::Duration target_delay() const { return adaptive_delay_; }
 
     int64_t front_age_ms() const
@@ -276,6 +292,13 @@ public:
         -> std::optional<std::invoke_result_t<F, const Frame&>>
     {
         return buf_.with_front(std::forward<F>(fn));
+    }
+
+    template <typename F>
+    auto peek_next_with_gap(F&& fn) const
+        -> std::optional<std::invoke_result_t<F, const Frame&, size_t>>
+    {
+        return buf_.peek_next_with_gap(std::forward<F>(fn));
     }
 
     bool primed() const { return buf_.primed(); }

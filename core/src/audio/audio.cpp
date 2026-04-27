@@ -3,9 +3,11 @@
 
 #include "enum_strings.hpp"
 #include "log.hpp"
+#include "rnnoise_denoiser.hpp"
 #include "utils/ma_device.hpp"
 #include "utils/protocol.hpp"
 #include "utils/time.hpp"
+#include "vad_gate.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -122,6 +124,10 @@ utils::Expected<void, AudioError> AudioSender::start(PacketCallback on_packet,
     send_seq_ = 0;
     encoder_ = std::move(enc);
     encoder_->set_packet_loss_pct(expected_loss_pct_.load(std::memory_order_relaxed));
+    denoiser_ = std::make_unique<RnnoiseDenoiser>();
+    vad_gate_ = std::make_unique<VadGate>();
+    vad_scratch_.assign(RnnoiseDenoiser::kFrameSize, 0.0f);
+    last_vad_prob_.store(0.0f, std::memory_order_relaxed);
     device_ = std::move(dev);
     running_ = true;
 
@@ -152,20 +158,21 @@ void AudioSender::stop()
     device_
         .reset(); // MaDevice destructor calls ma_device_stop + ma_device_uninit
     encoder_.reset();
+    denoiser_.reset();
+    vad_gate_.reset();
     LOG_INFO() << "AudioSender: stopped";
 }
 
 void AudioSender::set_noise_suppression_enabled(bool on)
 {
     ns_enabled_.store(on, std::memory_order_relaxed);
-    LOG_INFO() << "AudioSender: noise suppression " << (on ? "on" : "off")
-               << " (RNNoise pending)";
+    LOG_INFO() << "AudioSender: noise suppression " << (on ? "on" : "off");
 }
 
 void AudioSender::set_vad_enabled(bool on)
 {
     vad_enabled_.store(on, std::memory_order_relaxed);
-    LOG_INFO() << "AudioSender: VAD " << (on ? "on" : "off") << " (gate pending)";
+    LOG_INFO() << "AudioSender: VAD " << (on ? "on" : "off");
 }
 
 void AudioSender::set_vad_thresholds(float open, float close)
@@ -203,9 +210,13 @@ void AudioSender::on_capture(const float* input, uint32_t frames)
     const float rms = std::sqrt(sum / static_cast<float>(frames));
     input_level_.store(rms);
 
-    const float gate = noise_gate_.load(std::memory_order_relaxed);
-    if (gate > 0.0f && rms < gate) {
-        return;
+    // Legacy RMS gate is a fallback only when the VAD state-machine is off;
+    // VAD makes its own decisions on cleaner (RNNoise-denoised) signal.
+    if (!vad_enabled_.load(std::memory_order_relaxed)) {
+        const float gate = noise_gate_.load(std::memory_order_relaxed);
+        if (gate > 0.0f && rms < gate) {
+            return;
+        }
     }
 
     uint32_t consumed = 0;
@@ -218,14 +229,54 @@ void AudioSender::on_capture(const float* input, uint32_t frames)
         consumed += to_copy;
 
         if (capture_pos_ == static_cast<size_t>(opus::kFrameSize)) {
-            uint8_t* opus_start = encode_buf_.data() + protocol::AudioHeader::kWireSize;
-            int bytes = encoder_->encode(capture_buf_.data(), opus::kFrameSize,
-                opus_start, opus::kMaxPacket);
-            if (bytes > 0) {
-                const protocol::AudioHeader ah { .seq = send_seq_++,
-                    .sender_ts = WallNow() };
-                ah.serialize(encode_buf_.data());
-                on_packet_(encode_buf_.data(), protocol::AudioHeader::kWireSize + static_cast<size_t>(bytes));
+            static_assert(opus::kFrameSize == 2 * RnnoiseDenoiser::kFrameSize,
+                "Opus 20ms frame must split into two RNNoise 10ms frames");
+
+            const bool ns_on = ns_enabled_.load(std::memory_order_relaxed);
+            const bool vad_on = vad_enabled_.load(std::memory_order_relaxed);
+
+            // RNNoise runs whenever NS or VAD needs its output.
+            // VAD-only path discards the cleaned samples to a scratch buffer.
+            if ((ns_on || vad_on) && denoiser_) {
+                float* const p = capture_buf_.data();
+                float* const out0 = ns_on ? p : vad_scratch_.data();
+                float* const out1 = ns_on
+                    ? p + RnnoiseDenoiser::kFrameSize
+                    : vad_scratch_.data();
+                const float v0 = denoiser_->process(p, out0);
+                const float v1 = denoiser_->process(
+                    p + RnnoiseDenoiser::kFrameSize, out1);
+                last_vad_prob_.store(0.5f * (v0 + v1),
+                    std::memory_order_relaxed);
+            }
+
+            bool send = true;
+            if (vad_on && vad_gate_) {
+                vad_gate_->set_thresholds(
+                    vad_open_.load(std::memory_order_relaxed),
+                    vad_close_.load(std::memory_order_relaxed));
+                vad_gate_->set_hangover_ms(
+                    vad_hangover_ms_.load(std::memory_order_relaxed));
+                constexpr int kFrameMs
+                    = (opus::kFrameSize * 1000) / opus::kSampleRate;
+                send = vad_gate_->update(
+                    last_vad_prob_.load(std::memory_order_relaxed), kFrameMs);
+            } else if (vad_gate_) {
+                // Keep the state machine fresh for the next time VAD turns on.
+                vad_gate_->reset();
+            }
+
+            if (send) {
+                uint8_t* opus_start = encode_buf_.data() + protocol::AudioHeader::kWireSize;
+                int bytes = encoder_->encode(capture_buf_.data(),
+                    opus::kFrameSize, opus_start, opus::kMaxPacket);
+                if (bytes > 0) {
+                    const protocol::AudioHeader ah { .seq = send_seq_++,
+                        .sender_ts = WallNow() };
+                    ah.serialize(encode_buf_.data());
+                    on_packet_(encode_buf_.data(),
+                        protocol::AudioHeader::kWireSize + static_cast<size_t>(bytes));
+                }
             }
             capture_pos_ = 0;
         }
@@ -286,8 +337,30 @@ utils::vector_view<const float> AudioReceiver::pop()
     auto [frame, missed] = jitter_.pop();
     if (missed) {
         miss_count_.inc();
-        // PLC: ask Opus decoder to generate a concealment frame.
-        const int samples = decoder_.decode_plc(decode_buf_.data(), opus::kFrameSize);
+
+        // Try Opus in-band FEC: the next frame in the jitter carries
+        // redundancy for the *immediately* preceding frame. Only valid when
+        // the upcoming frame has gap==0 (i.e. it is exactly the one after
+        // the slot we just lost); larger gaps would mean its FEC payload
+        // belongs to a different missing seq and would play wrong audio.
+        int samples = 0;
+        auto fec_result = jitter_.peek_next_with_gap(
+            [this](const OpusFrame& next, size_t gap) -> int {
+                if (gap != 0 || next.data.empty()) {
+                    return 0;
+                }
+                return decoder_.decode_fec(next.data.data(),
+                    static_cast<int>(next.data.size()),
+                    decode_buf_.data(), opus::kFrameSize);
+            });
+        if (fec_result && *fec_result > 0) {
+            samples = *fec_result;
+            fec_recovered_count_.inc();
+        } else {
+            // Fall back to PLC.
+            samples = decoder_.decode_plc(decode_buf_.data(), opus::kFrameSize);
+        }
+
         if (samples <= 0) {
             return utils::vector_view<const float>(nullptr, 0);
         }
@@ -377,6 +450,7 @@ void AudioReceiver::reset()
     drop_count_.reset();
     miss_count_.reset();
     decode_error_count_.reset();
+    fec_recovered_count_.reset();
     push_count_ = 0;
     pop_count_ = 0;
 }
@@ -389,5 +463,6 @@ AudioReceiver::Stats AudioReceiver::stats() const
         miss_count_.load(),
         push_count_,
         decode_error_count_.load(),
+        fec_recovered_count_.load(),
     };
 }

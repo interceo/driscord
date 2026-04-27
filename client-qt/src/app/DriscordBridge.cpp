@@ -136,7 +136,7 @@ void DriscordBridge::applyStoredAudioSettings()
 {
     const auto& s = m_audioCache;
     auto& at = g_core->audio_transport;
-    at.set_noise_gate(s.noiseSuppressionEnabled ? s.noiseGateThreshold : 0.0f);
+    at.set_noise_gate(s.noiseGateThreshold);
     at.set_noise_suppression_enabled(s.noiseSuppressionEnabled);
     at.set_vad_enabled(s.vadEnabled);
     at.set_vad_thresholds(s.vadOpenThreshold, s.vadCloseThreshold);
@@ -167,9 +167,6 @@ void DriscordBridge::setNoiseSuppressionEnabled(bool on)
     m_audioCache.noiseSuppressionEnabled = on;
     m_audioSettings.save(m_audioCache);
     g_core->audio_transport.set_noise_suppression_enabled(on);
-    // Toggle drives the legacy RMS gate today: gate=stored when on, 0 when off,
-    // so the slider value survives the off→on round-trip.
-    g_core->audio_transport.set_noise_gate(on ? m_audioCache.noiseGateThreshold : 0.0f);
 }
 bool DriscordBridge::noiseSuppressionEnabled() const { return m_audioCache.noiseSuppressionEnabled; }
 

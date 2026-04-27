@@ -86,6 +86,13 @@ if(NOT TARGET PkgConfig::FFMPEG AND PkgConfig_FOUND)
         libavcodec libavformat libavdevice libswscale libswresample libavutil)
 endif()
 
+# --- RNNoise (system package) ---
+# Used by AudioSender for noise suppression (and VAD probability source for A3).
+if(NOT PkgConfig_FOUND)
+    message(FATAL_ERROR "pkg-config required to locate rnnoise")
+endif()
+pkg_check_modules(RNNOISE REQUIRED IMPORTED_TARGET rnnoise)
+
 if(NOT TARGET PkgConfig::FFMPEG)
     find_path(AVCODEC_INCLUDE_DIR libavcodec/avcodec.h)
     find_library(AVCODEC_LIBRARY avcodec)
@@ -139,6 +146,8 @@ add_library(driscord_core STATIC
     src/video/screen_session.cpp
     src/audio/audio.cpp
     src/audio/audio_mixer.cpp
+    src/audio/rnnoise_denoiser.cpp
+    src/audio/vad_gate.cpp
     src/transport.cpp
     src/audio_transport.cpp
     src/video_transport.cpp
@@ -161,6 +170,7 @@ target_link_libraries(driscord_core PRIVATE
     Opus::opus
     miniaudio_lib
     PkgConfig::FFMPEG
+    PkgConfig::RNNOISE
 )
 # PUBLIC: these headers are included by driscord_core's public .hpp files,
 # so consumers need their include paths too.
