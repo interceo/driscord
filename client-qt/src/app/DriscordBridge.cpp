@@ -22,6 +22,7 @@ DriscordBridge::DriscordBridge(QObject* parent)
     : QObject(parent)
 {
     g_core = new DriscordCore();
+    m_audioCache = m_audioSettings.load();
 
     // ~60Hz tick — drives ScreenSession::update() which decodes queued chunks
     // and invokes on_frame_cb_. Started/stopped with the screen session.
@@ -125,9 +126,22 @@ QString DriscordBridge::transportStatsJson() const { return QString::fromStdStri
 // the UI thread between the user's click and the connected banner.
 void DriscordBridge::audioStart()
 {
-    QThreadPool::globalInstance()->start([] {
+    QThreadPool::globalInstance()->start([this] {
         g_core->audio_transport.start();
+        applyStoredAudioSettings();
     });
+}
+
+void DriscordBridge::applyStoredAudioSettings()
+{
+    const auto& s = m_audioCache;
+    auto& at = g_core->audio_transport;
+    at.set_noise_gate(s.noiseGateThreshold);
+    at.set_noise_suppression_enabled(s.noiseSuppressionEnabled);
+    at.set_vad_enabled(s.vadEnabled);
+    at.set_vad_thresholds(s.vadOpenThreshold, s.vadCloseThreshold);
+    at.set_vad_hangover_ms(s.vadHangoverMs);
+    at.set_expected_loss_pct(s.expectedLossPct);
 }
 void DriscordBridge::audioStop() { g_core->audio_transport.stop(); }
 
@@ -140,7 +154,67 @@ void DriscordBridge::setMasterVolume(float v) { g_core->audio_transport.set_mast
 float DriscordBridge::masterVolume() const { return g_core->audio_transport.master_volume(); }
 float DriscordBridge::inputLevel() const { return g_core->audio_transport.input_level(); }
 float DriscordBridge::outputLevel() const { return g_core->audio_transport.output_level(); }
-void DriscordBridge::setNoiseGate(float t) { g_core->audio_transport.set_noise_gate(t); }
+void DriscordBridge::setNoiseGate(float t)
+{
+    m_audioCache.noiseGateThreshold = t;
+    m_audioSettings.save(m_audioCache);
+    g_core->audio_transport.set_noise_gate(t);
+}
+float DriscordBridge::noiseGate() const { return m_audioCache.noiseGateThreshold; }
+
+void DriscordBridge::setNoiseSuppressionEnabled(bool on)
+{
+    m_audioCache.noiseSuppressionEnabled = on;
+    m_audioSettings.save(m_audioCache);
+    g_core->audio_transport.set_noise_suppression_enabled(on);
+}
+bool DriscordBridge::noiseSuppressionEnabled() const { return m_audioCache.noiseSuppressionEnabled; }
+
+void DriscordBridge::setVadEnabled(bool on)
+{
+    m_audioCache.vadEnabled = on;
+    m_audioSettings.save(m_audioCache);
+    g_core->audio_transport.set_vad_enabled(on);
+}
+bool DriscordBridge::vadEnabled() const { return m_audioCache.vadEnabled; }
+
+void DriscordBridge::setVadOpenThreshold(float v)
+{
+    m_audioCache.vadOpenThreshold = v;
+    if (m_audioCache.vadCloseThreshold > v)
+        m_audioCache.vadCloseThreshold = v;
+    m_audioSettings.save(m_audioCache);
+    g_core->audio_transport.set_vad_thresholds(m_audioCache.vadOpenThreshold,
+        m_audioCache.vadCloseThreshold);
+}
+float DriscordBridge::vadOpenThreshold() const { return m_audioCache.vadOpenThreshold; }
+
+void DriscordBridge::setVadCloseThreshold(float v)
+{
+    m_audioCache.vadCloseThreshold = v;
+    if (m_audioCache.vadOpenThreshold < v)
+        m_audioCache.vadOpenThreshold = v;
+    m_audioSettings.save(m_audioCache);
+    g_core->audio_transport.set_vad_thresholds(m_audioCache.vadOpenThreshold,
+        m_audioCache.vadCloseThreshold);
+}
+float DriscordBridge::vadCloseThreshold() const { return m_audioCache.vadCloseThreshold; }
+
+void DriscordBridge::setVadHangoverMs(int ms)
+{
+    m_audioCache.vadHangoverMs = ms;
+    m_audioSettings.save(m_audioCache);
+    g_core->audio_transport.set_vad_hangover_ms(ms);
+}
+int DriscordBridge::vadHangoverMs() const { return m_audioCache.vadHangoverMs; }
+
+void DriscordBridge::setExpectedLossPct(int pct)
+{
+    m_audioCache.expectedLossPct = pct;
+    m_audioSettings.save(m_audioCache);
+    g_core->audio_transport.set_expected_loss_pct(pct);
+}
+int DriscordBridge::expectedLossPct() const { return m_audioCache.expectedLossPct; }
 
 QStringList DriscordBridge::listInputDevices() const
 {

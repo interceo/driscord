@@ -1,6 +1,7 @@
 #pragma once
 #include "FrameProvider.h"
 #include "ThumbnailProvider.h"
+#include "api/AudioSettingsStore.h"
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -38,6 +39,19 @@ public:
     Q_INVOKABLE float inputLevel() const;
     Q_INVOKABLE float outputLevel() const;
     Q_INVOKABLE void setNoiseGate(float threshold);
+    Q_INVOKABLE float noiseGate() const;
+    Q_INVOKABLE void setNoiseSuppressionEnabled(bool on);
+    Q_INVOKABLE bool noiseSuppressionEnabled() const;
+    Q_INVOKABLE void setVadEnabled(bool on);
+    Q_INVOKABLE bool vadEnabled() const;
+    Q_INVOKABLE void setVadOpenThreshold(float v);
+    Q_INVOKABLE float vadOpenThreshold() const;
+    Q_INVOKABLE void setVadCloseThreshold(float v);
+    Q_INVOKABLE float vadCloseThreshold() const;
+    Q_INVOKABLE void setVadHangoverMs(int ms);
+    Q_INVOKABLE int vadHangoverMs() const;
+    Q_INVOKABLE void setExpectedLossPct(int pct);
+    Q_INVOKABLE int expectedLossPct() const;
     Q_INVOKABLE QStringList listInputDevices() const;
     Q_INVOKABLE QStringList listOutputDevices() const;
     Q_INVOKABLE void setInputDevice(const QString& id);
@@ -78,8 +92,12 @@ signals:
     void frameUpdated(const QString& peerId);
 
 private:
+    void applyStoredAudioSettings();
+
     FrameProvider* m_frameProvider = nullptr;
     ThumbnailProvider* m_thumbnailProvider = nullptr;
+    AudioSettingsStore m_audioSettings;
+    AudioSettings m_audioCache;
     // Drives ScreenSession::update() at ~60Hz so decoded video frames are
     // delivered to on_frame_cb_. Without this tick, the receiver decodes
     // chunks but never hands frames to the UI.

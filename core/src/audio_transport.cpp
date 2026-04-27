@@ -100,6 +100,33 @@ void AudioTransport::set_noise_gate(float threshold)
     sender_.set_noise_gate(threshold);
 }
 
+float AudioTransport::noise_gate() const { return sender_.noise_gate(); }
+
+void AudioTransport::set_noise_suppression_enabled(bool on)
+{
+    sender_.set_noise_suppression_enabled(on);
+}
+bool AudioTransport::noise_suppression_enabled() const
+{
+    return sender_.noise_suppression_enabled();
+}
+
+void AudioTransport::set_vad_enabled(bool on) { sender_.set_vad_enabled(on); }
+bool AudioTransport::vad_enabled() const { return sender_.vad_enabled(); }
+
+void AudioTransport::set_vad_thresholds(float open, float close)
+{
+    sender_.set_vad_thresholds(open, close);
+}
+float AudioTransport::vad_open_threshold() const { return sender_.vad_open_threshold(); }
+float AudioTransport::vad_close_threshold() const { return sender_.vad_close_threshold(); }
+
+void AudioTransport::set_vad_hangover_ms(int ms) { sender_.set_vad_hangover_ms(ms); }
+int AudioTransport::vad_hangover_ms() const { return sender_.vad_hangover_ms(); }
+
+void AudioTransport::set_expected_loss_pct(int pct) { sender_.set_expected_loss_pct(pct); }
+int AudioTransport::expected_loss_pct() const { return sender_.expected_loss_pct(); }
+
 std::string AudioTransport::list_input_devices_json()
 {
     return AudioSender::list_input_devices_json();

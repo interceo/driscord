@@ -14,6 +14,8 @@
 #include <vector>
 
 class MaDevice;
+class RnnoiseDenoiser;
+class VadGate;
 
 enum class AudioError {
     OpusInitFailed,
@@ -51,6 +53,23 @@ public:
     void set_noise_gate(float threshold) { noise_gate_ = threshold; }
     float noise_gate() const noexcept { return noise_gate_; }
 
+    // RNNoise-based noise suppression. Runs on captured 20 ms frames before
+    // Opus encode; emits a per-frame VAD probability that A3 will consume.
+    void set_noise_suppression_enabled(bool on);
+    bool noise_suppression_enabled() const noexcept { return ns_enabled_; }
+    // VAD-gate stub — state is plumbed through but activation lands with A3.
+    void set_vad_enabled(bool on);
+    bool vad_enabled() const noexcept { return vad_enabled_; }
+    void set_vad_thresholds(float open, float close);
+    float vad_open_threshold() const noexcept { return vad_open_; }
+    float vad_close_threshold() const noexcept { return vad_close_; }
+    void set_vad_hangover_ms(int ms);
+    int vad_hangover_ms() const noexcept { return vad_hangover_ms_; }
+
+    // Live-tunable Opus in-band FEC redundancy. Values clamped to [0, 30].
+    void set_expected_loss_pct(int pct);
+    int expected_loss_pct() const noexcept { return expected_loss_pct_; }
+
     float input_level() const noexcept { return input_level_; }
 
 private:
@@ -61,12 +80,23 @@ private:
     std::atomic<float> noise_gate_ { 0.0f };
     std::atomic<float> input_level_ { 0.0f };
 
+    std::atomic<bool> ns_enabled_ { false };
+    std::atomic<bool> vad_enabled_ { false };
+    std::atomic<float> vad_open_ { 0.6f };
+    std::atomic<float> vad_close_ { 0.3f };
+    std::atomic<int> vad_hangover_ms_ { 200 };
+    std::atomic<int> expected_loss_pct_ { 10 };
+
     std::string device_id_; // empty = default device
     int bitrate_bps_ = 64000;
     PacketCallback on_packet_;
 
     std::unique_ptr<OpusEncode> encoder_;
     std::unique_ptr<MaDevice> device_;
+    std::unique_ptr<RnnoiseDenoiser> denoiser_;
+    std::unique_ptr<VadGate> vad_gate_;
+    std::vector<float> vad_scratch_; // 480 floats, used when VAD wants RNNoise prob but NS is off
+    std::atomic<float> last_vad_prob_ { 0.0f };
 
     std::vector<float> capture_buf_;
     size_t capture_pos_ = 0;
@@ -136,6 +166,7 @@ public:
         uint64_t miss_count = 0;
         uint64_t packets_received = 0;
         uint64_t decode_errors = 0;
+        uint64_t fec_recovered = 0;
     };
     Stats stats() const;
 
@@ -160,6 +191,7 @@ private:
     utils::Counter drop_count_;
     utils::Counter miss_count_;
     utils::Counter decode_error_count_;
+    utils::Counter fec_recovered_count_;
 
     static std::atomic<uint64_t> next_id_;
 };

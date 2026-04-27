@@ -542,6 +542,294 @@ Dialog {
                         }
                     }
 
+                    Text {
+                        text: qsTr("Microphone Processing")
+                        color: "white"; font { pixelSize: 16; bold: true }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        radius: 8
+                        color: "#2b2d31"
+                        implicitHeight: micProcCard.implicitHeight + 32
+
+                        ColumnLayout {
+                            id: micProcCard
+                            anchors { left: parent.left; right: parent.right; top: parent.top; margins: 16 }
+                            spacing: 16
+
+                            // ---- Noise gate (legacy RMS, functional today) ----
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Text {
+                                        text: qsTr("Noise gate")
+                                        color: "white"; font { pixelSize: 12; bold: true }
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                    Switch {
+                                        id: nsSwitch
+                                        checked: bridge.noiseSuppressionEnabled()
+                                        onToggled: bridge.setNoiseSuppressionEnabled(checked)
+                                    }
+                                }
+                                Text {
+                                    text: qsTr("Drops mic frames when the input RMS is below the threshold. Useful as a quick stopgap until RNNoise lands.")
+                                    color: "#b5bac1"; font.pixelSize: 11
+                                    wrapMode: Text.Wrap
+                                    Layout.fillWidth: true
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    enabled: nsSwitch.checked
+                                    Text {
+                                        text: qsTr("Threshold")
+                                        color: "#b5bac1"; font.pixelSize: 12
+                                        Layout.preferredWidth: 80
+                                    }
+                                    Slider {
+                                        id: gateSlider
+                                        from: 0; to: 0.05; stepSize: 0.001
+                                        value: bridge.noiseGate()
+                                        Layout.fillWidth: true
+                                        onValueChanged: bridge.setNoiseGate(value)
+                                        background: Rectangle {
+                                            x: gateSlider.leftPadding
+                                            y: gateSlider.topPadding + gateSlider.availableHeight / 2 - height / 2
+                                            width: gateSlider.availableWidth
+                                            height: 4; radius: 2
+                                            color: "#1e1f22"
+                                            Rectangle {
+                                                width: gateSlider.visualPosition * parent.width
+                                                height: parent.height; radius: 2
+                                                color: gateSlider.enabled ? "#5865f2" : "#404249"
+                                            }
+                                        }
+                                        handle: Rectangle {
+                                            x: gateSlider.leftPadding + gateSlider.visualPosition * (gateSlider.availableWidth - width)
+                                            y: gateSlider.topPadding + gateSlider.availableHeight / 2 - height / 2
+                                            width: 16; height: 16; radius: 8
+                                            color: "white"
+                                            border.color: "#5865f2"; border.width: gateSlider.pressed ? 2 : 0
+                                        }
+                                    }
+                                    Text {
+                                        text: gateSlider.value.toFixed(3)
+                                        color: "#b5bac1"; font.pixelSize: 12
+                                        Layout.preferredWidth: 50
+                                        horizontalAlignment: Text.AlignRight
+                                    }
+                                }
+                            }
+
+                            Rectangle { Layout.fillWidth: true; height: 1; color: "#3f4147" }
+
+                            // ---- RNNoise (coming soon) ----
+                            RowLayout {
+                                Layout.fillWidth: true
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 2
+                                    Text {
+                                        text: qsTr("Noise suppression (RNNoise)")
+                                        color: "white"; font { pixelSize: 12; bold: true }
+                                    }
+                                    Text {
+                                        text: qsTr("Coming soon — ML-based wideband denoiser.")
+                                        color: "#b5bac1"; font.pixelSize: 11
+                                    }
+                                }
+                                Switch {
+                                    enabled: false
+                                    checked: false
+                                }
+                            }
+
+                            Rectangle { Layout.fillWidth: true; height: 1; color: "#3f4147" }
+
+                            // ---- VAD (coming soon — full UI scaffold) ----
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+                                enabled: false
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 2
+                                        Text {
+                                            text: qsTr("Voice activity detection")
+                                            color: "white"; font { pixelSize: 12; bold: true }
+                                        }
+                                        Text {
+                                            text: qsTr("Coming soon — drops non-speech frames using VAD probability.")
+                                            color: "#b5bac1"; font.pixelSize: 11
+                                        }
+                                    }
+                                    Switch {
+                                        id: vadSwitch
+                                        checked: bridge.vadEnabled()
+                                        onToggled: bridge.setVadEnabled(checked)
+                                    }
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Text {
+                                        text: qsTr("Open")
+                                        color: "#b5bac1"; font.pixelSize: 12
+                                        Layout.preferredWidth: 80
+                                    }
+                                    Slider {
+                                        id: vadOpenSlider
+                                        from: 0; to: 1; stepSize: 0.01
+                                        value: bridge.vadOpenThreshold()
+                                        Layout.fillWidth: true
+                                        onValueChanged: bridge.setVadOpenThreshold(value)
+                                        background: Rectangle {
+                                            x: vadOpenSlider.leftPadding
+                                            y: vadOpenSlider.topPadding + vadOpenSlider.availableHeight / 2 - height / 2
+                                            width: vadOpenSlider.availableWidth
+                                            height: 4; radius: 2
+                                            color: "#1e1f22"
+                                            Rectangle {
+                                                width: vadOpenSlider.visualPosition * parent.width
+                                                height: parent.height; radius: 2
+                                                color: "#5865f2"
+                                            }
+                                        }
+                                        handle: Rectangle {
+                                            x: vadOpenSlider.leftPadding + vadOpenSlider.visualPosition * (vadOpenSlider.availableWidth - width)
+                                            y: vadOpenSlider.topPadding + vadOpenSlider.availableHeight / 2 - height / 2
+                                            width: 16; height: 16; radius: 8
+                                            color: "white"
+                                            border.color: "#5865f2"; border.width: vadOpenSlider.pressed ? 2 : 0
+                                        }
+                                    }
+                                    Text {
+                                        text: vadOpenSlider.value.toFixed(2)
+                                        color: "#b5bac1"; font.pixelSize: 12
+                                        Layout.preferredWidth: 40
+                                        horizontalAlignment: Text.AlignRight
+                                    }
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Text {
+                                        text: qsTr("Close")
+                                        color: "#b5bac1"; font.pixelSize: 12
+                                        Layout.preferredWidth: 80
+                                    }
+                                    Slider {
+                                        id: vadCloseSlider
+                                        from: 0; to: 1; stepSize: 0.01
+                                        value: bridge.vadCloseThreshold()
+                                        Layout.fillWidth: true
+                                        onValueChanged: bridge.setVadCloseThreshold(value)
+                                        background: Rectangle {
+                                            x: vadCloseSlider.leftPadding
+                                            y: vadCloseSlider.topPadding + vadCloseSlider.availableHeight / 2 - height / 2
+                                            width: vadCloseSlider.availableWidth
+                                            height: 4; radius: 2
+                                            color: "#1e1f22"
+                                            Rectangle {
+                                                width: vadCloseSlider.visualPosition * parent.width
+                                                height: parent.height; radius: 2
+                                                color: "#5865f2"
+                                            }
+                                        }
+                                        handle: Rectangle {
+                                            x: vadCloseSlider.leftPadding + vadCloseSlider.visualPosition * (vadCloseSlider.availableWidth - width)
+                                            y: vadCloseSlider.topPadding + vadCloseSlider.availableHeight / 2 - height / 2
+                                            width: 16; height: 16; radius: 8
+                                            color: "white"
+                                            border.color: "#5865f2"; border.width: vadCloseSlider.pressed ? 2 : 0
+                                        }
+                                    }
+                                    Text {
+                                        text: vadCloseSlider.value.toFixed(2)
+                                        color: "#b5bac1"; font.pixelSize: 12
+                                        Layout.preferredWidth: 40
+                                        horizontalAlignment: Text.AlignRight
+                                    }
+                                }
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Text {
+                                        text: qsTr("Hangover (ms)")
+                                        color: "#b5bac1"; font.pixelSize: 12
+                                        Layout.preferredWidth: 110
+                                    }
+                                    SpinBox {
+                                        id: vadHangoverSpin
+                                        from: 0; to: 1000; stepSize: 10
+                                        value: bridge.vadHangoverMs()
+                                        onValueChanged: bridge.setVadHangoverMs(value)
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                }
+                            }
+
+                            Rectangle { Layout.fillWidth: true; height: 1; color: "#3f4147" }
+
+                            // ---- Expected packet loss (Opus FEC, functional today) ----
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Text {
+                                        text: qsTr("Expected packet loss")
+                                        color: "white"; font { pixelSize: 12; bold: true }
+                                        Layout.fillWidth: true
+                                    }
+                                    Text {
+                                        text: lossSlider.value + "%"
+                                        color: "#b5bac1"; font.pixelSize: 12
+                                    }
+                                }
+                                Text {
+                                    text: qsTr("Tells Opus how much in-band FEC redundancy to allocate. Raise it on lossy networks.")
+                                    color: "#b5bac1"; font.pixelSize: 11
+                                    wrapMode: Text.Wrap
+                                    Layout.fillWidth: true
+                                }
+                                Slider {
+                                    id: lossSlider
+                                    from: 0; to: 30; stepSize: 1
+                                    value: bridge.expectedLossPct()
+                                    Layout.fillWidth: true
+                                    onValueChanged: bridge.setExpectedLossPct(value)
+                                    background: Rectangle {
+                                        x: lossSlider.leftPadding
+                                        y: lossSlider.topPadding + lossSlider.availableHeight / 2 - height / 2
+                                        width: lossSlider.availableWidth
+                                        height: 4; radius: 2
+                                        color: "#1e1f22"
+                                        Rectangle {
+                                            width: lossSlider.visualPosition * parent.width
+                                            height: parent.height; radius: 2
+                                            color: "#5865f2"
+                                        }
+                                    }
+                                    handle: Rectangle {
+                                        x: lossSlider.leftPadding + lossSlider.visualPosition * (lossSlider.availableWidth - width)
+                                        y: lossSlider.topPadding + lossSlider.availableHeight / 2 - height / 2
+                                        width: 16; height: 16; radius: 8
+                                        color: "white"
+                                        border.color: "#5865f2"; border.width: lossSlider.pressed ? 2 : 0
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Primary Apply button (Discord blue)
                     RowLayout {
                         Layout.fillWidth: true

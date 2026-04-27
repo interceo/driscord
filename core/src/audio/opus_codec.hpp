@@ -33,6 +33,10 @@ public:
         uint8_t* output,
         const size_t max_output);
 
+    // Runtime-tunable expected packet loss percentage for in-band FEC sizing.
+    // Clamped to [0, 30].
+    void set_packet_loss_pct(int pct);
+
     size_t sample_rate() const { return sample_rate_; }
     size_t channels() const { return channels_; }
 

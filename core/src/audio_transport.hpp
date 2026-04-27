@@ -36,6 +36,18 @@ public:
     bool self_muted() const;
     float input_level() const;
     void set_noise_gate(float threshold);
+    float noise_gate() const;
+    void set_noise_suppression_enabled(bool on);
+    bool noise_suppression_enabled() const;
+    void set_vad_enabled(bool on);
+    bool vad_enabled() const;
+    void set_vad_thresholds(float open, float close);
+    float vad_open_threshold() const;
+    float vad_close_threshold() const;
+    void set_vad_hangover_ms(int ms);
+    int vad_hangover_ms() const;
+    void set_expected_loss_pct(int pct);
+    int expected_loss_pct() const;
 
     // Mic device selection
     static std::string list_input_devices_json();

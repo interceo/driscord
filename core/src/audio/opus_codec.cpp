@@ -2,6 +2,7 @@
 
 #include "log.hpp"
 
+#include <algorithm>
 #include <opus.h>
 
 // --- OpusEncode --------------------------------------------------------------
@@ -34,12 +35,21 @@ bool OpusEncode::init(const size_t sample_rate,
     }
 
     opus_encoder_ctl(encoder_, OPUS_SET_INBAND_FEC(1));
-    opus_encoder_ctl(encoder_, OPUS_SET_PACKET_LOSS_PERC(10));
     opus_encoder_ctl(encoder_, OPUS_SET_DTX(1));
+    set_packet_loss_pct(10);
 
     sample_rate_ = sample_rate;
     channels_ = channels;
     return true;
+}
+
+void OpusEncode::set_packet_loss_pct(int pct)
+{
+    if (!encoder_) {
+        return;
+    }
+    pct = std::clamp(pct, 0, 30);
+    opus_encoder_ctl(encoder_, OPUS_SET_PACKET_LOSS_PERC(pct));
 }
 
 void OpusEncode::shutdown()
