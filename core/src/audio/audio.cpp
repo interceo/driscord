@@ -202,9 +202,8 @@ void AudioSender::on_capture(const float* input, uint32_t frames)
 
 std::atomic<uint64_t> AudioReceiver::next_id_ = 0;
 
-AudioReceiver::AudioReceiver(int jitter_ms, int channels, int sample_rate)
-    : jitter_(std::chrono::milliseconds(jitter_ms))
-    , channels_(channels)
+AudioReceiver::AudioReceiver(const int jitter_ms, const int channels, const int sample_rate)
+    : channels_(channels)
     , sample_rate_(sample_rate)
     , id_(next_id_++)
 {
@@ -215,7 +214,7 @@ AudioReceiver::AudioReceiver(int jitter_ms, int channels, int sample_rate)
     }
 }
 
-void AudioReceiver::push_packet(utils::vector_view<const uint8_t> data)
+void AudioReceiver::push_packet(const utils::vector_view<const uint8_t> data)
 {
     if (data.size() <= protocol::AudioHeader::kWireSize) {
         return;
@@ -227,7 +226,11 @@ void AudioReceiver::push_packet(utils::vector_view<const uint8_t> data)
 
     std::vector<uint8_t> opus_bytes(opus_data, opus_data + opus_len);
 
-    if (jitter_.push(ah.seq, OpusFrame { .data = std::move(opus_bytes), .sender_ts = ah.sender_ts }) != PushStatus::Stored) {
+    if (jitter_.push(ah.seq, ah.sender_ts, OpusFrame {
+                                               .data = std::move(opus_bytes),
+                                               .sender_ts = ah.sender_ts,
+                                           })
+        != PushStatus::Stored) {
         drop_count_.inc();
     }
 
@@ -300,20 +303,6 @@ utils::vector_view<const float> AudioReceiver::pop()
     return utils::vector_view<const float>(mono_buf_.data(), samples);
 }
 
-size_t AudioReceiver::evict_old(utils::Duration max_delay)
-{
-    const auto n = jitter_.evict_old(max_delay);
-    drop_count_.inc(n);
-    return n;
-}
-
-size_t AudioReceiver::evict_before_sender_ts(utils::WallTimestamp cutoff)
-{
-    const auto n = jitter_.evict_before_sender_ts(cutoff);
-    drop_count_.inc(n);
-    return n;
-}
-
 int64_t AudioReceiver::median_ow_delay_ms() const
 {
     return jitter_.ow_delay_ms();
@@ -322,16 +311,6 @@ int64_t AudioReceiver::median_ow_delay_ms() const
 bool AudioReceiver::primed() const
 {
     return jitter_.primed();
-}
-
-std::optional<utils::WallTimestamp> AudioReceiver::front_effective_ts() const
-{
-    return jitter_.front_effective_ts();
-}
-
-int64_t AudioReceiver::front_age_ms() const
-{
-    return jitter_.front_age_ms();
 }
 
 void AudioReceiver::reset()

@@ -69,8 +69,6 @@ public:
     ScreenReceiver(const ScreenReceiver&) = delete;
     ScreenReceiver& operator=(const ScreenReceiver&) = delete;
 
-    // Video peer lifecycle — must be called before push_video_packet for that
-    // peer.
     void add_video_peer(const std::string& peer_id);
     void remove_video_peer(const std::string& peer_id);
 
@@ -80,8 +78,6 @@ public:
     void push_audio_packet(const std::string& peer_id,
         const utils::vector_view<const uint8_t> data);
 
-    // Per-peer audio receiver lifecycle. Must be called before push_audio_packet
-    // for that peer.
     void add_audio_peer(const std::string& peer_id);
     void remove_audio_peer(const std::string& peer_id);
     std::shared_ptr<AudioReceiver> audio_receiver(const std::string& peer_id);
@@ -99,7 +95,7 @@ public:
 
     VideoReceiver::Stats video_stats() const;
     AudioReceiver::Stats audio_stats()
-        const; // aggregated across all audio peers
+        const;
 
     // Hard timeout eviction.
     void evict_old(utils::Duration max_delay);
@@ -118,9 +114,6 @@ public:
     // Returns -1 if not enough samples yet.
     int64_t video_median_ow_delay_ms() const;
     int64_t audio_median_ow_delay_ms() const;
-
-    int64_t video_front_age_ms() const;
-    int64_t audio_front_age_ms() const;
 
     void reset();
     void reset_audio();

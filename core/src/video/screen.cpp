@@ -430,29 +430,6 @@ int64_t ScreenReceiver::audio_median_ow_delay_ms() const
     return best;
 }
 
-int64_t ScreenReceiver::video_front_age_ms() const
-{
-    std::shared_ptr<VideoReceiver> recv;
-    {
-        std::scoped_lock lk(video_mutex_);
-        recv = current_video_recv_locked();
-    }
-    return recv ? recv->front_age_ms() : -1;
-}
-
-int64_t ScreenReceiver::audio_front_age_ms() const
-{
-    std::scoped_lock lk(audio_mutex_);
-    int64_t oldest = -1;
-    for (const auto& [_, r] : audio_receivers_) {
-        const auto age = r->front_age_ms();
-        if (age >= 0 && (oldest < 0 || age > oldest)) {
-            oldest = age;
-        }
-    }
-    return oldest;
-}
-
 void ScreenReceiver::evict_old(utils::Duration max_delay)
 {
     std::vector<std::shared_ptr<VideoReceiver>> vreceivers;

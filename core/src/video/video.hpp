@@ -117,7 +117,6 @@ public:
     int64_t median_ow_delay_ms() const;
     utils::Duration front_frame_duration() const;
     bool primed() const;
-    int64_t front_age_ms() const;
 
     void reset();
 

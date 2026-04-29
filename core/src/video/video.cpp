@@ -132,7 +132,6 @@ void VideoSender::encode_loop()
 VideoReceiver::VideoReceiver(std::string peer_id, int buffer_ms)
     : peer_id_(std::move(peer_id))
     , buffer_delay_(std::chrono::milliseconds(buffer_ms))
-    , jitter_(buffer_delay_)
 {
     // Decoder is lazy-initialised on the first packet so we know the codec.
 }
@@ -194,6 +193,7 @@ void VideoReceiver::push_video_packet(
     if (decoder_.decode(encoded, encoded_len, rgba, w, h)) {
         decode_failures_ = 0;
         if (jitter_.push(frame_id,
+            vh.sender_ts,
                 Frame {
                     .rgba = std::move(rgba),
                     .width = w,
@@ -248,28 +248,9 @@ VideoReceiver::Stats VideoReceiver::video_stats() const
     };
 }
 
-size_t VideoReceiver::evict_old(utils::Duration max_delay)
-{
-    const auto n = jitter_.evict_old(max_delay);
-    drop_count_.inc(n);
-    return n;
-}
-
-size_t VideoReceiver::evict_before_sender_ts(utils::WallTimestamp cutoff)
-{
-    const auto n = jitter_.evict_before_sender_ts(cutoff);
-    drop_count_.inc(n);
-    return n;
-}
-
 int64_t VideoReceiver::median_ow_delay_ms() const
 {
     return jitter_.ow_delay_ms();
-}
-
-std::optional<utils::WallTimestamp> VideoReceiver::front_effective_ts() const
-{
-    return jitter_.front_effective_ts();
 }
 
 utils::Duration VideoReceiver::front_frame_duration() const
@@ -281,11 +262,6 @@ utils::Duration VideoReceiver::front_frame_duration() const
 bool VideoReceiver::primed() const
 {
     return jitter_.primed();
-}
-
-int64_t VideoReceiver::front_age_ms() const
-{
-    return jitter_.front_age_ms();
 }
 
 bool VideoReceiver::active() const

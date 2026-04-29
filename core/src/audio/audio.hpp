@@ -75,14 +75,6 @@ private:
     uint64_t send_seq_ = 0;
 };
 
-// Single-peer audio receiver: one decoder, one jitter buffer.
-// Per-peer lifecycle (creation, volume, mute) is managed by the caller
-// (AudioTransport or ScreenReceiver). AudioMixer applies src->volume() to the
-// output of pop().
-//
-// Raw Opus packets are stored in the jitter buffer and decoded at pop() time.
-// This allows PLC (Packet Loss Concealment) on sequence gaps: the Opus decoder
-// generates a concealment frame via opus_decode(NULL, 0, ...).
 class AudioReceiver {
 public:
     struct OpusFrame {
@@ -94,17 +86,15 @@ public:
 
     using AudioJitter = utils::Jitter<OpusFrame>;
 
-    explicit AudioReceiver(int jitter_ms,
-        int channels = 1,
-        int sample_rate = opus::kSampleRate);
+    explicit AudioReceiver(const int jitter_ms,
+        const int channels = 1,
+        const int sample_rate = opus::kSampleRate);
 
     AudioReceiver(const AudioReceiver&) = delete;
     AudioReceiver& operator=(const AudioReceiver&) = delete;
 
     void push_packet(utils::vector_view<const uint8_t> data);
 
-    // Pops one decoded frame of PCM samples (mono, mixed down from channels_).
-    // Returns a view into internal buffers — valid until the next pop() call.
     utils::vector_view<const float> pop();
 
     void set_volume(float v) { volume_.store(v); }
@@ -113,7 +103,6 @@ public:
     void set_muted(bool m) { muted_.store(m); }
     bool muted() const { return muted_.load(); }
 
-    // Stereo pan: 0.0 = hard left, 0.5 = center, 1.0 = hard right.
     void set_pan(float p) { pan_.store(std::clamp(p, 0.0f, 1.0f)); }
     float pan() const { return pan_.load(); }
 
@@ -122,11 +111,8 @@ public:
 
     std::optional<utils::WallTimestamp> front_effective_ts() const;
 
-    // Median one-way-delay + clock-skew estimate (ms). Returns -1 until
-    // enough samples have been collected.
     int64_t median_ow_delay_ms() const;
     bool primed() const;
-    int64_t front_age_ms() const;
 
     void reset();
 

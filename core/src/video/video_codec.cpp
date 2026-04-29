@@ -634,22 +634,13 @@ bool VideoDecoder::decode(const uint8_t* data,
         return false;
     }
 
-    // avcodec_receive_frame always calls av_frame_unref(frame) before returning,
-    // including on EAGAIN. With max_b_frames=0 and LOW_DELAY, one send produces
-    // at most one frame, so a single receive is correct here.
     if (const int rcv = avcodec_receive_frame(ctx_.get(), frame_.get()); rcv < 0) {
-        // EAGAIN is normal for hardware decoders that buffer frames internally
-        // (e.g. h264_cuvid). The caller must keep sending packets; a frame will
-        // appear once the pipeline is primed.
         if (rcv != AVERROR(EAGAIN)) {
             LOG_WARNING() << "avcodec_receive_frame: " << ff_err(rcv);
         }
         return false;
     }
 
-    // For hardware frames, transfer pixel data to a CPU-side buffer.
-    // av_pix_fmt_desc_get flags AV_PIX_FMT_FLAG_HWACCEL for all HW formats
-    // (AV_PIX_FMT_CUDA, AV_PIX_FMT_VAAPI, AV_PIX_FMT_VIDEOTOOLBOX, …).
     AVFrame* src = frame_.get();
     const auto* pix_desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(frame_->format));
     if (pix_desc && (pix_desc->flags & AV_PIX_FMT_FLAG_HWACCEL)) {

@@ -6,7 +6,8 @@
 
 enum class PushStatus { Stored,
     Overwritten,
-    Late };
+    Late,
+};
 
 template <typename T, size_t Capacity = 256>
 class SlotRing {
@@ -39,9 +40,9 @@ public:
             initialized_ = true;
         } else if (seq < next_seq_) [[unlikely]] {
             if (popped_) {
-                return PushStatus::Late; // already consumed past this
+                return PushStatus::Late;
             }
-            next_seq_ = seq; // lower seq arrived, adjust start
+            next_seq_ = seq;
         }
 
         auto& slot = slots_[seq & kMask];
@@ -61,7 +62,7 @@ public:
         return was_occupied ? PushStatus::Overwritten : PushStatus::Stored;
     }
 
-    std::optional<PeekResult> peek_next()
+    std::optional<PeekResult> peek_next() const
     {
         if (size_ == 0) {
             return std::nullopt;
@@ -138,18 +139,8 @@ public:
         popped_ = false;
     }
 
-    template <typename F>
-    void for_each_occupied(F&& fn) const
-    {
-        for (const auto& s : slots_) {
-            if (s.seq != UINT64_MAX) {
-                fn(s);
-            }
-        }
-    }
-
 private:
-    std::array<Slot, Capacity> slots_;
+    alignas(64) std::array<Slot, Capacity> slots_;
 
     alignas(64) uint64_t next_seq_ = 0;
     alignas(64) size_t size_ = 0;

@@ -17,7 +17,6 @@ struct BenchFrame {
     bool empty() const { return false; }
 };
 
-// 1. SlotRing sequential push+pop
 static void BM_SlotRing_PushPop(benchmark::State& state)
 {
     SlotRing<Payload, 256> ring;
@@ -31,7 +30,6 @@ static void BM_SlotRing_PushPop(benchmark::State& state)
 }
 BENCHMARK(BM_SlotRing_PushPop);
 
-// 2. SlotRing out-of-order push
 static void BM_SlotRing_OutOfOrder(benchmark::State& state)
 {
     constexpr int BATCH = 64;
@@ -60,19 +58,20 @@ static void BM_SlotRing_OutOfOrder(benchmark::State& state)
 }
 BENCHMARK(BM_SlotRing_OutOfOrder);
 
-// 3. JitterBuffer sequential push+pop (with mutex)
 static void BM_JitterBuffer_PushPop(benchmark::State& state)
 {
-    utils::JitterBuffer<int> buf(std::chrono::milliseconds(0));
+    utils::Jitter<int> buf;
     uint64_t seq = 0;
 
+    utils::WallTimestamp sender_ts = utils::WallNow();
+
     // Prime it
-    buf.push(seq++, std::make_unique<int>(0));
+    buf.push(seq++, sender_ts++, 0);
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
     buf.pop();
 
     for (auto _ : state) {
-        buf.push(seq, std::make_unique<int>(static_cast<int>(seq)));
+        buf.push(seq, sender_ts++, seq);
         auto v = buf.pop();
         benchmark::DoNotOptimize(v);
         ++seq;
@@ -80,17 +79,18 @@ static void BM_JitterBuffer_PushPop(benchmark::State& state)
 }
 BENCHMARK(BM_JitterBuffer_PushPop);
 
-// 4. JitterBuffer contended — multi-threaded push+pop
 static void BM_JitterBuffer_Contended(benchmark::State& state)
 {
-    static utils::JitterBuffer<int>* shared_buf = nullptr;
+    static utils::Jitter<int>* shared_buf = nullptr;
     static std::atomic<uint64_t> shared_seq { 0 };
 
+    utils::WallTimestamp sender_ts = utils::WallNow();
+
     if (state.thread_index() == 0) {
-        shared_buf = new utils::JitterBuffer<int>(std::chrono::milliseconds(0));
+        shared_buf = new utils::Jitter<int>();
         shared_seq.store(0);
-        // Prime
-        shared_buf->push(shared_seq.fetch_add(1), std::make_unique<int>(0));
+
+        shared_buf->push(shared_seq.fetch_add(1), sender_ts++, 0);
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
         shared_buf->pop();
     }
@@ -98,7 +98,7 @@ static void BM_JitterBuffer_Contended(benchmark::State& state)
     for (auto _ : state) {
         if (state.thread_index() % 2 == 0) {
             uint64_t s = shared_seq.fetch_add(1, std::memory_order_relaxed);
-            shared_buf->push(s, std::make_unique<int>(static_cast<int>(s)));
+            shared_buf->push(s, sender_ts++, static_cast<int>(s));
         } else {
             auto v = shared_buf->pop();
             benchmark::DoNotOptimize(v);
@@ -112,20 +112,21 @@ static void BM_JitterBuffer_Contended(benchmark::State& state)
 }
 BENCHMARK(BM_JitterBuffer_Contended)->Threads(2)->Threads(4)->Threads(8);
 
-// 5. Jitter full pipeline push+pop
 static void BM_Jitter_PushPop(benchmark::State& state)
 {
-    utils::Jitter<BenchFrame> j(std::chrono::milliseconds(0));
+    utils::Jitter<BenchFrame> j;
     auto base_ts = utils::WallNow();
     int id = 0;
 
+    utils::WallTimestamp sender_ts = utils::WallNow();
+
     // Prime
-    j.push(id, BenchFrame { id++, base_ts });
+    j.push(id, sender_ts++, BenchFrame { id++, base_ts });
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
     j.pop();
 
     for (auto _ : state) {
-        j.push(id, BenchFrame { id, base_ts + std::chrono::milliseconds(id) });
+        j.push(id, sender_ts++, BenchFrame { id, base_ts + std::chrono::milliseconds(id) });
         auto v = j.pop();
         benchmark::DoNotOptimize(v);
         ++id;
