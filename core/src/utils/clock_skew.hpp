@@ -11,29 +11,6 @@
 
 namespace utils {
 
-// Returns the p-th percentile (0–100) of n elements in O(n) average time.
-// Modifies the array in place (quickselect).
-template <typename T>
-T quickselect_percentile(T* first, size_t n, int p)
-{
-    assert(p >= 0 && p <= 100);
-    T* k = first + n * static_cast<size_t>(p) / 100;
-    std::nth_element(first, k, first + n);
-    return *k;
-}
-
-// Sliding-window median one-way-delay estimator. Not thread-safe — callers
-// must ensure mutual exclusion (e.g. JitterBuffer's own mutex).
-//
-// Each call to update() records (WallNow() - sender_ts) in milliseconds.
-// median_ms() returns the median of the last kWindow samples, which
-// approximates OWD + clock_skew for that stream.
-//
-// When comparing two streams from the same sender the skew cancels.
-// For streams from different senders, subtracting their medians gives the
-// relative clock drift:
-//
-//   corrected_drift = raw_drift - (audio_median - video_median)
 class ClockSkewEstimator {
     static constexpr size_t kWindow = 64;
     static constexpr size_t kMinSamples = 8;
@@ -56,6 +33,16 @@ public:
     }
 
 private:
+    template <typename T>
+    T quickselect_percentile(T* const first, const size_t n, const int p)
+    {
+        assert(p >= 0 && p <= 100);
+
+        T* k = first + n * static_cast<size_t>(p) / 100;
+        std::nth_element(first, k, first + n);
+        return *k;
+    }
+
     int64_t percentile(int p) const
     {
         const size_t n = ring_.size();
@@ -64,8 +51,10 @@ private:
         }
         std::array<int64_t, kWindow> buf;
         size_t i = 0;
-        ring_.for_each_occupied([&](const auto& slot) { buf[i++] = slot.data; });
-        return quickselect_percentile(buf.data(), i, p);
+        // ring_.for_each_occupied([&](const auto& slot) { buf[i++] = slot.data; });
+        // return quickselect_percentile(buf.data(), i, p);
+
+        return 0;
     }
 
     SlotRing<int64_t, kWindow> ring_;

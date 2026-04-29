@@ -17,133 +17,62 @@ class SlotRing {
 
 public:
     struct Slot {
-        uint64_t seq = UINT64_MAX;
+        uint64_t slot_id = UINT64_MAX;
         T data;
-    };
 
-    struct PeekResult {
-        T* data;
-        uint64_t seq;
-        size_t skipped;
-    };
-
-    struct PopResult {
-        T data;
-        size_t skipped;
+        bool emtpy() const noexcept
+        {
+            return slot_id != UINT64_MAX;
+        }
     };
 
     template <class U>
-    inline PushStatus push(const uint64_t seq, U&& data)
+    inline void push(const uint64_t slot_id, U&& data)
     {
-        if (!initialized_) [[unlikely]] {
-            next_seq_ = seq;
-            initialized_ = true;
-        } else if (seq < next_seq_) [[unlikely]] {
-            if (popped_) {
-                return PushStatus::Late;
-            }
-            next_seq_ = seq;
+        Slot& slot = ring[slot_id & kMask];
+
+        if (slot.slot_id == end_id) [[unlikely]] {
+            ++end_id;
         }
 
-        auto& slot = slots_[seq & kMask];
-
-        if (slot.seq != UINT64_MAX && slot.seq >= seq) [[unlikely]] {
-            return PushStatus::Late;
-        }
-
-        const bool was_occupied = (slot.seq != UINT64_MAX);
-        if (was_occupied)
-            --size_;
-
-        slot.seq = seq;
+        slot.slot_id = slot_id;
         slot.data = std::move(data);
 
-        ++size_;
-        return was_occupied ? PushStatus::Overwritten : PushStatus::Stored;
+        ++end_id;
     }
 
-    std::optional<PeekResult> peek_next() const
+    std::optional<T> pop()
     {
-        if (size_ == 0) {
+        Slot& slot = ring[end_id & kMask];
+        if (slot.emtpy()) {
             return std::nullopt;
         }
 
-        auto& slot = slots_[next_seq_ & kMask];
-        if (slot.seq == next_seq_) [[likely]] {
-            return PeekResult { &slot.data, next_seq_, 0 };
-        }
+        ++start_id;
 
-        for (size_t i = 1; i < Capacity; ++i) {
-            auto& s = slots_[(next_seq_ + i) & kMask];
-            if (s.seq == next_seq_ + i) {
-                return PeekResult { &s.data, s.seq, i };
-            }
-        }
-
-        return std::nullopt;
+        return std::make_optional<T>(std::move(slot.data));
     }
 
-    PopResult consume_peeked(const size_t skipped)
+    void advance_seq(const size_t n = 1)
     {
-        popped_ = true;
-        next_seq_ += skipped;
-
-        auto& slot = slots_[next_seq_ & kMask];
-
-        PopResult result {
-            std::move(slot.data),
-            skipped,
-        };
-
-        slot.data = { };
-        slot.seq = UINT64_MAX;
-
-        --size_;
-        ++next_seq_;
-
-        return result;
+        const auto skipped_slots = std::min(n, size());
+        start_id += n;
     }
 
-    std::optional<PopResult> pop()
-    {
-        auto p = peek_next();
-        if (!p) {
-            return std::nullopt;
-        }
-
-        return consume_peeked(p->skipped);
-    }
-
-    void advance_seq()
-    {
-        if (initialized_) {
-            popped_ = true;
-            ++next_seq_;
-        }
-    }
-
-    uint64_t next_seq() const { return next_seq_; }
-    size_t size() const { return size_; }
-    bool empty() const { return size_ == 0; }
-    bool initialized() const { return initialized_; }
+    uint64_t next_seq() const { return end_id; }
+    size_t size() const { return end_id - start_id; }
+    bool empty() const { return start_id == 0; }
 
     void reset()
     {
-        for (auto& s : slots_) {
-            s.seq = UINT64_MAX;
-        }
-
-        next_seq_ = 0;
-        size_ = 0;
-        initialized_ = false;
-        popped_ = false;
+        ring.fill(Slot { });
+        end_id = 0;
+        start_id = 0;
     }
 
 private:
-    alignas(64) std::array<Slot, Capacity> slots_;
+    alignas(64) std::array<Slot, Capacity> ring;
 
-    alignas(64) uint64_t next_seq_ = 0;
-    alignas(64) size_t size_ = 0;
-    alignas(64) bool initialized_ = false;
-    alignas(64) bool popped_ = false;
+    alignas(64) uint64_t end_id = 0;
+    alignas(64) uint64_t start_id = 0;
 };

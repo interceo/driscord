@@ -26,7 +26,7 @@ public:
         bool missed = false;
     };
 
-    explicit JitterBuffer() = default;
+    explicit Jitter() = default;
 
     PushStatus push(const uint64_t seq, const utils::WallTimestamp sender_ts, T&& data)
     {
@@ -52,13 +52,6 @@ public:
         const auto now = utils::Now();
         if (!first_push_time_) [[unlikely]] {
             return { };
-        }
-
-        if (!primed_) [[unlikely]] {
-            if (utils::Elapsed(*first_push_time_, now) < adaptive_delay_) {
-                return { };
-            }
-            primed_ = true;
         }
 
         if (ring_.empty()) {
