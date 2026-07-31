@@ -61,6 +61,6 @@ inline constexpr int64_t kResyncThresholdUs = 200'000;
 // Screen-share audio may not run far ahead of the picture. If video stalls,
 // muting a short span is less misleading and less noisy than generating Opus
 // PLC while the image is frozen.
-inline constexpr int64_t kMaxScreenAudioLeadUs = 80'000;
+inline constexpr int64_t kMaxScreenAudioLeadUs = 30'000;
 
 } // namespace sync_defaults

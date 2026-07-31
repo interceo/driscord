@@ -85,6 +85,11 @@ AppConfig AppConfig::load()
         cfg.api = obj["api"].toString();
     if (obj.contains("screen_fps"))
         cfg.screenFps = obj["screen_fps"].toInt(60);
+    if (obj.contains("media_relay"))
+        cfg.mediaRelay = obj["media_relay"].toBool(false);
+    if (obj.contains("media_transport"))
+        cfg.mediaRelay = obj["media_transport"].toString().compare(
+            "relay", Qt::CaseInsensitive) == 0;
 
     for (const auto& v : obj["turn_servers"].toArray()) {
         auto t = v.toObject();

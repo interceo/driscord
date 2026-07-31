@@ -7,6 +7,8 @@
 #include <boost/beast/websocket.hpp>
 #include <deque>
 #include <iomanip>
+#include <cstdint>
+#include <cstring>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <random>
@@ -115,8 +117,58 @@ std::string parse_query_param(std::string_view target, std::string_view key)
     return { };
 }
 
-constexpr size_t kMaxMessageSize = 64 * 1024;
+constexpr size_t kMaxMessageSize = 256 * 1024;
 constexpr size_t kMaxWriteQueueSize = 128;
+
+constexpr uint8_t kMediaClientMagic0 = 'D';
+constexpr uint8_t kMediaClientMagic1 = 'M';
+constexpr uint8_t kMediaRelayMagic0 = 'D';
+constexpr uint8_t kMediaRelayMagic1 = 'R';
+constexpr uint8_t kMediaVersion = 1;
+constexpr size_t kMediaClientHeaderSize = 4;
+constexpr size_t kMediaRelayHeaderSize = 6;
+
+struct MediaClientHeader {
+    uint8_t kind = 0;
+    uint8_t flags = 0;
+};
+
+bool parse_media_client_header(const uint8_t* data,
+    size_t len,
+    MediaClientHeader& out)
+{
+    if (len < kMediaClientHeaderSize) {
+        return false;
+    }
+    if (data[0] != kMediaClientMagic0 || data[1] != kMediaClientMagic1
+        || data[2] != kMediaVersion) {
+        return false;
+    }
+    out.kind = data[3];
+    out.flags = 0;
+    return out.kind != 0;
+}
+
+std::string build_media_relay_packet(const std::string& from_id,
+    uint8_t kind,
+    const uint8_t* payload,
+    size_t payload_len)
+{
+    const auto from_len = static_cast<uint16_t>(
+        std::min<size_t>(from_id.size(), UINT16_MAX));
+    std::string out;
+    out.resize(kMediaRelayHeaderSize + from_len + payload_len);
+    auto* dst = reinterpret_cast<uint8_t*>(out.data());
+    dst[0] = kMediaRelayMagic0;
+    dst[1] = kMediaRelayMagic1;
+    dst[2] = kMediaVersion;
+    dst[3] = kind;
+    dst[4] = static_cast<uint8_t>(from_len & 0xffu);
+    dst[5] = static_cast<uint8_t>((from_len >> 8) & 0xffu);
+    std::memcpy(dst + kMediaRelayHeaderSize, from_id.data(), from_len);
+    std::memcpy(dst + kMediaRelayHeaderSize + from_len, payload, payload_len);
+    return out;
+}
 
 } // namespace
 
@@ -157,6 +209,22 @@ public:
     // posts the actual write onto this session's strand.
     void send(std::shared_ptr<std::string> msg)
     {
+        enqueue({ std::move(msg), true });
+    }
+
+    void send_binary(std::shared_ptr<std::string> msg)
+    {
+        enqueue({ std::move(msg), false });
+    }
+
+private:
+    struct OutboundMessage {
+        std::shared_ptr<std::string> payload;
+        bool text = true;
+    };
+
+    void enqueue(OutboundMessage msg)
+    {
         bool start_write = false;
         {
             std::scoped_lock lk(write_mutex_);
@@ -173,8 +241,6 @@ public:
                 [self = shared_from_this()]() { self->do_write(); });
         }
     }
-
-private:
     // Called after we've read the HTTP upgrade request. Either responds to a
     // plain HTTP GET (currently only /presence) or extracts the room_id from
     // the request target and completes the WebSocket handshake.
@@ -221,6 +287,10 @@ private:
             res->result(http::status::ok);
             res->set(http::field::content_type, "application/json");
             res->body() = server_->presence_json();
+        } else if (req->method() == http::verb::get && path == "/media_stats") {
+            res->result(http::status::ok);
+            res->set(http::field::content_type, "application/json");
+            res->body() = server_->media_stats_json();
         } else {
             res->result(http::status::not_found);
             res->set(http::field::content_type, "text/plain");
@@ -241,7 +311,7 @@ private:
     // Runs on the session's strand.
     void do_write()
     {
-        std::shared_ptr<std::string> msg;
+        OutboundMessage msg;
         {
             std::scoped_lock lk(write_mutex_);
             if (write_queue_.empty()) {
@@ -249,9 +319,9 @@ private:
             }
             msg = write_queue_.front();
         }
-        ws_.text(true);
+        ws_.text(msg.text);
         ws_.async_write(
-            boost::asio::buffer(*msg),
+            boost::asio::buffer(*msg.payload),
             beast::bind_front_handler(&Session::on_write, shared_from_this()));
     }
 
@@ -308,8 +378,17 @@ private:
             return;
         }
 
-        std::string_view raw { static_cast<const char*>(buffer_.data().data()),
-            buffer_.data().size() };
+        const auto* raw_data = static_cast<const uint8_t*>(buffer_.data().data());
+        const size_t raw_len = buffer_.data().size();
+
+        if (!ws_.got_text()) {
+            server_->relay_binary_media(id_, room_id_, raw_data, raw_len);
+            buffer_.consume(buffer_.size());
+            do_read();
+            return;
+        }
+
+        std::string_view raw { reinterpret_cast<const char*>(raw_data), raw_len };
 
         try {
             auto msg = json::parse(raw);
@@ -349,7 +428,7 @@ private:
     std::string username_;
     std::shared_ptr<WebSocketServer> server_;
     std::mutex write_mutex_;
-    std::deque<std::shared_ptr<std::string>> write_queue_;
+    std::deque<OutboundMessage> write_queue_;
 };
 
 // --- WebSocketServer ---------------------------------------------------------
@@ -446,6 +525,24 @@ std::string WebSocketServer::presence_json() const
     return out.dump();
 }
 
+std::string WebSocketServer::media_stats_json() const
+{
+    json out = json::object();
+    std::scoped_lock lk(rooms_mutex_);
+    for (const auto& [room_id, room] : rooms_) {
+        out[room_id] = {
+            { "sessions", room.sessions.size() },
+            { "streamingPeers", room.streaming_peers.size() },
+            { "packetsIn", room.media_packets_in },
+            { "packetsOut", room.media_packets_out },
+            { "bytesIn", room.media_bytes_in },
+            { "bytesOut", room.media_bytes_out },
+            { "packetsDropped", room.media_packets_dropped },
+        };
+    }
+    return out.dump();
+}
+
 void WebSocketServer::unregister_session(const std::string& id,
     const std::string& room_id)
 {
@@ -521,6 +618,50 @@ void WebSocketServer::send_to(const std::string& target_id,
     }
     if (target) {
         target->send(std::make_shared<std::string>(msg));
+    }
+}
+
+void WebSocketServer::relay_binary_media(const std::string& from_id,
+    const std::string& room_id,
+    const uint8_t* data,
+    size_t len)
+{
+    MediaClientHeader header;
+    if (!parse_media_client_header(data, len, header)) {
+        std::scoped_lock lk(rooms_mutex_);
+        rooms_[room_id].media_packets_dropped++;
+        LOG_WARNING() << "dropping invalid media relay packet from " << from_id
+                      << " in room " << room_id << " (" << len << " bytes)";
+        return;
+    }
+
+    const uint8_t* payload = data + kMediaClientHeaderSize;
+    const size_t payload_len = len - kMediaClientHeaderSize;
+    auto relay = std::make_shared<std::string>(
+        build_media_relay_packet(from_id, header.kind, payload, payload_len));
+
+    std::vector<std::shared_ptr<Session>> targets;
+    {
+        std::scoped_lock lk(rooms_mutex_);
+        auto rit = rooms_.find(room_id);
+        if (rit == rooms_.end()) {
+            return;
+        }
+        auto& room = rit->second;
+        room.media_packets_in++;
+        room.media_bytes_in += len;
+        targets.reserve(room.sessions.size());
+        for (auto& [pid, session] : room.sessions) {
+            if (pid != from_id) {
+                targets.push_back(session);
+            }
+        }
+        room.media_packets_out += targets.size();
+        room.media_bytes_out += relay->size() * targets.size();
+    }
+
+    for (auto& session : targets) {
+        session->send_binary(relay);
     }
 }
 

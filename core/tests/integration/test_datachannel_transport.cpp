@@ -424,6 +424,7 @@ struct RawSignalingClient {
     std::shared_ptr<rtc::WebSocket> ws;
     test_util::Waiter open;
     test_util::EventCollector<std::string> ids; // capture "welcome" → id
+    test_util::EventCollector<std::vector<uint8_t>> binary_messages;
 
     RawSignalingClient()
         : ws(std::make_shared<rtc::WebSocket>())
@@ -441,6 +442,13 @@ struct RawSignalingClient {
                     // ignore malformed server messages — not the point of
                     // the tests that use this helper
                 }
+            } else if (auto* b = std::get_if<rtc::binary>(&msg)) {
+                std::vector<uint8_t> bytes;
+                bytes.reserve(b->size());
+                for (std::byte v : *b) {
+                    bytes.push_back(static_cast<uint8_t>(v));
+                }
+                binary_messages.push(std::move(bytes));
             }
         });
     }
@@ -461,6 +469,15 @@ struct RawSignalingClient {
     }
 
     void send(const std::string& payload) { ws->send(payload); }
+    void send_binary(const std::vector<uint8_t>& payload)
+    {
+        rtc::binary bytes;
+        bytes.reserve(payload.size());
+        for (uint8_t v : payload) {
+            bytes.push_back(static_cast<std::byte>(v));
+        }
+        ws->send(std::move(bytes));
+    }
     void close() { ws->close(); }
 };
 
@@ -681,4 +698,44 @@ TEST_F(DatachannelTransportTest, MalformedJson_ServerStaysUp)
     EXPECT_EQ(b.received.snapshot().front().bytes, payload);
 
     raw.close();
+}
+
+TEST_F(DatachannelTransportTest, BinaryMediaRelay_RoutesWithinRoom)
+{
+    RawSignalingClient a;
+    RawSignalingClient b;
+    RawSignalingClient c;
+
+    ASSERT_TRUE(a.connect(server.ws_url(42)));
+    ASSERT_TRUE(b.connect(server.ws_url(42)));
+    ASSERT_TRUE(c.connect(server.ws_url(99)));
+
+    const std::vector<uint8_t> payload {
+        0x44, 0x4D, 0x01, 0x02, // client media envelope: "DM", v1, kind=video
+        0xDE, 0xAD, 0xBE, 0xEF
+    };
+    a.send_binary(payload);
+
+    ASSERT_TRUE(b.binary_messages.wait_for_count(1));
+    auto packets = b.binary_messages.snapshot();
+    ASSERT_EQ(packets.size(), 1u);
+    const auto& pkt = packets.front();
+
+    ASSERT_GE(pkt.size(), 6u + a.id().size() + 4u);
+    EXPECT_EQ(pkt[0], 0x44); // 'D'
+    EXPECT_EQ(pkt[1], 0x52); // 'R'
+    EXPECT_EQ(pkt[2], 0x01);
+    EXPECT_EQ(pkt[3], 0x02);
+    const uint16_t from_len = static_cast<uint16_t>(pkt[4])
+        | (static_cast<uint16_t>(pkt[5]) << 8);
+    ASSERT_EQ(from_len, a.id().size());
+    std::string from(reinterpret_cast<const char*>(pkt.data() + 6), from_len);
+    EXPECT_EQ(from, a.id());
+
+    std::vector<uint8_t> relayed_payload(pkt.begin() + 6 + from_len, pkt.end());
+    EXPECT_EQ(relayed_payload,
+        std::vector<uint8_t>({ 0xDE, 0xAD, 0xBE, 0xEF }));
+
+    std::this_thread::sleep_for(50ms);
+    EXPECT_TRUE(c.binary_messages.snapshot().empty());
 }

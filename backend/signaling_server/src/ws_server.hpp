@@ -2,6 +2,7 @@
 
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -44,6 +45,14 @@ public:
         const std::string& room_id,
         const std::string& msg);
 
+    // Binary media relay: routes an encoded media payload through the server
+    // instead of relying on a peer mesh. The server decodes only the small
+    // relay envelope here; codec-level decode is a later MCU/SFU decision.
+    void relay_binary_media(const std::string& from_id,
+        const std::string& room_id,
+        const uint8_t* data,
+        size_t len);
+
     // Total connected sessions across all rooms (for tests).
     size_t active_sessions() const;
     // Sessions in a specific room (for tests).
@@ -56,6 +65,7 @@ public:
     // Snapshot of all rooms and their sessions for the /presence HTTP endpoint.
     // Returns a JSON string: { "<room_id>": [ { "id": "...", "username": "..." }, ... ], ... }
     std::string presence_json() const;
+    std::string media_stats_json() const;
 
 private:
     void do_accept();
@@ -66,6 +76,11 @@ private:
     struct Room {
         std::unordered_map<std::string, std::shared_ptr<Session>> sessions;
         std::unordered_set<std::string> streaming_peers;
+        uint64_t media_packets_in = 0;
+        uint64_t media_packets_out = 0;
+        uint64_t media_bytes_in = 0;
+        uint64_t media_bytes_out = 0;
+        uint64_t media_packets_dropped = 0;
     };
 
     mutable std::mutex rooms_mutex_;

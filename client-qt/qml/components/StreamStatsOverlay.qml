@@ -8,11 +8,14 @@ Rectangle {
     property bool compact: true
     property var stats: ({})
     property var history: []
+    property var rates: ({})
+    property var previousCounters: ({})
+    property double previousAtMs: 0
 
     width: compact ? 232 : 320
-    height: compact ? 120 : 156
+    height: compact ? 158 : 210
     radius: 6
-    color: "#0000004d"
+    color: "#000000b3"
     border.color: "#ffffff22"
     border.width: 1
     visible: active
@@ -26,12 +29,56 @@ Rectangle {
         return v >= 0 ? (Math.round(v) + " ms") : "--"
     }
 
+    function counterAt(section, key) {
+        return root.numberAt(section || {}, key, 0)
+    }
+
+    function rateFor(name, current, elapsedSec) {
+        if (root.previousCounters[name] === undefined || elapsedSec <= 0) return 0
+        return Math.max(0, (current - root.previousCounters[name]) / elapsedSec)
+    }
+
+    function fmtRate(v) {
+        return v >= 10 ? Math.round(v).toString() : v.toFixed(1)
+    }
+
     function refresh() {
         try {
             var parsed = JSON.parse(bridge.screenStatsJson())
             root.stats = parsed
             var video = parsed.video || {}
             var audio = parsed.audio || {}
+            var nowMs = Date.now()
+            var elapsedSec = root.previousAtMs > 0 ? (nowMs - root.previousAtMs) / 1000 : 0
+            var counters = {
+                videoLate: root.counterAt(video, "late"),
+                videoDrops: root.counterAt(video, "drops"),
+                videoDecodeFailures: root.counterAt(video, "decodeFailures"),
+                videoKeyframes: root.counterAt(video, "keyframeRequests"),
+                videoPackets: root.counterAt(video, "packetsReceived"),
+                audioDrops: root.counterAt(audio, "drops"),
+                audioConceals: root.counterAt(audio, "conceals"),
+                audioUnderruns: root.counterAt(audio, "underruns"),
+                audioFec: root.counterAt(audio, "fecRecovered"),
+                audioStretches: root.counterAt(audio, "stretches"),
+                audioPackets: root.counterAt(audio, "packetsReceived")
+            }
+            root.rates = {
+                videoLate: root.rateFor("videoLate", counters.videoLate, elapsedSec),
+                videoDrops: root.rateFor("videoDrops", counters.videoDrops, elapsedSec),
+                videoDecodeFailures: root.rateFor("videoDecodeFailures", counters.videoDecodeFailures, elapsedSec),
+                videoKeyframes: root.rateFor("videoKeyframes", counters.videoKeyframes, elapsedSec),
+                videoPackets: root.rateFor("videoPackets", counters.videoPackets, elapsedSec),
+                audioDrops: root.rateFor("audioDrops", counters.audioDrops, elapsedSec),
+                audioConceals: root.rateFor("audioConceals", counters.audioConceals, elapsedSec),
+                audioUnderruns: root.rateFor("audioUnderruns", counters.audioUnderruns, elapsedSec),
+                audioFec: root.rateFor("audioFec", counters.audioFec, elapsedSec),
+                audioStretches: root.rateFor("audioStretches", counters.audioStretches, elapsedSec),
+                audioPackets: root.rateFor("audioPackets", counters.audioPackets, elapsedSec)
+            }
+            root.previousCounters = counters
+            root.previousAtMs = nowMs
+
             var p95 = root.numberAt(video, "p95DelayMs", -1)
             var target = root.numberAt(video, "targetDelayMs", -1)
             var audioP95 = root.numberAt(audio, "p95DelayMs", -1)
@@ -71,7 +118,7 @@ Rectangle {
                 text: root.numberAt(root.stats, "measuredKbps", 0) + " kbps"
                     + "  skew " + root.fmtMs(root.numberAt(root.stats, "avSkewMs", 0))
                 color: "#23a55a"
-                font { pixelSize: 10; bold: true }
+                font { pixelSize: compact ? 9 : 10; bold: true }
                 horizontalAlignment: Text.AlignRight
             }
         }
@@ -88,7 +135,7 @@ Rectangle {
 
                 var W = width
                 var H = height
-                ctx.fillStyle = "rgba(17, 18, 20, 0.70)"
+                ctx.fillStyle = "rgba(0, 0, 0, 0.70)"
                 ctx.fillRect(0, 0, W, H)
 
                 var hist = root.history
@@ -181,7 +228,39 @@ Rectangle {
             }
 
             Text {
-                text: "late/drop"
+                text: "V late/drop/s"
+                color: "#b9bbbe"
+                font.pixelSize: 10
+            }
+            Text {
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignRight
+                text: {
+                    root.fmtRate(root.numberAt(root.rates, "videoLate", 0)) + " / "
+                        + root.fmtRate(root.numberAt(root.rates, "videoDrops", 0))
+                }
+                color: "#ffffff"
+                font.pixelSize: 10
+            }
+
+            Text {
+                text: "A conceal/drop/s"
+                color: "#b9bbbe"
+                font.pixelSize: 10
+            }
+            Text {
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignRight
+                text: {
+                    root.fmtRate(root.numberAt(root.rates, "audioConceals", 0)) + " / "
+                        + root.fmtRate(root.numberAt(root.rates, "audioDrops", 0))
+                }
+                color: "#ffffff"
+                font.pixelSize: 10
+            }
+
+            Text {
+                text: "V q/pkt/s"
                 color: "#b9bbbe"
                 font.pixelSize: 10
             }
@@ -190,14 +269,15 @@ Rectangle {
                 horizontalAlignment: Text.AlignRight
                 text: {
                     var v = root.stats.video || {}
-                    root.numberAt(v, "late", 0) + " / " + root.numberAt(v, "drops", 0)
+                    root.numberAt(v, "queue", 0) + " / "
+                        + root.fmtRate(root.numberAt(root.rates, "videoPackets", 0))
                 }
                 color: "#ffffff"
                 font.pixelSize: 10
             }
 
             Text {
-                text: "conceal/underrun"
+                text: "A q/pkt/s"
                 color: "#b9bbbe"
                 font.pixelSize: 10
             }
@@ -206,9 +286,37 @@ Rectangle {
                 horizontalAlignment: Text.AlignRight
                 text: {
                     var a = root.stats.audio || {}
-                    root.numberAt(a, "conceals", 0) + " / "
-                        + root.numberAt(a, "underruns", 0)
+                    root.numberAt(a, "queue", 0) + " / "
+                        + root.fmtRate(root.numberAt(root.rates, "audioPackets", 0))
                 }
+                color: "#ffffff"
+                font.pixelSize: 10
+            }
+
+            Text {
+                text: "V dec/kf/s"
+                color: "#b9bbbe"
+                font.pixelSize: 10
+            }
+            Text {
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignRight
+                text: root.fmtRate(root.numberAt(root.rates, "videoDecodeFailures", 0))
+                    + " / " + root.fmtRate(root.numberAt(root.rates, "videoKeyframes", 0))
+                color: "#ffffff"
+                font.pixelSize: 10
+            }
+
+            Text {
+                text: "A fec/stretch/s"
+                color: "#b9bbbe"
+                font.pixelSize: 10
+            }
+            Text {
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignRight
+                text: root.fmtRate(root.numberAt(root.rates, "audioFec", 0))
+                    + " / " + root.fmtRate(root.numberAt(root.rates, "audioStretches", 0))
                 color: "#ffffff"
                 font.pixelSize: 10
             }

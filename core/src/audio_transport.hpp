@@ -8,10 +8,14 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <atomic>
 
 class AudioTransport {
 public:
     explicit AudioTransport(Transport& transport);
+
+    void set_server_relay_enabled(bool enabled);
+    bool server_relay_enabled() const { return server_relay_enabled_; }
 
     void send_audio(const uint8_t* data, size_t len);
     void send_screen_audio(const uint8_t* data, size_t len);
@@ -73,4 +77,5 @@ private:
     std::unordered_map<std::string, std::shared_ptr<AudioReceiver>> voice_recv_;
     std::unordered_map<std::string, std::shared_ptr<AudioReceiver>>
         screen_audio_recv_;
+    std::atomic<bool> server_relay_enabled_ { false };
 };

@@ -237,6 +237,12 @@ void DriscordCore::set_local_username(const std::string& username)
     video_transport.set_local_username(username);
 }
 
+void DriscordCore::set_server_media_relay_enabled(bool enabled)
+{
+    video_transport.set_server_relay_enabled(enabled);
+    audio_transport.set_server_relay_enabled(enabled);
+}
+
 // ---------------------------------------------------------------------------
 // Audio (cross-subsystem)
 // ---------------------------------------------------------------------------

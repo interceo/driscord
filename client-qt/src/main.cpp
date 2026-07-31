@@ -46,6 +46,7 @@ int main(int argc, char* argv[])
 
     bridge->setFrameProvider(frameProvider);
     bridge->setThumbnailProvider(thumbProvider);
+    bridge->setServerMediaRelayEnabled(cfg.mediaRelay);
 
     // Configure TURN servers
     for (const auto& t : cfg.turnServers)

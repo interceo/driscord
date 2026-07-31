@@ -106,6 +106,11 @@ void DriscordBridge::addTurnServer(const QString& url, const QString& user, cons
     g_core->transport.add_turn_server(url.toStdString(), user.toStdString(), pass.toStdString());
 }
 
+void DriscordBridge::setServerMediaRelayEnabled(bool enabled)
+{
+    g_core->set_server_media_relay_enabled(enabled);
+}
+
 void DriscordBridge::connect(const QString& serverUrl, const QString& username)
 {
     g_core->set_local_username(username.toStdString());

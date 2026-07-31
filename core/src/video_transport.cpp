@@ -17,6 +17,15 @@ constexpr uint8_t kIdentityTag = 0x03;
 VideoTransport::VideoTransport(Transport& transport)
     : transport_(transport)
 {
+    transport.register_relay_media(relay_media::kScreenVideo,
+        [this](const std::string& peer_id, const uint8_t* data, size_t len) {
+            on_chunk(peer_id, data, len);
+        });
+    transport.register_relay_media(relay_media::kControl,
+        [this](const std::string& peer_id, const uint8_t* data, size_t len) {
+            on_control(peer_id, data, len);
+        });
+
     // Video channel: pure data, no embedded control tags.
     transport.register_channel({
         .label = channel::kVideo,
@@ -97,6 +106,12 @@ VideoTransport::VideoTransport(Transport& transport)
     });
 }
 
+void VideoTransport::set_server_relay_enabled(bool enabled)
+{
+    server_relay_enabled_ = enabled;
+    LOG_INFO() << "video transport mode: " << (enabled ? "server-relay" : "datachannel");
+}
+
 void VideoTransport::send_video(const uint8_t* data, size_t len)
 {
     if (len == 0) {
@@ -112,14 +127,30 @@ void VideoTransport::send_video(const uint8_t* data, size_t len)
         subscribers.assign(video_subscribers_.begin(), video_subscribers_.end());
     }
 
+    const uint64_t frame_id = next_frame_id_++;
+    const auto total = static_cast<uint16_t>((len + kChunkPayloadSize - 1) / kChunkPayloadSize);
+
+    if (server_relay_enabled_) {
+        for (uint16_t i = 0; i < total; ++i) {
+            const size_t offset = static_cast<size_t>(i) * kChunkPayloadSize;
+            const size_t chunk_len = std::min(kChunkPayloadSize, len - offset);
+            const size_t wire_len = protocol::ChunkHeader::kWireSize + chunk_len;
+
+            std::vector<uint8_t> pkt(wire_len);
+            protocol::ChunkHeader { frame_id, i, total }.serialize(pkt.data());
+            std::memcpy(pkt.data() + protocol::ChunkHeader::kWireSize,
+                data + offset, chunk_len);
+            transport_.send_relay_media(relay_media::kScreenVideo,
+                pkt.data(), pkt.size());
+        }
+        return;
+    }
+
     // 4.6: collect all open DCs in one lock acquisition instead of N×M.
     auto dcs = transport_.get_open_channels(channel::kVideo, subscribers);
     if (dcs.empty()) {
         return;
     }
-
-    const uint64_t frame_id = next_frame_id_++;
-    const auto total = static_cast<uint16_t>((len + kChunkPayloadSize - 1) / kChunkPayloadSize);
 
     for (uint16_t i = 0; i < total; ++i) {
         const size_t offset = static_cast<size_t>(i) * kChunkPayloadSize;
@@ -149,12 +180,20 @@ void VideoTransport::send_video(const uint8_t* data, size_t len)
 
 void VideoTransport::send_keyframe_request()
 {
-    transport_.send_on_channel(channel::kControl, &kKeyframeRequestTag, 1);
+    if (server_relay_enabled_) {
+        transport_.send_relay_media(relay_media::kControl, &kKeyframeRequestTag, 1);
+    } else {
+        transport_.send_on_channel(channel::kControl, &kKeyframeRequestTag, 1);
+    }
 }
 
 void VideoTransport::send_stop_stream()
 {
-    transport_.send_on_channel(channel::kControl, &kStopStreamTag, 1);
+    if (server_relay_enabled_) {
+        transport_.send_relay_media(relay_media::kControl, &kStopStreamTag, 1);
+    } else {
+        transport_.send_on_channel(channel::kControl, &kStopStreamTag, 1);
+    }
 }
 
 void VideoTransport::add_subscriber(const std::string& peer_id)
@@ -298,4 +337,21 @@ void VideoTransport::on_chunk(const std::string& peer_id,
         [&](uint64_t frame_id, const uint8_t* frame_data, size_t frame_len) {
             on_assembled(peer_id, frame_data, frame_len, frame_id);
         });
+}
+
+void VideoTransport::on_control(const std::string& peer_id,
+    const uint8_t* data,
+    size_t len)
+{
+    if (len == 0) {
+        return;
+    }
+    if (data[0] == kKeyframeRequestTag) {
+        std::scoped_lock lk(sink_mutex_);
+        if (on_keyframe_needed_) {
+            on_keyframe_needed_();
+        }
+    } else if (data[0] == kStopStreamTag) {
+        remove_streaming_peer(peer_id);
+    }
 }

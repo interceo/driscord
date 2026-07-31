@@ -15,6 +15,13 @@
 #include <unordered_map>
 #include <vector>
 
+namespace relay_media {
+inline constexpr uint8_t kVoiceAudio = 1;
+inline constexpr uint8_t kScreenVideo = 2;
+inline constexpr uint8_t kScreenAudio = 3;
+inline constexpr uint8_t kControl = 4;
+} // namespace relay_media
+
 enum class TransportError {
     WebSocketCreateFailed,
 };
@@ -24,6 +31,7 @@ public:
     using PacketCb = std::function<
         void(const std::string& peer_id, const uint8_t* data, size_t len)>;
     using PeerEventCb = std::function<void(const std::string& peer_id)>;
+    using RelayMediaCb = PacketCb;
 
     struct ChannelSpec {
         std::string label;
@@ -95,6 +103,9 @@ public:
         const std::string& peer_id,
         rtc::binary&& data);
 
+    void register_relay_media(uint8_t kind, RelayMediaCb cb);
+    void send_relay_media(uint8_t kind, const uint8_t* data, size_t len);
+
     // Returns open DCs for label in the order of peer_ids, skipping closed ones.
     // Single lock acquisition — use for high-frequency multicast (e.g. video).
     std::vector<std::shared_ptr<rtc::DataChannel>> get_open_channels(
@@ -123,6 +134,7 @@ private:
     };
 
     void on_ws_message(const std::string& raw);
+    void on_ws_binary(const uint8_t* data, size_t len);
     void create_peer(const std::string& peer_id, bool create_offer);
     void handle_offer(const std::string& from, const std::string& sdp);
     void handle_answer(const std::string& from, const std::string& sdp);
@@ -144,6 +156,9 @@ private:
 
     mutable std::mutex peers_mutex_;
     std::unordered_map<std::string, PeerState> peers_;
+
+    mutable std::mutex relay_media_mutex_;
+    std::unordered_map<uint8_t, RelayMediaCb> relay_media_callbacks_;
 
     std::vector<ChannelSpec> channel_specs_;
     std::string primary_channel_;

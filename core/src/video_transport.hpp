@@ -27,6 +27,9 @@ public:
 
     explicit VideoTransport(Transport& transport);
 
+    void set_server_relay_enabled(bool enabled);
+    bool server_relay_enabled() const { return server_relay_enabled_; }
+
     void send_video(const uint8_t* data, size_t len);
     void send_keyframe_request();
     void send_stop_stream();
@@ -56,6 +59,7 @@ public:
 
 private:
     void on_chunk(const std::string& peer_id, const uint8_t* data, size_t len);
+    void on_control(const std::string& peer_id, const uint8_t* data, size_t len);
     void on_assembled(const std::string& peer_id,
         const uint8_t* data,
         size_t len,
@@ -76,6 +80,7 @@ private:
     KeyframeCb on_keyframe_needed_;
 
     uint64_t next_frame_id_ = 0;
+    bool server_relay_enabled_ = false;
 
     // Keyed by peer_id to prevent frame_id collision across peers.
     std::unordered_map<std::string, utils::ChunkAssembler> peer_assembly_;

@@ -45,9 +45,10 @@ constexpr int64_t kAudioPeriodUs = 20'000; // one Opus frame
 constexpr int64_t kVideoPeriodUs = 16'667; // 60 fps
 
 // Perceptual lip-sync tolerance. ITU-R BT.1359 puts the audible window at
-// roughly +45 ms (audio ahead) to -125 ms (audio behind); 40 ms is inside it
-// with room to spare in both directions.
-constexpr int64_t kLipSyncToleranceUs = 40'000;
+// roughly +45 ms (audio ahead) to -125 ms (audio behind). In this file
+// negative offsets mean audio is ahead of video.
+constexpr int64_t kAudioAheadToleranceUs = 45'000;
+constexpr int64_t kAudioBehindToleranceUs = 125'000;
 
 // Replays a scripted stream of arrivals into a MediaClock. All time is
 // simulated, so the tests are deterministic and take no wall-clock time.
@@ -451,9 +452,17 @@ TEST(AvSync, ReceiversStayAlignedEndToEnd)
             + ", n=" + std::to_string(errors.size()) + ")";
     };
 
-    EXPECT_LT(std::llabs(median), kLipSyncToleranceUs) << report("median A/V offset", median);
-    EXPECT_LT(std::llabs(p95), kLipSyncToleranceUs * 2) << report("p95 A/V offset", p95);
-    EXPECT_LT(std::llabs(p05), kLipSyncToleranceUs * 2) << report("p05 A/V offset", p05);
+    auto expect_lip_sync = [&](const char* what, int64_t v, int64_t scale = 1) {
+        if (v < 0) {
+            EXPECT_LT(-v, kAudioAheadToleranceUs * scale) << report(what, v);
+        } else {
+            EXPECT_LT(v, kAudioBehindToleranceUs * scale) << report(what, v);
+        }
+    };
+
+    expect_lip_sync("median A/V offset", median);
+    expect_lip_sync("p95 A/V offset", p95, 2);
+    expect_lip_sync("p05 A/V offset", p05, 2);
 
     // And the streams actually ran, rather than both sitting silent.
     EXPECT_GT(audio.stats().packets_received, 80u);

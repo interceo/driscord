@@ -51,6 +51,7 @@ public:
     // -- Transport (non-trivial) --
     std::string peers_json() const;
     void set_local_username(const std::string& username);
+    void set_server_media_relay_enabled(bool enabled);
 
     // -- Audio (cross-subsystem) --
     void audio_set_screen_audio_receiver(const std::string& peer, bool has_screen);

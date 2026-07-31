@@ -2,7 +2,19 @@
 
 #include "log.hpp"
 
+#include <cstring>
+
 using json = nlohmann::json;
+
+namespace {
+constexpr uint8_t kRelayClientMagic0 = 'D';
+constexpr uint8_t kRelayClientMagic1 = 'M';
+constexpr uint8_t kRelayServerMagic0 = 'D';
+constexpr uint8_t kRelayServerMagic1 = 'R';
+constexpr uint8_t kRelayVersion = 1;
+constexpr size_t kRelayClientHeaderSize = 4;
+constexpr size_t kRelayServerHeaderSize = 6;
+} // namespace
 
 Transport::Transport()
 {
@@ -108,6 +120,8 @@ utils::Expected<void, TransportError> Transport::connect(const std::string& ws_u
     ws->onMessage([this](auto msg) {
         if (auto* str = std::get_if<std::string>(&msg)) {
             on_ws_message(*str);
+        } else if (auto* bin = std::get_if<rtc::binary>(&msg)) {
+            on_ws_binary(reinterpret_cast<const uint8_t*>(bin->data()), bin->size());
         }
     });
 
@@ -116,6 +130,42 @@ utils::Expected<void, TransportError> Transport::connect(const std::string& ws_u
     std::scoped_lock lk(ws_mutex_);
     ws_ = std::move(ws);
     return { };
+}
+
+void Transport::register_relay_media(uint8_t kind, RelayMediaCb cb)
+{
+    std::scoped_lock lk(relay_media_mutex_);
+    if (cb) {
+        relay_media_callbacks_[kind] = std::move(cb);
+    } else {
+        relay_media_callbacks_.erase(kind);
+    }
+}
+
+void Transport::send_relay_media(uint8_t kind, const uint8_t* data, size_t len)
+{
+    if (kind == 0 || !data || len == 0) {
+        return;
+    }
+
+    rtc::binary payload;
+    payload.resize(kRelayClientHeaderSize + len);
+    payload[0] = static_cast<std::byte>(kRelayClientMagic0);
+    payload[1] = static_cast<std::byte>(kRelayClientMagic1);
+    payload[2] = static_cast<std::byte>(kRelayVersion);
+    payload[3] = static_cast<std::byte>(kind);
+    std::memcpy(payload.data() + kRelayClientHeaderSize, data, len);
+
+    std::scoped_lock lk(ws_mutex_);
+    if (!ws_ || !ws_connected_) {
+        return;
+    }
+    try {
+        ws_->send(std::move(payload));
+    } catch (const std::exception& e) {
+        LOG_ERROR() << "send_relay_media[" << static_cast<int>(kind)
+                    << "]: " << e.what();
+    }
 }
 
 void Transport::disconnect()
@@ -457,6 +507,43 @@ void Transport::on_ws_message(const std::string& raw)
         }
     } catch (const std::exception& e) {
         LOG_ERROR() << "on_ws_message: " << e.what();
+    }
+}
+
+void Transport::on_ws_binary(const uint8_t* data, size_t len)
+{
+    if (!data || len < kRelayServerHeaderSize) {
+        return;
+    }
+    if (data[0] != kRelayServerMagic0 || data[1] != kRelayServerMagic1
+        || data[2] != kRelayVersion) {
+        LOG_WARNING() << "dropping unknown relay media packet (" << len << " bytes)";
+        return;
+    }
+
+    const uint8_t kind = data[3];
+    const uint16_t from_len = static_cast<uint16_t>(data[4])
+        | (static_cast<uint16_t>(data[5]) << 8);
+    if (kind == 0 || len < kRelayServerHeaderSize + from_len) {
+        LOG_WARNING() << "dropping malformed relay media packet (" << len << " bytes)";
+        return;
+    }
+
+    const auto* from_ptr = reinterpret_cast<const char*>(data + kRelayServerHeaderSize);
+    std::string from(from_ptr, from_len);
+    const auto* payload = data + kRelayServerHeaderSize + from_len;
+    const size_t payload_len = len - kRelayServerHeaderSize - from_len;
+
+    RelayMediaCb cb;
+    {
+        std::scoped_lock lk(relay_media_mutex_);
+        auto it = relay_media_callbacks_.find(kind);
+        if (it != relay_media_callbacks_.end()) {
+            cb = it->second;
+        }
+    }
+    if (cb) {
+        cb(from, payload, payload_len);
     }
 }
 
