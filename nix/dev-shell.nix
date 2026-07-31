@@ -12,6 +12,7 @@ pkgs.mkShell {
     ffmpeg
     gdb
     git
+    jq
     ninja
     openssl
     pkg-config

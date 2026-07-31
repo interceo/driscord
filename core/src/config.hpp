@@ -58,4 +58,9 @@ inline constexpr int64_t kMaxStretchPerSecond = 50; // ms of correction / second
 // than one clean jump — so it re-establishes its position instead.
 inline constexpr int64_t kResyncThresholdUs = 200'000;
 
+// Screen-share audio may not run far ahead of the picture. If video stalls,
+// muting a short span is less misleading and less noisy than generating Opus
+// PLC while the image is frozen.
+inline constexpr int64_t kMaxScreenAudioLeadUs = 80'000;
+
 } // namespace sync_defaults

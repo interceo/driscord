@@ -89,6 +89,11 @@ public:
         uint64_t keyframe_requests = 0;
         int measured_kbps = 0;
         int64_t target_delay_ms = 0;
+        int64_t p50_delay_ms = -1;
+        int64_t p95_delay_ms = -1;
+        int64_t p99_delay_ms = -1;
+        uint64_t delay_samples = 0;
+        int64_t last_shown_ts_us = 0;
     };
 
     VideoReceiver(std::string peer_id, std::shared_ptr<avsync::MediaClock> clock);

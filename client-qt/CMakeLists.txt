@@ -1,7 +1,18 @@
 cmake_minimum_required(VERSION 3.20)
 
-find_package(Qt6 REQUIRED COMPONENTS Quick Network Widgets QuickDialogs2)
+find_package(Qt6 REQUIRED COMPONENTS Quick Network Widgets QuickDialogs2 Core5Compat)
 qt_standard_project_setup(REQUIRES 6.5)
+
+if(Qt6Core5Compat_DIR)
+    get_filename_component(_QT5COMPAT_CMAKE_ROOT
+        "${Qt6Core5Compat_DIR}/.." ABSOLUTE)
+    find_package(Qt6qtgraphicaleffectsplugin CONFIG QUIET
+        PATHS "${_QT5COMPAT_CMAKE_ROOT}/Qt6Qml/QmlPlugins"
+        NO_DEFAULT_PATH)
+    find_package(Qt6qtgraphicaleffectsprivate CONFIG QUIET
+        PATHS "${_QT5COMPAT_CMAKE_ROOT}/Qt6Qml/QmlPlugins"
+        NO_DEFAULT_PATH)
+endif()
 
 set(CLIENT_SOURCES
     src/main.cpp
@@ -31,6 +42,7 @@ qt_add_qml_module(driscord_client
         qml/components/AvatarBox.qml
         qml/components/IconBox.qml
         qml/components/IconButton.qml
+        qml/components/StreamStatsOverlay.qml
         qml/components/VideoTile.qml
         qml/components/DiscordButton.qml
         qml/components/DiscordComboBox.qml
@@ -84,6 +96,7 @@ target_link_libraries(driscord_client PRIVATE
     Qt6::Network
     Qt6::Widgets
     Qt6::QuickDialogs2
+    Qt6::Core5Compat
 )
 
 if(WIN32)

@@ -252,6 +252,12 @@ Rectangle {
                         }
                     }
 
+                    StreamStatsOverlay {
+                        anchors { top: parent.top; left: parent.left; margins: 6 }
+                        active: tile.isStream && tile.watching
+                        compact: true
+                    }
+
                     // Name label
                     Rectangle {
                         anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
@@ -412,6 +418,12 @@ Rectangle {
                             text: "LIVE"; color: "white"
                             font { pixelSize: 10; bold: true }
                         }
+                    }
+
+                    StreamStatsOverlay {
+                        anchors { top: parent.top; left: parent.left; margins: 12 }
+                        active: expandedView.isStream
+                        compact: false
                     }
 
                     // LMB anywhere collapses. RMB opens leave dialog only for streams.

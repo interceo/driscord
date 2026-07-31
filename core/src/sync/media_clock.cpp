@@ -26,9 +26,17 @@ bool MediaClock::observe(const Stream stream,
     s.last_sender_ts_us = sender_ts_us;
 
     s.estimator.observe(local_now_us - sender_ts_us);
+    s.sample_count.store(static_cast<uint64_t>(s.estimator.sample_count()),
+        std::memory_order_relaxed);
     if (s.estimator.ready()) {
         s.min_owd_us.store(s.estimator.min_owd_us(), std::memory_order_relaxed);
-        s.variation_us.store(s.estimator.p95_variation_us(), std::memory_order_relaxed);
+        const int64_t p50 = s.estimator.variation_us(50);
+        const int64_t p95 = s.estimator.variation_us(95);
+        const int64_t p99 = s.estimator.variation_us(99);
+        s.p50_variation_us.store(p50, std::memory_order_relaxed);
+        s.p95_variation_us.store(p95, std::memory_order_relaxed);
+        s.p99_variation_us.store(p99, std::memory_order_relaxed);
+        s.variation_us.store(p95, std::memory_order_relaxed);
         s.ready.store(true, std::memory_order_release);
     }
 
@@ -75,8 +83,13 @@ void MediaClock::recompute(const int64_t local_now_us) noexcept
     if (desired < 0) {
         return;
     }
+    const bool video_active = video_active_.load(std::memory_order_relaxed);
+    const int64_t min_delay_us = video_active
+        ? std::max(sync_defaults::kMinDelayUs,
+            static_cast<int64_t>(stream_defaults::kScreenBufferMs) * 1000)
+        : sync_defaults::kMinDelayUs;
     desired = std::clamp(desired + sync_defaults::kDelayMarginUs,
-        sync_defaults::kMinDelayUs, sync_defaults::kMaxDelayUs);
+        min_delay_us, sync_defaults::kMaxDelayUs);
 
     const int64_t current = target_delay_us_.load(std::memory_order_relaxed);
     if (desired > current) {
@@ -96,6 +109,57 @@ void MediaClock::recompute(const int64_t local_now_us) noexcept
     ready_.store(true, std::memory_order_release);
 }
 
+int64_t MediaClock::stream_delay_percentile_us(const Stream stream,
+    const int percent) const noexcept
+{
+    const StreamState& s = streams_[static_cast<size_t>(stream)];
+    if (!s.ready.load(std::memory_order_acquire)) {
+        return -1;
+    }
+
+    int64_t variation = -1;
+    if (percent <= 50) {
+        variation = s.p50_variation_us.load(std::memory_order_relaxed);
+    } else if (percent <= 95) {
+        variation = s.p95_variation_us.load(std::memory_order_relaxed);
+    } else {
+        variation = s.p99_variation_us.load(std::memory_order_relaxed);
+    }
+    if (variation < 0) {
+        return -1;
+    }
+
+    const int64_t offset = offset_us_.load(std::memory_order_relaxed);
+    const int64_t stream_min = s.min_owd_us.load(std::memory_order_relaxed);
+    const int64_t excess = std::max<int64_t>(0, stream_min - offset);
+    return excess + variation;
+}
+
+uint64_t MediaClock::stream_sample_count(const Stream stream) const noexcept
+{
+    return streams_[static_cast<size_t>(stream)].sample_count.load(
+        std::memory_order_relaxed);
+}
+
+bool MediaClock::stream_ready(const Stream stream) const noexcept
+{
+    return streams_[static_cast<size_t>(stream)].ready.load(
+        std::memory_order_acquire);
+}
+
+void MediaClock::set_stream_playout_ts(const Stream stream,
+    const int64_t sender_ts_us) noexcept
+{
+    streams_[static_cast<size_t>(stream)].playout_ts_us.store(
+        sender_ts_us, std::memory_order_relaxed);
+}
+
+int64_t MediaClock::stream_playout_ts(const Stream stream) const noexcept
+{
+    return streams_[static_cast<size_t>(stream)].playout_ts_us.load(
+        std::memory_order_relaxed);
+}
+
 void MediaClock::set_video_active(const bool active) noexcept
 {
     video_active_.store(active, std::memory_order_relaxed);
@@ -109,6 +173,11 @@ void MediaClock::reset() noexcept
         s.seen = false;
         s.min_owd_us.store(0, std::memory_order_relaxed);
         s.variation_us.store(-1, std::memory_order_relaxed);
+        s.p50_variation_us.store(-1, std::memory_order_relaxed);
+        s.p95_variation_us.store(-1, std::memory_order_relaxed);
+        s.p99_variation_us.store(-1, std::memory_order_relaxed);
+        s.sample_count.store(0, std::memory_order_relaxed);
+        s.playout_ts_us.store(0, std::memory_order_relaxed);
         s.ready.store(false, std::memory_order_release);
     }
     {

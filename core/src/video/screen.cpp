@@ -227,8 +227,10 @@ void ScreenReceiver::add_audio_peer(const std::string& peer_id)
 
     std::scoped_lock lk(audio_mutex_);
     if (!audio_receivers_.count(peer_id)) {
-        audio_receivers_[peer_id] = std::make_shared<AudioReceiver>(
+        auto recv = std::make_shared<AudioReceiver>(
             std::move(clock), SystemAudioCapture::kChannels);
+        recv->set_wait_for_video(true);
+        audio_receivers_[peer_id] = std::move(recv);
     }
 }
 
@@ -351,6 +353,11 @@ AudioReceiver::Stats ScreenReceiver::audio_stats() const
         agg.resync_count += s.resync_count;
         agg.target_delay_ms = std::max(agg.target_delay_ms, s.target_delay_ms);
         agg.actual_delay_ms = std::max(agg.actual_delay_ms, s.actual_delay_ms);
+        agg.p50_delay_ms = std::max(agg.p50_delay_ms, s.p50_delay_ms);
+        agg.p95_delay_ms = std::max(agg.p95_delay_ms, s.p95_delay_ms);
+        agg.p99_delay_ms = std::max(agg.p99_delay_ms, s.p99_delay_ms);
+        agg.delay_samples += s.delay_samples;
+        agg.playout_ts_us = std::max(agg.playout_ts_us, s.playout_ts_us);
     }
     return agg;
 }

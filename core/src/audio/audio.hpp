@@ -124,6 +124,9 @@ public:
     void set_pan(float p) { pan_.store(std::clamp(p, 0.0f, 1.0f)); }
     float pan() const { return pan_.load(); }
 
+    void set_wait_for_video(bool wait) { wait_for_video_.store(wait); }
+    bool wait_for_video() const { return wait_for_video_.load(); }
+
     const std::shared_ptr<avsync::MediaClock>& clock() const { return clock_; }
 
     void reset();
@@ -140,6 +143,10 @@ public:
         uint64_t resync_count = 0; // playout position re-established
         int64_t target_delay_ms = 0;
         int64_t actual_delay_ms = 0;
+        int64_t p50_delay_ms = -1;
+        int64_t p95_delay_ms = -1;
+        int64_t p99_delay_ms = -1;
+        uint64_t delay_samples = 0;
         // Sender timestamp of the audio about to be played. Directly
         // comparable with a video frame's sender_ts_us from the same peer,
         // which is what makes A/V alignment measurable rather than assumed.
@@ -179,10 +186,11 @@ private:
     bool playout_step();
     // Decodes (or conceals) the packet at the cursor into `dst`, advancing
     // the read cursor by exactly one frame.
-    bool decode_into(std::vector<float>& dst);
+    bool decode_into(std::vector<float>& dst, int64_t* sender_ts_us = nullptr);
     // True when the packet at the read cursor has actually arrived, as opposed
     // to being missing and about to be concealed.
     bool next_packet_ready() const;
+    bool blocked_by_video(int64_t sender_ts_us) const;
     void refill_stretch_budget(int64_t now);
 
     std::shared_ptr<avsync::MediaClock> clock_;
@@ -216,6 +224,7 @@ private:
     std::vector<float> held_;
     std::vector<float> pending_;
     bool have_held_ = false;
+    int64_t held_ts_us_ = 0;
     std::vector<float> stage_; // held_ + pending_, the search window
     std::vector<float> scratch_; // WSOLA output
 
@@ -227,6 +236,7 @@ private:
 
     std::atomic<float> volume_ { 1.0f };
     std::atomic<bool> muted_ { false };
+    std::atomic<bool> wait_for_video_ { false };
     std::atomic<float> pan_ { 0.5f };
 
     uint64_t id_ = 0;

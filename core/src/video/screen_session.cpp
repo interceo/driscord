@@ -1,5 +1,7 @@
 #include "screen_session.hpp"
 
+#include "utils/log.hpp"
+
 #include <chrono>
 #include <unordered_set>
 
@@ -10,6 +12,16 @@ namespace {
 // The UI reads these; refreshing them at the render rate would lock the
 // receiver maps 60 times a second for numbers nobody can read that fast.
 constexpr auto kStatsRefreshInterval = std::chrono::milliseconds(500);
+constexpr auto kStatsLogInterval = std::chrono::seconds(1);
+
+int64_t av_skew_ms(const VideoReceiver::Stats& vs,
+    const AudioReceiver::Stats& as)
+{
+    if (vs.last_shown_ts_us == 0 || as.playout_ts_us == 0) {
+        return 0;
+    }
+    return (as.playout_ts_us - vs.last_shown_ts_us) / 1000;
+}
 
 } // namespace
 
@@ -65,6 +77,48 @@ void ScreenSession::update()
         cached_video_stats_ = receiver_.video_stats();
         cached_audio_stats_ = receiver_.audio_stats();
         last_stats_refresh_ = now;
+    }
+    if (now - last_stats_log_ >= kStatsLogInterval) {
+        const nlohmann::json log = {
+            { "event", "stream_stats" },
+            { "activePeer", receiver_.active_peer() },
+            { "width", last_w_ },
+            { "height", last_h_ },
+            { "measuredKbps", cached_video_stats_.measured_kbps },
+            { "avSkewMs", av_skew_ms(cached_video_stats_, cached_audio_stats_) },
+            { "video",
+                { { "queue", cached_video_stats_.queue_size },
+                    { "drops", cached_video_stats_.drop_count },
+                    { "late", cached_video_stats_.late_count },
+                    { "targetDelayMs", cached_video_stats_.target_delay_ms },
+                    { "p50DelayMs", cached_video_stats_.p50_delay_ms },
+                    { "p95DelayMs", cached_video_stats_.p95_delay_ms },
+                    { "p99DelayMs", cached_video_stats_.p99_delay_ms },
+                    { "delaySamples", cached_video_stats_.delay_samples },
+                    { "lastShownTsUs", cached_video_stats_.last_shown_ts_us },
+                    { "packetsReceived", cached_video_stats_.packets_received },
+                    { "decodeFailures", cached_video_stats_.decode_failures },
+                    { "keyframeRequests", cached_video_stats_.keyframe_requests } } },
+            { "audio",
+                { { "queue", cached_audio_stats_.queue_size },
+                    { "drops", cached_audio_stats_.drop_count },
+                    { "conceals", cached_audio_stats_.conceal_count },
+                    { "fecRecovered", cached_audio_stats_.fec_count },
+                    { "underruns", cached_audio_stats_.underrun_count },
+                    { "stretches", cached_audio_stats_.stretch_count },
+                    { "resyncs", cached_audio_stats_.resync_count },
+                    { "targetDelayMs", cached_audio_stats_.target_delay_ms },
+                    { "actualDelayMs", cached_audio_stats_.actual_delay_ms },
+                    { "p50DelayMs", cached_audio_stats_.p50_delay_ms },
+                    { "p95DelayMs", cached_audio_stats_.p95_delay_ms },
+                    { "p99DelayMs", cached_audio_stats_.p99_delay_ms },
+                    { "delaySamples", cached_audio_stats_.delay_samples },
+                    { "playoutTsUs", cached_audio_stats_.playout_ts_us },
+                    { "packetsReceived", cached_audio_stats_.packets_received },
+                    { "decodeErrors", cached_audio_stats_.decode_errors } } },
+        };
+        LOG_INFO() << "stream_stats " << log.dump();
+        last_stats_log_ = now;
     }
 
     std::unordered_set<std::string> seen_this_tick;
@@ -129,11 +183,17 @@ std::string ScreenSession::stats_json() const
         { "width", last_w_ },
         { "height", last_h_ },
         { "measuredKbps", vs.measured_kbps },
+        { "avSkewMs", av_skew_ms(vs, as) },
         { "video",
             { { "queue", vs.queue_size },
                 { "drops", vs.drop_count },
                 { "late", vs.late_count },
                 { "targetDelayMs", vs.target_delay_ms },
+                { "p50DelayMs", vs.p50_delay_ms },
+                { "p95DelayMs", vs.p95_delay_ms },
+                { "p99DelayMs", vs.p99_delay_ms },
+                { "delaySamples", vs.delay_samples },
+                { "lastShownTsUs", vs.last_shown_ts_us },
                 { "packetsReceived", vs.packets_received },
                 { "decodeFailures", vs.decode_failures },
                 { "keyframeRequests", vs.keyframe_requests } } },
@@ -146,6 +206,10 @@ std::string ScreenSession::stats_json() const
                 { "stretches", as.stretch_count },
                 { "targetDelayMs", as.target_delay_ms },
                 { "actualDelayMs", as.actual_delay_ms },
+                { "p50DelayMs", as.p50_delay_ms },
+                { "p95DelayMs", as.p95_delay_ms },
+                { "p99DelayMs", as.p99_delay_ms },
+                { "delaySamples", as.delay_samples },
                 { "packetsReceived", as.packets_received },
                 { "decodeErrors", as.decode_errors } } },
     };

@@ -306,6 +306,8 @@ void VideoReceiver::update(const std::function<void(const Frame&)>& on_frame)
             recycle_locked(std::move(current_frame_.rgba));
             current_frame_ = buffer_.take(*newest_due);
             buffer_.advance_base_to(*newest_due + 1);
+            clock_->set_stream_playout_ts(avsync::MediaClock::Stream::Video,
+                current_frame_.sender_ts_us);
         }
     }
 
@@ -317,10 +319,18 @@ void VideoReceiver::update(const std::function<void(const Frame&)>& on_frame)
 VideoReceiver::Stats VideoReceiver::video_stats() const
 {
     size_t queued = 0;
+    int64_t last_shown_ts_us = 0;
     {
         std::scoped_lock lk(mutex_);
         queued = buffer_.size();
+        last_shown_ts_us = current_frame_.sender_ts_us;
     }
+    const auto p50 = clock_->stream_delay_percentile_us(
+        avsync::MediaClock::Stream::Video, 50);
+    const auto p95 = clock_->stream_delay_percentile_us(
+        avsync::MediaClock::Stream::Video, 95);
+    const auto p99 = clock_->stream_delay_percentile_us(
+        avsync::MediaClock::Stream::Video, 99);
     return {
         .queue_size = queued,
         .drop_count = drop_count_.load(),
@@ -330,6 +340,12 @@ VideoReceiver::Stats VideoReceiver::video_stats() const
         .keyframe_requests = keyframe_requests_.load(),
         .measured_kbps = measured_kbps_.load(std::memory_order_relaxed),
         .target_delay_ms = clock_->target_delay_us() / 1000,
+        .p50_delay_ms = p50 >= 0 ? p50 / 1000 : -1,
+        .p95_delay_ms = p95 >= 0 ? p95 / 1000 : -1,
+        .p99_delay_ms = p99 >= 0 ? p99 / 1000 : -1,
+        .delay_samples = clock_->stream_sample_count(
+            avsync::MediaClock::Stream::Video),
+        .last_shown_ts_us = last_shown_ts_us,
     };
 }
 

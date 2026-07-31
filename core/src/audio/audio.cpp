@@ -276,6 +276,7 @@ size_t AudioReceiver::read(float* out, const size_t frames)
         stage_.clear();
         primed_ = false;
         have_held_ = false;
+        held_ts_us_ = 0;
         consecutive_conceals_ = 0;
         pending_decoder_reset_ = false;
     }
@@ -315,6 +316,10 @@ bool AudioReceiver::playout_step()
         if (!clock_->ready()) {
             return false;
         }
+        if (wait_for_video_.load(std::memory_order_relaxed)
+            && !clock_->stream_ready(avsync::MediaClock::Stream::Video)) {
+            return false;
+        }
 
         std::scoped_lock lk(buffer_lock_);
         auto first = buffer_.next_present();
@@ -341,6 +346,9 @@ bool AudioReceiver::playout_step()
         }
 
         const Packet* p = buffer_.peek(*first);
+        if (blocked_by_video(p->sender_ts_us)) {
+            return false;
+        }
         buffer_.advance_base_to(*first);
         next_ts_us_ = p->sender_ts_us;
         primed_ = true;
@@ -356,8 +364,13 @@ bool AudioReceiver::playout_step()
     // from this peer measure against the same clock, which is what keeps them
     // together, and the sound card's rate is never exactly the sender's, so
     // this correction runs for the whole call rather than just at startup.
-    const int64_t lead = clock_->deadline_us(next_ts_us_) - now;
+    const int64_t emit_ts_us = have_held_ ? held_ts_us_ : next_ts_us_;
+    const int64_t lead = clock_->deadline_us(emit_ts_us) - now;
     actual_delay_us_ = clock_->target_delay_us() - lead;
+
+    if (blocked_by_video(emit_ts_us)) {
+        return false;
+    }
 
     if (clock_->ready() && std::llabs(lead) > sync_defaults::kResyncThresholdUs)
         [[unlikely]] {
@@ -378,7 +391,7 @@ bool AudioReceiver::playout_step()
     // outrunning arrivals — pulling a second packet to feed the search would
     // punch a hole in a stream that was never lossy.
     if (!have_held_) {
-        if (!decode_into(held_)) {
+        if (!decode_into(held_, &held_ts_us_)) {
             return false;
         }
         have_held_ = true;
@@ -397,7 +410,8 @@ bool AudioReceiver::playout_step()
     // one packet in, one frame out.
     bool corrected = false;
     if ((compress || expand) && next_packet_ready()) {
-        if (decode_into(pending_)) {
+        int64_t pending_ts_us = 0;
+        if (decode_into(pending_, &pending_ts_us)) {
             stage_.assign(held_.begin(), held_.end());
             stage_.insert(stage_.end(), pending_.begin(), pending_.end());
 
@@ -414,16 +428,22 @@ bool AudioReceiver::playout_step()
                                           - static_cast<int64_t>(held_.size()))
                     * -1'000'000 / sample_rate_;
                 stretch_count_.inc();
+                clock_->set_stream_playout_ts(
+                    avsync::MediaClock::Stream::Audio, held_ts_us_);
                 ring_.write(scratch_.data(), emitted);
                 corrected = true;
             }
             held_.swap(pending_); // keep the look-ahead frame for the next step
+            held_ts_us_ = pending_ts_us;
         }
     }
 
     if (!corrected) {
+        clock_->set_stream_playout_ts(
+            avsync::MediaClock::Stream::Audio, held_ts_us_);
         ring_.write(held_.data(), held_.size());
         have_held_ = false;
+        held_ts_us_ = 0;
     }
     return true;
 }
@@ -434,7 +454,20 @@ bool AudioReceiver::next_packet_ready() const
     return buffer_.contains(buffer_.base_seq());
 }
 
-bool AudioReceiver::decode_into(std::vector<float>& dst)
+bool AudioReceiver::blocked_by_video(const int64_t sender_ts_us) const
+{
+    if (!wait_for_video_.load(std::memory_order_relaxed)) {
+        return false;
+    }
+    const int64_t video_ts = clock_->stream_playout_ts(
+        avsync::MediaClock::Stream::Video);
+    if (video_ts <= 0) {
+        return true;
+    }
+    return sender_ts_us - video_ts > sync_defaults::kMaxScreenAudioLeadUs;
+}
+
+bool AudioReceiver::decode_into(std::vector<float>& dst, int64_t* sender_ts_us)
 {
     // Everything that touches the shared buffer happens here, and the packet
     // bytes are copied out rather than decoded in place: holding the lock
@@ -446,6 +479,7 @@ bool AudioReceiver::decode_into(std::vector<float>& dst)
         Stop };
     Action action = Action::Stop;
     uint16_t len = 0;
+    int64_t frame_ts_us = 0;
 
     {
         std::scoped_lock lk(buffer_lock_);
@@ -455,10 +489,12 @@ bool AudioReceiver::decode_into(std::vector<float>& dst)
             action = Action::Decode;
             len = pkt->len;
             std::memcpy(codec_in_.data(), pkt->data.data(), len);
+            frame_ts_us = pkt->sender_ts_us;
             next_ts_us_ = pkt->sender_ts_us;
             buffer_.advance_base_to(seq + 1);
         } else {
             const auto next = buffer_.next_present();
+            frame_ts_us = next_ts_us_;
 
             // A talkspurt boundary is deliberate silence, not loss. Concealing
             // across it would paint Opus's idea of speech over a pause the
@@ -492,6 +528,10 @@ bool AudioReceiver::decode_into(std::vector<float>& dst)
             buffer_.advance_base_to(seq + 1);
             next_ts_us_ += frame_duration_us_;
         }
+    }
+
+    if (sender_ts_us) {
+        *sender_ts_us = frame_ts_us;
     }
 
     if (pending_decoder_reset_) {
@@ -587,6 +627,12 @@ AudioReceiver::Stats AudioReceiver::stats() const
         std::scoped_lock lk(buffer_lock_);
         queued = buffer_.size();
     }
+    const auto p50 = clock_->stream_delay_percentile_us(
+        avsync::MediaClock::Stream::Audio, 50);
+    const auto p95 = clock_->stream_delay_percentile_us(
+        avsync::MediaClock::Stream::Audio, 95);
+    const auto p99 = clock_->stream_delay_percentile_us(
+        avsync::MediaClock::Stream::Audio, 99);
     return {
         .queue_size = queued,
         .packets_received = packets_received_.load(),
@@ -599,6 +645,12 @@ AudioReceiver::Stats AudioReceiver::stats() const
         .resync_count = resync_count_.load(),
         .target_delay_ms = clock_->target_delay_us() / 1000,
         .actual_delay_ms = actual_delay_us_ / 1000,
-        .playout_ts_us = next_ts_us_,
+        .p50_delay_ms = p50 >= 0 ? p50 / 1000 : -1,
+        .p95_delay_ms = p95 >= 0 ? p95 / 1000 : -1,
+        .p99_delay_ms = p99 >= 0 ? p99 / 1000 : -1,
+        .delay_samples = clock_->stream_sample_count(
+            avsync::MediaClock::Stream::Audio),
+        .playout_ts_us = clock_->stream_playout_ts(
+            avsync::MediaClock::Stream::Audio),
     };
 }

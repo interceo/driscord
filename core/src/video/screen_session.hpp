@@ -106,6 +106,7 @@ private:
 
     using Clock = std::chrono::steady_clock;
     Clock::time_point last_stats_refresh_ { };
+    Clock::time_point last_stats_log_ { };
     VideoReceiver::Stats cached_video_stats_ { };
     AudioReceiver::Stats cached_audio_stats_ { };
 

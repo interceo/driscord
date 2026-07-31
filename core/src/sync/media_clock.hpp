@@ -61,6 +61,12 @@ public:
         return offset_us_.load(std::memory_order_relaxed);
     }
 
+    int64_t stream_delay_percentile_us(Stream stream, int percent) const noexcept;
+    uint64_t stream_sample_count(Stream stream) const noexcept;
+    bool stream_ready(Stream stream) const noexcept;
+    void set_stream_playout_ts(Stream stream, int64_t sender_ts_us) noexcept;
+    int64_t stream_playout_ts(Stream stream) const noexcept;
+
     bool ready() const noexcept
     {
         return ready_.load(std::memory_order_relaxed);
@@ -87,6 +93,11 @@ private:
         // Published for the recompute step, which any producer may run.
         std::atomic<int64_t> min_owd_us { 0 };
         std::atomic<int64_t> variation_us { -1 };
+        std::atomic<int64_t> p50_variation_us { -1 };
+        std::atomic<int64_t> p95_variation_us { -1 };
+        std::atomic<int64_t> p99_variation_us { -1 };
+        std::atomic<uint64_t> sample_count { 0 };
+        std::atomic<int64_t> playout_ts_us { 0 };
         std::atomic<bool> ready { false };
     };
 
