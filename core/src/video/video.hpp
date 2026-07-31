@@ -1,8 +1,9 @@
 #pragma once
 
 #include "capture/screen_capture.hpp"
-#include "utils/jitter.hpp"
+#include "sync/media_clock.hpp"
 #include "utils/metrics.hpp"
+#include "utils/reorder_buffer.hpp"
 #include "video_codec.hpp"
 
 #include <atomic>
@@ -28,7 +29,9 @@ public:
     bool start(const size_t fps, const size_t base_bitrate_kbps, SendCb on_video);
     void stop();
 
-    void push_frame(ScreenCapture::Frame&& frame);
+    // Takes the frame's contents by swap, leaving its previous buffer with the
+    // caller to reuse.
+    void push_frame(ScreenCapture::Frame& frame);
 
     bool sharing() const noexcept { return sharing_; }
     void force_keyframe() { video_encoder_.force_keyframe(); }
@@ -58,8 +61,13 @@ private:
     SendCb on_video_;
 };
 
-// Single-peer video receiver: one H.264 decoder, one jitter buffer.
+// Single-peer video receiver: one H.264 decoder, one reordering buffer.
 // Per-peer lifecycle (creation, routing) is managed by ScreenReceiver.
+//
+// Frames are shown when the shared MediaClock says they are due, which is the
+// same rule the peer's audio plays by. That is the whole of the A/V
+// synchronisation: there is no drift to detect and no stream to fast-forward,
+// because neither side was ever free to run on its own schedule.
 class VideoReceiver {
 public:
     struct Frame {
@@ -67,26 +75,23 @@ public:
         int width = 0;
         int height = 0;
         std::string peer_id;
-        utils::WallTimestamp sender_ts { };
-        utils::Duration frame_duration { };
+        int64_t sender_ts_us = 0;
 
         bool empty() const noexcept { return rgba.empty(); }
     };
 
-    using VideoJitter = utils::Jitter<Frame>;
-
     struct Stats {
-        bool primed = false;
         size_t queue_size = 0;
         uint64_t drop_count = 0;
-        uint64_t miss_count = 0;
+        uint64_t late_count = 0; // frames superseded before they were shown
         uint64_t packets_received = 0;
         uint64_t decode_failures = 0;
         uint64_t keyframe_requests = 0;
         int measured_kbps = 0;
+        int64_t target_delay_ms = 0;
     };
 
-    VideoReceiver(std::string peer_id, int buffer_ms);
+    VideoReceiver(std::string peer_id, std::shared_ptr<avsync::MediaClock> clock);
     ~VideoReceiver();
 
     VideoReceiver(const VideoReceiver&) = delete;
@@ -95,8 +100,9 @@ public:
     void push_video_packet(utils::vector_view<const uint8_t> data,
         uint64_t frame_id);
 
-    // Drains jitter, calls on_frame if a current frame is available.
-    void update(std::function<void(const Frame&)> on_frame);
+    // Shows the newest frame that is due, discarding any older ones still
+    // queued behind it — for a display, only the latest picture matters.
+    void update(const std::function<void(const Frame&)>& on_frame);
 
     void set_keyframe_callback(std::function<void()> fn);
 
@@ -108,29 +114,32 @@ public:
 
     Stats video_stats() const;
 
-    size_t evict_old(utils::Duration max_delay);
-    size_t evict_before_sender_ts(utils::WallTimestamp cutoff);
-    std::optional<utils::WallTimestamp> front_effective_ts() const;
-
-    // Median one-way-delay + clock-skew estimate (ms). Returns -1 until enough
-    // samples are available.
-    int64_t median_ow_delay_ms() const;
-    utils::Duration front_frame_duration() const;
-    bool primed() const;
-
     void reset();
 
 private:
+    // ~1 s of reordering room at 60 fps. Video frames are large, so this is
+    // sized for reordering, not for buffering delay.
+    static constexpr size_t kBufferCapacity = 64;
+    static constexpr size_t kMaxSpareBuffers = 4;
+
+    // Frame buffers are recycled rather than reallocated; at 1080p60 that is
+    // 8 MB of allocation and free per frame otherwise.
+    std::vector<uint8_t> take_spare();
+    void recycle(std::vector<uint8_t>&& buf);
+    void recycle_locked(std::vector<uint8_t>&& buf); // caller holds mutex_
+
     std::string peer_id_;
+    std::shared_ptr<avsync::MediaClock> clock_;
     std::function<void()> on_keyframe_needed_;
-    utils::Duration buffer_delay_;
 
     VideoDecoder decoder_;
     std::optional<VideoCodec> decoder_codec_; // nullopt = not yet initialised
-    VideoJitter jitter_;
-    VideoJitter::Ptr current_frame_;
 
     mutable std::mutex mutex_;
+    utils::ReorderBuffer<Frame, kBufferCapacity> buffer_;
+    Frame current_frame_;
+    std::vector<std::vector<uint8_t>> spare_;
+
     utils::Timestamp last_packet_ { };
     int decode_failures_ = 0;
     utils::Timestamp last_keyframe_req_ { };
@@ -142,7 +151,7 @@ private:
 
     utils::Counter packets_received_;
     utils::Counter drop_count_;
-    utils::Counter miss_count_;
+    utils::Counter late_count_;
     utils::Counter total_decode_failures_;
     utils::Counter keyframe_requests_;
 };

@@ -65,6 +65,14 @@ qt_add_resources(driscord_client "icons"
 
 target_include_directories(driscord_client PRIVATE src)
 
+# The core library has been built with these all along; the client was the one
+# place in the tree compiling with no warnings at all.
+if(MSVC)
+    target_compile_options(driscord_client PRIVATE /W4)
+else()
+    target_compile_options(driscord_client PRIVATE -Wall -Wextra)
+endif()
+
 target_link_libraries(driscord_client PRIVATE
     driscord_core
     Qt6::Quick

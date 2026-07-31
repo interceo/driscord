@@ -13,8 +13,7 @@
 
 static void BM_AudioHeader_Serialize(benchmark::State& state)
 {
-    protocol::AudioHeader h { .seq = 12345,
-        .sender_ts = utils::WallFromMs(9999999) };
+    protocol::AudioHeader h { .seq = 12345, .flags = 0, .sender_ts_us = 9999999 };
     uint8_t buf[protocol::AudioHeader::kWireSize] { };
 
     for (auto _ : state) {
@@ -26,8 +25,7 @@ BENCHMARK(BM_AudioHeader_Serialize);
 
 static void BM_AudioHeader_Deserialize(benchmark::State& state)
 {
-    protocol::AudioHeader h { .seq = 12345,
-        .sender_ts = utils::WallFromMs(9999999) };
+    protocol::AudioHeader h { .seq = 12345, .flags = 0, .sender_ts_us = 9999999 };
     uint8_t buf[protocol::AudioHeader::kWireSize] { };
     h.serialize(buf);
 
@@ -43,10 +41,10 @@ static void BM_VideoHeader_Serialize(benchmark::State& state)
     protocol::VideoHeader h {
         .width = 1920,
         .height = 1080,
-        .sender_ts = utils::WallFromMs(9999999),
+        .sender_ts_us = 9999999,
         .bitrate_kbps = 6000,
         .frame_duration_us = 16667,
-        .gop_size = 60,
+        .flags = 0,
     };
     uint8_t buf[protocol::VideoHeader::kWireSize] { };
 
@@ -62,10 +60,10 @@ static void BM_VideoHeader_Deserialize(benchmark::State& state)
     protocol::VideoHeader h {
         .width = 1920,
         .height = 1080,
-        .sender_ts = utils::WallFromMs(9999999),
+        .sender_ts_us = 9999999,
         .bitrate_kbps = 6000,
         .frame_duration_us = 16667,
-        .gop_size = 60,
+        .flags = 0,
     };
     uint8_t buf[protocol::VideoHeader::kWireSize] { };
     h.serialize(buf);

@@ -23,10 +23,19 @@ set(BENCH_CORE_INCLUDE_DIRS
     ${CMAKE_SOURCE_DIR}/core/src/utils
 )
 
-# bench_jitter
-add_executable(bench_jitter bench_jitter.cpp)
-target_include_directories(bench_jitter PRIVATE ${BENCH_INCLUDE_DIRS})
-target_link_libraries(bench_jitter PRIVATE benchmark::benchmark_main)
+if(MSVC)
+    set(BENCH_WARNING_FLAGS /W4)
+else()
+    set(BENCH_WARNING_FLAGS -Wall -Wextra -Wpedantic)
+endif()
+
+# bench_playout — reorder buffer, delay estimation, playout clock, WSOLA
+add_executable(bench_playout
+    bench_playout.cpp
+    ${CMAKE_SOURCE_DIR}/core/src/sync/media_clock.cpp
+    ${CMAKE_SOURCE_DIR}/core/src/audio/wsola.cpp)
+target_include_directories(bench_playout PRIVATE ${BENCH_INCLUDE_DIRS})
+target_link_libraries(bench_playout PRIVATE benchmark::benchmark_main)
 
 # bench_protocol
 add_executable(bench_protocol bench_protocol.cpp)
@@ -42,3 +51,7 @@ target_link_libraries(bench_video_codec PRIVATE benchmark::benchmark_main drisco
 add_executable(bench_net_conditions bench_net_conditions.cpp)
 target_include_directories(bench_net_conditions PRIVATE ${BENCH_INCLUDE_DIRS})
 target_link_libraries(bench_net_conditions PRIVATE benchmark::benchmark_main)
+
+foreach(bench bench_playout bench_protocol bench_video_codec bench_net_conditions)
+    target_compile_options(${bench} PRIVATE ${BENCH_WARNING_FLAGS})
+endforeach()

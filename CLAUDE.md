@@ -61,9 +61,11 @@ Python/FastAPI backend with PostgreSQL (asyncpg + SQLAlchemy). Provides user aut
 ### 3. C++ Core Library (`core/src/`, built as `driscord_core` static lib)
 The core has two parallel transport systems:
 
-**Audio pipeline**: `audio_sender` → mic capture (miniaudio) → Opus encode (48kHz/mono) → DataChannel → `audio_receiver` → jitter buffer → decode → `audio_mixer` → playback
+**Audio pipeline**: `audio_sender` → mic capture (miniaudio) → Opus encode (48kHz/mono) → DataChannel → `audio_receiver` → reorder buffer → decode (PLC/FEC on gaps) → WSOLA → PCM ring → `audio_mixer` → playback
 
-**Video pipeline**: `video_sender` → screen capture (platform-specific) → H.264/H.265 encode (FFmpeg) → chunk (max 60KB each, see `ChunkHeader`) → DataChannel → `video_receiver` → reassemble → decode → OpenGL texture
+**Video pipeline**: `video_sender` → screen capture (platform-specific) → H.264/H.265 encode (FFmpeg) → chunk (1100 B payload each, see `ChunkHeader`) → DataChannel → `video_receiver` → reassemble → decode → OpenGL texture
+
+**A/V synchronisation** (`core/src/sync/`): both pipelines stamp packets from one monotonic `utils::MonoClock` per sending process. On the receiving side a `MediaClock` per peer turns those timestamps into playout deadlines — `sender_ts + offset + target_delay` — shared by that peer's audio and video, so the two cannot drift apart. `ScreenReceiver` owns the clock for a screen share (video + its system audio); voice gets its own, which stays at low latency because no video is waiting on it.
 
 **Transport layer** (`transport.cpp`): manages the WebSocket signaling connection and all WebRTC peer connections. Each peer gets multiple DataChannels (audio, video, control, optionally system audio).
 
@@ -72,9 +74,14 @@ Qt6 / QML application. Links `driscord_core` directly as a C++ library. Enabled 
 
 ### Wire Protocol (`core/src/utils/protocol.hpp`)
 Custom binary headers prepended to all media packets:
-- `AudioHeader`: 16 bytes (seq + sender timestamp) + Opus payload
-- `VideoHeader`: 24 bytes (width, height, timestamp, bitrate, frame duration)
-- `ChunkHeader`: 6 bytes (frame_id, chunk_idx, total_chunks) + payload
+- `AudioHeader`: 16 bytes (u32 seq, u32 flags, i64 sender_ts_us) + Opus payload
+- `VideoHeader`: 32 bytes (width, height, sender_ts_us, bitrate, frame duration, flags, codec)
+- `ChunkHeader`: 12 bytes (frame_id, chunk_idx, total_chunks) + payload
+
+`sender_ts_us` is microseconds on the sender's `utils::MonoClock`, shared by both
+media headers — that shared timeline is what A/V sync is built on. `flags` carries
+`kTalkspurtStart` for audio (silence the sender chose, as opposed to loss) and
+`kKeyframe` for video.
 
 ### Platform Abstraction
 - Audio I/O: miniaudio (single header, all platforms)
@@ -85,7 +92,7 @@ Custom binary headers prepended to all media packets:
 `core/src/utils/log.hpp` — thread-safe, millisecond timestamps. Use macros: `LOG_INFO()`, `LOG_WARNING()`, `LOG_ERROR()`.
 
 ### Key Config
-`core/src/config.hpp` defines `Config` struct. `config.json` provides runtime values. `core/src/stream_defs.hpp` defines FPS and quality preset enums.
+`core/src/config.hpp` holds `stream_defaults` (bitrates, buffer sizes) and `sync_defaults` (playout delay bounds, time-stretch limits). `config.json` provides runtime values; the Qt client parses it in `client-qt/src/app/AppConfig.*`.
 
 ## Dependencies
 All C++ deps except FFmpeg, Qt, and system libs are fetched at configure time via CMake FetchContent:

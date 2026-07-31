@@ -9,8 +9,8 @@
 static QString findConfigFile()
 {
     // 1. CWD — user-editable, survives app updates (mirrors Kotlin configCandidates)
-    for (const QString& name : { "config.json", "driscord.json" }) {
-        QString p = QDir::currentPath() + "/" + name;
+    for (const auto* name : { "config.json", "driscord.json" }) {
+        QString p = QDir::currentPath() + "/" + QLatin1String(name);
         if (QFile::exists(p)) {
             qDebug().noquote() << "[config] loaded from" << p;
             return p;

@@ -1,6 +1,5 @@
 #pragma once
 
-#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -41,7 +40,7 @@ public:
         std::vector<uint8_t> data; // BGRA pixel data
         int width = 0;
         int height = 0;
-        std::chrono::system_clock::time_point capture_ts { };
+        int64_t capture_ts_us = 0; // utils::SenderClock timeline, 0 = unset
 
         // Returns pixel data with B and R channels swapped (RGBA).
         std::vector<uint8_t> to_rgba() const
@@ -54,7 +53,12 @@ public:
         }
     };
 
-    using FrameCallback = std::function<void(Frame frame)>;
+    // The frame is lent, not given: the callback takes what it needs (by
+    // swapping, in the sender's case) and leaves the buffer behind for the
+    // capture loop to fill again. A full-screen frame is megabytes, and
+    // handing over a fresh one every tick was the single largest source of
+    // allocator churn in the app.
+    using FrameCallback = std::function<void(Frame& frame)>;
 
     static std::unique_ptr<ScreenCapture> create();
     static std::vector<ScreenCaptureTarget> list_targets();

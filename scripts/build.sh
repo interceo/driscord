@@ -213,11 +213,11 @@ if [ "$ACTION" = "bench" ]; then
         -DBUILD_BENCHMARKS=ON -DBUILD_CORE=ON -DBUILD_SERVER=OFF
     echo "==> Building benchmarks ($JOBS jobs)..."
     cmake --build "$LINUX_BUILD" \
-        --target bench_jitter bench_protocol bench_video_codec bench_net_conditions \
+        --target bench_playout bench_protocol bench_video_codec bench_net_conditions \
         -j"$JOBS"
     echo ""
-    echo "=== bench_jitter ==="
-    DRISCORD_LOG_LEVEL=none "$LINUX_BUILD/core/benchmarks/bench_jitter"
+    echo "=== bench_playout ==="
+    DRISCORD_LOG_LEVEL=none "$LINUX_BUILD/core/benchmarks/bench_playout"
     echo ""
     echo "=== bench_protocol ==="
     DRISCORD_LOG_LEVEL=none "$LINUX_BUILD/core/benchmarks/bench_protocol"

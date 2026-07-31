@@ -144,6 +144,8 @@ add_library(driscord_core STATIC
     src/video_transport.cpp
     src/video/video_codec.cpp
     src/audio/opus_codec.cpp
+    src/audio/wsola.cpp
+    src/sync/media_clock.cpp
     src/utils/enum_strings.cpp
     src/utils/ma_device.cpp
     ${CAPTURE_SOURCES}

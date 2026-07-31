@@ -13,14 +13,16 @@ TEST(AudioHeader, Roundtrip)
 {
     protocol::AudioHeader src;
     src.seq = 42;
-    src.sender_ts = utils::WallFromMs(123456789);
+    src.flags = protocol::flags::kTalkspurtStart;
+    src.sender_ts_us = 123456789;
 
     uint8_t buf[protocol::AudioHeader::kWireSize] { };
     src.serialize(buf);
 
     auto dst = protocol::AudioHeader::deserialize(buf);
     EXPECT_EQ(dst.seq, 42u);
-    EXPECT_EQ(utils::WallToMs(dst.sender_ts), 123456789u);
+    EXPECT_EQ(dst.flags, protocol::flags::kTalkspurtStart);
+    EXPECT_EQ(dst.sender_ts_us, 123456789);
 }
 
 TEST(AudioHeader, WireSize)
@@ -36,21 +38,38 @@ TEST(AudioHeader, ZeroValues)
 
     auto dst = protocol::AudioHeader::deserialize(buf);
     EXPECT_EQ(dst.seq, 0u);
-    EXPECT_EQ(utils::WallToMs(dst.sender_ts), 0u);
+    EXPECT_EQ(dst.flags, 0u);
+    EXPECT_EQ(dst.sender_ts_us, 0);
 }
 
 TEST(AudioHeader, MaxSeq)
 {
     protocol::AudioHeader src;
-    src.seq = UINT64_MAX;
-    src.sender_ts = utils::WallFromMs(0);
+    src.seq = UINT32_MAX;
+    src.sender_ts_us = 0;
 
     uint8_t buf[protocol::AudioHeader::kWireSize] { };
     src.serialize(buf);
 
     auto dst = protocol::AudioHeader::deserialize(buf);
-    EXPECT_EQ(dst.seq, UINT64_MAX);
-    EXPECT_EQ(dst.sender_ts, utils::WallFromMs(0));
+    EXPECT_EQ(dst.seq, UINT32_MAX);
+    EXPECT_EQ(dst.sender_ts_us, 0);
+}
+
+// The sender clock starts at zero each process, so a receiver that boots
+// mid-call sees timestamps far above its own elapsed time; nothing may assume
+// the value is small or non-negative-bounded.
+TEST(AudioHeader, LargeSenderTimestamp)
+{
+    protocol::AudioHeader src;
+    src.seq = 1;
+    src.sender_ts_us = 9'000'000'000'000LL; // ~104 days
+
+    uint8_t buf[protocol::AudioHeader::kWireSize] { };
+    src.serialize(buf);
+
+    EXPECT_EQ(protocol::AudioHeader::deserialize(buf).sender_ts_us,
+        9'000'000'000'000LL);
 }
 
 // ---- VideoHeader ----
@@ -60,10 +79,10 @@ TEST(VideoHeader, Roundtrip)
     protocol::VideoHeader src;
     src.width = 1920;
     src.height = 1080;
-    src.sender_ts = utils::WallFromMs(9999999);
+    src.sender_ts_us = 9999999;
     src.bitrate_kbps = 6000;
     src.frame_duration_us = 16667;
-    src.gop_size = 60;
+    src.flags = protocol::flags::kKeyframe;
     src.codec = protocol::VideoCodec::H264;
 
     uint8_t buf[protocol::VideoHeader::kWireSize] { };
@@ -72,10 +91,10 @@ TEST(VideoHeader, Roundtrip)
     auto dst = protocol::VideoHeader::deserialize(buf);
     EXPECT_EQ(dst.width, 1920u);
     EXPECT_EQ(dst.height, 1080u);
-    EXPECT_EQ(utils::WallToMs(dst.sender_ts), 9999999u);
+    EXPECT_EQ(dst.sender_ts_us, 9999999);
     EXPECT_EQ(dst.bitrate_kbps, 6000u);
     EXPECT_EQ(dst.frame_duration_us, 16667u);
-    EXPECT_EQ(dst.gop_size, 60u);
+    EXPECT_EQ(dst.flags, protocol::flags::kKeyframe);
     EXPECT_EQ(dst.codec, protocol::VideoCodec::H264);
 }
 
@@ -95,7 +114,7 @@ TEST(VideoHeader, ZeroValues)
     EXPECT_EQ(dst.height, 0u);
     EXPECT_EQ(dst.bitrate_kbps, 0u);
     EXPECT_EQ(dst.frame_duration_us, 0u);
-    EXPECT_EQ(dst.gop_size, 0u);
+    EXPECT_EQ(dst.flags, 0u);
     EXPECT_EQ(dst.codec, protocol::VideoCodec::H264); // default codec
 }
 
@@ -104,10 +123,10 @@ TEST(VideoHeader, MaxValues)
     protocol::VideoHeader src;
     src.width = UINT32_MAX;
     src.height = UINT32_MAX;
-    src.sender_ts = utils::WallFromMs(UINT64_MAX);
+    src.sender_ts_us = INT64_MAX;
     src.bitrate_kbps = UINT32_MAX;
     src.frame_duration_us = UINT32_MAX;
-    src.gop_size = UINT32_MAX;
+    src.flags = UINT32_MAX;
     src.codec = protocol::VideoCodec::HEVC;
 
     uint8_t buf[protocol::VideoHeader::kWireSize] { };
@@ -118,7 +137,8 @@ TEST(VideoHeader, MaxValues)
     EXPECT_EQ(dst.height, UINT32_MAX);
     EXPECT_EQ(dst.bitrate_kbps, UINT32_MAX);
     EXPECT_EQ(dst.frame_duration_us, UINT32_MAX);
-    EXPECT_EQ(dst.gop_size, UINT32_MAX);
+    EXPECT_EQ(dst.sender_ts_us, INT64_MAX);
+    EXPECT_EQ(dst.flags, UINT32_MAX);
     EXPECT_EQ(dst.codec, protocol::VideoCodec::HEVC);
 }
 
@@ -203,7 +223,7 @@ TEST(Protocol, AdjacentHeaders)
 
     protocol::AudioHeader ah;
     ah.seq = 77;
-    ah.sender_ts = utils::WallFromMs(555);
+    ah.sender_ts_us = 555;
     ah.serialize(buf);
 
     protocol::ChunkHeader ch;

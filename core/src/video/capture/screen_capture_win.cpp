@@ -546,7 +546,7 @@ private:
                     int ow, oh;
                     compute_output_size(w, h, max_w_, max_h_, ow, oh);
 
-                    Frame out;
+                    Frame& out = scratch_frame_;
                     out.width = ow;
                     out.height = oh;
 
@@ -558,7 +558,7 @@ private:
                     }
 
                     if (callback_ && running_) {
-                        callback_(std::move(out));
+                        callback_(out);
                     }
                 }
             }
@@ -580,7 +580,7 @@ private:
         int ow, oh;
         compute_output_size(w, h, max_w_, max_h_, ow, oh);
 
-        Frame out;
+        Frame& out = scratch_frame_;
         out.width = ow;
         out.height = oh;
 
@@ -609,13 +609,15 @@ private:
         }
 
         if (callback_ && running_) {
-            callback_(std::move(out));
+            callback_(out);
         }
     }
 
     // --- state --------------------------------------------------------------
 
     std::atomic<bool> running_ { false };
+    // Reused across frames; the sender swaps its previous buffer back in.
+    Frame scratch_frame_;
     FrameCallback callback_;
     std::thread thread_;
     ScreenCaptureTarget target_;
