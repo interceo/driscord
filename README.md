@@ -118,3 +118,21 @@ signaling/STUN/TURN находится в [`docs/`](docs/README.md).
 
 Автоматически через CMake FetchContent:
 - libdatachannel v0.22.5, Opus v1.5.2, miniaudio, GLFW, fmt, nlohmann/json
+
+## NixOS
+
+Для NixOS есть отдельный dev shell и отдельные скрипты, чтобы обе тестовые
+машины собирали проект в одинаковом окружении:
+
+```bash
+./scripts/nixos-build.sh --qt
+./scripts/nixos-build.sh --server
+./scripts/nixos-build.sh --test
+
+./scripts/nixos-run.sh --server 9001
+./scripts/nixos-run.sh --api
+./scripts/nixos-run.sh --qt
+```
+
+Если скрипты запущены вне `nix develop`, они сами зайдут в dev shell из
+`flake.nix`. Артефакты NixOS-сборки лежат отдельно в `.builds/nixos/`.

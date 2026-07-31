@@ -87,3 +87,32 @@ curl http://127.0.0.1:9001/presence
 
 API-тесты используют SQLite в памяти, а не production PostgreSQL. Это ускоряет
 тесты, но не проверяет специфическое поведение PostgreSQL.
+
+## NixOS
+
+На NixOS используйте отдельные скрипты:
+
+```bash
+./scripts/nixos-build.sh --qt
+./scripts/nixos-build.sh --server
+./scripts/nixos-build.sh --api
+./scripts/nixos-build.sh --test
+```
+
+Они автоматически выполняют команду через `nix develop`, если текущая shell ещё
+не является dev shell проекта. Для ручного входа:
+
+```bash
+nix develop
+```
+
+Запуск:
+
+```bash
+./scripts/nixos-run.sh --server 9001
+./scripts/nixos-run.sh --api
+./scripts/nixos-run.sh --qt
+```
+
+NixOS-артефакты не смешиваются с обычной Linux-сборкой и кладутся в
+`.builds/nixos/`.
