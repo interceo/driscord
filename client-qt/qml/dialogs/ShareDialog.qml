@@ -314,7 +314,7 @@ Dialog {
                 Layout.alignment: Qt.AlignVCenter
                 Layout.topMargin: 14
                 radius: 4
-                readonly property bool enabled: root.selectedIndex >= 0
+                enabled: root.selectedIndex >= 0
                 color: enabled
                        ? (goLiveArea.containsMouse ? "#4752c4" : "#5865f2")
                        : "#3c3f45"

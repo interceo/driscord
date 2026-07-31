@@ -32,6 +32,10 @@ qt_add_qml_module(driscord_client
         qml/components/IconBox.qml
         qml/components/IconButton.qml
         qml/components/VideoTile.qml
+        qml/components/DiscordButton.qml
+        qml/components/DiscordComboBox.qml
+        qml/components/DiscordDialog.qml
+        qml/components/DiscordTextField.qml
         qml/dialogs/SettingsDialog.qml
         qml/dialogs/ShareDialog.qml
         qml/dialogs/CreateServerDialog.qml

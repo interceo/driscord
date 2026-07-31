@@ -1,34 +1,44 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import "../components"
 
-Dialog {
+DiscordDialog {
     title: "Create Channel"
-    modal: true
-    anchors.centerIn: Overlay.overlay
-    width: 320
+    width: 360
 
     ColumnLayout {
-        width: parent.width; spacing: 12
-        TextField {
-            id: nameField; Layout.fillWidth: true
+        width: parent.width
+        spacing: 12
+        DiscordTextField {
+            id: nameField
+            Layout.fillWidth: true
             placeholderText: "Channel name"
-            background: Rectangle { color: "#1e1f22"; radius: 4 }
-            color: "white"; placeholderTextColor: "#72767d"
         }
-        ComboBox {
-            id: kindBox; Layout.fillWidth: true
+        DiscordComboBox {
+            id: kindBox
+            Layout.fillWidth: true
             model: ["voice", "text"]
         }
     }
 
     footer: DialogButtonBox {
-        Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        Button {
+        leftPadding: 16; rightPadding: 16; topPadding: 12; bottomPadding: 12
+        spacing: 8
+        background: Rectangle { color: "#2b2d31"; radius: 8 }
+        DiscordButton {
+            text: "Cancel"; variant: "secondary"
+            DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
+        }
+        DiscordButton {
             text: "Create"
             DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
             enabled: nameField.text.trim() !== ""
         }
     }
-    onAccepted: { appState.createChannel(nameField.text.trim(), kindBox.currentText); nameField.text = "" }
+
+    onAccepted: {
+        appState.createChannel(nameField.text.trim(), kindBox.currentText)
+        nameField.text = ""
+    }
 }

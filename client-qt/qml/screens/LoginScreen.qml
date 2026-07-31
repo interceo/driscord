@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import "../components"
 
 Item {
     id: root
@@ -35,55 +36,35 @@ Item {
                 onCurrentIndexChanged: root.isLogin = (currentIndex === 0)
             }
 
-            TextField {
+            DiscordTextField {
                 id: usernameField
                 Layout.fillWidth: true
                 placeholderText: "Username"
                 font.pixelSize: 14
-                background: Rectangle { color: "#1e1f22"; radius: 4 }
-                color: "white"
-                placeholderTextColor: "#72767d"
             }
 
-            TextField {
+            DiscordTextField {
                 id: emailField
                 Layout.fillWidth: true
                 placeholderText: "Email"
                 font.pixelSize: 14
                 visible: !root.isLogin
-                background: Rectangle { color: "#1e1f22"; radius: 4 }
-                color: "white"
-                placeholderTextColor: "#72767d"
             }
 
-            TextField {
+            DiscordTextField {
                 id: passwordField
                 Layout.fillWidth: true
                 placeholderText: "Password"
                 echoMode: TextInput.Password
                 font.pixelSize: 14
-                background: Rectangle { color: "#1e1f22"; radius: 4 }
-                color: "white"
-                placeholderTextColor: "#72767d"
                 Keys.onReturnPressed: submitBtn.clicked()
             }
 
-            Button {
+            DiscordButton {
                 id: submitBtn
                 Layout.fillWidth: true
                 text: root.isLogin ? "Log In" : "Register"
                 font.pixelSize: 15
-                topPadding: 10; bottomPadding: 10
-                background: Rectangle {
-                    radius: 4
-                    color: submitBtn.pressed ? "#3e6de8" : "#5865f2"
-                }
-                contentItem: Text {
-                    text: submitBtn.text
-                    color: "white"
-                    font: submitBtn.font
-                    horizontalAlignment: Text.AlignHCenter
-                }
                 onClicked: {
                     if (root.isLogin)
                         authManager.login(usernameField.text, passwordField.text)

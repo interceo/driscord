@@ -1,36 +1,45 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import "../components"
 
-Dialog {
+DiscordDialog {
     title: "Create Server"
-    modal: true
-    anchors.centerIn: Overlay.overlay
-    width: 340
+    width: 380
 
     ColumnLayout {
-        width: parent.width; spacing: 12
-        TextField {
-            id: nameField; Layout.fillWidth: true
+        width: parent.width
+        spacing: 12
+        DiscordTextField {
+            id: nameField
+            Layout.fillWidth: true
             placeholderText: "Server name"
-            background: Rectangle { color: "#1e1f22"; radius: 4 }
-            color: "white"; placeholderTextColor: "#72767d"
         }
-        TextField {
-            id: descField; Layout.fillWidth: true
+        DiscordTextField {
+            id: descField
+            Layout.fillWidth: true
             placeholderText: "Description (optional)"
-            background: Rectangle { color: "#1e1f22"; radius: 4 }
-            color: "white"; placeholderTextColor: "#72767d"
         }
     }
 
     footer: DialogButtonBox {
-        Button { text: "Cancel"; DialogButtonBox.buttonRole: DialogButtonBox.RejectRole }
-        Button {
+        leftPadding: 16; rightPadding: 16; topPadding: 12; bottomPadding: 12
+        spacing: 8
+        background: Rectangle { color: "#2b2d31"; radius: 8 }
+        DiscordButton {
+            text: "Cancel"; variant: "secondary"
+            DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
+        }
+        DiscordButton {
             text: "Create"
             DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
             enabled: nameField.text.trim() !== ""
         }
     }
-    onAccepted: { appState.createServer(nameField.text.trim(), descField.text.trim()); nameField.text = ""; descField.text = "" }
+
+    onAccepted: {
+        appState.createServer(nameField.text.trim(), descField.text.trim())
+        nameField.text = ""
+        descField.text = ""
+    }
 }

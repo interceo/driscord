@@ -1,16 +1,12 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import "../components"
 
-Dialog {
+DiscordDialog {
     id: root
     title: qsTr("About voice call")
-    modal: true
-    anchors.centerIn: Overlay.overlay
     width: 360
-    padding: 16
-
-    background: Rectangle { color: "#2b2d31"; radius: 6 }
 
     // Re-render the chart whenever stats change
     Connections {
@@ -142,6 +138,11 @@ Dialog {
     }
 
     footer: DialogButtonBox {
-        Button { text: qsTr("Close"); DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole }
+        leftPadding: 16; rightPadding: 16; topPadding: 12; bottomPadding: 12
+        background: Rectangle { color: "#2b2d31"; radius: 8 }
+        DiscordButton {
+            text: qsTr("Close")
+            DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+        }
     }
 }
