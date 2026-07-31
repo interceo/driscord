@@ -57,3 +57,12 @@ void ServerRepository::acceptInvite(const QString& code, std::function<void(bool
             cb(err == QNetworkReply::NoError, json);
         });
 }
+
+void ServerRepository::addMember(int serverId, int userId,
+    std::function<void(bool, QJsonObject)> cb)
+{
+    m_api->post(QStringLiteral("/servers/%1/members/%2").arg(serverId).arg(userId), { },
+        [cb](QNetworkReply::NetworkError err, QJsonObject json) {
+            cb(err == QNetworkReply::NoError, json);
+        });
+}

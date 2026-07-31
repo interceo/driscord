@@ -21,6 +21,8 @@ class AppState : public QObject {
     Q_PROPERTY(int selectedServerId READ selectedServerId NOTIFY selectedServerChanged)
     Q_PROPERTY(QVariantList channels READ channels NOTIFY channelsChanged)
     Q_PROPERTY(int selectedChannelId READ selectedChannelId NOTIFY selectedChannelChanged)
+    Q_PROPERTY(QVariantList users READ users NOTIFY usersChanged)
+    Q_PROPERTY(bool canManageSelectedServer READ canManageSelectedServer NOTIFY selectedServerChanged)
 
     // Peers / Connection
     Q_PROPERTY(QVariantList peers READ peers NOTIFY peersChanged)
@@ -60,6 +62,8 @@ public:
     int selectedServerId() const { return m_selectedServerId; }
     QVariantList channels() const { return m_channels; }
     int selectedChannelId() const { return m_selectedChannelId; }
+    QVariantList users() const { return m_users; }
+    bool canManageSelectedServer() const;
     QVariantList peers() const { return m_peers; }
     bool connected() const;
     QString connectionState() const { return m_connectionState; }
@@ -92,6 +96,8 @@ public:
     Q_INVOKABLE void createServer(const QString& name, const QString& description);
     Q_INVOKABLE void createChannel(const QString& name, const QString& kind);
     Q_INVOKABLE void acceptInvite(const QString& code);
+    Q_INVOKABLE void loadUsers();
+    Q_INVOKABLE void inviteUser(int userId);
     Q_INVOKABLE void updateDisplayName(const QString& name);
     Q_INVOKABLE void uploadAvatar(const QByteArray& data, const QString& ext);
     Q_INVOKABLE void uploadAvatarFromFile(const QString& path);
@@ -107,6 +113,7 @@ signals:
     void selectedServerChanged();
     void channelsChanged();
     void selectedChannelChanged();
+    void usersChanged();
     void peersChanged();
     void connectionChanged();
     void audioStateChanged();
@@ -134,6 +141,7 @@ private:
     QVariantList m_servers;
     int m_selectedServerId = -1;
     QVariantList m_channels;
+    QVariantList m_users;
     int m_selectedChannelId = -1;
     QVariantList m_peers;
     QVariantList m_streamingPeers;

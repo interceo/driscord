@@ -129,6 +129,36 @@ async def test_list_members(client, auth_headers):
     assert usernames == ["alice", "bob"]
 
 
+async def test_owner_can_add_user_from_directory(client, auth_headers):
+    ha = await auth_headers("alice")
+    await auth_headers("bob")
+    s = await _create_server(client, ha)
+
+    r = await client.post(f"/servers/{s['id']}/members/2", headers=ha)
+    assert r.status_code == 201
+    assert r.json() == {"status": "added", "user_id": 2}
+
+    members = await client.get(f"/servers/{s['id']}/members", headers=ha)
+    assert sorted(m["username"] for m in members.json()) == ["alice", "bob"]
+
+
+async def test_only_owner_can_add_user(client, auth_headers):
+    ha = await auth_headers("alice")
+    hb = await auth_headers("bob")
+    hc = await auth_headers("carol")
+    s = await _create_server(client, ha)
+
+    r = await client.post(f"/servers/{s['id']}/members/3", headers=hb)
+    assert r.status_code == 403
+
+    r = await client.post(f"/servers/{s['id']}/members/999", headers=ha)
+    assert r.status_code == 404
+
+    await client.post(f"/servers/{s['id']}/members/3", headers=ha)
+    duplicate = await client.post(f"/servers/{s['id']}/members/3", headers=ha)
+    assert duplicate.status_code == 409
+
+
 async def test_server_endpoints_require_auth(client):
     r = await client.get("/servers/")
     assert r.status_code in (401, 403)

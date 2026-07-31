@@ -15,6 +15,15 @@ _EXT_MAP = {"image/jpeg": "jpg", "image/png": "png", "image/gif": "gif", "image/
 _MAX_AVATAR_BYTES = 5 * 1024 * 1024
 
 
+@router.get("/", response_model=list[UserResponse])
+async def list_users(
+    _current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(User).order_by(User.username))
+    return result.scalars().all()
+
+
 # Must be declared before /{user_id} so FastAPI doesn't route "me" as an id.
 @router.get("/me", response_model=MeResponse)
 async def get_me(current_user: User = Depends(get_current_user)):

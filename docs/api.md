@@ -21,6 +21,7 @@ Access token по умолчанию живёт 30 минут, refresh token —
 | `POST /auth/login` | нет | Вход по username/password |
 | `POST /auth/refresh` | refresh token в body | Обновить пару токенов |
 | `GET/PATCH /users/me` | да | Свой профиль |
+| `GET /users/` | да | Каталог публичных профилей пользователей |
 | `GET /users/lookup?username=...` | нет | Найти публичный профиль |
 | `GET /users/{id}` | нет | Публичный профиль |
 | `GET /users/{id}/avatar` | нет | Получить аватар |
@@ -30,6 +31,7 @@ Access token по умолчанию живёт 30 минут, refresh token —
 | `GET/PATCH/DELETE /servers/{id}` | да | Получить / изменить / удалить сервер |
 | `GET /servers/{id}/members` | да | Участники |
 | `POST/DELETE /servers/{id}/members` | да | Вступить / выйти напрямую |
+| `POST /servers/{id}/members/{user_id}` | владелец | Добавить пользователя в сервер |
 | `POST/GET /servers/{id}/channels/` | да | Создать / перечислить каналы |
 | `GET/PATCH/DELETE /servers/{id}/channels/{channel_id}` | да | Операции с каналом |
 | `POST/GET /servers/{id}/invites/` | да | Создать / перечислить инвайты |

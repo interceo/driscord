@@ -44,9 +44,11 @@ AppState::AppState(AuthManager* auth, ServerRepository* servers, UserRepository*
             m_userProfile = { };
             m_servers = { };
             m_channels = { };
+            m_users = { };
             m_peers = { };
             emit userProfileChanged();
             emit serversChanged();
+            emit usersChanged();
         }
     });
     connect(m_auth, &AuthManager::loginError, this, [this](const QString& msg) {
@@ -203,6 +205,7 @@ void AppState::reloadServers()
             m_servers.append(QVariantMap {
                 { "id", o["id"].toInt() },
                 { "name", o["name"].toString() },
+                { "ownerId", o["owner_id"].toInt() },
             });
         }
         emit serversChanged();
@@ -242,6 +245,16 @@ bool AppState::deafened() const { return m_bridge->deafened(); }
 float AppState::inputLevel() const { return m_bridge->inputLevel(); }
 float AppState::outputLevel() const { return m_bridge->outputLevel(); }
 bool AppState::sharing() const { return m_bridge->sharing(); }
+
+bool AppState::canManageSelectedServer() const
+{
+    for (const auto& value : m_servers) {
+        const auto server = value.toMap();
+        if (server.value("id").toInt() == m_selectedServerId)
+            return server.value("ownerId").toInt() == m_auth->userId();
+    }
+    return false;
+}
 
 void AppState::selectServer(int id)
 {
@@ -358,6 +371,57 @@ void AppState::acceptInvite(const QString& code)
             selectServer(json["server_id"].toInt());
         } else
             setApiError("Invalid invite code");
+    });
+}
+
+void AppState::loadUsers()
+{
+    m_userRepo->listUsers([this](bool ok, QJsonArray users) {
+        if (!ok) {
+            setApiError("Failed to load users");
+            return;
+        }
+
+        m_users.clear();
+        for (const auto& value : users) {
+            const auto user = value.toObject();
+            const int userId = user["id"].toInt();
+            if (userId == m_auth->userId())
+                continue;
+
+            QString displayName = user["display_name"].toString();
+            if (displayName.isEmpty())
+                displayName = user["username"].toString();
+            QString avatarUrl;
+            if (!user["avatar_url"].isNull())
+                avatarUrl = QStringLiteral("%1/users/%2/avatar").arg(m_apiBaseUrl).arg(userId);
+
+            m_users.append(QVariantMap {
+                { "id", userId },
+                { "username", user["username"].toString() },
+                { "displayName", displayName },
+                { "avatarUrl", avatarUrl },
+            });
+        }
+        emit usersChanged();
+    });
+}
+
+void AppState::inviteUser(int userId)
+{
+    if (!canManageSelectedServer()) {
+        setApiError("Only the server owner can invite users");
+        return;
+    }
+    m_serverRepo->addMember(m_selectedServerId, userId, [this, userId](bool ok, QJsonObject) {
+        if (!ok) {
+            setApiError("Failed to add user; they may already be a member");
+            return;
+        }
+        m_users.removeIf([userId](const QVariant& value) {
+            return value.toMap().value("id").toInt() == userId;
+        });
+        emit usersChanged();
     });
 }
 

@@ -1,5 +1,6 @@
 #pragma once
 #include "ApiClient.h"
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QObject>
 #include <functional>
@@ -16,6 +17,7 @@ public:
     void uploadAvatar(int userId, const QByteArray& data, const QString& ext,
         std::function<void(bool, QJsonObject)> cb);
     void getUserByUsername(const QString& username, std::function<void(bool, QJsonObject)> cb);
+    void listUsers(std::function<void(bool, QJsonArray)> cb);
 
 private:
     ApiClient* m_api;

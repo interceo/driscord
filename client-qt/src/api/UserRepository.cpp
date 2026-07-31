@@ -56,3 +56,11 @@ void UserRepository::getUserByUsername(const QString& username,
             cb(err == QNetworkReply::NoError, json);
         });
 }
+
+void UserRepository::listUsers(std::function<void(bool, QJsonArray)> cb)
+{
+    m_api->getArray("/users/",
+        [cb](QNetworkReply::NetworkError err, QJsonArray json) {
+            cb(err == QNetworkReply::NoError, json);
+        });
+}

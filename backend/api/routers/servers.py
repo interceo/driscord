@@ -132,6 +132,38 @@ async def join_server(
     return {"status": "joined"}
 
 
+@router.post("/{server_id}/members/{user_id}", status_code=status.HTTP_201_CREATED)
+async def add_server_member(
+    server_id: int,
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    server = await _get_server_or_404(db, server_id)
+    if server.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the owner can add members",
+        )
+
+    user_result = await db.execute(select(User).where(User.id == user_id))
+    if not user_result.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    existing = await db.execute(
+        select(ServerMember).where(
+            ServerMember.server_id == server_id,
+            ServerMember.user_id == user_id,
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Already a member")
+
+    db.add(ServerMember(server_id=server_id, user_id=user_id))
+    await db.commit()
+    return {"status": "added", "user_id": user_id}
+
+
 @router.delete("/{server_id}/members", status_code=status.HTTP_204_NO_CONTENT)
 async def leave_server(
     server_id: int,

@@ -9,6 +9,7 @@ Rectangle {
     signal settingsRequested
     signal shareRequested
     signal voiceStatsRequested
+    signal inviteUsersRequested
 
     ColumnLayout {
         anchors.fill: parent
@@ -19,15 +20,28 @@ Rectangle {
             Layout.fillWidth: true
             height: 48
             color: "#2b2d31"
-            Text {
-                anchors { left: parent.left; verticalCenter: parent.verticalCenter; leftMargin: 16 }
-                text: {
-                    var s = appState.servers
-                    for (var i = 0; i < s.length; i++)
-                        if (s[i].id === appState.selectedServerId) return s[i].name
-                    return "Driscord"
+            RowLayout {
+                anchors { fill: parent; leftMargin: 16; rightMargin: 8 }
+                spacing: 6
+                Text {
+                    Layout.fillWidth: true
+                    text: {
+                        var s = appState.servers
+                        for (var i = 0; i < s.length; i++)
+                            if (s[i].id === appState.selectedServerId) return s[i].name
+                        return "Driscord"
+                    }
+                    color: "white"; font { pixelSize: 15; bold: true }
+                    elide: Text.ElideRight
                 }
-                color: "white"; font { pixelSize: 15; bold: true }
+                IconButton {
+                    visible: appState.canManageSelectedServer
+                    icon.source: "qrc:/icons/plus.svg"
+                    iconSize: 18
+                    onClicked: root.inviteUsersRequested()
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Invite people")
+                }
             }
         }
 

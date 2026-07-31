@@ -16,6 +16,7 @@ public:
         std::function<void(bool, QJsonObject)> cb);
     void createInvite(int serverId, std::function<void(bool, QJsonObject)> cb);
     void acceptInvite(const QString& code, std::function<void(bool, QJsonObject)> cb);
+    void addMember(int serverId, int userId, std::function<void(bool, QJsonObject)> cb);
 
 private:
     ApiClient* m_api;

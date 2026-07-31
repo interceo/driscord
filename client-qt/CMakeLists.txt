@@ -42,6 +42,7 @@ qt_add_qml_module(driscord_client
         qml/dialogs/CreateChannelDialog.qml
         qml/dialogs/AvatarCropDialog.qml
         qml/dialogs/JoinByInviteDialog.qml
+        qml/dialogs/InviteUsersDialog.qml
         qml/dialogs/VoiceStatsDialog.qml
     SOURCES
         src/app/FrameProvider.h

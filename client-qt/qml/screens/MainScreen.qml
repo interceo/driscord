@@ -24,6 +24,7 @@ Item {
             onSettingsRequested:   settingsDialog.open()
             onShareRequested:      shareDialog.open()
             onVoiceStatsRequested: voiceStatsDialog.open()
+            onInviteUsersRequested: inviteUsersDialog.open()
         }
 
         ContentPanel {
@@ -37,6 +38,7 @@ Item {
     CreateServerDialog  { id: createServerDialog }
     CreateChannelDialog { id: createChannelDialog }
     JoinByInviteDialog  { id: joinInviteDialog }
+    InviteUsersDialog   { id: inviteUsersDialog }
     AvatarCropDialog    { id: avatarCropDialog }
     VoiceStatsDialog    { id: voiceStatsDialog }
 }
