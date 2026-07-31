@@ -1,0 +1,11 @@
+.git
+.github
+.builds
+backend/api/.env
+backend/api/.venv
+backend/api/__pycache__
+backend/api/.pytest_cache
+client-qt
+third_party
+**/__pycache__
+**/*.pyc
