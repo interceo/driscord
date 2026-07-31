@@ -9,6 +9,8 @@
 
 // AudioReceiver lives in driscord_core (linked by add_integration_test).
 #include "audio/audio.hpp"
+#include "sync/media_clock.hpp"
+#include "utils/mono_clock.hpp"
 
 #include <gtest/gtest.h>
 
@@ -207,8 +209,7 @@ TEST_F(NetConditionsTransportTest, DynamicProfileChange_TakesEffectImmediately)
 // =============================================================================
 TEST(NetConditionsStandalone, JitterBufferAdaptation_UnderVariableDelay)
 {
-    // A 50ms jitter buffer is enough headroom to absorb the simulated delays.
-    AudioReceiver receiver(/*jitter_ms=*/50);
+    AudioReceiver receiver(std::make_shared<avsync::MediaClock>());
 
     NetworkConditioner cond(NetProfile::clean());
 
@@ -221,11 +222,11 @@ TEST(NetConditionsStandalone, JitterBufferAdaptation_UnderVariableDelay)
     });
 
     // Build a helper that emits synthetic AudioHeader + zeroed payload.
-    auto make_audio_pkt = [](uint64_t seq) -> std::vector<uint8_t> {
+    auto make_audio_pkt = [](uint32_t seq) -> std::vector<uint8_t> {
         std::vector<uint8_t> pkt(protocol::AudioHeader::kWireSize + 20, 0);
         protocol::AudioHeader hdr;
         hdr.seq = seq;
-        hdr.sender_ts = utils::WallNow();
+        hdr.sender_ts_us = utils::MonoClock::now_us();
         hdr.serialize(pkt.data());
         return pkt;
     };
@@ -233,7 +234,7 @@ TEST(NetConditionsStandalone, JitterBufferAdaptation_UnderVariableDelay)
     // Phase 1: 0ms delay — 30 packets.
     constexpr int kPhase1 = 30;
     for (int i = 0; i < kPhase1; ++i) {
-        auto pkt = make_audio_pkt(static_cast<uint64_t>(i));
+        auto pkt = make_audio_pkt(static_cast<uint32_t>(i));
         wrapped("peer", pkt.data(), pkt.size());
     }
     std::this_thread::sleep_for(100ms);
@@ -241,7 +242,7 @@ TEST(NetConditionsStandalone, JitterBufferAdaptation_UnderVariableDelay)
     // Phase 2: switch to 80ms delay — 30 more packets.
     cond.set_profile(NetProfile { .delay_ms = 80 });
     for (int i = kPhase1; i < kPhase1 * 2; ++i) {
-        auto pkt = make_audio_pkt(static_cast<uint64_t>(i));
+        auto pkt = make_audio_pkt(static_cast<uint32_t>(i));
         wrapped("peer", pkt.data(), pkt.size());
     }
     // Wait for 80ms delay + margin.
@@ -254,8 +255,9 @@ TEST(NetConditionsStandalone, JitterBufferAdaptation_UnderVariableDelay)
     // Receiver should have accepted all delivered packets.
     const auto rs = receiver.stats();
     EXPECT_EQ(rs.packets_received, static_cast<uint64_t>(kPhase1 * 2));
-    // miss_count should be low: no artificial gaps were introduced.
-    EXPECT_LE(rs.miss_count, static_cast<uint64_t>(kPhase1 * 2 / 10));
+    // No artificial gaps were introduced, so nothing may be rejected as late,
+    // duplicate or out of window — the delay change alone must not cost packets.
+    EXPECT_EQ(rs.drop_count, 0u);
 }
 
 // =============================================================================

@@ -1,12 +1,14 @@
 #include <gtest/gtest.h>
 
 #include "log.hpp"
+#include "sync/media_clock.hpp"
+#include "utils/mono_clock.hpp"
 #include "utils/protocol.hpp"
 #include "video/video.hpp"
 #include "video/video_codec.hpp"
 
 #include <cstring>
-#include <thread>
+#include <memory>
 #include <vector>
 
 struct SuppressVideoRecvLogs {
@@ -34,7 +36,7 @@ static std::vector<uint8_t> make_video_packet(
     protocol::VideoHeader vh {
         .width = static_cast<uint32_t>(w),
         .height = static_cast<uint32_t>(h),
-        .sender_ts = utils::WallNow(),
+        .sender_ts_us = utils::MonoClock::now_us(),
         .bitrate_kbps = 500,
         .frame_duration_us = 33333,
         .codec = codec,
@@ -70,7 +72,7 @@ TEST(VideoReceiver, LazyDecoderInitOnFirstPacket)
     ASSERT_FALSE(encoded.empty()) << "encoder produced no output";
 
     // Push the encoded frame into a fresh VideoReceiver (decoder not yet inited).
-    VideoReceiver recv("test-peer", 10);
+    VideoReceiver recv("test-peer", std::make_shared<avsync::MediaClock>());
     auto pkt = make_video_packet(encoded, W, H, enc.codec());
 
     recv.push_video_packet(
@@ -92,7 +94,7 @@ TEST(VideoReceiver, DecodesFrameAfterLazyInit)
 
     auto bgra = make_bgra(W, H);
 
-    VideoReceiver recv("test-peer", 1);
+    VideoReceiver recv("test-peer", std::make_shared<avsync::MediaClock>());
     bool got_frame = false;
 
     // Feed several frames — HW decoders may need a priming pass.
@@ -105,9 +107,6 @@ TEST(VideoReceiver, DecodesFrameAfterLazyInit)
         recv.push_video_packet(
             utils::vector_view<const uint8_t>(pkt.data(), pkt.size()), fid);
     }
-
-    // Let the jitter buffer prime (buffer_ms=1).
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
 
     recv.update([&](const VideoReceiver::Frame& f) {
         EXPECT_EQ(f.width, W);

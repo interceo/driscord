@@ -555,7 +555,7 @@ private:
                 sws_scale(sws_.get(), frame_->data, frame_->linesize, 0, dec_ctx_->height,
                     bgra_frame_->data, bgra_frame_->linesize);
 
-                Frame out;
+                Frame& out = scratch_frame_;
                 out.width = out_w_;
                 out.height = out_h_;
                 auto nbytes = row_bytes * out_h_;
@@ -572,7 +572,7 @@ private:
                 }
 
                 if (callback_ && running_) {
-                    callback_(std::move(out));
+                    callback_(out);
                 }
             }
 
@@ -595,6 +595,8 @@ private:
 
     std::atomic<bool> running_ { false };
     std::atomic<bool> stopping_ { false };
+    // Reused across frames; the sender swaps its previous buffer back in.
+    Frame scratch_frame_;
     FrameCallback callback_;
     std::thread thread_;
     int max_w_ = 1920;

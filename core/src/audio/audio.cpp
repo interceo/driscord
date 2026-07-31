@@ -1,11 +1,12 @@
 #define MINIAUDIO_IMPLEMENTATION
 #include "audio.hpp"
 
+#include "config.hpp"
 #include "enum_strings.hpp"
 #include "log.hpp"
 #include "utils/ma_device.hpp"
+#include "utils/mono_clock.hpp"
 #include "utils/protocol.hpp"
-#include "utils/time.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -157,6 +158,7 @@ void AudioSender::stop()
 void AudioSender::on_capture(const float* input, uint32_t frames)
 {
     if (!running_ || !on_packet_ || muted_) {
+        in_silence_ = true;
         return;
     }
 
@@ -169,6 +171,7 @@ void AudioSender::on_capture(const float* input, uint32_t frames)
 
     const float gate = noise_gate_.load(std::memory_order_relaxed);
     if (gate > 0.0f && rms < gate) {
+        in_silence_ = true;
         return;
     }
 
@@ -186,8 +189,12 @@ void AudioSender::on_capture(const float* input, uint32_t frames)
             int bytes = encoder_->encode(capture_buf_.data(), opus::kFrameSize,
                 opus_start, opus::kMaxPacket);
             if (bytes > 0) {
-                const protocol::AudioHeader ah { .seq = send_seq_++,
-                    .sender_ts = WallNow() };
+                const protocol::AudioHeader ah {
+                    .seq = send_seq_++,
+                    .flags = in_silence_ ? protocol::flags::kTalkspurtStart : 0u,
+                    .sender_ts_us = utils::MonoClock::now_us(),
+                };
+                in_silence_ = false;
                 ah.serialize(encode_buf_.data());
                 on_packet_(encode_buf_.data(), protocol::AudioHeader::kWireSize + static_cast<size_t>(bytes));
             }
@@ -202,156 +209,396 @@ void AudioSender::on_capture(const float* input, uint32_t frames)
 
 std::atomic<uint64_t> AudioReceiver::next_id_ = 0;
 
-AudioReceiver::AudioReceiver(int jitter_ms, int channels, int sample_rate)
-    : jitter_(std::chrono::milliseconds(jitter_ms))
-    , channels_(channels)
+AudioReceiver::AudioReceiver(std::shared_ptr<avsync::MediaClock> clock,
+    const int channels,
+    const int sample_rate)
+    : clock_(std::move(clock))
+    , wsola_(sample_rate, 1)
+    , ring_(kRingCapacity)
+    , channels_(std::max(1, channels))
     , sample_rate_(sample_rate)
+    , frame_duration_us_(static_cast<int64_t>(opus::kFrameSize) * 1'000'000 / sample_rate)
     , id_(next_id_++)
 {
-    decoder_.init(sample_rate, channels);
-    decode_buf_.resize(static_cast<size_t>(opus::kFrameSize) * channels);
-    if (channels > 1) {
-        mono_buf_.resize(opus::kFrameSize);
-    }
+    decoder_.init(sample_rate, channels_);
+    decode_buf_.resize(static_cast<size_t>(opus::kFrameSize) * static_cast<size_t>(channels_));
+    mono_buf_.resize(opus::kFrameSize);
+    stage_.reserve(kStageCapacity);
+    scratch_.resize(kStageCapacity);
 }
 
-void AudioReceiver::push_packet(utils::vector_view<const uint8_t> data)
+AudioReceiver::~AudioReceiver() = default;
+
+// --- network thread ---
+
+void AudioReceiver::push_packet(const utils::vector_view<const uint8_t> data)
 {
     if (data.size() <= protocol::AudioHeader::kWireSize) {
         return;
     }
 
     const auto ah = protocol::AudioHeader::deserialize(data.data());
-    const uint8_t* opus_data = data.data() + protocol::AudioHeader::kWireSize;
     const size_t opus_len = data.size() - protocol::AudioHeader::kWireSize;
 
-    std::vector<uint8_t> opus_bytes(opus_data, opus_data + opus_len);
+    packets_received_.inc();
 
-    if (jitter_.push(ah.seq, OpusFrame { .data = std::move(opus_bytes), .sender_ts = ah.sender_ts }) != PushStatus::Stored) {
+    if (opus_len > kMaxStoredPacket) [[unlikely]] {
+        // Storing packets inline is what keeps this path allocation-free; a
+        // packet this large is not something the sender should ever produce.
         drop_count_.inc();
+        LOG_WARNING() << "[audio-recv/" << id_ << "] oversized packet "
+                      << opus_len << "B dropped";
+        return;
     }
 
-    ++push_count_;
-    if (push_count_ == 1) {
-        LOG_INFO() << "[audio-recv/" << id_ << "] first push seq=" << ah.seq;
-    } else if (push_count_ % 30 == 0) {
-        LOG_INFO() << "[audio-recv/" << id_ << "] push#" << push_count_
-                   << " queue=" << jitter_.queue_size() << " drops=" << drop_count_.load()
-                   << " misses=" << miss_count_.load();
+    clock_->observe(avsync::MediaClock::Stream::Audio, ah.sender_ts_us,
+        utils::MonoClock::now_us());
+
+    Packet pkt;
+    pkt.len = static_cast<uint16_t>(opus_len);
+    pkt.flags = ah.flags;
+    pkt.sender_ts_us = ah.sender_ts_us;
+    std::memcpy(pkt.data.data(), data.data() + protocol::AudioHeader::kWireSize, opus_len);
+
+    std::scoped_lock lk(buffer_lock_);
+    if (buffer_.push(ah.seq, std::move(pkt)) != utils::PushResult::Stored) {
+        drop_count_.inc();
     }
 }
 
-utils::vector_view<const float> AudioReceiver::pop()
+// --- audio callback ---
+
+size_t AudioReceiver::read(float* out, const size_t frames)
 {
-    if (reset_pending_.exchange(false, std::memory_order_acq_rel)) {
+    if (reset_pending_.exchange(false, std::memory_order_acq_rel)) [[unlikely]] {
         decoder_.reset_state();
+        ring_.clear();
+        stage_.clear();
+        primed_ = false;
+        have_held_ = false;
+        consecutive_conceals_ = 0;
+        pending_decoder_reset_ = false;
     }
 
-    auto [frame, missed] = jitter_.pop();
-    if (missed) {
-        miss_count_.inc();
-        // PLC: ask Opus decoder to generate a concealment frame.
-        const int samples = decoder_.decode_plc(decode_buf_.data(), opus::kFrameSize);
+    // A step can emit two frames plus an inserted pitch period, so stop
+    // pulling once there may not be room for another one.
+    while (ring_.size() < frames && ring_.space() >= kStageCapacity) {
+        if (!playout_step()) {
+            break;
+        }
+    }
+
+    const size_t got = ring_.read(out, frames);
+    if (got < frames) {
+        std::fill(out + got, out + frames, 0.0f);
+        if (primed_) {
+            underrun_count_.inc();
+        }
+    }
+    return got;
+}
+
+bool AudioReceiver::playout_step()
+{
+    const int64_t now = utils::MonoClock::now_us();
+
+    if (!primed_) {
+        // Hold the stream back until its first packet is actually due. This is
+        // what establishes the playout delay, and — unlike the buffer this
+        // replaces — it happens again after every underrun, so a stream that
+        // stalls does not spend the rest of the call running on empty.
+        // Wait for the clock to have something to say. Starting before it does
+        // means starting at an arbitrary position and then spending seconds
+        // time-stretching back to the right one — during which this stream is
+        // measurably out of step with the peer's video. A few hundred
+        // milliseconds of silence at the start of a call costs nothing.
+        if (!clock_->ready()) {
+            return false;
+        }
+
+        std::scoped_lock lk(buffer_lock_);
+        auto first = buffer_.next_present();
+        if (!first) {
+            return false;
+        }
+
+        if (clock_->deadline_us(buffer_.peek(*first)->sender_ts_us) > now) {
+            return false; // nothing is due yet
+        }
+
+        // Start at the newest packet that is already due, not the oldest one
+        // still lying around. Anything before it is backlog — starting there
+        // would begin playback that much behind schedule and leave the stream
+        // out of step with the peer's video until time-stretching crawled it
+        // back.
+        while (true) {
+            const auto next = buffer_.next_present(*first + 1);
+            if (!next
+                || clock_->deadline_us(buffer_.peek(*next)->sender_ts_us) > now) {
+                break;
+            }
+            first = next;
+        }
+
+        const Packet* p = buffer_.peek(*first);
+        buffer_.advance_base_to(*first);
+        next_ts_us_ = p->sender_ts_us;
+        primed_ = true;
+        consecutive_conceals_ = 0;
+        // Whatever was held belonged to the old playout position.
+        have_held_ = false;
+    }
+
+    // Where playback has got to, relative to where the shared clock says it
+    // should be. `lead > 0` means the audio about to be played is newer than
+    // the schedule calls for — playback has outrun it and must slow down;
+    // `lead < 0` means it has fallen behind and must catch up. Both streams
+    // from this peer measure against the same clock, which is what keeps them
+    // together, and the sound card's rate is never exactly the sender's, so
+    // this correction runs for the whole call rather than just at startup.
+    const int64_t lead = clock_->deadline_us(next_ts_us_) - now;
+    actual_delay_us_ = clock_->target_delay_us() - lead;
+
+    if (clock_->ready() && std::llabs(lead) > sync_defaults::kResyncThresholdUs)
+        [[unlikely]] {
+        // Too far out to correct gradually. Ahead of schedule this means
+        // holding — emitting silence costs nothing — and behind it means
+        // re-priming, which drops the stale audio in the way.
+        resync_count_.inc();
+        if (lead < 0) {
+            primed_ = false;
+        }
+        return false;
+    }
+
+    // The similarity search needs more signal than one 20 ms frame provides,
+    // so playback runs one frame behind the decoder: `held_` is what goes out
+    // now, and the frame after it supplies the context the search needs.
+    // Consuming exactly one packet per step is what keeps the read cursor from
+    // outrunning arrivals — pulling a second packet to feed the search would
+    // punch a hole in a stream that was never lossy.
+    if (!have_held_) {
+        if (!decode_into(held_)) {
+            return false;
+        }
+        have_held_ = true;
+    }
+
+    refill_stretch_budget(now);
+    const bool may_stretch = stretch_budget_us_ > 0 && clock_->ready();
+    const bool expand = may_stretch && lead > sync_defaults::kBufferHysteresisUs;
+    const bool compress = may_stretch && lead < -sync_defaults::kBufferHysteresisUs;
+
+    // Correcting needs the frame after this one, and only a packet that has
+    // genuinely arrived will do. Pulling the cursor forward over a packet that
+    // is merely in flight would conceal a loss that never happened — and then
+    // reject the packet when it turned up. The frame read ahead is kept, so
+    // the next step emits it without consuming anything new: over the pair,
+    // one packet in, one frame out.
+    bool corrected = false;
+    if ((compress || expand) && next_packet_ready()) {
+        if (decode_into(pending_)) {
+            stage_.assign(held_.begin(), held_.end());
+            stage_.insert(stage_.end(), pending_.begin(), pending_.end());
+
+            const size_t n = compress
+                ? wsola_.compress(stage_.data(), stage_.size(), scratch_.data())
+                : wsola_.expand(stage_.data(), stage_.size(), scratch_.data(), scratch_.size());
+
+            // The splice lands in the first half, so what belongs to `held_`
+            // is everything the pair produced beyond the untouched frame that
+            // follows it.
+            if (n > pending_.size()) {
+                const size_t emitted = n - pending_.size();
+                stretch_budget_us_ += std::llabs(static_cast<int64_t>(emitted)
+                                          - static_cast<int64_t>(held_.size()))
+                    * -1'000'000 / sample_rate_;
+                stretch_count_.inc();
+                ring_.write(scratch_.data(), emitted);
+                corrected = true;
+            }
+            held_.swap(pending_); // keep the look-ahead frame for the next step
+        }
+    }
+
+    if (!corrected) {
+        ring_.write(held_.data(), held_.size());
+        have_held_ = false;
+    }
+    return true;
+}
+
+bool AudioReceiver::next_packet_ready() const
+{
+    std::scoped_lock lk(buffer_lock_);
+    return buffer_.contains(buffer_.base_seq());
+}
+
+bool AudioReceiver::decode_into(std::vector<float>& dst)
+{
+    // Everything that touches the shared buffer happens here, and the packet
+    // bytes are copied out rather than decoded in place: holding the lock
+    // across an Opus decode would stall the network thread for the duration of
+    // every frame.
+    enum class Action { Decode,
+        Fec,
+        Conceal,
+        Stop };
+    Action action = Action::Stop;
+    uint16_t len = 0;
+
+    {
+        std::scoped_lock lk(buffer_lock_);
+        const uint64_t seq = buffer_.base_seq();
+
+        if (const Packet* pkt = buffer_.peek(seq)) {
+            action = Action::Decode;
+            len = pkt->len;
+            std::memcpy(codec_in_.data(), pkt->data.data(), len);
+            next_ts_us_ = pkt->sender_ts_us;
+            buffer_.advance_base_to(seq + 1);
+        } else {
+            const auto next = buffer_.next_present();
+
+            // A talkspurt boundary is deliberate silence, not loss. Concealing
+            // across it would paint Opus's idea of speech over a pause the
+            // speaker actually took.
+            if (next && (buffer_.peek(*next)->flags & protocol::flags::kTalkspurtStart)) {
+                buffer_.advance_base_to(*next);
+                primed_ = false;
+                pending_decoder_reset_ = true;
+                return false;
+            }
+
+            if (consecutive_conceals_ >= kMaxConsecutiveConceals) {
+                // The stream is gone, not merely lossy. Stop inventing audio
+                // and wait for it to come back, re-priming when it does.
+                primed_ = false;
+                return false;
+            }
+
+            if (next && *next == seq + 1) {
+                // Opus carries a low-bitrate copy of the previous frame inside
+                // the next one. Since that packet is already here, the lost
+                // frame can be recovered rather than approximated — the encoder
+                // has always paid for this, and nothing used to claim it.
+                const Packet* n = buffer_.peek(*next);
+                action = Action::Fec;
+                len = n->len;
+                std::memcpy(codec_in_.data(), n->data.data(), len);
+            } else {
+                action = Action::Conceal;
+            }
+            buffer_.advance_base_to(seq + 1);
+            next_ts_us_ += frame_duration_us_;
+        }
+    }
+
+    if (pending_decoder_reset_) {
+        decoder_.reset_state();
+        pending_decoder_reset_ = false;
+    }
+
+    int samples = 0;
+    switch (action) {
+    case Action::Decode:
+        samples = decoder_.decode(codec_in_.data(), len,
+            decode_buf_.data(), opus::kFrameSize);
         if (samples <= 0) {
-            return utils::vector_view<const float>(nullptr, 0);
+            decode_error_count_.inc();
+            return false;
         }
-
-        ++pop_count_;
-        if (channels_ == 1) {
-            return utils::vector_view<const float>(decode_buf_.data(), samples);
+        consecutive_conceals_ = 0;
+        break;
+    case Action::Fec:
+        samples = decoder_.decode_fec(codec_in_.data(), len,
+            decode_buf_.data(), opus::kFrameSize);
+        if (samples > 0) {
+            fec_count_.inc();
         }
+        [[fallthrough]];
+    case Action::Conceal:
+        if (samples <= 0) {
+            samples = decoder_.decode_plc(decode_buf_.data(), opus::kFrameSize);
+            if (samples <= 0) {
+                return false;
+            }
+            conceal_count_.inc();
+        }
+        ++consecutive_conceals_;
+        break;
+    case Action::Stop:
+        return false;
+    }
 
+    const float* src = decode_buf_.data();
+    if (channels_ > 1) {
         for (int i = 0; i < samples; ++i) {
             float sum = 0.0f;
             for (int ch = 0; ch < channels_; ++ch) {
-                sum += decode_buf_[static_cast<size_t>(i) * channels_ + ch];
+                sum += decode_buf_[static_cast<size_t>(i) * static_cast<size_t>(channels_)
+                    + static_cast<size_t>(ch)];
             }
-            mono_buf_[static_cast<size_t>(i)] = sum / channels_;
+            mono_buf_[static_cast<size_t>(i)] = sum / static_cast<float>(channels_);
         }
-        return utils::vector_view<const float>(mono_buf_.data(), samples);
+        src = mono_buf_.data();
     }
 
-    if (!frame || frame->data.empty()) {
-        return utils::vector_view<const float>(nullptr, 0);
+    dst.assign(src, src + samples);
+    return true;
+}
+
+void AudioReceiver::refill_stretch_budget(const int64_t now)
+{
+    if (budget_updated_us_ == 0) {
+        budget_updated_us_ = now;
+        return;
     }
-
-    const int samples = decoder_.decode(frame->data.data(),
-        static_cast<int>(frame->data.size()),
-        decode_buf_.data(), opus::kFrameSize);
-    if (samples <= 0) {
-        decode_error_count_.inc();
-        LOG_ERROR() << "[audio-recv/" << id_ << "] decode failed in pop"
-                    << " opus_len=" << frame->data.size() << " result=" << samples;
-        return utils::vector_view<const float>(nullptr, 0);
+    const int64_t elapsed = now - budget_updated_us_;
+    if (elapsed <= 0) {
+        return;
     }
-
-    ++pop_count_;
-    if (channels_ == 1) {
-        return utils::vector_view<const float>(decode_buf_.data(), samples);
-    }
-
-    for (int i = 0; i < samples; ++i) {
-        float sum = 0.0f;
-        for (int ch = 0; ch < channels_; ++ch) {
-            sum += decode_buf_[static_cast<size_t>(i) * channels_ + ch];
-        }
-        mono_buf_[static_cast<size_t>(i)] = sum / channels_;
-    }
-    return utils::vector_view<const float>(mono_buf_.data(), samples);
-}
-
-size_t AudioReceiver::evict_old(utils::Duration max_delay)
-{
-    const auto n = jitter_.evict_old(max_delay);
-    drop_count_.inc(n);
-    return n;
-}
-
-size_t AudioReceiver::evict_before_sender_ts(utils::WallTimestamp cutoff)
-{
-    const auto n = jitter_.evict_before_sender_ts(cutoff);
-    drop_count_.inc(n);
-    return n;
-}
-
-int64_t AudioReceiver::median_ow_delay_ms() const
-{
-    return jitter_.ow_delay_ms();
-}
-
-bool AudioReceiver::primed() const
-{
-    return jitter_.primed();
-}
-
-std::optional<utils::WallTimestamp> AudioReceiver::front_effective_ts() const
-{
-    return jitter_.front_effective_ts();
-}
-
-int64_t AudioReceiver::front_age_ms() const
-{
-    return jitter_.front_age_ms();
+    budget_updated_us_ = now;
+    stretch_budget_us_ = std::min(kMaxStretchBudgetUs,
+        stretch_budget_us_ + elapsed * sync_defaults::kMaxStretchPerSecond / 1000);
 }
 
 void AudioReceiver::reset()
 {
     reset_pending_.store(true, std::memory_order_release);
-    jitter_.reset();
+    {
+        std::scoped_lock lk(buffer_lock_);
+        buffer_.reset();
+    }
+    packets_received_.reset();
     drop_count_.reset();
-    miss_count_.reset();
+    conceal_count_.reset();
+    fec_count_.reset();
+    underrun_count_.reset();
     decode_error_count_.reset();
-    push_count_ = 0;
-    pop_count_ = 0;
+    stretch_count_.reset();
+    resync_count_.reset();
 }
 
 AudioReceiver::Stats AudioReceiver::stats() const
 {
+    size_t queued = 0;
+    {
+        std::scoped_lock lk(buffer_lock_);
+        queued = buffer_.size();
+    }
     return {
-        jitter_.queue_size(),
-        drop_count_.load(),
-        miss_count_.load(),
-        push_count_,
-        decode_error_count_.load(),
+        .queue_size = queued,
+        .packets_received = packets_received_.load(),
+        .drop_count = drop_count_.load(),
+        .conceal_count = conceal_count_.load(),
+        .fec_count = fec_count_.load(),
+        .underrun_count = underrun_count_.load(),
+        .decode_errors = decode_error_count_.load(),
+        .stretch_count = stretch_count_.load(),
+        .resync_count = resync_count_.load(),
+        .target_delay_ms = clock_->target_delay_us() / 1000,
+        .actual_delay_ms = actual_delay_us_ / 1000,
+        .playout_ts_us = next_ts_us_,
     };
 }

@@ -179,7 +179,7 @@ private:
             cached_cs_ = CGColorSpaceCreateDeviceRGB();
         }
 
-        Frame out;
+        Frame& out = scratch_frame_;
         out.width = ow;
         out.height = oh;
         out.data.resize(static_cast<size_t>(ow) * oh * 4);
@@ -191,7 +191,7 @@ private:
         CGContextRelease(ctx);
 
         if (callback_ && running_) {
-            callback_(std::move(out));
+            callback_(out);
         }
     }
 
@@ -204,6 +204,8 @@ private:
     }
 
     std::atomic<bool> running_ { false };
+    // Reused across frames; the sender swaps its previous buffer back in.
+    Frame scratch_frame_;
     FrameCallback callback_;
     std::thread thread_;
     int max_w_ = 1920;

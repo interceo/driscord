@@ -58,19 +58,23 @@ private:
     std::vector<float> screen_audio_buf_;
     std::vector<uint8_t> screen_audio_encode_buf_;
     size_t screen_audio_pos_ = 0;
-    uint64_t screen_audio_seq_ = 0;
+    uint32_t screen_audio_seq_ = 0;
 };
 
+// Routes one peer's screen share — video plus its system audio — to a
+// per-peer decoder pair.
+//
+// Both halves share that peer's MediaClock, which is what keeps the picture on
+// the sound. The clock is created here because this is the only place that
+// knows both halves belong to the same screen share.
 class ScreenReceiver {
 public:
-    ScreenReceiver(int buffer_ms, int max_sync_gap_ms, int audio_jitter_ms);
+    ScreenReceiver() = default;
     ~ScreenReceiver() = default;
 
     ScreenReceiver(const ScreenReceiver&) = delete;
     ScreenReceiver& operator=(const ScreenReceiver&) = delete;
 
-    // Video peer lifecycle — must be called before push_video_packet for that
-    // peer.
     void add_video_peer(const std::string& peer_id);
     void remove_video_peer(const std::string& peer_id);
 
@@ -80,8 +84,6 @@ public:
     void push_audio_packet(const std::string& peer_id,
         const utils::vector_view<const uint8_t> data);
 
-    // Per-peer audio receiver lifecycle. Must be called before push_audio_packet
-    // for that peer.
     void add_audio_peer(const std::string& peer_id);
     void remove_audio_peer(const std::string& peer_id);
     std::shared_ptr<AudioReceiver> audio_receiver(const std::string& peer_id);
@@ -98,29 +100,7 @@ public:
     int measured_kbps() const;
 
     VideoReceiver::Stats video_stats() const;
-    AudioReceiver::Stats audio_stats()
-        const; // aggregated across all audio peers
-
-    // Hard timeout eviction.
-    void evict_old(utils::Duration max_delay);
-    void evict_old_video(utils::Duration max_delay);
-
-    // A/V sync — sender-timestamp-based.
-    bool video_primed() const;
-    bool audio_primed() const;
-    std::optional<utils::WallTimestamp> video_front_effective_ts() const;
-    std::optional<utils::WallTimestamp> audio_front_effective_ts() const;
-    utils::Duration video_frame_duration() const;
-    size_t evict_video_before(utils::WallTimestamp cutoff);
-    size_t evict_audio_before(utils::WallTimestamp cutoff);
-
-    // Clock-skew estimators: median OWD+skew per stream.
-    // Returns -1 if not enough samples yet.
-    int64_t video_median_ow_delay_ms() const;
-    int64_t audio_median_ow_delay_ms() const;
-
-    int64_t video_front_age_ms() const;
-    int64_t audio_front_age_ms() const;
+    AudioReceiver::Stats audio_stats() const;
 
     void reset();
     void reset_audio();
@@ -130,8 +110,14 @@ private:
     // video_mutex_ held.
     std::shared_ptr<VideoReceiver> current_video_recv_locked() const;
 
-    int video_buffer_ms_;
+    // The peer's playout clock, created on first use and shared by both halves
+    // of its screen share.
+    std::shared_ptr<avsync::MediaClock> clock_for(const std::string& peer_id);
+
     std::function<void()> keyframe_cb_;
+
+    mutable std::mutex clock_mutex_;
+    std::unordered_map<std::string, std::shared_ptr<avsync::MediaClock>> clocks_;
 
     mutable std::mutex video_mutex_;
     std::unordered_map<std::string, std::shared_ptr<VideoReceiver>>
@@ -141,5 +127,4 @@ private:
     mutable std::mutex audio_mutex_;
     std::unordered_map<std::string, std::shared_ptr<AudioReceiver>>
         audio_receivers_;
-    int audio_jitter_ms_;
 };

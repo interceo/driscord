@@ -10,10 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
-#endif
+#include <numbers>
 
 AudioMixer::AudioMixer() = default;
 AudioMixer::~AudioMixer()
@@ -206,7 +203,9 @@ void AudioMixer::on_playback(float* output, const uint32_t frames)
     {
         std::unique_lock lk(sources_mutex_, std::try_to_lock);
         if (lk.owns_lock()) {
-            snapshot_ = sources_;
+            // Reusing the existing capacity keeps this assignment from
+            // allocating inside the callback once the roster has settled.
+            snapshot_.assign(sources_.begin(), sources_.end());
         }
     }
 
@@ -218,13 +217,21 @@ void AudioMixer::on_playback(float* output, const uint32_t frames)
         return;
     }
 
+    if (mix_buf_.size() < frames) {
+        // Only grows when the device changes its period; steady state never
+        // reallocates here.
+        mix_buf_.resize(frames);
+    }
+
     for (const auto& src : snapshot_) {
         if (src->muted()) {
             continue;
         }
 
-        auto samples = src->pop();
-        if (samples.empty()) {
+        // Each source produces exactly `frames` samples on its own playout
+        // timeline, padding with silence if it has nothing. Nothing is left
+        // over and nothing is discarded, whatever period the device asks for.
+        if (src->read(mix_buf_.data(), frames) == 0) {
             continue;
         }
 
@@ -232,14 +239,13 @@ void AudioMixer::on_playback(float* output, const uint32_t frames)
         const float pan = src->pan(); // 0=left, 0.5=center, 1=right
 
         // Constant-power panning.
-        const float angle = pan * static_cast<float>(M_PI * 0.5);
+        const float angle = pan * std::numbers::pi_v<float> * 0.5f;
         const float gain_l = std::cos(angle) * vol;
         const float gain_r = std::sin(angle) * vol;
 
-        const size_t n = std::min(samples.size(), static_cast<size_t>(frames));
-        for (size_t i = 0; i < n; ++i) {
-            output[2 * i] += samples[i] * gain_l;
-            output[2 * i + 1] += samples[i] * gain_r;
+        for (size_t i = 0; i < frames; ++i) {
+            output[2 * i] += mix_buf_[i] * gain_l;
+            output[2 * i + 1] += mix_buf_[i] * gain_r;
         }
     }
 

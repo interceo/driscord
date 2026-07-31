@@ -18,10 +18,7 @@ public:
         const int h)>;
     using OnRemovedCb = std::function<void(const std::string& peer_id)>;
 
-    ScreenSession(int buf_ms,
-        int audio_jitter_ms,
-        utils::Duration max_sync,
-        SendCb send_video,
+    ScreenSession(SendCb send_video,
         std::function<void()> on_keyframe_req,
         SendCb send_screen_audio);
     ~ScreenSession() = default;
@@ -106,8 +103,6 @@ private:
     std::unordered_set<std::string> last_peers_;
     int last_w_ = 0;
     int last_h_ = 0;
-
-    utils::Duration max_sync_;
 
     using Clock = std::chrono::steady_clock;
     Clock::time_point last_stats_refresh_ { };

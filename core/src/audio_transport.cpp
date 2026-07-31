@@ -147,7 +147,11 @@ float AudioTransport::output_level() const
 
 void AudioTransport::on_peer_joined(const std::string& peer_id)
 {
-    auto recv = std::make_shared<AudioReceiver>(stream_defaults::kVoiceJitterMs);
+    // Voice has no video to wait for: its clock is its own, and stays at the
+    // lowest delay the network allows. A peer's screen share is a separate
+    // sync group, owned by ScreenReceiver.
+    auto recv = std::make_shared<AudioReceiver>(
+        std::make_shared<avsync::MediaClock>());
     {
         std::scoped_lock lk(recv_mutex_);
         voice_recv_[peer_id] = recv;

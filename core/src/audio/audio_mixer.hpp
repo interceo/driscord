@@ -49,6 +49,7 @@ private:
     std::mutex sources_mutex_;
     std::vector<std::shared_ptr<AudioReceiver>> sources_;
     std::vector<std::shared_ptr<AudioReceiver>> snapshot_;
+    std::vector<float> mix_buf_; // one source's mono output, callback-local
 
     std::string output_device_id_; // empty = default device
     std::unique_ptr<MaDevice> device_;

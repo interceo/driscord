@@ -139,9 +139,6 @@ void DriscordCore::set_on_streaming_stopped(StringCb cb)
 void DriscordCore::init_screen_session()
 {
     screen_session.emplace(
-        stream_defaults::kScreenBufferMs,
-        stream_defaults::kVoiceJitterMs,
-        std::chrono::milliseconds(stream_defaults::kMaxSyncGapMs),
         [this](const uint8_t* d, size_t l) { video_transport.send_video(d, l); },
         [this]() { video_transport.send_keyframe_request(); },
         [this](const uint8_t* d, size_t l) {

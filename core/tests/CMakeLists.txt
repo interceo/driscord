@@ -11,7 +11,7 @@ FetchContent_MakeAvailable(googletest)
 
 # Shared include directories:
 #   - core/src/        — headers under test
-#   - core/src/utils   — header-only utilities (jitter, slot_ring, ...)
+#   - core/src/utils   — header-only utilities (reorder_buffer, expected, ...)
 #   - core/tests/support — test helpers (wait, fixtures, harness)
 set(TEST_INCLUDE_DIRS
     ${CMAKE_SOURCE_DIR}/core/src/
@@ -19,10 +19,19 @@ set(TEST_INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/support
 )
 
-# --- Helper to declare a unit test (header-only, no driscord_core) ---
+if(MSVC)
+    set(TEST_WARNING_FLAGS /W4)
+else()
+    set(TEST_WARNING_FLAGS -Wall -Wextra -Wpedantic)
+endif()
+
+# --- Helper to declare a unit test (no driscord_core) ---
+# Extra arguments are additional source files, for components that are small
+# and self-contained enough to compile straight into the test.
 function(add_unit_test name)
-    add_executable(${name} unit/${name}.cpp)
+    add_executable(${name} unit/${name}.cpp ${ARGN})
     target_include_directories(${name} PRIVATE ${TEST_INCLUDE_DIRS})
+    target_compile_options(${name} PRIVATE ${TEST_WARNING_FLAGS})
     target_link_libraries(${name} PRIVATE GTest::gtest_main)
     add_test(NAME ${name} COMMAND ${name})
 endfunction()
@@ -31,12 +40,15 @@ endfunction()
 function(add_core_test name)
     add_executable(${name} unit/${name}.cpp)
     target_include_directories(${name} PRIVATE ${TEST_INCLUDE_DIRS})
+    target_compile_options(${name} PRIVATE ${TEST_WARNING_FLAGS})
     target_link_libraries(${name} PRIVATE GTest::gtest_main driscord_core)
     add_test(NAME ${name} COMMAND ${name})
 endfunction()
 
-add_unit_test(test_slot_ring)
-add_unit_test(test_jitter)
+add_unit_test(test_reorder_buffer)
+add_unit_test(test_delay_estimator)
+add_unit_test(test_media_clock ${CMAKE_SOURCE_DIR}/core/src/sync/media_clock.cpp)
+add_unit_test(test_wsola ${CMAKE_SOURCE_DIR}/core/src/audio/wsola.cpp)
 add_unit_test(test_byte_utils)
 add_core_test(test_protocol)
 add_unit_test(test_spinlock)
@@ -53,6 +65,7 @@ if(BUILD_SERVER)
     function(add_integration_test name)
         add_executable(${name} integration/${name}.cpp)
         target_include_directories(${name} PRIVATE ${TEST_INCLUDE_DIRS})
+        target_compile_options(${name} PRIVATE ${TEST_WARNING_FLAGS})
         target_link_libraries(${name} PRIVATE
             GTest::gtest_main driscord_core driscord_signaling)
         add_test(NAME ${name} COMMAND ${name})
@@ -62,5 +75,6 @@ if(BUILD_SERVER)
     add_integration_test(test_datachannel_transport)
     add_integration_test(test_room_isolation)
     add_integration_test(test_net_conditions)
+    add_integration_test(test_av_sync)
     set_tests_properties(test_net_conditions PROPERTIES TIMEOUT 180)
 endif()
