@@ -95,14 +95,16 @@ signaling/STUN/TURN находится в [`docs/`](docs/README.md).
 - `config.json` в корне (или рядом с бинарём клиента) — адрес сигналинга, API, TURN-серверы, видео-битрейт:
   ```json
   {
-      "server": "host:9001",
-      "api": "host:9002",
+      "server": "wss://driscord.homelab.ceooptimizator.tech",
+      "api": "https://driscord.homelab.ceooptimizator.tech",
       "video_bitrate_kbps": 8000,
       "turn_servers": [
           { "url": "turn:host:3478", "user": "...", "pass": "..." }
       ]
   }
   ```
+  Полные `wss://`/`https://` URL рекомендуются для production. Значения вида
+  `host:port` остаются совместимыми и используют `ws://`/`http://`.
 - `backend/api/.env` — настройки API (PostgreSQL URL, JWT secret, порт). Шаблон: `backend/api/.env.example`.
 
 ## Зависимости

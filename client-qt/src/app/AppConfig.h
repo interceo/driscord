@@ -12,8 +12,8 @@ struct AppConfig {
     int screenFps = 60;
     QList<TurnServerConfig> turnServers;
 
-    QString signalingUrl() const { return "ws://" + server; }
-    QString apiBaseUrl() const { return "http://" + api; }
+    QString signalingUrl() const;
+    QString apiBaseUrl() const;
 
     static AppConfig load();
 };

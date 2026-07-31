@@ -1,10 +1,12 @@
 #include "AppConfig.h"
+#include <algorithm>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QStringList>
 
 static QString findConfigFile()
 {
@@ -37,6 +39,30 @@ static QString findConfigFile()
 #endif
     qDebug().noquote() << "[config] no config file found, using defaults";
     return { };
+}
+
+static QString normalizedUrl(QString value, const QString& defaultScheme,
+    const QStringList& acceptedSchemes)
+{
+    const bool hasAcceptedScheme = std::any_of(acceptedSchemes.cbegin(),
+        acceptedSchemes.cend(), [&value](const QString& scheme) {
+            return value.startsWith(scheme + "://", Qt::CaseInsensitive);
+        });
+    if (!hasAcceptedScheme)
+        value.prepend(defaultScheme + "://");
+    while (value.endsWith('/'))
+        value.chop(1);
+    return value;
+}
+
+QString AppConfig::signalingUrl() const
+{
+    return normalizedUrl(server, "ws", { "ws", "wss" });
+}
+
+QString AppConfig::apiBaseUrl() const
+{
+    return normalizedUrl(api, "http", { "http", "https" });
 }
 
 AppConfig AppConfig::load()
