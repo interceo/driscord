@@ -1,17 +1,16 @@
-# Развёртывание API, signaling и STUN/TURN
+# Развёртывание API и signaling/SFU
 
 ## Рекомендуемая топология
 
-На обычном Linux/VPS разместите PostgreSQL, FastAPI и signaling. coturn можно
-оставить на OpenWrt, если у роутера есть публичный адрес и достаточно CPU/канала,
-либо перенести на тот же VPS. TURN передаёт весь трафик тех пользователей, у
-которых не установилось P2P, поэтому его канал и задержка критичны.
+На обычном Linux/VPS разместите PostgreSQL, FastAPI и signaling. Отдельный
+coturn не нужен: signaling-сервер сам терминирует WebRTC и ретранслирует медиа.
+Через него проходит весь аудио- и видеотрафик всех участников, поэтому его канал
+и задержка критичны — это главный ресурс, который надо закладывать.
 
 DNS-пример:
 
 - `api.example.org` → API;
-- `signal.example.org` → signaling;
-- `turn.example.org` → публичный адрес coturn.
+- `signal.example.org` → signaling (он же SFU).
 
 ## API
 
@@ -45,43 +44,29 @@ DRISCORD_PORT=9001 /opt/driscord/driscord_server
 нужно изменить конфигурацию клиента так, чтобы она принимала полные URL, затем
 терминировать TLS на reverse proxy.
 
-## coturn как STUN/TURN
+## Медиа (SFU)
 
-Минимальный long-term credentials конфиг `/etc/turnserver.conf`:
+Сервер принимает медиа на UDP-диапазоне, который задаётся переменными
+окружения:
 
-```ini
-listening-port=3478
-fingerprint
-lt-cred-mech
-realm=turn.example.org
-user=driscord:replace-with-a-long-random-password
-
-# Публичный IP сервера. Если coturn за NAT: PUBLIC/PRIVATE.
-external-ip=203.0.113.10
-
-min-port=49160
-max-port=49200
-no-multicast-peers
-no-cli
+```bash
+DRISCORD_PORT=9001 \
+DRISCORD_ICE_PORT_MIN=49160 \
+DRISCORD_ICE_PORT_MAX=49200 \
+/opt/driscord/driscord_server
 ```
 
-Если сам OpenWrt-роутер имеет публичный WAN-адрес, `external-ip` — этот адрес.
-Если coturn находится за ещё одним NAT, нужен статический проброс и форма
-`external-ip=<public-ip>/<local-ip>`. При динамическом WAN IP конфиг необходимо
-обновлять вместе с DDNS и перезапускать coturn.
+Диапазон должен быть открыт на файрволе и, если сервер в контейнере, проброшен
+наружу (`-p 49160-49200:49160-49200/udp` либо `--network host`). Ширина
+диапазона ограничивает число одновременных соединений: одно соединение на
+клиента, так что 40 портов ≈ 40 клиентов на процесс.
 
-Откройте/пробросьте:
+Сервер должен быть доступен по публичному адресу — ICE опирается на его
+host-кандидаты, а клиенты всегда подключаются наружу. Если сервер сам за NAT,
+нужен статический проброс и указанного диапазона, и порта сигналинга.
 
-- UDP 3478 — основной STUN/TURN;
-- TCP 3478 — fallback соединения с TURN;
-- UDP 49160–49200 — relay range из конфига;
-- при настройке TLS также TCP 5349 и сертификаты.
-
-На OpenWrt установите пакет coturn из репозитория вашей версии прошивки, включите
-службу в автозапуск и внесите эквивалентные параметры в поставляемый ею конфиг.
-Имена init-скрипта и UCI-полей зависят от сборки пакета; итог проверяйте по
-реально запущенной команде и логам, а не только по UCI. Не публикуйте web/admin
-интерфейсы coturn, если они не нужны.
+DTLS-сертификат провижнить не нужно: libdatachannel генерирует самоподписанный
+при установлении соединения, его отпечаток передаётся в SDP.
 
 Клиентская конфигурация:
 
@@ -89,20 +74,11 @@ no-cli
 {
   "server": "signal.example.org:9001",
   "api": "api.example.org:9002",
-  "screen_fps": 60,
-  "turn_servers": [
-    {
-      "url": "turn:turn.example.org:3478",
-      "user": "driscord",
-      "pass": "replace-with-a-long-random-password"
-    }
-  ]
+  "screen_fps": 60
 }
 ```
 
-Статический пароль окажется на каждом клиенте и может быть извлечён. Для
-публичного сервиса лучше выдавать краткоживущие TURN REST credentials через API,
-но текущий клиент и API этого ещё не реализуют.
+Секции `turn_servers` больше нет — при SFU она не нужна, и клиент её не читает.
 
 ## Проверка
 
@@ -111,22 +87,24 @@ no-cli
 ```bash
 curl http://api.example.org:9002/health
 curl http://signal.example.org:9001/presence
-turnutils_uclient -u driscord -w 'password' -p 3478 turn.example.org
+curl http://signal.example.org:9001/media_stats
 ```
 
 Затем запустите два клиента из разных сетей (например, домашний интернет и
-мобильная точка), войдите в один voice channel и проверьте звук/экран. В логах
-клиента ICE candidate с типом `relay` подтверждает использование TURN. Проверка
-только внутри одной LAN недостаточна: там обычно побеждает host candidate и TURN
-вообще не задействуется.
+мобильная точка), войдите в один voice channel и проверьте звук/экран.
+`/media_stats` покажет счётчики пакетов и байт по комнатам: если `packetsIn`
+растёт, а `packetsOut` — нет, медиа доходит до сервера, но не расходится.
+Проверка только внутри одной LAN недостаточна: она не покажет проблем с
+пробросом UDP-диапазона наружу.
 
 ## Production-чеклист
 
-- заменить `SECRET_KEY`, пароль PostgreSQL и TURN credentials;
+- заменить `SECRET_KEY` и пароль PostgreSQL;
 - не выставлять PostgreSQL наружу;
 - ограничить `/presence` и привязать signaling к JWT/membership;
 - закрыть прямое вступление в сервер, если membership должен быть invite-only;
 - ограничить `/updates/upload` административной ролью;
 - добавить HTTPS/WSS в клиент и reverse proxy;
 - настроить firewall, журналирование, health checks и резервные копии;
-- проверить TURN из внешней сети и заложить трафик на relay.
+- проверить UDP-диапазон SFU из внешней сети и заложить канал: через сервер
+  идёт весь медиатрафик, а не только доля неудачных P2P.

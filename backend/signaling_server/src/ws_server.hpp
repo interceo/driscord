@@ -1,10 +1,12 @@
 #pragma once
 
+#include <atomic>
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <rtc/rtc.hpp>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -45,13 +47,18 @@ public:
         const std::string& room_id,
         const std::string& msg);
 
-    // Binary media relay: routes an encoded media payload through the server
-    // instead of relying on a peer mesh. The server decodes only the small
-    // relay envelope here; codec-level decode is a later MCU/SFU decision.
-    void relay_binary_media(const std::string& from_id,
+    // Media fan-out (SFU). Called from a client's DataChannel with the label
+    // it arrived on; the server forwards the payload to the other sessions in
+    // the room on their channel of the same label, prefixed with the sender id.
+    // No codec-level decode happens here — the server only routes.
+    void route_media(const std::string& from_id,
         const std::string& room_id,
+        const std::string& label,
         const uint8_t* data,
         size_t len);
+
+    // ICE configuration handed to every per-session PeerConnection.
+    const rtc::Configuration& rtc_config() const { return rtc_config_; }
 
     // Total connected sessions across all rooms (for tests).
     size_t active_sessions() const;
@@ -61,6 +68,12 @@ public:
     void add_streaming_peer(const std::string& id, const std::string& room_id);
     void remove_streaming_peer(const std::string& id,
         const std::string& room_id);
+
+    // Watchers gate relayed screen video/screen-audio: only peers that sent
+    // watch_start (and haven't sent watch_stop since) receive those relay
+    // kinds, matching the P2P-mesh path's unicast-to-subscribers behavior.
+    void add_video_watcher(const std::string& id, const std::string& room_id);
+    void remove_video_watcher(const std::string& id, const std::string& room_id);
 
     // Snapshot of all rooms and their sessions for the /presence HTTP endpoint.
     // Returns a JSON string: { "<room_id>": [ { "id": "...", "username": "..." }, ... ], ... }
@@ -72,10 +85,15 @@ private:
 
     boost::asio::io_context& io_context_;
     boost::asio::ip::tcp::acceptor acceptor_;
+    // Set by stop() so the accept loop stops re-arming itself. The acceptor is
+    // not thread-safe, and do_accept() re-arms it from the io_context thread,
+    // so closing it directly from a caller on another thread is a data race.
+    std::atomic<bool> stopping_ { false };
 
     struct Room {
         std::unordered_map<std::string, std::shared_ptr<Session>> sessions;
         std::unordered_set<std::string> streaming_peers;
+        std::unordered_set<std::string> video_watchers;
         uint64_t media_packets_in = 0;
         uint64_t media_packets_out = 0;
         uint64_t media_bytes_in = 0;
@@ -85,6 +103,11 @@ private:
 
     mutable std::mutex rooms_mutex_;
     std::unordered_map<std::string, Room> rooms_;
+
+    // Built once at construction. The UDP port range ICE binds to is taken
+    // from DRISCORD_ICE_PORT_MIN/MAX so deployments behind NAT or in Docker
+    // can pin and forward a known range.
+    rtc::Configuration rtc_config_;
 };
 
 } // namespace driscord

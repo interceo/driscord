@@ -18,16 +18,8 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 
-# --- libdatachannel (WebRTC + WebSocket) ---
-set(NO_MEDIA ON CACHE BOOL "" FORCE)
-set(NO_EXAMPLES ON CACHE BOOL "" FORCE)
-set(NO_TESTS ON CACHE BOOL "" FORCE)
-FetchContent_Declare(
-    libdatachannel
-    GIT_REPOSITORY https://github.com/paullouisageneau/libdatachannel.git
-    GIT_TAG        v0.22.5
-    GIT_SHALLOW    TRUE
-)
+# libdatachannel is declared in the root CMakeLists.txt — it is shared with the
+# signaling server, which links it to terminate client PeerConnections (SFU).
 
 # --- Opus ---
 set(OPUS_BUILD_TESTING OFF CACHE BOOL "" FORCE)
@@ -49,7 +41,7 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 
-FetchContent_MakeAvailable(glfw libdatachannel opus miniaudio)
+FetchContent_MakeAvailable(glfw opus miniaudio)
 
 # miniaudio interface library
 add_library(miniaudio_lib INTERFACE)
@@ -163,6 +155,10 @@ target_link_libraries(driscord_core PRIVATE
     Opus::opus
     miniaudio_lib
     PkgConfig::FFMPEG
+    # transport_fsm.hpp is an implementation detail of transport.cpp — it is
+    # deliberately free of libdatachannel so the FSM can be unit-tested on its
+    # own, without a network or a PeerConnection.
+    sml::sml
 )
 # PUBLIC: these headers are included by driscord_core's public .hpp files,
 # so consumers need their include paths too.

@@ -17,6 +17,9 @@ add_library(driscord_signaling STATIC
 target_include_directories(driscord_signaling PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/core/src/utils
+    # channel_labels.hpp — the DataChannel label set is shared with the client
+    # so both ends agree on what "audio"/"video"/... mean.
+    ${CMAKE_SOURCE_DIR}/core/src
 )
 
 target_link_libraries(driscord_signaling PUBLIC
@@ -26,6 +29,8 @@ target_link_libraries(driscord_signaling PUBLIC
     Threads::Threads
     nlohmann_json::nlohmann_json
     fmt::fmt
+    datachannel-static
+    sml::sml
 )
 
 if(MSVC)

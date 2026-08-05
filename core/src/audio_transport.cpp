@@ -18,7 +18,7 @@ AudioTransport::AudioTransport(Transport& transport)
                 size_t len) {
                 const uint64_t n = ++(*recv_count);
                 if (n == 1 || n % 200 == 0) {
-                    LOG_INFO() << "[audio-dc] rx#" << n << " peer=" << peer_id
+                    LOG_INFO() << "[audio] rx#" << n << " peer=" << peer_id
                                << " bytes=" << len;
                 }
                 std::scoped_lock lk(recv_mutex_);
@@ -31,22 +31,6 @@ AudioTransport::AudioTransport(Transport& transport)
         .on_open = nullptr,
         .on_close = nullptr,
     });
-
-    transport.register_relay_media(relay_media::kVoiceAudio,
-        [this, recv_count](const std::string& peer_id, const uint8_t* data,
-            size_t len) {
-            const uint64_t n = ++(*recv_count);
-            if (n == 1 || n % 200 == 0) {
-                LOG_INFO() << "[audio-relay] rx#" << n << " peer=" << peer_id
-                           << " bytes=" << len;
-            }
-            std::scoped_lock lk(recv_mutex_);
-            auto it = voice_recv_.find(peer_id);
-            if (it != voice_recv_.end()) {
-                it->second->push_packet(
-                    utils::vector_view<const uint8_t> { data, len });
-            }
-        });
 
     transport.register_channel({
         .label = channel::kScreenAudio,
@@ -64,40 +48,16 @@ AudioTransport::AudioTransport(Transport& transport)
         .on_open = nullptr,
         .on_close = nullptr,
     });
-
-    transport.register_relay_media(relay_media::kScreenAudio,
-        [this](const std::string& peer_id, const uint8_t* data, size_t len) {
-            std::scoped_lock lk(recv_mutex_);
-            auto it = screen_audio_recv_.find(peer_id);
-            if (it != screen_audio_recv_.end()) {
-                it->second->push_packet(
-                    utils::vector_view<const uint8_t> { data, len });
-            }
-        });
-}
-
-void AudioTransport::set_server_relay_enabled(bool enabled)
-{
-    server_relay_enabled_ = enabled;
-    LOG_INFO() << "audio transport mode: " << (enabled ? "server-relay" : "datachannel");
 }
 
 void AudioTransport::send_audio(const uint8_t* data, size_t len)
 {
-    if (server_relay_enabled_) {
-        transport_.send_relay_media(relay_media::kVoiceAudio, data, len);
-    } else {
-        transport_.send_on_channel(channel::kAudio, data, len);
-    }
+    transport_.send_on_channel(channel::kAudio, data, len);
 }
 
 void AudioTransport::send_screen_audio(const uint8_t* data, size_t len)
 {
-    if (server_relay_enabled_) {
-        transport_.send_relay_media(relay_media::kScreenAudio, data, len);
-    } else {
-        transport_.send_on_channel(channel::kScreenAudio, data, len);
-    }
+    transport_.send_on_channel(channel::kScreenAudio, data, len);
 }
 
 utils::Expected<void, AudioError> AudioTransport::start()

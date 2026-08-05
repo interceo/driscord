@@ -164,79 +164,67 @@ TEST(VideoCodecEnum, ToString)
     EXPECT_STREQ(utils::to_string(protocol::VideoCodec::HEVC), "HEVC");
 }
 
-// ---- ChunkHeader ----
+// ---- FrameHeader ----
 
-TEST(ChunkHeader, Roundtrip)
+TEST(FrameHeader, Roundtrip)
 {
-    protocol::ChunkHeader src;
+    protocol::FrameHeader src;
     src.frame_id = 1000;
-    src.chunk_idx = 3;
-    src.total_chunks = 10;
 
-    uint8_t buf[protocol::ChunkHeader::kWireSize] { };
+    uint8_t buf[protocol::FrameHeader::kWireSize] { };
     src.serialize(buf);
 
-    auto dst = protocol::ChunkHeader::deserialize(buf);
+    auto dst = protocol::FrameHeader::deserialize(buf);
     EXPECT_EQ(dst.frame_id, 1000u);
-    EXPECT_EQ(dst.chunk_idx, 3u);
-    EXPECT_EQ(dst.total_chunks, 10u);
 }
 
-TEST(ChunkHeader, WireSize)
+TEST(FrameHeader, WireSize)
 {
-    EXPECT_EQ(protocol::ChunkHeader::kWireSize, 12u);
+    EXPECT_EQ(protocol::FrameHeader::kWireSize, 8u);
 }
 
-TEST(ChunkHeader, ZeroValues)
+TEST(FrameHeader, ZeroValues)
 {
-    protocol::ChunkHeader src { };
-    uint8_t buf[protocol::ChunkHeader::kWireSize] { };
+    protocol::FrameHeader src { };
+    uint8_t buf[protocol::FrameHeader::kWireSize] { };
     src.serialize(buf);
 
-    auto dst = protocol::ChunkHeader::deserialize(buf);
+    auto dst = protocol::FrameHeader::deserialize(buf);
     EXPECT_EQ(dst.frame_id, 0u);
-    EXPECT_EQ(dst.chunk_idx, 0u);
-    EXPECT_EQ(dst.total_chunks, 0u);
 }
 
-TEST(ChunkHeader, MaxValues)
+TEST(FrameHeader, MaxValues)
 {
-    protocol::ChunkHeader src;
+    protocol::FrameHeader src;
     src.frame_id = UINT64_MAX;
-    src.chunk_idx = UINT16_MAX;
-    src.total_chunks = UINT16_MAX;
 
-    uint8_t buf[protocol::ChunkHeader::kWireSize] { };
+    uint8_t buf[protocol::FrameHeader::kWireSize] { };
     src.serialize(buf);
 
-    auto dst = protocol::ChunkHeader::deserialize(buf);
+    auto dst = protocol::FrameHeader::deserialize(buf);
     EXPECT_EQ(dst.frame_id, UINT64_MAX);
-    EXPECT_EQ(dst.chunk_idx, UINT16_MAX);
-    EXPECT_EQ(dst.total_chunks, UINT16_MAX);
 }
 
 // ---- Headers don't overlap when packed adjacently ----
 
 TEST(Protocol, AdjacentHeaders)
 {
-    uint8_t buf[protocol::AudioHeader::kWireSize + protocol::ChunkHeader::kWireSize] { };
+    uint8_t buf[protocol::AudioHeader::kWireSize + protocol::FrameHeader::kWireSize] { };
 
     protocol::AudioHeader ah;
     ah.seq = 77;
     ah.sender_ts_us = 555;
     ah.serialize(buf);
 
-    protocol::ChunkHeader ch;
-    ch.frame_id = 99;
-    ch.chunk_idx = 2;
-    ch.total_chunks = 5;
-    ch.serialize(buf + protocol::AudioHeader::kWireSize);
+    protocol::FrameHeader fh;
+    fh.frame_id = 99;
+    fh.serialize(buf + protocol::AudioHeader::kWireSize);
 
     // Verify both still intact
     auto ah2 = protocol::AudioHeader::deserialize(buf);
-    auto ch2 = protocol::ChunkHeader::deserialize(
+    auto fh2 = protocol::FrameHeader::deserialize(
         buf + protocol::AudioHeader::kWireSize);
     EXPECT_EQ(ah2.seq, 77u);
-    EXPECT_EQ(ch2.frame_id, 99u);
-    EXPECT_EQ(ch2.total_chunks, 5u);
+    EXPECT_EQ(ah2.sender_ts_us, 555);
+    EXPECT_EQ(fh2.frame_id, 99u);
 }

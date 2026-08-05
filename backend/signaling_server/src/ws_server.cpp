@@ -8,6 +8,7 @@
 #include <deque>
 #include <iomanip>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 #include <nlohmann/json.hpp>
@@ -17,7 +18,9 @@
 #include <unordered_map>
 #include <vector>
 
+#include "channel_labels.hpp"
 #include "log.hpp"
+#include "session_fsm_table.hpp"
 
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -120,54 +123,31 @@ std::string parse_query_param(std::string_view target, std::string_view key)
 constexpr size_t kMaxMessageSize = 256 * 1024;
 constexpr size_t kMaxWriteQueueSize = 128;
 
-constexpr uint8_t kMediaClientMagic0 = 'D';
-constexpr uint8_t kMediaClientMagic1 = 'M';
-constexpr uint8_t kMediaRelayMagic0 = 'D';
-constexpr uint8_t kMediaRelayMagic1 = 'R';
-constexpr uint8_t kMediaVersion = 1;
-constexpr size_t kMediaClientHeaderSize = 4;
-constexpr size_t kMediaRelayHeaderSize = 6;
+// Server → client media framing: u8 sender-id length, the sender id, then the
+// untouched payload. The DataChannel label already says what kind of media it
+// is, so no kind byte is needed on the wire.
+constexpr size_t kSenderPrefixSize = 1;
 
-struct MediaClientHeader {
-    uint8_t kind = 0;
-    uint8_t flags = 0;
-};
-
-bool parse_media_client_header(const uint8_t* data,
-    size_t len,
-    MediaClientHeader& out)
-{
-    if (len < kMediaClientHeaderSize) {
-        return false;
-    }
-    if (data[0] != kMediaClientMagic0 || data[1] != kMediaClientMagic1
-        || data[2] != kMediaVersion) {
-        return false;
-    }
-    out.kind = data[3];
-    out.flags = 0;
-    return out.kind != 0;
-}
-
-std::string build_media_relay_packet(const std::string& from_id,
-    uint8_t kind,
+std::string build_media_packet(const std::string& from_id,
     const uint8_t* payload,
     size_t payload_len)
 {
-    const auto from_len = static_cast<uint16_t>(
-        std::min<size_t>(from_id.size(), UINT16_MAX));
+    const auto from_len = static_cast<uint8_t>(
+        std::min<size_t>(from_id.size(), 255));
     std::string out;
-    out.resize(kMediaRelayHeaderSize + from_len + payload_len);
+    out.resize(kSenderPrefixSize + from_len + payload_len);
     auto* dst = reinterpret_cast<uint8_t*>(out.data());
-    dst[0] = kMediaRelayMagic0;
-    dst[1] = kMediaRelayMagic1;
-    dst[2] = kMediaVersion;
-    dst[3] = kind;
-    dst[4] = static_cast<uint8_t>(from_len & 0xffu);
-    dst[5] = static_cast<uint8_t>((from_len >> 8) & 0xffu);
-    std::memcpy(dst + kMediaRelayHeaderSize, from_id.data(), from_len);
-    std::memcpy(dst + kMediaRelayHeaderSize + from_len, payload, payload_len);
+    dst[0] = from_len;
+    std::memcpy(dst + kSenderPrefixSize, from_id.data(), from_len);
+    std::memcpy(dst + kSenderPrefixSize + from_len, payload, payload_len);
     return out;
+}
+
+// Screen video and its system audio only go to peers that asked to watch;
+// voice and control reach everyone in the room.
+bool is_watcher_gated(const std::string& label)
+{
+    return label == channel::kVideo || label == channel::kScreenAudio;
 }
 
 } // namespace
@@ -175,13 +155,45 @@ std::string build_media_relay_packet(const std::string& from_id,
 namespace driscord {
 
 class Session : public std::enable_shared_from_this<Session> {
+    // Bridges the state machine's Actions onto this session. Nested so the
+    // machine can reach the session's private members directly.
+    struct FsmActions : session_fsm::Actions {
+        explicit FsmActions(Session& s)
+            : self(s)
+        {
+        }
+        void accept_offer(const std::string& sdp) override
+        {
+            self.build_peer_connection(sdp);
+        }
+        void apply_candidate(const std::string& candidate,
+            const std::string& mid) override
+        {
+            self.add_remote_candidate(candidate, mid);
+        }
+        void close_peer_connection() override { self.close_peer_connection(); }
+        void log_ignored(const char* what) override
+        {
+            LOG_WARNING() << "session " << self.id_ << ": ignoring out-of-phase "
+                          << what;
+        }
+        Session& self;
+    };
+
 public:
     Session(tcp::socket&& socket, std::shared_ptr<WebSocketServer> server)
         : ws_(std::move(socket))
         , id_(generate_id())
         , server_(std::move(server))
+        , fsm_actions_(*this)
+        , fsm_(static_cast<session_fsm::Actions&>(fsm_actions_))
     {
     }
+
+    // Tears the PeerConnection down on whichever thread drops the last
+    // reference, in case the session went away through an error path that
+    // never reached on_close().
+    ~Session() { close_peer_connection(); }
 
     const std::string& id() const { return id_; }
     const std::string& room_id() const { return room_id_; }
@@ -212,12 +224,192 @@ public:
         enqueue({ std::move(msg), true });
     }
 
-    void send_binary(std::shared_ptr<std::string> msg)
+    // Sends an already-framed media packet on this session's DataChannel with
+    // the given label. Called from other sessions' DataChannel threads during
+    // fan-out; a closed or not-yet-open channel is silently skipped.
+    void send_media(const std::string& label, const std::string& payload)
     {
-        enqueue({ std::move(msg), false });
+        std::shared_ptr<rtc::DataChannel> dc;
+        {
+            std::scoped_lock lk(pc_mutex_);
+            auto it = channels_.find(label);
+            if (it != channels_.end()) {
+                dc = it->second;
+            }
+        }
+        if (!dc || !dc->isOpen()) {
+            return;
+        }
+        try {
+            dc->send(reinterpret_cast<const std::byte*>(payload.data()),
+                payload.size());
+        } catch (const std::exception& e) {
+            LOG_ERROR() << "send_media[" << label << "][" << id_
+                        << "]: " << e.what();
+        }
+    }
+
+    void close_peer_connection()
+    {
+        std::shared_ptr<rtc::PeerConnection> pc;
+        std::unordered_map<std::string, std::shared_ptr<rtc::DataChannel>> chans;
+        {
+            std::scoped_lock lk(pc_mutex_);
+            pc = std::move(pc_);
+            chans = std::move(channels_);
+            pc_.reset();
+            channels_.clear();
+        }
+        for (auto& [_, dc] : chans) {
+            if (dc) {
+                dc->close();
+            }
+        }
+        if (pc) {
+            pc->close();
+        }
+    }
+
+public:
+    // Feeds an event to the state machine. Callable from any thread — the
+    // event is posted onto this session's strand, which is the only place the
+    // machine and the PeerConnection lifecycle are ever touched. Holding a
+    // strong reference here is deliberate: it keeps ~Session on an asio thread
+    // rather than on an RTC worker, where tearing down the Beast stream would
+    // race the io_context.
+    void post_fsm(session_fsm::Event ev)
+    {
+        boost::asio::post(ws_.get_executor(),
+            [self = shared_from_this(), ev = std::move(ev)]() mutable {
+                std::visit([&self](auto&& e) { self->fsm_.process_event(e); },
+                    ev);
+            });
     }
 
 private:
+    // Builds the PeerConnection for this client and answers its offer. The
+    // client is always the offerer and always creates the DataChannels.
+    void build_peer_connection(const std::string& sdp)
+    {
+        std::shared_ptr<rtc::PeerConnection> pc;
+        try {
+            pc = std::make_shared<rtc::PeerConnection>(server_->rtc_config());
+        } catch (const std::exception& e) {
+            LOG_ERROR() << "peer connection create failed [" << id_
+                        << "]: " << e.what();
+            return;
+        }
+
+        // Weak, deliberately: the session owns the PeerConnection, so a strong
+        // capture here would form a cycle. The session would then outlive the
+        // room that holds it and be destroyed on an RTC worker thread — tearing
+        // down its Beast socket after the io_context is already gone.
+        std::weak_ptr<Session> weak = weak_from_this();
+
+        pc->onLocalDescription([weak](rtc::Description desc) {
+            auto self = weak.lock();
+            if (!self) {
+                return;
+            }
+            nlohmann::json m;
+            m["type"] = desc.typeString();
+            m["sdp"] = std::string(desc);
+            self->send(std::make_shared<std::string>(m.dump()));
+        });
+
+        pc->onLocalCandidate([weak](rtc::Candidate cand) {
+            auto self = weak.lock();
+            if (!self) {
+                return;
+            }
+            nlohmann::json m;
+            m["type"] = "candidate";
+            m["candidate"] = std::string(cand);
+            m["sdpMid"] = cand.mid();
+            self->send(std::make_shared<std::string>(m.dump()));
+        });
+
+        pc->onDataChannel([weak](std::shared_ptr<rtc::DataChannel> dc) {
+            if (auto self = weak.lock()) {
+                self->setup_channel(std::move(dc));
+            }
+        });
+
+        pc->onStateChange([weak, id = id_](rtc::PeerConnection::State state) {
+            LOG_INFO() << "session " << id << " pc state: "
+                       << static_cast<int>(state);
+            if (state != rtc::PeerConnection::State::Failed) {
+                return;
+            }
+            if (auto self = weak.lock()) {
+                self->post_fsm(session_fsm::PcFailed { });
+            }
+        });
+
+        {
+            std::scoped_lock lk(pc_mutex_);
+            pc_ = pc;
+        }
+
+        try {
+            pc->setRemoteDescription(
+                rtc::Description(sdp, rtc::Description::Type::Offer));
+        } catch (const std::exception& e) {
+            LOG_ERROR() << "setRemoteDescription failed [" << id_
+                        << "]: " << e.what();
+        }
+    }
+
+    void add_remote_candidate(const std::string& candidate,
+        const std::string& mid)
+    {
+        std::shared_ptr<rtc::PeerConnection> pc;
+        {
+            std::scoped_lock lk(pc_mutex_);
+            pc = pc_;
+        }
+        if (!pc) {
+            LOG_WARNING() << "candidate with no peer connection [" << id_
+                          << "], dropping";
+            return;
+        }
+        try {
+            pc->addRemoteCandidate(rtc::Candidate(candidate, mid));
+        } catch (const std::exception& e) {
+            LOG_ERROR() << "addRemoteCandidate failed [" << id_
+                        << "]: " << e.what();
+        }
+    }
+
+    void setup_channel(std::shared_ptr<rtc::DataChannel> dc)
+    {
+        const std::string label = dc->label();
+        LOG_INFO() << "session " << id_ << " opened channel '" << label << "'";
+        {
+            std::scoped_lock lk(pc_mutex_);
+            channels_[label] = dc;
+        }
+
+        std::weak_ptr<Session> weak = weak_from_this();
+        post_fsm(session_fsm::ChannelOpened { });
+        dc->onMessage([weak, label](rtc::message_variant msg) {
+            auto* bin = std::get_if<rtc::binary>(&msg);
+            if (!bin) {
+                return;
+            }
+            auto self = weak.lock();
+            if (!self) {
+                return;
+            }
+            self->server_->route_media(self->id_, self->room_id_, label,
+                reinterpret_cast<const uint8_t*>(bin->data()), bin->size());
+        });
+
+        dc->onError([label, id = id_](std::string error) {
+            LOG_ERROR() << "dc '" << label << "' error [" << id << "]: " << error;
+        });
+    }
+
     struct OutboundMessage {
         std::shared_ptr<std::string> payload;
         bool text = true;
@@ -380,14 +572,6 @@ private:
 
         const auto* raw_data = static_cast<const uint8_t*>(buffer_.data().data());
         const size_t raw_len = buffer_.data().size();
-
-        if (!ws_.got_text()) {
-            server_->relay_binary_media(id_, room_id_, raw_data, raw_len);
-            buffer_.consume(buffer_.size());
-            do_read();
-            return;
-        }
-
         std::string_view raw { reinterpret_cast<const char*>(raw_data), raw_len };
 
         try {
@@ -395,10 +579,32 @@ private:
             msg["from"] = id_;
 
             std::string type = msg.value("type", "");
+
+            // SDP/ICE are addressed to the server itself — it terminates the
+            // PeerConnection, so these are consumed here and never forwarded
+            // to other clients.
+            if (type == "offer") {
+                post_fsm(session_fsm::OfferReceived { msg.value("sdp", "") });
+                buffer_.consume(buffer_.size());
+                do_read();
+                return;
+            }
+            if (type == "candidate") {
+                post_fsm(session_fsm::RemoteCandidate {
+                    msg.value("candidate", ""), msg.value("sdpMid", "") });
+                buffer_.consume(buffer_.size());
+                do_read();
+                return;
+            }
+
             if (type == "streaming_start") {
                 server_->add_streaming_peer(id_, room_id_);
             } else if (type == "streaming_stop") {
                 server_->remove_streaming_peer(id_, room_id_);
+            } else if (type == "watch_start") {
+                server_->add_video_watcher(id_, room_id_);
+            } else if (type == "watch_stop") {
+                server_->remove_video_watcher(id_, room_id_);
             }
 
             if (msg.contains("to")) {
@@ -417,6 +623,7 @@ private:
 
     void on_close()
     {
+        close_peer_connection();
         server_->unregister_session(id_, room_id_);
         LOG_INFO() << "session " << id_ << " disconnected (room=" << room_id_ << ")";
     }
@@ -429,6 +636,16 @@ private:
     std::shared_ptr<WebSocketServer> server_;
     std::mutex write_mutex_;
     std::deque<OutboundMessage> write_queue_;
+
+    // Guards pc_ and channels_, both touched from libdatachannel's threads
+    // and from other sessions' fan-out.
+    std::mutex pc_mutex_;
+    std::shared_ptr<rtc::PeerConnection> pc_;
+    std::unordered_map<std::string, std::shared_ptr<rtc::DataChannel>> channels_;
+
+    // Only ever touched on this session's strand — see post_fsm().
+    FsmActions fsm_actions_;
+    boost::sml::sm<session_fsm::Machine> fsm_;
 };
 
 // --- WebSocketServer ---------------------------------------------------------
@@ -438,6 +655,27 @@ WebSocketServer::WebSocketServer(boost::asio::io_context& io_context,
     : io_context_(io_context)
     , acceptor_(io_context_, tcp::endpoint(tcp::v4(), port))
 {
+    // No STUN/TURN: the server is the answerer and is expected to be publicly
+    // reachable, so its host candidates are enough — clients always dial out.
+    // Pinning the UDP range keeps firewall/Docker port-forwarding tractable.
+    auto env_port = [](const char* name, uint16_t fallback) -> uint16_t {
+        if (const char* v = std::getenv(name)) {
+            try {
+                return static_cast<uint16_t>(std::stoi(v));
+            } catch (const std::exception&) {
+                LOG_WARNING() << name << " is not a valid port, using "
+                              << fallback;
+            }
+        }
+        return fallback;
+    };
+    rtc_config_.portRangeBegin = env_port("DRISCORD_ICE_PORT_MIN", 49160);
+    rtc_config_.portRangeEnd = env_port("DRISCORD_ICE_PORT_MAX", 49200);
+    // Must match the client's ceiling: a whole encoded video frame arrives as
+    // one message and is fragmented by SCTP, not by the application.
+    rtc_config_.maxMessageSize = 256 * 1024;
+    LOG_INFO() << "ICE UDP port range: " << rtc_config_.portRangeBegin << "-"
+               << rtc_config_.portRangeEnd;
 }
 
 void WebSocketServer::run()
@@ -447,11 +685,36 @@ void WebSocketServer::run()
 
 void WebSocketServer::stop()
 {
-    boost::system::error_code ec;
-    acceptor_.close(ec);
+    // Close the acceptor on its own executor. do_accept() re-arms it from the
+    // io_context thread, and basic_socket_acceptor is not thread-safe, so
+    // closing it straight from a caller on another thread races that re-arm
+    // and can fault inside the reactor.
+    stopping_ = true;
+    boost::asio::post(acceptor_.get_executor(), [this] {
+        boost::system::error_code ec;
+        acceptor_.close(ec);
+    });
 
-    std::scoped_lock lk(rooms_mutex_);
-    rooms_.clear();
+    // Take the sessions out first, then tear their PeerConnections down before
+    // dropping the references. route_media() runs on libdatachannel's threads
+    // and holds strong references to its targets while it fans out, so simply
+    // clearing the map could leave the final reference — and therefore
+    // ~Session, which destroys a Beast stream — to be released on an RTC
+    // thread, potentially after the io_context is gone. close_peer_connection()
+    // joins those callbacks, so the last reference is guaranteed to die here.
+    std::vector<std::shared_ptr<Session>> sessions;
+    {
+        std::scoped_lock lk(rooms_mutex_);
+        for (auto& [_, room] : rooms_) {
+            for (auto& [__, session] : room.sessions) {
+                sessions.push_back(session);
+            }
+        }
+        rooms_.clear();
+    }
+    for (auto& session : sessions) {
+        session->close_peer_connection();
+    }
 }
 
 unsigned short WebSocketServer::bound_port() const
@@ -470,6 +733,7 @@ std::string WebSocketServer::register_and_build_welcome(const std::string& id,
 {
     std::vector<std::shared_ptr<Session>> existing;
     std::string welcome_payload;
+    std::string new_username;
     {
         std::scoped_lock lk(rooms_mutex_);
 
@@ -481,7 +745,10 @@ std::string WebSocketServer::register_and_build_welcome(const std::string& id,
         json peers = json::array();
         existing.reserve(room.sessions.size());
         for (auto& [pid, session] : room.sessions) {
-            peers.push_back(pid);
+            peers.push_back({
+                { "id", pid },
+                { "username", session ? session->username() : "" },
+            });
             existing.push_back(session);
         }
         welcome["peers"] = std::move(peers);
@@ -493,6 +760,7 @@ std::string WebSocketServer::register_and_build_welcome(const std::string& id,
         welcome["streaming_peers"] = std::move(streaming);
 
         welcome_payload = welcome.dump();
+        new_username = s ? s->username() : "";
 
         room.sessions.emplace(id, std::move(s));
     }
@@ -500,6 +768,7 @@ std::string WebSocketServer::register_and_build_welcome(const std::string& id,
     json joined;
     joined["type"] = "peer_joined";
     joined["id"] = id;
+    joined["username"] = new_username;
     auto joined_msg = std::make_shared<std::string>(joined.dump());
     for (auto& session : existing) {
         session->send(joined_msg);
@@ -556,6 +825,7 @@ void WebSocketServer::unregister_session(const std::string& id,
         auto& room = rit->second;
         room.sessions.erase(id);
         room.streaming_peers.erase(id);
+        room.video_watchers.erase(id);
         remaining.reserve(room.sessions.size());
         for (auto& [_, session] : room.sessions) {
             remaining.push_back(session);
@@ -621,24 +891,17 @@ void WebSocketServer::send_to(const std::string& target_id,
     }
 }
 
-void WebSocketServer::relay_binary_media(const std::string& from_id,
+void WebSocketServer::route_media(const std::string& from_id,
     const std::string& room_id,
+    const std::string& label,
     const uint8_t* data,
     size_t len)
 {
-    MediaClientHeader header;
-    if (!parse_media_client_header(data, len, header)) {
-        std::scoped_lock lk(rooms_mutex_);
-        rooms_[room_id].media_packets_dropped++;
-        LOG_WARNING() << "dropping invalid media relay packet from " << from_id
-                      << " in room " << room_id << " (" << len << " bytes)";
+    if (!data || len == 0) {
         return;
     }
 
-    const uint8_t* payload = data + kMediaClientHeaderSize;
-    const size_t payload_len = len - kMediaClientHeaderSize;
-    auto relay = std::make_shared<std::string>(
-        build_media_relay_packet(from_id, header.kind, payload, payload_len));
+    const std::string packet = build_media_packet(from_id, data, len);
 
     std::vector<std::shared_ptr<Session>> targets;
     {
@@ -650,18 +913,32 @@ void WebSocketServer::relay_binary_media(const std::string& from_id,
         auto& room = rit->second;
         room.media_packets_in++;
         room.media_bytes_in += len;
-        targets.reserve(room.sessions.size());
-        for (auto& [pid, session] : room.sessions) {
-            if (pid != from_id) {
-                targets.push_back(session);
+
+        if (is_watcher_gated(label)) {
+            targets.reserve(room.video_watchers.size());
+            for (auto& pid : room.video_watchers) {
+                if (pid == from_id) {
+                    continue;
+                }
+                auto sit = room.sessions.find(pid);
+                if (sit != room.sessions.end()) {
+                    targets.push_back(sit->second);
+                }
+            }
+        } else {
+            targets.reserve(room.sessions.size());
+            for (auto& [pid, session] : room.sessions) {
+                if (pid != from_id) {
+                    targets.push_back(session);
+                }
             }
         }
         room.media_packets_out += targets.size();
-        room.media_bytes_out += relay->size() * targets.size();
+        room.media_bytes_out += packet.size() * targets.size();
     }
 
     for (auto& session : targets) {
-        session->send_binary(relay);
+        session->send_media(label, packet);
     }
 }
 
@@ -699,6 +976,23 @@ void WebSocketServer::remove_streaming_peer(const std::string& id,
     }
 }
 
+void WebSocketServer::add_video_watcher(const std::string& id,
+    const std::string& room_id)
+{
+    std::scoped_lock lk(rooms_mutex_);
+    rooms_[room_id].video_watchers.insert(id);
+}
+
+void WebSocketServer::remove_video_watcher(const std::string& id,
+    const std::string& room_id)
+{
+    std::scoped_lock lk(rooms_mutex_);
+    auto rit = rooms_.find(room_id);
+    if (rit != rooms_.end()) {
+        rit->second.video_watchers.erase(id);
+    }
+}
+
 void WebSocketServer::do_accept()
 {
     acceptor_.async_accept(
@@ -707,7 +1001,7 @@ void WebSocketServer::do_accept()
             if (!ec) {
                 std::make_shared<Session>(std::move(socket), self)->start();
             }
-            if (self->acceptor_.is_open()) {
+            if (!self->stopping_ && self->acceptor_.is_open()) {
                 self->do_accept();
             }
         });

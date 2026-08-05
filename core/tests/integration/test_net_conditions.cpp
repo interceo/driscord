@@ -1,8 +1,8 @@
 #include "net_cond.hpp"
+#include "rtc_cleanup_env.hpp"
 #include "signaling_test_fixture.hpp"
 #include "transport.hpp"
 #include "transport_harness.hpp"
-#include "utils/chunk_assembler.hpp"
 #include "utils/log.hpp"
 #include "utils/protocol.hpp"
 #include "wait_helpers.hpp"
@@ -42,16 +42,16 @@ protected:
     SignalingServerFixture server;
 };
 
-// Helper: send n packets of the given size from transport src to dst's peer id.
+// Helper: send n packets of the given size to the server, which fans them out
+// to the rest of the room.
 static void send_n_packets(Transport& src,
-    const std::string& dst_id,
     const std::string& channel_label,
     int count,
     size_t payload_size = 32)
 {
     std::vector<uint8_t> buf(payload_size, 0xAB);
     for (int i = 0; i < count; ++i) {
-        src.send_on_channel_to(channel_label, dst_id, buf.data(), buf.size());
+        src.send_on_channel(channel_label, buf.data(), buf.size());
     }
 }
 
@@ -66,7 +66,7 @@ TEST_F(NetConditionsTransportTest, NoConditioner_Baseline)
     ASSERT_TRUE(wait_for_rendezvous(a, b));
 
     constexpr int kCount = 50;
-    send_n_packets(*a.transport, b.id(), a.label, kCount);
+    send_n_packets(*a.transport, a.label, kCount);
 
     ASSERT_TRUE(b.received.wait_for_count(kCount));
     EXPECT_EQ(b.received.snapshot().size(), static_cast<size_t>(kCount));
@@ -86,7 +86,7 @@ TEST_F(NetConditionsTransportTest, AudioLoss_StatsAccumulate)
     ASSERT_TRUE(wait_for_rendezvous(a, b));
 
     constexpr int kCount = 200;
-    send_n_packets(*a.transport, b.id(), a.label, kCount);
+    send_n_packets(*a.transport, a.label, kCount);
 
     // Give the conditioner time to process all enqueued packets (no delay).
     std::this_thread::sleep_for(500ms);
@@ -124,7 +124,7 @@ TEST_F(NetConditionsTransportTest, ControlChannel_ReliableUnderLoss)
     std::this_thread::sleep_for(300ms);
 
     constexpr int kCtrlCount = 20;
-    send_n_packets(*a.transport, b.id(), "control", kCtrlCount, 16);
+    send_n_packets(*a.transport, "control", kCtrlCount, 16);
 
     ASSERT_TRUE(b_ctrl->wait_for_count(kCtrlCount));
     EXPECT_EQ(b_ctrl->snapshot().size(), static_cast<size_t>(kCtrlCount));
@@ -144,7 +144,7 @@ TEST_F(NetConditionsTransportTest, Reordering_DoesNotDeadlock)
     ASSERT_TRUE(wait_for_rendezvous(a, b));
 
     constexpr int kCount = 100;
-    send_n_packets(*a.transport, b.id(), a.label, kCount);
+    send_n_packets(*a.transport, a.label, kCount);
 
     // All packets must still arrive (reorder only adds delay, no drops).
     ASSERT_TRUE(b.received.wait_for_count(kCount, 10s));
@@ -163,7 +163,7 @@ TEST_F(NetConditionsTransportTest, Duplicate_InflatesReceivedCount)
     ASSERT_TRUE(wait_for_rendezvous(a, b));
 
     constexpr int kCount = 20;
-    send_n_packets(*a.transport, b.id(), a.label, kCount);
+    send_n_packets(*a.transport, a.label, kCount);
 
     // Each packet is duplicated → expect 2× received.
     ASSERT_TRUE(b.received.wait_for_count(kCount * 2, 5s));
@@ -186,7 +186,7 @@ TEST_F(NetConditionsTransportTest, DynamicProfileChange_TakesEffectImmediately)
 
     // First batch — clean profile, all arrive.
     constexpr int kFirstBatch = 50;
-    send_n_packets(*a.transport, b.id(), a.label, kFirstBatch);
+    send_n_packets(*a.transport, a.label, kFirstBatch);
     ASSERT_TRUE(b.received.wait_for_count(kFirstBatch));
 
     // Switch to terrible profile mid-test.
@@ -194,7 +194,7 @@ TEST_F(NetConditionsTransportTest, DynamicProfileChange_TakesEffectImmediately)
 
     // Second batch — high loss expected.
     constexpr int kSecondBatch = 100;
-    send_n_packets(*a.transport, b.id(), a.label, kSecondBatch);
+    send_n_packets(*a.transport, a.label, kSecondBatch);
     std::this_thread::sleep_for(500ms);
 
     const auto s = b.conditioner->stats();
@@ -258,60 +258,4 @@ TEST(NetConditionsStandalone, JitterBufferAdaptation_UnderVariableDelay)
     // No artificial gaps were introduced, so nothing may be rejected as late,
     // duplicate or out of window — the delay change alone must not cost packets.
     EXPECT_EQ(rs.drop_count, 0u);
-}
-
-// =============================================================================
-// 8. Standalone: ChunkAssembler fed through 15% loss conditioner — partial
-//    frames must not crash; some complete frames should arrive.
-// =============================================================================
-TEST(NetConditionsStandalone, VideoChunkLoss_AssemblerStats)
-{
-    constexpr size_t kMaxPayload = 1000;
-    constexpr size_t kFrameDataSize = 4500; // 5 chunks per frame
-    constexpr int kFrameCount = 20;
-
-    utils::ChunkAssembler assembler(kMaxPayload);
-    std::atomic<int> complete_frames { 0 };
-
-    NetworkConditioner cond(NetProfile { .loss_pct = 15.0f });
-
-    auto wrapped = cond.wrap([&assembler, &complete_frames](
-                                 const std::string& /*peer*/,
-                                 const uint8_t* data,
-                                 size_t len) {
-        assembler.push(data, len,
-            [&complete_frames](uint64_t /*fid*/, const uint8_t*, size_t) {
-                ++complete_frames;
-            });
-    });
-
-    // Build synthetic frame data and chunk it.
-    std::vector<uint8_t> frame_data(kFrameDataSize, 0xCD);
-    for (int f = 0; f < kFrameCount; ++f) {
-        utils::chunk_frame(static_cast<uint64_t>(f),
-            frame_data.data(),
-            frame_data.size(),
-            kMaxPayload,
-            [&wrapped](const uint8_t* chunk, size_t len) {
-                wrapped("peer", chunk, len);
-            });
-    }
-
-    // Allow conditioner (no base delay) to flush all enqueued chunks.
-    std::this_thread::sleep_for(200ms);
-
-    // Must not crash. With 15% chunk loss, some frames complete, some don't.
-    // ChunkAssembler(max_frames=8) evicts frames where frame_id + 8 < current,
-    // so the live window is [current-8, current] = at most 9 pending entries.
-    EXPECT_LE(assembler.pending_frames(), 9u);
-
-    // Sanity: at 15% chunk loss per 5-chunk frame, P(frame complete) ≈ 0.85^5
-    // ≈ 44%. Out of 20 frames, expect at least 3 to complete.
-    EXPECT_GE(complete_frames.load(), 3);
-
-    const auto s = cond.stats();
-    // All chunks were enqueued (or dropped); enqueued + dropped = total chunks.
-    const uint64_t total_chunks = static_cast<uint64_t>(
-        kFrameCount * ((kFrameDataSize + kMaxPayload - 1) / kMaxPayload));
-    EXPECT_EQ(s.enqueued + s.dropped, total_chunks);
 }

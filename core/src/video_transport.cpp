@@ -1,115 +1,56 @@
 #include "video_transport.hpp"
 
 #include "channel_labels.hpp"
+#include "config.hpp"
 #include "log.hpp"
+#include "utils/protocol.hpp"
 
-#include <algorithm>
 #include <cstring>
 
 namespace {
 
 constexpr uint8_t kKeyframeRequestTag = 0x01;
 constexpr uint8_t kStopStreamTag = 0x02;
-constexpr uint8_t kIdentityTag = 0x03;
 
 } // namespace
 
 VideoTransport::VideoTransport(Transport& transport)
     : transport_(transport)
 {
-    transport.register_relay_media(relay_media::kScreenVideo,
-        [this](const std::string& peer_id, const uint8_t* data, size_t len) {
-            on_chunk(peer_id, data, len);
-        });
-    transport.register_relay_media(relay_media::kControl,
-        [this](const std::string& peer_id, const uint8_t* data, size_t len) {
-            on_control(peer_id, data, len);
-        });
-
-    // Video channel: pure data, no embedded control tags.
+    // Video: pure data, no embedded control tags.
     transport.register_channel({
         .label = channel::kVideo,
         .unordered = true,
         .max_retransmits = 0,
         .on_data =
             [this](const std::string& peer_id, const uint8_t* data, size_t len) {
-                on_chunk(peer_id, data, len);
+                on_frame(peer_id, data, len);
             },
         .on_open =
-            [this](const std::string& peer_id) {
-                // Reset stale streaming state from any previous connection to this
-                // peer. remove_streaming_peer is a no-op if the peer wasn't
-                // streaming before.
-                remove_streaming_peer(peer_id);
+            [this] {
+                // The media path just came up; whatever we were showing is
+                // stale, so ask the current streamer for a fresh keyframe.
                 std::scoped_lock lk(sink_mutex_);
                 if (on_keyframe_needed_) {
                     on_keyframe_needed_();
                 }
             },
-        .on_close =
-            [this](const std::string& peer_id) {
-                remove_streaming_peer(peer_id);
-                std::scoped_lock lk(streaming_mutex_);
-                video_subscribers_.erase(peer_id);
-            },
+        .on_close = nullptr,
     });
 
-    // Control channel: ordered, reliable — carries keyframe requests, stream
-    // lifecycle signals, and identity exchange (username).
+    // Control: ordered, reliable — keyframe requests and stream lifecycle.
+    // Identity is exchanged at the signaling layer (Transport::peer_username).
     transport.register_channel({
         .label = channel::kControl,
         .unordered = false,
         .max_retransmits = -1, // reliable
         .on_data =
             [this](const std::string& peer_id, const uint8_t* data, size_t len) {
-                if (len == 0) {
-                    return;
-                }
-                if (data[0] == kKeyframeRequestTag) {
-                    std::scoped_lock lk(sink_mutex_);
-                    if (on_keyframe_needed_) {
-                        on_keyframe_needed_();
-                    }
-                } else if (data[0] == kStopStreamTag) {
-                    remove_streaming_peer(peer_id);
-                } else if (data[0] == kIdentityTag && len > 1) {
-                    std::string username(reinterpret_cast<const char*>(data + 1), len - 1);
-                    std::function<void(const std::string&, const std::string&)> cb;
-                    {
-                        std::scoped_lock lk(identity_mutex_);
-                        peer_usernames_[peer_id] = username;
-                        cb = on_peer_identity_;
-                    }
-                    if (cb) {
-                        cb(peer_id, username);
-                    }
-                }
+                on_control(peer_id, data, len);
             },
-        .on_open =
-            [this](const std::string& peer_id) {
-                std::string username;
-                {
-                    std::scoped_lock lk(identity_mutex_);
-                    username = local_username_;
-                }
-                if (username.empty()) {
-                    return;
-                }
-                std::vector<uint8_t> pkt;
-                pkt.reserve(1 + username.size());
-                pkt.push_back(kIdentityTag);
-                pkt.insert(pkt.end(), username.begin(), username.end());
-                transport_.send_on_channel_to(channel::kControl, peer_id,
-                    pkt.data(), pkt.size());
-            },
+        .on_open = nullptr,
         .on_close = nullptr,
     });
-}
-
-void VideoTransport::set_server_relay_enabled(bool enabled)
-{
-    server_relay_enabled_ = enabled;
-    LOG_INFO() << "video transport mode: " << (enabled ? "server-relay" : "datachannel");
 }
 
 void VideoTransport::send_video(const uint8_t* data, size_t len)
@@ -118,100 +59,39 @@ void VideoTransport::send_video(const uint8_t* data, size_t len)
         return;
     }
 
-    std::vector<std::string> subscribers;
-    {
-        std::scoped_lock lk(streaming_mutex_);
-        if (video_subscribers_.empty()) {
-            return;
+    // Backpressure: if the send buffer is already deep, the uplink cannot keep
+    // up. Queueing this frame would only add latency, so drop it and ask the
+    // encoder for a keyframe to resync once the buffer drains.
+    if (transport_.channel_buffered_amount(channel::kVideo)
+        > stream_defaults::kVideoSendBufferLimitBytes) {
+        const uint64_t n = ++frames_dropped_backpressure_;
+        if (n == 1 || n % 60 == 0) {
+            LOG_WARNING() << "[video] backpressure, dropped frame #" << n;
         }
-        subscribers.assign(video_subscribers_.begin(), video_subscribers_.end());
+        return;
     }
 
     const uint64_t frame_id = next_frame_id_++;
-    const auto total = static_cast<uint16_t>((len + kChunkPayloadSize - 1) / kChunkPayloadSize);
+    const size_t wire_len = protocol::FrameHeader::kWireSize + len;
 
-    if (server_relay_enabled_) {
-        for (uint16_t i = 0; i < total; ++i) {
-            const size_t offset = static_cast<size_t>(i) * kChunkPayloadSize;
-            const size_t chunk_len = std::min(kChunkPayloadSize, len - offset);
-            const size_t wire_len = protocol::ChunkHeader::kWireSize + chunk_len;
+    // One message per frame — SCTP fragments it. Unordered with no
+    // retransmits, so a lost fragment costs this frame and nothing more.
+    rtc::binary pkt(wire_len);
+    protocol::FrameHeader { frame_id }.serialize(
+        reinterpret_cast<uint8_t*>(pkt.data()));
+    std::memcpy(pkt.data() + protocol::FrameHeader::kWireSize, data, len);
 
-            std::vector<uint8_t> pkt(wire_len);
-            protocol::ChunkHeader { frame_id, i, total }.serialize(pkt.data());
-            std::memcpy(pkt.data() + protocol::ChunkHeader::kWireSize,
-                data + offset, chunk_len);
-            transport_.send_relay_media(relay_media::kScreenVideo,
-                pkt.data(), pkt.size());
-        }
-        return;
-    }
-
-    // 4.6: collect all open DCs in one lock acquisition instead of N×M.
-    auto dcs = transport_.get_open_channels(channel::kVideo, subscribers);
-    if (dcs.empty()) {
-        return;
-    }
-
-    for (uint16_t i = 0; i < total; ++i) {
-        const size_t offset = static_cast<size_t>(i) * kChunkPayloadSize;
-        const size_t chunk_len = std::min(kChunkPayloadSize, len - offset);
-        const size_t wire_len = protocol::ChunkHeader::kWireSize + chunk_len;
-
-        rtc::binary pkt(wire_len);
-        protocol::ChunkHeader { frame_id, i, total }.serialize(
-            reinterpret_cast<uint8_t*>(pkt.data()));
-        std::memcpy(pkt.data() + protocol::ChunkHeader::kWireSize, data + offset, chunk_len);
-
-        // Copy to all but last, move to last (avoids internal copy in libdatachannel).
-        for (size_t s = 0; s + 1 < dcs.size(); ++s) {
-            try {
-                dcs[s]->send(reinterpret_cast<const std::byte*>(pkt.data()), wire_len);
-            } catch (const std::exception& e) {
-                LOG_ERROR() << "send_video chunk[" << i << "] to dc[" << s << "]: " << e.what();
-            }
-        }
-        try {
-            dcs.back()->send(std::move(pkt));
-        } catch (const std::exception& e) {
-            LOG_ERROR() << "send_video chunk[" << i << "] to last dc: " << e.what();
-        }
-    }
+    transport_.send_on_channel(channel::kVideo, std::move(pkt));
 }
 
 void VideoTransport::send_keyframe_request()
 {
-    if (server_relay_enabled_) {
-        transport_.send_relay_media(relay_media::kControl, &kKeyframeRequestTag, 1);
-    } else {
-        transport_.send_on_channel(channel::kControl, &kKeyframeRequestTag, 1);
-    }
+    transport_.send_on_channel(channel::kControl, &kKeyframeRequestTag, 1);
 }
 
 void VideoTransport::send_stop_stream()
 {
-    if (server_relay_enabled_) {
-        transport_.send_relay_media(relay_media::kControl, &kStopStreamTag, 1);
-    } else {
-        transport_.send_on_channel(channel::kControl, &kStopStreamTag, 1);
-    }
-}
-
-void VideoTransport::add_subscriber(const std::string& peer_id)
-{
-    {
-        std::scoped_lock lk(streaming_mutex_);
-        video_subscribers_.insert(peer_id);
-    }
-    std::scoped_lock lk(sink_mutex_);
-    if (on_keyframe_needed_) {
-        on_keyframe_needed_();
-    }
-}
-
-void VideoTransport::remove_subscriber(const std::string& peer_id)
-{
-    std::scoped_lock lk(streaming_mutex_);
-    video_subscribers_.erase(peer_id);
+    transport_.send_on_channel(channel::kControl, &kStopStreamTag, 1);
 }
 
 void VideoTransport::on_new_streaming_peer(
@@ -237,7 +117,6 @@ void VideoTransport::remove_streaming_peer(const std::string& peer_id)
         was_present = seen_streaming_.erase(peer_id) > 0;
         cb = on_streaming_peer_removed_;
     }
-    peer_assembly_.erase(peer_id);
     if (was_present && cb) {
         cb(peer_id);
     }
@@ -281,26 +160,6 @@ void VideoTransport::clear_video_sink()
     on_keyframe_needed_ = nullptr;
 }
 
-void VideoTransport::set_local_username(const std::string& username)
-{
-    std::scoped_lock lk(identity_mutex_);
-    local_username_ = username;
-}
-
-std::string VideoTransport::peer_username(const std::string& peer_id) const
-{
-    std::scoped_lock lk(identity_mutex_);
-    auto it = peer_usernames_.find(peer_id);
-    return it != peer_usernames_.end() ? it->second : "";
-}
-
-void VideoTransport::on_peer_identity(
-    std::function<void(const std::string&, const std::string&)> cb)
-{
-    std::scoped_lock lk(identity_mutex_);
-    on_peer_identity_ = std::move(cb);
-}
-
 void VideoTransport::on_assembled(const std::string& peer_id,
     const uint8_t* data,
     size_t len,
@@ -326,17 +185,22 @@ void VideoTransport::on_assembled(const std::string& peer_id,
     }
 }
 
-void VideoTransport::on_chunk(const std::string& peer_id,
+void VideoTransport::on_frame(const std::string& peer_id,
     const uint8_t* data,
     size_t len)
 {
-    auto [it, _] = peer_assembly_.try_emplace(peer_id, kChunkPayloadSize, 8,
-        kMaxChunksPerFrame);
-    it->second.push(
-        data, len,
-        [&](uint64_t frame_id, const uint8_t* frame_data, size_t frame_len) {
-            on_assembled(peer_id, frame_data, frame_len, frame_id);
-        });
+    if (len <= protocol::FrameHeader::kWireSize) {
+        return;
+    }
+    const size_t payload_len = len - protocol::FrameHeader::kWireSize;
+    if (payload_len > kMaxFrameBytes) {
+        LOG_WARNING() << "[video] oversized frame from " << peer_id << " ("
+                      << payload_len << " bytes), dropping";
+        return;
+    }
+    const auto header = protocol::FrameHeader::deserialize(data);
+    on_assembled(peer_id, data + protocol::FrameHeader::kWireSize, payload_len,
+        header.frame_id);
 }
 
 void VideoTransport::on_control(const std::string& peer_id,

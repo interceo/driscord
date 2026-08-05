@@ -1,41 +1,87 @@
 #include "transport.hpp"
 
 #include "log.hpp"
+#include "transport_fsm_table.hpp"
 
 #include <cstring>
 
 using json = nlohmann::json;
 
 namespace {
-constexpr uint8_t kRelayClientMagic0 = 'D';
-constexpr uint8_t kRelayClientMagic1 = 'M';
-constexpr uint8_t kRelayServerMagic0 = 'D';
-constexpr uint8_t kRelayServerMagic1 = 'R';
-constexpr uint8_t kRelayVersion = 1;
-constexpr size_t kRelayClientHeaderSize = 4;
-constexpr size_t kRelayServerHeaderSize = 6;
+// Server → client media framing: u8 sender-id length, sender id, payload.
+// Mirrors build_media_packet() in backend/signaling_server/src/ws_server.cpp.
+constexpr size_t kSenderPrefixSize = 1;
+
+int64_t steady_now_ms()
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
 } // namespace
+
+// Bridges the state machine's Actions interface onto the Transport, and owns
+// the machine itself. Defined here so <boost/sml.hpp> never reaches
+// transport.hpp.
+struct Transport::Fsm : transport_fsm::Actions {
+    explicit Fsm(Transport& t)
+        : owner(t)
+        , machine(static_cast<transport_fsm::Actions&>(*this), backoff)
+    {
+    }
+
+    void create_peer_connection() override { owner.create_server_connection(); }
+    void apply_answer(const std::string& sdp) override { owner.handle_answer(sdp); }
+    void apply_candidate(const std::string& candidate,
+        const std::string& mid) override
+    {
+        owner.handle_candidate(candidate, mid);
+    }
+    void close_peer_connection() override { owner.close_server_connection(); }
+    void log_ignored(const char* what) override
+    {
+        LOG_WARNING() << "ignoring out-of-phase " << what;
+    }
+
+    Transport& owner;
+    transport_fsm::Backoff backoff;
+    boost::sml::sm<transport_fsm::Machine> machine;
+};
 
 Transport::Transport()
 {
-    rtc_config_.iceServers.push_back(
-        rtc::IceServer("stun:stun.l.google.com:19302"));
-    // Each video frame is chunked to 60 KB at the application level
-    // (VideoTransport), so SCTP never sees messages larger than ~61 KB. 128 KB
-    // gives enough headroom.
-    rtc_config_.maxMessageSize = 128 * 1024; // 128 KB
+    // No ICE servers: the server is publicly reachable and answers, so its
+    // host candidates suffice and the client only ever dials out. Nothing here
+    // needs STUN, and TURN is not part of this architecture at all.
+    // Video frames are sent whole and fragmented by SCTP; 256 KB is a generous
+    // ceiling for a single encoded frame.
+    rtc_config_.maxMessageSize = 256 * 1024;
 
-    timer_thread_ = std::thread(&Transport::timer_loop_, this);
+    fsm_ = std::make_unique<Fsm>(*this);
+    fsm_thread_ = std::thread(&Transport::fsm_loop_, this);
 }
 
 Transport::~Transport()
 {
-    stop_timer_ = true;
-    timer_cv_.notify_all();
-    if (timer_thread_.joinable()) {
-        timer_thread_.join();
-    }
     disconnect();
+
+    stop_fsm_ = true;
+    fsm_cv_.notify_all();
+    if (fsm_thread_.joinable()) {
+        fsm_thread_.join();
+    }
+}
+
+void Transport::post_event(transport_fsm::Event ev)
+{
+    {
+        std::scoped_lock lk(fsm_mutex_);
+        if (stop_fsm_) {
+            return;
+        }
+        fsm_queue_.push_back(std::move(ev));
+    }
+    fsm_cv_.notify_all();
 }
 
 void Transport::register_channel(ChannelSpec spec)
@@ -44,45 +90,6 @@ void Transport::register_channel(ChannelSpec spec)
         primary_channel_ = spec.label;
     }
     channel_specs_.push_back(std::move(spec));
-}
-
-void Transport::add_turn_server(const std::string& url,
-    const std::string& user,
-    const std::string& pass)
-{
-    auto relay_type = rtc::IceServer::RelayType::TurnUdp;
-    std::string host = url;
-
-    if (host.rfind("turns:", 0) == 0) {
-        host = host.substr(6);
-        relay_type = rtc::IceServer::RelayType::TurnTls;
-    } else if (host.rfind("turn:", 0) == 0) {
-        host = host.substr(5);
-    }
-
-    uint16_t port = 3478;
-    auto colon = host.rfind(':');
-    if (colon != std::string::npos) {
-        try {
-            port = static_cast<uint16_t>(std::stoi(host.substr(colon + 1)));
-        } catch (const std::exception&) {
-            LOG_ERROR() << "invalid TURN port in URL: " << url;
-            return;
-        }
-        host = host.substr(0, colon);
-    }
-
-    rtc_config_.iceServers.push_back(
-        rtc::IceServer(host, port, user, pass, relay_type));
-    LOG_INFO() << "TURN server added: " << host << ":" << port;
-}
-
-void Transport::set_ice_servers(const std::vector<std::string>& urls)
-{
-    rtc_config_.iceServers.clear();
-    for (const auto& url : urls) {
-        rtc_config_.iceServers.push_back(rtc::IceServer(url));
-    }
 }
 
 utils::Expected<void, TransportError> Transport::connect(const std::string& ws_url)
@@ -104,6 +111,8 @@ utils::Expected<void, TransportError> Transport::connect(const std::string& ws_u
     ws->onOpen([this]() {
         LOG_INFO() << "ws connected to " << ws_url_;
         ws_connected_ = true;
+        // Hand off to the state machine: it owns when the offer goes out.
+        post_event(transport_fsm::WsOpened { });
         if (on_connected_)
             on_connected_();
     });
@@ -111,6 +120,7 @@ utils::Expected<void, TransportError> Transport::connect(const std::string& ws_u
     ws->onClosed([this]() {
         LOG_INFO() << "ws disconnected";
         ws_connected_ = false;
+        post_event(transport_fsm::WsClosed { });
         if (on_disconnected_)
             on_disconnected_();
     });
@@ -120,81 +130,276 @@ utils::Expected<void, TransportError> Transport::connect(const std::string& ws_u
     ws->onMessage([this](auto msg) {
         if (auto* str = std::get_if<std::string>(&msg)) {
             on_ws_message(*str);
-        } else if (auto* bin = std::get_if<rtc::binary>(&msg)) {
-            on_ws_binary(reinterpret_cast<const uint8_t*>(bin->data()), bin->size());
         }
     });
 
+    // Publish before opening: onOpen fires on a libdatachannel thread and the
+    // offer that follows goes out through send_signal(), which would find ws_
+    // still empty and silently drop it.
+    {
+        std::scoped_lock lk(ws_mutex_);
+        ws_ = ws;
+    }
+    post_event(transport_fsm::ConnectRequested { });
     ws->open(ws_url);
-
-    std::scoped_lock lk(ws_mutex_);
-    ws_ = std::move(ws);
     return { };
 }
 
-void Transport::register_relay_media(uint8_t kind, RelayMediaCb cb)
+void Transport::create_server_connection()
 {
-    std::scoped_lock lk(relay_media_mutex_);
-    if (cb) {
-        relay_media_callbacks_[kind] = std::move(cb);
-    } else {
-        relay_media_callbacks_.erase(kind);
+    // A Tick queued before disconnect() could otherwise resurrect the media
+    // path after the caller already tore everything down.
+    if (!ws_connected_) {
+        LOG_WARNING() << "skipping peer connection setup: signaling is down";
+        return;
+    }
+
+    // Defensive: the machine always closes before it re-creates, but a stray
+    // connection here would leak ICE ports and leave stale channel entries.
+    close_server_connection();
+
+    std::shared_ptr<rtc::PeerConnection> pc;
+    try {
+        pc = std::make_shared<rtc::PeerConnection>(rtc_config_);
+    } catch (const std::exception& e) {
+        LOG_ERROR() << "peer connection create failed: " << e.what();
+        return;
+    }
+
+    pc->onLocalDescription([this](rtc::Description desc) {
+        json msg;
+        msg["type"] = desc.typeString();
+        msg["sdp"] = std::string(desc);
+        send_signal(msg);
+    });
+
+    pc->onLocalCandidate([this](rtc::Candidate cand) {
+        json msg;
+        msg["type"] = "candidate";
+        msg["candidate"] = std::string(cand);
+        msg["sdpMid"] = cand.mid();
+        send_signal(msg);
+    });
+
+    pc->onStateChange([this](rtc::PeerConnection::State state) {
+        LOG_INFO() << "server connection state: " << static_cast<int>(state);
+        switch (state) {
+        case rtc::PeerConnection::State::Connected:
+            post_event(transport_fsm::PcConnected { });
+            break;
+        case rtc::PeerConnection::State::Failed:
+            // Disconnected is transient — ICE may still recover on its own, so
+            // only a hard Failed is worth tearing the connection down for.
+            post_event(transport_fsm::PcFailed { steady_now_ms() });
+            break;
+        default:
+            break;
+        }
+    });
+
+    {
+        std::scoped_lock lk(pc_mutex_);
+        pc_ = pc;
+        channels_.clear();
+    }
+
+    // The client is always the offerer and owns the channel set.
+    for (const auto& spec : channel_specs_) {
+        rtc::DataChannelInit init;
+        init.reliability.unordered = spec.unordered;
+        if (spec.max_retransmits >= 0) {
+            init.reliability.maxRetransmits = spec.max_retransmits;
+        }
+        try {
+            auto dc = pc->createDataChannel(spec.label, init);
+            setup_channel(spec.label, std::move(dc));
+        } catch (const std::exception& e) {
+            LOG_ERROR() << "createDataChannel[" << spec.label
+                        << "]: " << e.what();
+        }
     }
 }
 
-void Transport::send_relay_media(uint8_t kind, const uint8_t* data, size_t len)
+void Transport::handle_answer(const std::string& sdp)
 {
-    if (kind == 0 || !data || len == 0) {
-        return;
+    std::shared_ptr<rtc::PeerConnection> pc;
+    {
+        std::scoped_lock lk(pc_mutex_);
+        pc = pc_;
     }
-
-    rtc::binary payload;
-    payload.resize(kRelayClientHeaderSize + len);
-    payload[0] = static_cast<std::byte>(kRelayClientMagic0);
-    payload[1] = static_cast<std::byte>(kRelayClientMagic1);
-    payload[2] = static_cast<std::byte>(kRelayVersion);
-    payload[3] = static_cast<std::byte>(kind);
-    std::memcpy(payload.data() + kRelayClientHeaderSize, data, len);
-
-    std::scoped_lock lk(ws_mutex_);
-    if (!ws_ || !ws_connected_) {
+    if (!pc) {
+        LOG_WARNING() << "answer with no peer connection, dropping";
         return;
     }
     try {
-        ws_->send(std::move(payload));
+        pc->setRemoteDescription(
+            rtc::Description(sdp, rtc::Description::Type::Answer));
     } catch (const std::exception& e) {
-        LOG_ERROR() << "send_relay_media[" << static_cast<int>(kind)
-                    << "]: " << e.what();
+        LOG_ERROR() << "setRemoteDescription: " << e.what();
+    }
+}
+
+void Transport::handle_candidate(const std::string& candidate,
+    const std::string& mid)
+{
+    std::shared_ptr<rtc::PeerConnection> pc;
+    {
+        std::scoped_lock lk(pc_mutex_);
+        pc = pc_;
+    }
+    if (!pc) {
+        LOG_WARNING() << "candidate with no peer connection, dropping";
+        return;
+    }
+    try {
+        pc->addRemoteCandidate(rtc::Candidate(candidate, mid));
+    } catch (const std::exception& e) {
+        LOG_ERROR() << "addRemoteCandidate: " << e.what();
+    }
+}
+
+void Transport::setup_channel(const std::string& label,
+    std::shared_ptr<rtc::DataChannel> dc)
+{
+    PacketCb on_data;
+    ChannelEventCb on_open_cb;
+    ChannelEventCb on_close_cb;
+    bool found = false;
+
+    for (const auto& spec : channel_specs_) {
+        if (spec.label == label) {
+            on_data = spec.on_data;
+            on_open_cb = spec.on_open;
+            on_close_cb = spec.on_close;
+            found = true;
+            break;
+        }
+    }
+
+    if (!found) {
+        LOG_WARNING() << "unknown channel label '" << label << "'";
+        return;
+    }
+
+    dc->onOpen([this, label, on_open_cb]() {
+        LOG_INFO() << "'" << label << "' channel open";
+        {
+            std::scoped_lock lk(pc_mutex_);
+            channels_[label].open = true;
+        }
+        if (on_open_cb) {
+            on_open_cb();
+        }
+    });
+
+    dc->onClosed([this, label, on_close_cb]() {
+        LOG_INFO() << "'" << label << "' channel closed";
+        {
+            std::scoped_lock lk(pc_mutex_);
+            channels_[label].open = false;
+        }
+        if (on_close_cb) {
+            on_close_cb();
+        }
+    });
+
+    // Every media message is prefixed by the server with the id of the peer
+    // that sent it.
+    dc->onMessage([on_data, label](auto msg) {
+        auto* data = std::get_if<rtc::binary>(&msg);
+        if (!data || !on_data) {
+            return;
+        }
+        const auto* bytes = reinterpret_cast<const uint8_t*>(data->data());
+        const size_t len = data->size();
+        if (len < kSenderPrefixSize) {
+            return;
+        }
+        const size_t from_len = bytes[0];
+        if (len < kSenderPrefixSize + from_len) {
+            LOG_WARNING() << "malformed media packet on '" << label << "' ("
+                          << len << " bytes)";
+            return;
+        }
+        std::string from(reinterpret_cast<const char*>(bytes + kSenderPrefixSize),
+            from_len);
+        on_data(from, bytes + kSenderPrefixSize + from_len,
+            len - kSenderPrefixSize - from_len);
+    });
+
+    dc->onError([label](std::string error) {
+        LOG_ERROR() << "'" << label << "' dc error: " << error;
+    });
+
+    std::scoped_lock lk(pc_mutex_);
+    channels_[label].dc = std::move(dc);
+}
+
+std::shared_ptr<rtc::DataChannel> Transport::open_channel(
+    const std::string& label) const
+{
+    std::scoped_lock lk(pc_mutex_);
+    auto it = channels_.find(label);
+    if (it == channels_.end() || !it->second.dc || !it->second.open) {
+        return nullptr;
+    }
+    return it->second.dc;
+}
+
+void Transport::close_server_connection()
+{
+    std::shared_ptr<rtc::PeerConnection> pc;
+    std::unordered_map<std::string, ChannelState> channels;
+    {
+        std::scoped_lock lk(pc_mutex_);
+        pc = std::move(pc_);
+        channels = std::move(channels_);
+        pc_.reset();
+        channels_.clear();
+    }
+    for (auto& [_, ch] : channels) {
+        if (ch.dc) {
+            ch.dc->close();
+        }
+    }
+    if (pc) {
+        pc->close();
     }
 }
 
 void Transport::disconnect()
 {
-    std::unordered_map<std::string, PeerState> local_peers;
-    {
-        std::scoped_lock lk(peers_mutex_);
-        local_peers = std::move(peers_);
-        peers_.clear();
-    }
+    // Tell the machine to stop trying to reconnect, then tear down here rather
+    // than waiting on the FSM thread: callers expect the transport to be down
+    // by the time this returns. close_server_connection() is idempotent, so the
+    // machine repeating it later is harmless.
+    post_event(transport_fsm::DisconnectRequested { });
 
-    for (auto& [_, state] : local_peers) {
-        for (auto& [label, ch] : state.channels) {
-            if (ch.dc) {
-                ch.dc->close();
-            }
-        }
-        if (state.pc) {
-            state.pc->close();
-        }
-    }
-    local_peers.clear();
-
+    // Drop the socket first. create_server_connection() refuses to run without
+    // it, so from here on the machine cannot build a new connection even if a
+    // stale event is still queued.
     std::shared_ptr<rtc::WebSocket> ws;
     {
         std::scoped_lock lk(ws_mutex_);
         ws = std::move(ws_);
         ws_connected_ = false;
     }
+
+    // Wait out any transition already in flight — otherwise it could finish
+    // building a connection right after the teardown below.
+    std::scoped_lock run(fsm_run_mutex_);
+
+    close_server_connection();
+
+    {
+        std::scoped_lock lk(peers_mutex_);
+        peers_.clear();
+    }
+    {
+        std::scoped_lock lk(identity_mutex_);
+        peer_usernames_.clear();
+    }
+
     if (ws) {
         ws->close();
     }
@@ -205,95 +410,41 @@ void Transport::send_on_channel(const std::string& label,
     const uint8_t* data,
     size_t len)
 {
-    std::vector<std::shared_ptr<rtc::DataChannel>> targets;
-    {
-        std::scoped_lock lk(peers_mutex_);
-        for (auto& [_, state] : peers_) {
-            auto it = state.channels.find(label);
-            if (it != state.channels.end() && it->second.dc && it->second.open) {
-                targets.push_back(it->second.dc);
-            }
-        }
-    }
-    for (const auto& dc : targets) {
-        try {
-            dc->send(reinterpret_cast<const std::byte*>(data), len);
-        } catch (const std::exception& e) {
-            LOG_ERROR() << "send_on_channel[" << label << "]: " << e.what();
-        }
-    }
-}
-
-void Transport::send_on_channel_to(const std::string& label,
-    const std::string& peer_id,
-    const uint8_t* data,
-    size_t len)
-{
-    std::shared_ptr<rtc::DataChannel> dc;
-    {
-        std::scoped_lock lk(peers_mutex_);
-        auto pit = peers_.find(peer_id);
-        if (pit == peers_.end()) {
-            return;
-        }
-        auto cit = pit->second.channels.find(label);
-        if (cit == pit->second.channels.end() || !cit->second.dc || !cit->second.open) {
-            return;
-        }
-        dc = cit->second.dc;
+    auto dc = open_channel(label);
+    if (!dc) {
+        return;
     }
     try {
         dc->send(reinterpret_cast<const std::byte*>(data), len);
     } catch (const std::exception& e) {
-        LOG_ERROR() << "send_on_channel_to[" << label << "][" << peer_id
-                    << "]: " << e.what();
+        LOG_ERROR() << "send_on_channel[" << label << "]: " << e.what();
     }
 }
 
-void Transport::send_on_channel_to(const std::string& label,
-    const std::string& peer_id,
-    rtc::binary&& data)
+void Transport::send_on_channel(const std::string& label, rtc::binary&& data)
 {
-    std::shared_ptr<rtc::DataChannel> dc;
-    {
-        std::scoped_lock lk(peers_mutex_);
-        auto pit = peers_.find(peer_id);
-        if (pit == peers_.end()) {
-            return;
-        }
-        auto cit = pit->second.channels.find(label);
-        if (cit == pit->second.channels.end() || !cit->second.dc || !cit->second.open) {
-            return;
-        }
-        dc = cit->second.dc;
+    auto dc = open_channel(label);
+    if (!dc) {
+        return;
     }
     try {
         dc->send(std::move(data));
     } catch (const std::exception& e) {
-        LOG_ERROR() << "send_on_channel_to[" << label << "][" << peer_id
-                    << "]: " << e.what();
+        LOG_ERROR() << "send_on_channel[" << label << "]: " << e.what();
     }
 }
 
-std::vector<std::shared_ptr<rtc::DataChannel>> Transport::get_open_channels(
-    const std::string& label,
-    const std::vector<std::string>& peer_ids) const
+size_t Transport::channel_buffered_amount(const std::string& label) const
 {
-    std::vector<std::shared_ptr<rtc::DataChannel>> result;
-    std::scoped_lock lk(peers_mutex_);
-    result.reserve(peer_ids.size());
-    for (const auto& id : peer_ids) {
-        auto pit = peers_.find(id);
-        if (pit == peers_.end()) {
-            continue;
-        }
-        auto cit = pit->second.channels.find(label);
-        if (cit == pit->second.channels.end() || !cit->second.dc || !cit->second.open) {
-            continue;
-        }
-        result.push_back(cit->second.dc);
+    auto dc = open_channel(label);
+    if (!dc) {
+        return 0;
     }
-    return result;
+    try {
+        return dc->bufferedAmount();
+    } catch (const std::exception&) {
+        return 0;
+    }
 }
 
 std::string Transport::stats_json() const
@@ -302,114 +453,132 @@ std::string Transport::stats_json() const
     return stats_json_cache_;
 }
 
-void Transport::timer_loop_()
+void Transport::fsm_loop_()
 {
+    // Ticks drive the reconnect backoff, so they need to be finer-grained than
+    // the old stats interval; stats are refreshed on a slower counter below.
+    constexpr auto kTickInterval = std::chrono::milliseconds(250);
+    constexpr int kTicksPerStatsRefresh = 8; // ~2 s, as before
+    int ticks_since_stats = 0;
+
     while (true) {
+        std::deque<transport_fsm::Event> batch;
         {
-            std::unique_lock lk(timer_cv_mutex_);
-            timer_cv_.wait_for(lk, std::chrono::seconds(2),
-                [this] { return stop_timer_.load(); });
+            std::unique_lock lk(fsm_mutex_);
+            fsm_cv_.wait_for(lk, kTickInterval,
+                [this] { return stop_fsm_.load() || !fsm_queue_.empty(); });
+            batch.swap(fsm_queue_);
         }
-        if (stop_timer_) {
+
+        {
+            // Excludes disconnect() for the duration, so teardown can never
+            // interleave with a transition that is building a connection.
+            std::scoped_lock run(fsm_run_mutex_);
+
+            // Drain queued events first, then tick — so a PcFailed that arrived
+            // in this batch arms the backoff before the tick that could act on
+            // it.
+            for (auto& ev : batch) {
+                std::visit([this](auto&& e) { fsm_->machine.process_event(e); },
+                    ev);
+            }
+
+            if (!stop_fsm_) {
+                fsm_->machine.process_event(
+                    transport_fsm::Tick { steady_now_ms() });
+            }
+        }
+
+        if (stop_fsm_) {
             break;
         }
 
-        // --- Collect PC snapshots under lock (no libdatachannel calls while locked)
-        struct PeerSnap {
-            std::string id;
-            std::shared_ptr<rtc::PeerConnection> pc;
-            bool was_offerer;
-        };
-        std::vector<PeerSnap> snaps;
+        if (++ticks_since_stats < kTicksPerStatsRefresh) {
+            continue;
+        }
+        ticks_since_stats = 0;
+
+        std::shared_ptr<rtc::PeerConnection> pc;
         {
-            std::scoped_lock lk(peers_mutex_);
-            snaps.reserve(peers_.size());
-            for (auto& [id, st] : peers_) {
-                if (st.pc) {
-                    snaps.push_back({ id, st.pc, st.was_offerer });
-                }
-            }
+            std::scoped_lock lk(pc_mutex_);
+            pc = pc_;
         }
 
-        // --- Query stats and detect failures outside peers_mutex_
-        const auto now = std::chrono::steady_clock::now();
-        json arr = json::array();
-        std::vector<std::string> to_reconnect;
-
-        for (auto& snap : snaps) {
-            const auto pc_state = snap.pc->state();
-
-            json peer;
-            peer["id"] = snap.id;
-            switch (pc_state) {
+        json stats = json::object();
+        if (pc) {
+            switch (pc->state()) {
             case rtc::PeerConnection::State::New:
-                peer["state"] = "new";
+                stats["state"] = "new";
                 break;
             case rtc::PeerConnection::State::Connecting:
-                peer["state"] = "connecting";
+                stats["state"] = "connecting";
                 break;
             case rtc::PeerConnection::State::Connected:
-                peer["state"] = "connected";
+                stats["state"] = "connected";
                 break;
             case rtc::PeerConnection::State::Disconnected:
-                peer["state"] = "disconnected";
+                stats["state"] = "disconnected";
                 break;
             case rtc::PeerConnection::State::Failed:
-                peer["state"] = "failed";
+                stats["state"] = "failed";
                 break;
             case rtc::PeerConnection::State::Closed:
-                peer["state"] = "closed";
+                stats["state"] = "closed";
                 break;
             }
-            peer["bytes_sent"] = snap.pc->bytesSent();
-            peer["bytes_received"] = snap.pc->bytesReceived();
-            const auto rtt = snap.pc->rtt();
-            peer["rtt_ms"] = rtt ? static_cast<int>(rtt->count()) : -1;
-            arr.push_back(std::move(peer));
-
-            if (pc_state == rtc::PeerConnection::State::Failed && snap.was_offerer
-                && ws_connected_) {
-                bool should_reconnect = false;
-                {
-                    std::scoped_lock lk(peers_mutex_);
-                    auto& last = reconnect_times_[snap.id];
-                    if (now - last > std::chrono::seconds(10)) {
-                        last = now;
-                        should_reconnect = true;
-                    }
-                }
-                if (should_reconnect) {
-                    to_reconnect.push_back(snap.id);
-                }
-            }
+            stats["bytes_sent"] = pc->bytesSent();
+            stats["bytes_received"] = pc->bytesReceived();
+            const auto rtt = pc->rtt();
+            stats["rtt_ms"] = rtt ? static_cast<int>(rtt->count()) : -1;
+        } else {
+            stats["state"] = "closed";
+            stats["rtt_ms"] = -1;
         }
 
-        {
-            std::scoped_lock lk(stats_mutex_);
-            stats_json_cache_ = arr.dump();
-        }
-
-        for (const auto& id : to_reconnect) {
-            LOG_WARNING() << "peer " << id << " ICE failed, reconnecting";
-            create_peer(id, true);
-        }
+        std::scoped_lock lk(stats_mutex_);
+        stats_json_cache_ = stats.dump();
     }
 }
 
 std::vector<Transport::PeerInfo> Transport::peers() const
 {
+    bool media_up = false;
+    {
+        std::scoped_lock lk(pc_mutex_);
+        auto it = channels_.find(primary_channel_);
+        media_up = it != channels_.end() && it->second.open;
+    }
+
     std::scoped_lock lk(peers_mutex_);
     std::vector<PeerInfo> result;
     result.reserve(peers_.size());
-    for (auto& [id, state] : peers_) {
-        bool primary_open = false;
-        if (auto it = state.channels.find(primary_channel_);
-            it != state.channels.end()) {
-            primary_open = it->second.open;
-        }
-        result.emplace_back(id, primary_open);
+    for (const auto& id : peers_) {
+        result.emplace_back(id, media_up);
     }
     return result;
+}
+
+std::string Transport::peer_username(const std::string& peer_id) const
+{
+    std::scoped_lock lk(identity_mutex_);
+    auto it = peer_usernames_.find(peer_id);
+    return it != peer_usernames_.end() ? it->second : "";
+}
+
+void Transport::set_peer_identity_(const std::string& peer_id, std::string username)
+{
+    if (username.empty()) {
+        return;
+    }
+    std::function<void(const std::string&, const std::string&)> cb;
+    {
+        std::scoped_lock lk(identity_mutex_);
+        peer_usernames_[peer_id] = username;
+        cb = on_peer_identity_;
+    }
+    if (cb) {
+        cb(peer_id, username);
+    }
 }
 
 void Transport::on_ws_message(const std::string& raw)
@@ -426,10 +595,16 @@ void Transport::on_ws_message(const std::string& raw)
             }
             LOG_INFO() << "assigned id: " << assigned_id;
             if (msg.contains("peers")) {
-                for (auto& peer_id : msg["peers"]) {
-                    std::string pid = peer_id;
-                    LOG_INFO() << "existing peer: " << pid << ", creating offer";
-                    create_peer(pid, true);
+                for (auto& peer : msg["peers"]) {
+                    std::string pid = peer.value("id", "");
+                    if (pid.empty()) {
+                        continue;
+                    }
+                    set_peer_identity_(pid, peer.value("username", ""));
+                    {
+                        std::scoped_lock lk(peers_mutex_);
+                        peers_.insert(pid);
+                    }
                     if (on_peer_joined_) {
                         on_peer_joined_(pid);
                     }
@@ -446,10 +621,10 @@ void Transport::on_ws_message(const std::string& raw)
         } else if (type == "peer_joined") {
             std::string peer_id = msg["id"];
             LOG_INFO() << "peer joined: " << peer_id;
+            set_peer_identity_(peer_id, msg.value("username", ""));
             {
-                // Pre-register peer so peers() returns it before offer arrives
                 std::scoped_lock lk(peers_mutex_);
-                peers_.emplace(peer_id, PeerState { });
+                peers_.insert(peer_id);
             }
             if (on_peer_joined_) {
                 on_peer_joined_(peer_id);
@@ -457,33 +632,24 @@ void Transport::on_ws_message(const std::string& raw)
         } else if (type == "peer_left") {
             std::string peer_id = msg["id"];
             LOG_INFO() << "peer left: " << peer_id;
-
-            PeerState removed;
             {
                 std::scoped_lock lk(peers_mutex_);
-                auto it = peers_.find(peer_id);
-                if (it != peers_.end()) {
-                    removed = std::move(it->second);
-                    peers_.erase(it);
-                }
+                peers_.erase(peer_id);
             }
-            for (auto& [label, ch] : removed.channels) {
-                if (ch.dc) {
-                    ch.dc->close();
-                }
-            }
-            if (removed.pc) {
-                removed.pc->close();
+            {
+                std::scoped_lock lk(identity_mutex_);
+                peer_usernames_.erase(peer_id);
             }
             if (on_peer_left_) {
                 on_peer_left_(peer_id);
             }
-        } else if (type == "offer") {
-            handle_offer(msg["from"], msg["sdp"]);
         } else if (type == "answer") {
-            handle_answer(msg["from"], msg["sdp"]);
+            // Through the machine: whether an answer is meaningful depends on
+            // the phase we are in, and it alone knows that.
+            post_event(transport_fsm::AnswerReceived { msg.value("sdp", "") });
         } else if (type == "candidate") {
-            handle_candidate(msg["from"], msg["candidate"], msg.value("sdpMid", ""));
+            post_event(transport_fsm::RemoteCandidate {
+                msg.value("candidate", ""), msg.value("sdpMid", "") });
         } else if (type == "streaming_start") {
             std::string from = msg["from"];
             if (on_streaming_started_) {
@@ -507,218 +673,6 @@ void Transport::on_ws_message(const std::string& raw)
         }
     } catch (const std::exception& e) {
         LOG_ERROR() << "on_ws_message: " << e.what();
-    }
-}
-
-void Transport::on_ws_binary(const uint8_t* data, size_t len)
-{
-    if (!data || len < kRelayServerHeaderSize) {
-        return;
-    }
-    if (data[0] != kRelayServerMagic0 || data[1] != kRelayServerMagic1
-        || data[2] != kRelayVersion) {
-        LOG_WARNING() << "dropping unknown relay media packet (" << len << " bytes)";
-        return;
-    }
-
-    const uint8_t kind = data[3];
-    const uint16_t from_len = static_cast<uint16_t>(data[4])
-        | (static_cast<uint16_t>(data[5]) << 8);
-    if (kind == 0 || len < kRelayServerHeaderSize + from_len) {
-        LOG_WARNING() << "dropping malformed relay media packet (" << len << " bytes)";
-        return;
-    }
-
-    const auto* from_ptr = reinterpret_cast<const char*>(data + kRelayServerHeaderSize);
-    std::string from(from_ptr, from_len);
-    const auto* payload = data + kRelayServerHeaderSize + from_len;
-    const size_t payload_len = len - kRelayServerHeaderSize - from_len;
-
-    RelayMediaCb cb;
-    {
-        std::scoped_lock lk(relay_media_mutex_);
-        auto it = relay_media_callbacks_.find(kind);
-        if (it != relay_media_callbacks_.end()) {
-            cb = it->second;
-        }
-    }
-    if (cb) {
-        cb(from, payload, payload_len);
-    }
-}
-
-void Transport::create_peer(const std::string& peer_id, bool create_offer)
-{
-    auto pc = std::make_shared<rtc::PeerConnection>(rtc_config_);
-
-    pc->onLocalDescription([this, peer_id](rtc::Description desc) {
-        json msg;
-        msg["type"] = desc.typeString();
-        msg["to"] = peer_id;
-        msg["sdp"] = std::string(desc);
-        send_signal(msg);
-    });
-
-    pc->onLocalCandidate([this, peer_id](rtc::Candidate cand) {
-        LOG_INFO() << "ICE candidate for " << peer_id << ": " << std::string(cand);
-        json msg;
-        msg["type"] = "candidate";
-        msg["to"] = peer_id;
-        msg["candidate"] = std::string(cand);
-        msg["sdpMid"] = cand.mid();
-        send_signal(msg);
-    });
-
-    pc->onGatheringStateChange(
-        [peer_id](rtc::PeerConnection::GatheringState state) {
-            LOG_INFO() << "peer " << peer_id
-                       << " ICE gathering: " << static_cast<int>(state);
-        });
-
-    pc->onDataChannel([this, peer_id](std::shared_ptr<rtc::DataChannel> dc) {
-        const std::string label = dc->label();
-        LOG_INFO() << "received channel '" << label << "' from " << peer_id;
-        setup_channel(peer_id, label, dc);
-    });
-
-    pc->onStateChange([peer_id](rtc::PeerConnection::State state) {
-        LOG_INFO() << "peer " << peer_id << " state: " << state;
-    });
-
-    PeerState state;
-    state.pc = pc;
-    state.was_offerer = create_offer;
-
-    if (create_offer) {
-        for (const auto& spec : channel_specs_) {
-            rtc::DataChannelInit init;
-            init.reliability.unordered = spec.unordered;
-            if (spec.max_retransmits >= 0) {
-                init.reliability.maxRetransmits = spec.max_retransmits;
-            }
-            auto dc = pc->createDataChannel(spec.label, init);
-            state.channels[spec.label].dc = dc;
-            setup_channel(peer_id, spec.label, dc);
-        }
-    }
-
-    std::scoped_lock lk(peers_mutex_);
-    peers_[peer_id] = std::move(state);
-}
-
-void Transport::handle_offer(const std::string& from, const std::string& sdp)
-{
-    LOG_INFO() << "received offer from " << from;
-    create_peer(from, false);
-
-    std::scoped_lock lk(peers_mutex_);
-    auto it = peers_.find(from);
-    if (it != peers_.end()) {
-        it->second.pc->setRemoteDescription(
-            rtc::Description(sdp, rtc::Description::Type::Offer));
-    }
-}
-
-void Transport::handle_answer(const std::string& from, const std::string& sdp)
-{
-    LOG_INFO() << "received answer from " << from;
-
-    std::scoped_lock lk(peers_mutex_);
-    auto it = peers_.find(from);
-    if (it == peers_.end() || !it->second.pc) {
-        LOG_WARNING() << "dropping answer from " << from
-                      << ": no peer connection (pre-registered but no offer exchanged)";
-        return;
-    }
-    it->second.pc->setRemoteDescription(
-        rtc::Description(sdp, rtc::Description::Type::Answer));
-}
-
-void Transport::handle_candidate(const std::string& from,
-    const std::string& candidate,
-    const std::string& mid)
-{
-    LOG_INFO() << "remote ICE candidate from " << from << ": " << candidate;
-    std::scoped_lock lk(peers_mutex_);
-    auto it = peers_.find(from);
-    if (it == peers_.end() || !it->second.pc) {
-        LOG_WARNING() << "dropping ICE candidate from " << from
-                      << ": no peer connection (pre-registered but no offer exchanged)";
-        return;
-    }
-    it->second.pc->addRemoteCandidate(rtc::Candidate(candidate, mid));
-}
-
-void Transport::setup_channel(const std::string& peer_id,
-    const std::string& label,
-    std::shared_ptr<rtc::DataChannel> dc)
-{
-    // Find the registered spec for this label.
-    PacketCb on_data;
-    PeerEventCb on_open_cb;
-    PeerEventCb on_close_cb;
-    bool found = false;
-
-    for (const auto& spec : channel_specs_) {
-        if (spec.label == label) {
-            on_data = spec.on_data;
-            on_open_cb = spec.on_open;
-            on_close_cb = spec.on_close;
-            found = true;
-            break;
-        }
-    }
-
-    if (!found) {
-        LOG_WARNING() << "unknown channel label '" << label << "' from " << peer_id;
-        return;
-    }
-
-    dc->onOpen([this, peer_id, label, on_open_cb]() {
-        LOG_INFO() << "'" << label << "' channel open with " << peer_id;
-        {
-            std::scoped_lock lk(peers_mutex_);
-            auto it = peers_.find(peer_id);
-            if (it != peers_.end()) {
-                it->second.channels[label].open = true;
-            }
-        }
-        if (on_open_cb) {
-            on_open_cb(peer_id);
-        }
-    });
-
-    dc->onClosed([this, peer_id, label, on_close_cb]() {
-        LOG_INFO() << "'" << label << "' channel closed with " << peer_id;
-        {
-            std::scoped_lock lk(peers_mutex_);
-            auto it = peers_.find(peer_id);
-            if (it != peers_.end()) {
-                it->second.channels[label].open = false;
-            }
-        }
-        if (on_close_cb) {
-            on_close_cb(peer_id);
-        }
-    });
-
-    dc->onMessage([on_data, peer_id](auto msg) {
-        if (auto* data = std::get_if<rtc::binary>(&msg)) {
-            if (on_data) {
-                on_data(peer_id, reinterpret_cast<const uint8_t*>(data->data()),
-                    data->size());
-            }
-        }
-    });
-
-    dc->onError([peer_id, label](std::string error) {
-        LOG_ERROR() << "'" << label << "' dc error [" << peer_id << "]: " << error;
-    });
-
-    std::scoped_lock lk(peers_mutex_);
-    auto it = peers_.find(peer_id);
-    if (it != peers_.end()) {
-        it->second.channels[label].dc = dc;
     }
 }
 

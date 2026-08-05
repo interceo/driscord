@@ -1,40 +1,47 @@
 # Driscord
 
-P2P голосовой/видео-чат в духе Discord. WebRTC DataChannel для аудио и демонстрации экрана между пирами, отдельный сигналинг-сервер для обмена SDP/ICE и REST API для авторизации, серверов и каналов.
+Голосовой/видео-чат в духе Discord. Медиа идёт по схеме **клиент → сервер → клиенты** (SFU): сервер сам терминирует WebRTC и разводит потоки, а REST API отвечает за авторизацию, серверы и каналы.
 
 Подробная документация по архитектуре, разработке, REST API и развёртыванию
-signaling/STUN/TURN находится в [`docs/`](docs/README.md).
+находится в [`docs/`](docs/README.md).
 
 ## Архитектура
 
 ```
-┌──────────────┐      WebSocket       ┌──────────────────┐      WebSocket      ┌──────────────┐
-│   Client A   │ ───────────────────► │ Signaling server │ ◄─────────────────── │   Client B   │
-│   (Qt6/QML)  │ ◄─── SDP / ICE ────  │  (Boost.Beast)   │  ─── SDP / ICE ────► │   (Qt6/QML)  │
-│              │                      └──────────────────┘                      │              │
-│              │                                                                │              │
-│              │ ────────────── WebRTC DataChannel (P2P, UDP) ─────────────────►│              │
-│              │        Opus-аудио (48 kHz) · H.264/H.265-видео · служебка      │              │
-└──────┬───────┘                                                                └──────┬───────┘
-       │                                                                               │
-       │   HTTPS REST (JWT)                                                            │
-       └──────────────────────────► ┌──────────────────┐ ◄──────────────────────────────┘
-                                    │    API server    │
-                                    │ (FastAPI + PG)   │
-                                    └──────────────────┘
+┌──────────────┐                    ┌──────────────────┐                    ┌──────────────┐
+│   Client A   │ ─── WebSocket ───► │ Signaling server │ ◄─── WebSocket ─── │   Client B   │
+│   (Qt6/QML)  │   комната, SDP/ICE │  (Boost.Beast +  │ комната, SDP/ICE   │   (Qt6/QML)  │
+│              │                    │  libdatachannel) │                    │              │
+│              │ ══ DataChannel ══► │                  │ ══ DataChannel ══► │              │
+│              │      (UDP/SCTP)    │   SFU: разводит  │      (UDP/SCTP)    │              │
+│              │ ◄══════════════════│   медиа по комнате═══════════════════►│              │
+└──────┬───────┘  Opus-аудио (48 kHz) · H.264/H.265-видео · служебка └──────┬───────┘
+       │                                                                    │
+       │   HTTPS REST (JWT)                                                 │
+       └──────────────────────► ┌──────────────────┐ ◄─────────────────────┘
+                                │    API server    │
+                                │ (FastAPI + PG)   │
+                                └──────────────────┘
 ```
 
-- **Сигналинг-сервер** — WebSocket-relay, не трогает медиа, только маршрутизирует SDP/ICE.
+- **Сигналинг-сервер** — держит комнаты, обменивается с каждым клиентом SDP/ICE и
+  терминирует его `PeerConnection`. Медиа не декодирует: разбирает только метку
+  канала и решает, кому переслать пакет. Голос и служебка уходят всем в комнате,
+  экран — только тем, кто нажал «смотреть».
 - **API-сервер** — FastAPI + PostgreSQL: регистрация/логин (JWT), серверы, каналы, инвайты, обновления.
 - **Ядро (C++20)** — захват, кодирование, транспорт; собирается в статическую либу `driscord_core`.
 - **UI-клиент** — Qt6/QML, линкуется с `driscord_core` напрямую.
+
+Каждый клиент держит ровно одно медиасоединение — к серверу. Между клиентами
+WebRTC не устанавливается, поэтому STUN/TURN (coturn) не нужен: сервер публично
+доступен и отвечает host-кандидатами, а клиент всегда подключается наружу.
 
 ## Компоненты
 
 | Слой | Путь | Описание |
 |------|------|----------|
 | Core | `core/` | C++20 ядро: аудио (miniaudio + Opus), видео (экран → FFmpeg H.264/H.265), транспорт на libdatachannel, пайплайн кодеков/джиттера. |
-| Сигналинг | `backend/signaling_server/` | Boost.Beast WebSocket-relay на порту 9001. |
+| Сигналинг | `backend/signaling_server/` | Boost.Beast (WebSocket, порт 9001) + libdatachannel (SFU, UDP-диапазон для ICE). |
 | API | `backend/api/` | Python/FastAPI + SQLAlchemy (asyncpg) + JWT. |
 | Client Qt | `client-qt/` | Qt6/QML. Линкуется с `driscord_core` напрямую. |
 
@@ -43,7 +50,7 @@ signaling/STUN/TURN находится в [`docs/`](docs/README.md).
 - **C++20**, CMake ≥ 3.20
 - **Qt6** (Quick / Network / Widgets / QuickDialogs2) — клиент
 - **Boost.Beast** — WebSocket-сервер и клиент
-- **libdatachannel** v0.22.5 — WebRTC (ICE / DTLS / SCTP)
+- **libdatachannel** v0.22.5 — WebRTC (ICE / DTLS / SCTP) на обеих сторонах: клиент и SFU
 - **Opus** v1.5.2 — аудиокодек (48 kHz, mono, 64 kbps голос / 128 kbps system audio)
 - **FFmpeg** — видеокодек H.264/H.265
 - **miniaudio** — кроссплатформенный захват/воспроизведение аудио
@@ -92,19 +99,20 @@ signaling/STUN/TURN находится в [`docs/`](docs/README.md).
 
 ## Конфигурация
 
-- `config.json` в корне (или рядом с бинарём клиента) — адрес сигналинга, API, TURN-серверы, видео-битрейт:
+- `config.json` в корне (или рядом с бинарём клиента) — адрес сигналинга, API, видео-битрейт:
   ```json
   {
       "server": "wss://driscord.homelab.ceooptimizator.tech",
       "api": "https://driscord.homelab.ceooptimizator.tech",
-      "video_bitrate_kbps": 8000,
-      "turn_servers": [
-          { "url": "turn:host:3478", "user": "...", "pass": "..." }
-      ]
+      "video_bitrate_kbps": 8000
   }
   ```
   Полные `wss://`/`https://` URL рекомендуются для production. Значения вида
   `host:port` остаются совместимыми и используют `ws://`/`http://`.
+  TURN-серверов в конфиге больше нет — при SFU они не нужны.
+- Сигналинг-сервер: `DRISCORD_PORT` (по умолчанию 9001) и UDP-диапазон для ICE —
+  `DRISCORD_ICE_PORT_MIN` / `DRISCORD_ICE_PORT_MAX` (по умолчанию 49160–49200).
+  Этот диапазон надо пробросить на файрволе/в Docker.
 - `backend/api/.env` — настройки API (PostgreSQL URL, JWT secret, порт). Шаблон: `backend/api/.env.example`.
 
 ## Зависимости

@@ -53,8 +53,18 @@ add_unit_test(test_byte_utils)
 add_core_test(test_protocol)
 add_unit_test(test_spinlock)
 add_unit_test(test_vector_view)
-add_unit_test(test_chunk_assembler)
 add_unit_test(test_expected)
+
+# --- Connection lifecycle state machines ---
+# Both tables are deliberately free of libdatachannel/Beast, so they run as
+# plain unit tests: no socket, no PeerConnection, no timing.
+add_unit_test(test_transport_fsm)
+target_link_libraries(test_transport_fsm PRIVATE sml::sml)
+
+add_unit_test(test_session_fsm)
+target_link_libraries(test_session_fsm PRIVATE sml::sml)
+target_include_directories(test_session_fsm PRIVATE
+    ${CMAKE_SOURCE_DIR}/backend/signaling_server/src)
 add_core_test(test_video_codec)
 add_core_test(test_video_receiver)
 add_core_test(test_audio_receiver)
@@ -72,7 +82,7 @@ if(BUILD_SERVER)
         set_tests_properties(${name} PROPERTIES TIMEOUT 120)
     endfunction()
 
-    add_integration_test(test_datachannel_transport)
+    add_integration_test(test_sfu_transport)
     add_integration_test(test_room_isolation)
     add_integration_test(test_net_conditions)
     add_integration_test(test_av_sync)

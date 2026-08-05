@@ -184,7 +184,7 @@ if [ "$TARGET" = "windows" ]; then
     echo "==> Running Windows unit tests under Wine (network integration tests excluded)..."
     cd "$WIN_TEST_DIR"
     ctest --output-on-failure \
-        -E "test_datachannel_transport|test_room_isolation|test_net_conditions" \
+        -E "test_sfu_transport|test_room_isolation|test_net_conditions" \
         --timeout 120
     exit 0
 fi

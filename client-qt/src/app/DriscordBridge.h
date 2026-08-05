@@ -18,8 +18,6 @@ public:
     void setThumbnailProvider(ThumbnailProvider* tp);
 
     // Transport
-    Q_INVOKABLE void addTurnServer(const QString& url, const QString& user, const QString& pass);
-    Q_INVOKABLE void setServerMediaRelayEnabled(bool enabled);
     Q_INVOKABLE void connect(const QString& serverUrl, const QString& username);
     Q_INVOKABLE void disconnect();
     Q_INVOKABLE bool connected() const;

@@ -1,5 +1,6 @@
 #include <boost/asio.hpp>
 #include <cstdlib>
+#include <rtc/rtc.hpp>
 
 #include "log.hpp"
 #include "ws_server.hpp"
@@ -31,7 +32,11 @@ int main(int argc, char** argv)
         LOG_INFO() << "server stopped";
     } catch (const std::exception& ex) {
         LOG_ERROR() << "fatal: " << ex.what();
+        rtc::Cleanup().wait();
         return 1;
     }
+    // Joins libdatachannel's thread pool while the runtime is still alive.
+    // Without this its static teardown races the process exit.
+    rtc::Cleanup().wait();
     return 0;
 }

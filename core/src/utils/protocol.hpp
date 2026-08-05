@@ -84,27 +84,24 @@ struct VideoHeader {
     }
 };
 
-struct ChunkHeader {
+// Prepended to every encoded video frame. Frames are sent as one DataChannel
+// message and fragmented by SCTP, so there is no application-level chunking —
+// this only carries the sequence number the receiver reorders on.
+struct FrameHeader {
     uint64_t frame_id = 0;
-    uint16_t chunk_idx = 0;
-    uint16_t total_chunks = 0;
 
-    static constexpr size_t kWireSize = 12;
+    static constexpr size_t kWireSize = 8;
 
-    static ChunkHeader deserialize(const uint8_t* src)
+    static FrameHeader deserialize(const uint8_t* src)
     {
-        ChunkHeader h;
+        FrameHeader h;
         h.frame_id = utils::read_u64_le(src);
-        h.chunk_idx = utils::read_u16_le(src + 8);
-        h.total_chunks = utils::read_u16_le(src + 10);
         return h;
     }
 
     void serialize(uint8_t* dst) const
     {
         utils::write_u64_le(dst, frame_id);
-        utils::write_u16_le(dst + 8, chunk_idx);
-        utils::write_u16_le(dst + 10, total_chunks);
     }
 };
 

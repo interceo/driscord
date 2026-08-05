@@ -29,14 +29,11 @@ inline bool wait_for_local_id(Transport& t,
     return !t.local_id().empty();
 }
 
-// Constructs a Transport already configured for loopback ICE (empty ICE
-// server list → host candidates only). This avoids STUN reachability
-// delays in CI.
 inline std::unique_ptr<Transport> make_test_transport()
 {
-    auto t = std::make_unique<Transport>();
-    t->set_ice_servers({ });
-    return t;
+    // Nothing to configure: there are no ICE servers to disable, since the
+    // client only ever dials the (loopback, in these tests) signaling server.
+    return std::make_unique<Transport>();
 }
 
 // Payload captured by an on_data callback — keeps the sender id alongside
@@ -47,17 +44,20 @@ struct ReceivedPacket {
 };
 
 // Per-peer test harness: owns the Transport and the collectors that record
-// the callbacks we care about for datachannel tests. Each harness registers
-// one data channel with a configurable label. Use several instances in a
-// single test body to simulate a small mesh.
+// the callbacks we care about. Each harness registers one media channel with a
+// configurable label.
+//
+// Media is not peer-to-peer: a node sends once to the server, which fans the
+// payload out to the other nodes in the same room. So a test sends with
+// `send(...)` and asserts on what the *other* nodes received.
 //
 // Typical usage:
 //   PeerNode a("data");
 //   PeerNode b("data");
 //   a.connect(server.ws_url());
 //   b.connect(server.ws_url());
-//   a.wait_connected(); b.wait_connected();
 //   wait_for_rendezvous(a, b);
+//   a.send({ 0x42 });
 //
 // The destructor of the harness runs before the SignalingServerFixture in
 // test bodies because of RAII declaration order (fixture declared first in
@@ -76,8 +76,9 @@ struct PeerNode {
     EventCollector<std::string> watch_started;
     EventCollector<std::string> watch_stopped;
 
+    // Fires when this node's media path to the server is up. Channels belong
+    // to the server connection, not to a peer, so there is no peer id here.
     Waiter channel_open;
-    EventCollector<std::string> channel_open_events;
     EventCollector<ReceivedPacket> received;
 
     explicit PeerNode(std::string channel_label = "data")
@@ -89,8 +90,8 @@ struct PeerNode {
     }
 
     // Conditioned constructor: applies NetProfile impairments to the receive
-    // path of this node's primary data channel. Must be called before
-    // connect() so the wrapped callback is captured at DataChannel-open time.
+    // path of this node's media channel. Must be called before connect() so
+    // the wrapped callback is captured at channel-creation time.
     PeerNode(std::string channel_label, NetProfile profile)
         : transport(make_test_transport())
         , label(std::move(channel_label))
@@ -99,6 +100,21 @@ struct PeerNode {
         register_transport_callbacks_();
         register_channel_(conditioner.get());
     }
+
+    // The channel callbacks capture `this` and write into the collectors below.
+    // Member destruction runs in reverse declaration order, so `transport` —
+    // declared first — would be torn down *after* those collectors, letting a
+    // late callback write into freed memory. Disconnecting here quiesces the
+    // transport while everything it touches is still alive.
+    ~PeerNode()
+    {
+        if (transport) {
+            transport->disconnect();
+        }
+    }
+
+    PeerNode(const PeerNode&) = delete;
+    PeerNode& operator=(const PeerNode&) = delete;
 
 private:
     void register_transport_callbacks_()
@@ -117,18 +133,13 @@ private:
             [this](const std::string& id) { watch_stopped.push(id); });
     }
 
-    // Registers the primary data channel. If cond is non-null the on_data
-    // callback is wrapped through the conditioner before registration.
     void register_channel_(NetworkConditioner* cond)
     {
         Transport::ChannelSpec spec;
         spec.label = label;
         spec.unordered = false;
         spec.max_retransmits = -1;
-        spec.on_open = [this](const std::string& peer) {
-            channel_open.signal();
-            channel_open_events.push(peer);
-        };
+        spec.on_open = [this]() { channel_open.signal(); };
 
         PacketCb real_on_data = [this](const std::string& peer,
                                     const uint8_t* data,
@@ -143,7 +154,7 @@ private:
             spec.on_data = std::move(real_on_data);
         }
 
-        spec.on_close = [](const std::string&) { };
+        spec.on_close = nullptr;
         transport->register_channel(std::move(spec));
     }
 
@@ -159,14 +170,14 @@ public:
         spec.label = extra_label;
         spec.unordered = false;
         spec.max_retransmits = -1;
-        spec.on_open = [](const std::string&) { };
+        spec.on_open = nullptr;
         spec.on_data = [collector](const std::string& peer,
                            const uint8_t* data,
                            size_t len) {
             collector->push(ReceivedPacket {
                 peer, std::vector<uint8_t>(data, data + len) });
         };
-        spec.on_close = [](const std::string&) { };
+        spec.on_close = nullptr;
         transport->register_channel(std::move(spec));
         return collector;
     }
@@ -180,11 +191,25 @@ public:
         return wait_for_local_id(*transport);
     }
 
+    // Sends to the server on this node's primary channel; the server fans it
+    // out to the rest of the room.
+    void send(const std::vector<uint8_t>& payload)
+    {
+        transport->send_on_channel(label, payload.data(), payload.size());
+    }
+
+    void send_on(const std::string& channel_label,
+        const std::vector<uint8_t>& payload)
+    {
+        transport->send_on_channel(channel_label, payload.data(), payload.size());
+    }
+
     std::string id() const { return transport->local_id(); }
 };
 
-// Waits until both nodes have seen each other join AND each has the data
-// channel open. Returns true if both conditions are met within the timeout.
+// Waits until both nodes have seen each other join AND each has its media
+// path to the server open. Returns true if both conditions are met within
+// the timeout.
 inline bool wait_for_rendezvous(PeerNode& a,
     PeerNode& b,
     std::chrono::milliseconds timeout = kDefaultTimeout)

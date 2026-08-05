@@ -19,6 +19,10 @@ DriscordCore::DriscordCore()
         }
     });
     transport.on_peer_left([this](const std::string& id) {
+        // Media channels are shared with the server, not per-peer, so a peer
+        // going away is only ever visible through signaling — this is what
+        // clears their stream instead of a DataChannel close.
+        video_transport.remove_streaming_peer(id);
         std::scoped_lock lk(cb_mtx_);
         if (on_peer_left_cb_) {
             on_peer_left_cb_(id);
@@ -43,16 +47,15 @@ DriscordCore::DriscordCore()
         }
     });
     transport.on_streaming_stopped([this](const std::string& id) {
+        video_transport.remove_streaming_peer(id);
         std::scoped_lock lk(cb_mtx_);
         if (on_streaming_stopped_cb_) {
             on_streaming_stopped_cb_(id);
         }
     });
-    transport.on_watch_started(
-        [this](const std::string& id) { video_transport.add_subscriber(id); });
-    transport.on_watch_stopped(
-        [this](const std::string& id) { video_transport.remove_subscriber(id); });
-    video_transport.on_peer_identity([this](const std::string& peer_id, const std::string& username) {
+    // Nothing subscribes locally any more: the server decides who receives a
+    // screen share, driven by the watch_start/stop signals sent below.
+    transport.on_peer_identity([this](const std::string& peer_id, const std::string& username) {
         std::scoped_lock lk(cb_mtx_);
         if (on_peer_identity_cb_) {
             on_peer_identity_cb_(peer_id, username);
@@ -226,21 +229,10 @@ std::string DriscordCore::peers_json() const
         arr.push_back({
             { "id", p.id },
             { "connected", p.primary_open },
-            { "username", video_transport.peer_username(p.id) },
+            { "username", transport.peer_username(p.id) },
         });
     }
     return arr.dump();
-}
-
-void DriscordCore::set_local_username(const std::string& username)
-{
-    video_transport.set_local_username(username);
-}
-
-void DriscordCore::set_server_media_relay_enabled(bool enabled)
-{
-    video_transport.set_server_relay_enabled(enabled);
-    audio_transport.set_server_relay_enabled(enabled);
 }
 
 // ---------------------------------------------------------------------------

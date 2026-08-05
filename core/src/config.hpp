@@ -12,6 +12,13 @@ namespace stream_defaults {
 inline constexpr int kVoiceBitrateKbps = 64;
 inline constexpr int kSystemAudioBitrateKbps = 128;
 inline constexpr int kScreenBufferMs = 120;
+
+// Backpressure ceiling for the video channel. Once this many bytes are queued
+// in the send buffer the uplink is not keeping up, and the only thing queueing
+// another frame buys is latency — the picture would arrive late and stale
+// either way. Dropping the frame and asking for a keyframe recovers in one
+// round trip instead. Roughly two frames at 8 Mbps/60 fps.
+inline constexpr size_t kVideoSendBufferLimitBytes = 512 * 1024;
 }
 
 // Tuning for the shared playout clock (core/src/sync) and the audio playout

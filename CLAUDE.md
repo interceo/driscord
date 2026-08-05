@@ -42,18 +42,19 @@ Build outputs:
 - `.builds/cmake/qt-{release,debug}/client-qt/driscord_client` — Qt client binary
 - `.builds/server/{release,debug}/` — driscord_server
 
-Runtime config is loaded from `config.json` (server host/port, API host/port, video bitrate, TURN servers). Example:
+Runtime config is loaded from `config.json` (server host/port, API host/port, video bitrate). Example:
 ```json
-{ "server": "host:9001", "api": "host:9002", "video_bitrate_kbps": 8000, "turn_servers": [...] }
+{ "server": "host:9001", "api": "host:9002", "video_bitrate_kbps": 8000 }
 ```
+The signaling server reads `DRISCORD_PORT` plus `DRISCORD_ICE_PORT_MIN`/`DRISCORD_ICE_PORT_MAX` (default 49160-49200) for the UDP range it accepts media on.
 API config is loaded from `backend/api/.env` (see `.env.example` for template).
 
 ## Architecture
 
-Driscord is a WebRTC-based P2P voice and screen-sharing app (Discord-like) with three backend/library layers plus a Qt client:
+Driscord is a WebRTC-based voice and screen-sharing app (Discord-like) with three backend/library layers plus a Qt client. Media flows **client → server → clients**: the signaling server terminates each client's PeerConnection and fans media out (SFU). There is no peer mesh, and therefore no STUN/TURN/coturn anywhere.
 
 ### 1. Signaling Server (`backend/signaling_server/`)
-Boost.Beast WebSocket relay — purely a message router for SDP/ICE negotiation. It never touches audio/video data. All real-time media flows P2P directly between clients.
+Boost.Beast WebSocket (rooms, SDP/ICE) plus libdatachannel. Each session owns one `rtc::PeerConnection` to its client; incoming DataChannel messages are re-sent to the other sessions in the room on the channel of the same label, prefixed with the sender id. The server never decodes codecs — it routes on the channel label alone. `audio`/`control` go to everyone in the room; `video`/`screen_audio` only to peers that sent `watch_start` (tracked per room in `Room::video_watchers`).
 
 ### 2. API Server (`backend/api/`)
 Python/FastAPI backend with PostgreSQL (asyncpg + SQLAlchemy). Provides user auth (JWT), channel management, and update distribution. All endpoints except `/auth/*` and `/health` require a Bearer token.
@@ -63,11 +64,13 @@ The core has two parallel transport systems:
 
 **Audio pipeline**: `audio_sender` → mic capture (miniaudio) → Opus encode (48kHz/mono) → DataChannel → `audio_receiver` → reorder buffer → decode (PLC/FEC on gaps) → WSOLA → PCM ring → `audio_mixer` → playback
 
-**Video pipeline**: `video_sender` → screen capture (platform-specific) → H.264/H.265 encode (FFmpeg) → chunk (1100 B payload each, see `ChunkHeader`) → DataChannel → `video_receiver` → reassemble → decode → OpenGL texture
+**Video pipeline**: `video_sender` → screen capture (platform-specific) → H.264/H.265 encode (FFmpeg) → one DataChannel message per frame (`FrameHeader` + payload, fragmented by SCTP) → server → `video_receiver` → decode → OpenGL texture
+
+Frames are **not** chunked at the application level — SCTP fragments them. Before sending, `VideoTransport::send_video` checks `bufferedAmount()` and drops the frame if the send queue is over `stream_defaults::kVideoSendBufferLimitBytes`, since queueing behind a saturated uplink buys latency and nothing else.
 
 **A/V synchronisation** (`core/src/sync/`): both pipelines stamp packets from one monotonic `utils::MonoClock` per sending process. On the receiving side a `MediaClock` per peer turns those timestamps into playout deadlines — `sender_ts + offset + target_delay` — shared by that peer's audio and video, so the two cannot drift apart. `ScreenReceiver` owns the clock for a screen share (video + its system audio); voice gets its own, which stays at low latency because no video is waiting on it.
 
-**Transport layer** (`transport.cpp`): manages the WebSocket signaling connection and all WebRTC peer connections. Each peer gets multiple DataChannels (audio, video, control, optionally system audio).
+**Transport layer** (`transport.cpp`): owns the WebSocket signaling connection and the single `rtc::PeerConnection` to the server. The client is always the offerer and creates the channels (audio, video, control, screen_audio); `audio`/`video`/`screen_audio` are unordered with no retransmits (a lost packet stays lost, playout keeps moving), `control` is ordered and reliable. Peer identity (usernames) arrives via signaling — the `?u=` connect param, echoed back in `welcome`/`peer_joined` — not over any channel.
 
 ### 4. UI Client (`client-qt/`)
 Qt6 / QML application. Links `driscord_core` directly as a C++ library. Enabled via `-DBUILD_QT_CLIENT=ON`; requires `Qt6::{Quick,Network,Widgets,QuickDialogs2}`. C++↔QML bridging lives in `client-qt/src/app/DriscordBridge.*`.
@@ -76,7 +79,9 @@ Qt6 / QML application. Links `driscord_core` directly as a C++ library. Enabled 
 Custom binary headers prepended to all media packets:
 - `AudioHeader`: 16 bytes (u32 seq, u32 flags, i64 sender_ts_us) + Opus payload
 - `VideoHeader`: 32 bytes (width, height, sender_ts_us, bitrate, frame duration, flags, codec)
-- `ChunkHeader`: 12 bytes (frame_id, chunk_idx, total_chunks) + payload
+- `FrameHeader`: 8 bytes (frame_id) + payload, one per video frame
+
+Server → client, every media message is prefixed with `u8` sender-id length followed by the sender id.
 
 `sender_ts_us` is microseconds on the sender's `utils::MonoClock`, shared by both
 media headers — that shared timeline is what A/V sync is built on. `flags` carries

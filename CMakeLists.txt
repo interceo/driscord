@@ -35,6 +35,46 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(json)
 
+# --- libdatachannel (shared by core + signaling server) ---
+# The client uses rtc::WebSocket for signaling and one rtc::PeerConnection to
+# the server; the server terminates a PeerConnection per client (SFU), so both
+# targets need this. Declared here because the server subdirectory is added
+# before core/ and is also built standalone with -DBUILD_CORE=OFF.
+set(NO_MEDIA ON CACHE BOOL "" FORCE)
+set(NO_EXAMPLES ON CACHE BOOL "" FORCE)
+set(NO_TESTS ON CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    libdatachannel
+    GIT_REPOSITORY https://github.com/paullouisageneau/libdatachannel.git
+    GIT_TAG        v0.22.5
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(libdatachannel)
+
+# --- boost-ext/SML (shared by core + signaling server) ---
+# Connection lifecycle state machines: one for the client's link to the server
+# (core/src/transport_fsm.hpp) and one per server-side session
+# (backend/signaling_server/src/session_fsm.hpp). Header-only.
+set(SML_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(SML_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(SML_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    sml
+    GIT_REPOSITORY https://github.com/boost-ext/sml.git
+    GIT_TAG        v1.1.13
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(sml)
+
+# Treat SML's header as a system include: instantiating its templates under
+# GCC 16 trips -Wmaybe-uninitialized inside the library itself, which is noise
+# we can neither fix nor act on.
+get_target_property(_sml_include_dirs sml INTERFACE_INCLUDE_DIRECTORIES)
+if(_sml_include_dirs)
+    set_target_properties(sml PROPERTIES
+        INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_sml_include_dirs}")
+endif()
+
 # The signaling server is Linux-only; disable when cross-compiling for Windows.
 option(BUILD_SERVER "Build the signaling server" ON)
 if(BUILD_SERVER)
