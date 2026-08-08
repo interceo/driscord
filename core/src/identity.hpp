@@ -1,0 +1,42 @@
+#pragma once
+
+#include <functional>
+#include <string>
+
+namespace driscord {
+
+struct PeerId {
+    std::string value;
+
+    friend bool operator==(const PeerId&, const PeerId&) = default;
+};
+
+struct RoomId {
+    std::string value;
+
+    friend bool operator==(const RoomId&, const RoomId&) = default;
+};
+
+struct Username {
+    std::string value;
+
+    friend bool operator==(const Username&, const Username&) = default;
+};
+
+} // namespace driscord
+
+template <>
+struct std::hash<driscord::PeerId> {
+    size_t operator()(const driscord::PeerId& id) const noexcept
+    {
+        return std::hash<std::string> {}(id.value);
+    }
+};
+
+template <>
+struct std::hash<driscord::RoomId> {
+    size_t operator()(const driscord::RoomId& id) const noexcept
+    {
+        return std::hash<std::string> {}(id.value);
+    }
+};

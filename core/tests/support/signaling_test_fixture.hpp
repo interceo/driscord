@@ -60,7 +60,7 @@ public:
     size_t active_sessions() const { return server_->active_sessions(); }
     size_t active_sessions(const std::string& room_id) const
     {
-        return server_->active_sessions(room_id);
+        return server_->active_sessions(driscord::RoomId { room_id });
     }
 
 private:

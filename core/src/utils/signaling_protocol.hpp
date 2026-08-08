@@ -1,6 +1,7 @@
 #pragma once
 
 #include "expected.hpp"
+#include "identity.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -21,23 +22,23 @@ enum class ParseError {
 };
 
 struct PeerIdentity {
-    std::string id;
-    std::string username;
+    driscord::PeerId id;
+    driscord::Username username;
 };
 
 struct Welcome {
-    std::string id;
+    driscord::PeerId id;
     std::vector<PeerIdentity> peers;
-    std::vector<std::string> streaming_peers;
+    std::vector<driscord::PeerId> streaming_peers;
 };
 
 struct PeerJoined {
-    std::string id;
-    std::string username;
+    driscord::PeerId id;
+    driscord::Username username;
 };
 
 struct PeerLeft {
-    std::string id;
+    driscord::PeerId id;
 };
 
 struct Offer {
@@ -54,19 +55,19 @@ struct Candidate {
 };
 
 struct StreamingStart {
-    std::optional<std::string> from;
+    std::optional<driscord::PeerId> from;
 };
 
 struct StreamingStop {
-    std::optional<std::string> from;
+    std::optional<driscord::PeerId> from;
 };
 
 struct WatchStart {
-    std::optional<std::string> from;
+    std::optional<driscord::PeerId> from;
 };
 
 struct WatchStop {
-    std::optional<std::string> from;
+    std::optional<driscord::PeerId> from;
 };
 
 using Message = std::variant<Welcome,

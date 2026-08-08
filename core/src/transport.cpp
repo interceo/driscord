@@ -318,7 +318,7 @@ void Transport::setup_channel(channel::MediaChannel label,
                           << len << " bytes)";
             return;
         }
-        on_data(packet->sender_id, packet->payload, packet->payload_len);
+        on_data(packet->sender_id.value, packet->payload, packet->payload_len);
     });
 
     dc->onError([label_text](std::string error) {
@@ -397,7 +397,7 @@ void Transport::disconnect()
     if (ws) {
         ws->close();
     }
-    local_id_.clear();
+    local_id_.value.clear();
 }
 
 void Transport::send_on_channel(channel::MediaChannel label,
@@ -551,7 +551,7 @@ std::vector<Transport::PeerInfo> Transport::peers() const
     std::vector<PeerInfo> result;
     result.reserve(peers_.size());
     for (const auto& id : peers_) {
-        result.emplace_back(id, media_up);
+        result.emplace_back(id.value, media_up);
     }
     return result;
 }
@@ -559,13 +559,15 @@ std::vector<Transport::PeerInfo> Transport::peers() const
 std::string Transport::peer_username(const std::string& peer_id) const
 {
     std::scoped_lock lk(identity_mutex_);
-    auto it = peer_usernames_.find(peer_id);
-    return it != peer_usernames_.end() ? it->second : "";
+    auto it = peer_usernames_.find(driscord::PeerId { peer_id });
+    return it != peer_usernames_.end() ? it->second.value : "";
 }
 
-void Transport::set_peer_identity_(const std::string& peer_id, std::string username)
+void Transport::set_peer_identity_(
+    driscord::PeerId peer_id,
+    driscord::Username username)
 {
-    if (username.empty()) {
+    if (username.value.empty()) {
         return;
     }
     std::function<void(const std::string&, const std::string&)> cb;
@@ -575,7 +577,7 @@ void Transport::set_peer_identity_(const std::string& peer_id, std::string usern
         cb = on_peer_identity_;
     }
     if (cb) {
-        cb(peer_id, username);
+        cb(peer_id.value, username.value);
     }
 }
 
@@ -592,12 +594,11 @@ void Transport::on_ws_message(const std::string& raw)
         using T = std::decay_t<decltype(message)>;
 
         if constexpr (std::is_same_v<T, signaling::Welcome>) {
-            std::string assigned_id = message.id;
             {
                 std::scoped_lock lk(ws_mutex_);
-                local_id_ = assigned_id;
+                local_id_ = message.id;
             }
-            LOG_INFO() << "assigned id: " << assigned_id;
+            LOG_INFO() << "assigned id: " << message.id.value;
 
             for (const auto& peer : message.peers) {
                 set_peer_identity_(peer.id, peer.username);
@@ -606,27 +607,27 @@ void Transport::on_ws_message(const std::string& raw)
                     peers_.insert(peer.id);
                 }
                 if (on_peer_joined_) {
-                    on_peer_joined_(peer.id);
+                    on_peer_joined_(peer.id.value);
                 }
             }
 
             for (const auto& id : message.streaming_peers) {
                 if (on_streaming_started_) {
-                    on_streaming_started_(id);
+                    on_streaming_started_(id.value);
                 }
             }
         } else if constexpr (std::is_same_v<T, signaling::PeerJoined>) {
-            LOG_INFO() << "peer joined: " << message.id;
+            LOG_INFO() << "peer joined: " << message.id.value;
             set_peer_identity_(message.id, message.username);
             {
                 std::scoped_lock lk(peers_mutex_);
                 peers_.insert(message.id);
             }
             if (on_peer_joined_) {
-                on_peer_joined_(message.id);
+                on_peer_joined_(message.id.value);
             }
         } else if constexpr (std::is_same_v<T, signaling::PeerLeft>) {
-            LOG_INFO() << "peer left: " << message.id;
+            LOG_INFO() << "peer left: " << message.id.value;
             {
                 std::scoped_lock lk(peers_mutex_);
                 peers_.erase(message.id);
@@ -636,7 +637,7 @@ void Transport::on_ws_message(const std::string& raw)
                 peer_usernames_.erase(message.id);
             }
             if (on_peer_left_) {
-                on_peer_left_(message.id);
+                on_peer_left_(message.id.value);
             }
         } else if constexpr (std::is_same_v<T, signaling::Answer>) {
             // Through the machine: whether an answer is meaningful depends on
@@ -647,19 +648,19 @@ void Transport::on_ws_message(const std::string& raw)
                 message.candidate, message.sdp_mid });
         } else if constexpr (std::is_same_v<T, signaling::StreamingStart>) {
             if (message.from && on_streaming_started_) {
-                on_streaming_started_(*message.from);
+                on_streaming_started_(message.from->value);
             }
         } else if constexpr (std::is_same_v<T, signaling::StreamingStop>) {
             if (message.from && on_streaming_stopped_) {
-                on_streaming_stopped_(*message.from);
+                on_streaming_stopped_(message.from->value);
             }
         } else if constexpr (std::is_same_v<T, signaling::WatchStart>) {
             if (message.from && on_watch_started_) {
-                on_watch_started_(*message.from);
+                on_watch_started_(message.from->value);
             }
         } else if constexpr (std::is_same_v<T, signaling::WatchStop>) {
             if (message.from && on_watch_stopped_) {
-                on_watch_stopped_(*message.from);
+                on_watch_stopped_(message.from->value);
             }
         } else if constexpr (std::is_same_v<T, signaling::Offer>) {
             LOG_WARNING() << "ignoring offer from signaling server";

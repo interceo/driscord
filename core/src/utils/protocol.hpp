@@ -1,5 +1,6 @@
 #pragma once
 
+#include "identity.hpp"
 #include "expected.hpp"
 
 #include <cstddef>
@@ -77,7 +78,7 @@ enum class RelayedMediaError {
 };
 
 struct RelayedMediaPacket {
-    std::string sender_id;
+    driscord::PeerId sender_id;
     const uint8_t* payload = nullptr;
     size_t payload_len = 0;
 };
@@ -87,7 +88,7 @@ inline constexpr size_t kMaxRelayedMediaSenderLen =
     std::numeric_limits<uint8_t>::max();
 
 utils::Expected<std::string, RelayedMediaError> encode_relayed_media(
-    std::string_view sender_id,
+    const driscord::PeerId& sender_id,
     const uint8_t* payload,
     size_t payload_len);
 

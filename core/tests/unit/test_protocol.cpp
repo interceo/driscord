@@ -238,21 +238,22 @@ TEST(Protocol, AdjacentHeaders)
 TEST(SignalingProtocol, WelcomeRoundtrip)
 {
     signaling::Welcome src;
-    src.id = "self";
-    src.peers.push_back({ "peer-1", "alice" });
-    src.streaming_peers.push_back("peer-2");
+    src.id = driscord::PeerId { "self" };
+    src.peers.push_back(
+        { driscord::PeerId { "peer-1" }, driscord::Username { "alice" } });
+    src.streaming_peers.push_back(driscord::PeerId { "peer-2" });
 
     const auto parsed = signaling::parse(signaling::dump(src));
     ASSERT_TRUE(parsed);
 
     const auto* dst = std::get_if<signaling::Welcome>(&parsed.value());
     ASSERT_NE(dst, nullptr);
-    EXPECT_EQ(dst->id, "self");
+    EXPECT_EQ(dst->id.value, "self");
     ASSERT_EQ(dst->peers.size(), 1u);
-    EXPECT_EQ(dst->peers[0].id, "peer-1");
-    EXPECT_EQ(dst->peers[0].username, "alice");
+    EXPECT_EQ(dst->peers[0].id.value, "peer-1");
+    EXPECT_EQ(dst->peers[0].username.value, "alice");
     ASSERT_EQ(dst->streaming_peers.size(), 1u);
-    EXPECT_EQ(dst->streaming_peers[0], "peer-2");
+    EXPECT_EQ(dst->streaming_peers[0].value, "peer-2");
 }
 
 TEST(SignalingProtocol, CandidateRoundtrip)
@@ -270,13 +271,13 @@ TEST(SignalingProtocol, CandidateRoundtrip)
 TEST(SignalingProtocol, ControlMessageCanCarrySender)
 {
     const auto parsed = signaling::parse(signaling::dump(
-        signaling::StreamingStart { std::string("peer-1") }));
+        signaling::StreamingStart { driscord::PeerId { "peer-1" } }));
     ASSERT_TRUE(parsed);
 
     const auto* start = std::get_if<signaling::StreamingStart>(&parsed.value());
     ASSERT_NE(start, nullptr);
     ASSERT_TRUE(start->from);
-    EXPECT_EQ(*start->from, "peer-1");
+    EXPECT_EQ(start->from->value, "peer-1");
 }
 
 TEST(SignalingProtocol, RejectsUnknownMessageType)
@@ -298,15 +299,15 @@ TEST(SignalingProtocol, RejectsMissingRequiredPayload)
 TEST(RelayedMedia, Roundtrip)
 {
     const uint8_t payload[] = { 1, 2, 3, 4 };
-    auto encoded = protocol::encode_relayed_media("peer-1", payload,
-        sizeof(payload));
+    auto encoded = protocol::encode_relayed_media(
+        driscord::PeerId { "peer-1" }, payload, sizeof(payload));
     ASSERT_TRUE(encoded);
 
     auto decoded = protocol::decode_relayed_media(
         reinterpret_cast<const uint8_t*>(encoded->data()), encoded->size());
     ASSERT_TRUE(decoded);
 
-    EXPECT_EQ(decoded->sender_id, "peer-1");
+    EXPECT_EQ(decoded->sender_id.value, "peer-1");
     ASSERT_EQ(decoded->payload_len, sizeof(payload));
     EXPECT_EQ(std::memcmp(decoded->payload, payload, sizeof(payload)), 0);
 }
@@ -316,8 +317,8 @@ TEST(RelayedMedia, RejectsOverlongSender)
     const uint8_t payload[] = { 1 };
     const std::string sender(protocol::kMaxRelayedMediaSenderLen + 1, 'x');
 
-    auto encoded = protocol::encode_relayed_media(sender, payload,
-        sizeof(payload));
+    auto encoded = protocol::encode_relayed_media(
+        driscord::PeerId { sender }, payload, sizeof(payload));
 
     ASSERT_FALSE(encoded);
     EXPECT_EQ(encoded.error(), protocol::RelayedMediaError::SenderTooLong);

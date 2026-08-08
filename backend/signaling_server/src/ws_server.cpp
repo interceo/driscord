@@ -33,20 +33,20 @@ using json = nlohmann::json;
 
 namespace {
 
-std::string generate_id()
+driscord::PeerId generate_id()
 {
     static std::mt19937 rng { std::random_device { }() };
     std::uniform_int_distribution<uint64_t> dist;
     std::ostringstream ss;
     ss << std::hex << std::setfill('0') << std::setw(16) << dist(rng);
-    return ss.str();
+    return driscord::PeerId { ss.str() };
 }
 
 // Extracts the room identifier from a WebSocket upgrade request target.
 // "/channels/42"      → "42"
 // "/channels/42?x=1"  → "42"
 // anything else       → "default"
-std::string parse_room_id(std::string_view target)
+driscord::RoomId parse_room_id(std::string_view target)
 {
     constexpr std::string_view kPrefix = "/channels/";
     if (target.size() > kPrefix.size()
@@ -60,10 +60,10 @@ std::string parse_room_id(std::string_view target)
             rest.remove_suffix(1);
         }
         if (!rest.empty()) {
-            return std::string(rest);
+            return driscord::RoomId { std::string(rest) };
         }
     }
-    return "default";
+    return driscord::RoomId { "default" };
 }
 
 // Decode percent-escapes and '+' in a URL query value.
@@ -149,8 +149,8 @@ class Session : public std::enable_shared_from_this<Session> {
         void close_peer_connection() override { self.close_peer_connection(); }
         void log_ignored(const char* what) override
         {
-            LOG_WARNING() << "session " << self.id_ << ": ignoring out-of-phase "
-                          << what;
+            LOG_WARNING() << "session " << self.id_.value
+                          << ": ignoring out-of-phase " << what;
         }
         Session& self;
     };
@@ -170,9 +170,9 @@ public:
     // never reached on_close().
     ~Session() { close_peer_connection(); }
 
-    const std::string& id() const { return id_; }
-    const std::string& room_id() const { return room_id_; }
-    const std::string& username() const { return username_; }
+    const driscord::PeerId& id() const { return id_; }
+    const driscord::RoomId& room_id() const { return room_id_; }
+    const driscord::Username& username() const { return username_; }
 
     void start()
     {
@@ -220,7 +220,7 @@ public:
                 payload.size());
         } catch (const std::exception& e) {
             LOG_ERROR() << "send_media[" << channel::to_label(label) << "]["
-                        << id_
+                        << id_.value
                         << "]: " << e.what();
         }
     }
@@ -273,7 +273,7 @@ private:
         try {
             pc = std::make_shared<rtc::PeerConnection>(server_->rtc_config());
         } catch (const std::exception& e) {
-            LOG_ERROR() << "peer connection create failed [" << id_
+            LOG_ERROR() << "peer connection create failed [" << id_.value
                         << "]: " << e.what();
             return;
         }
@@ -316,7 +316,7 @@ private:
         });
 
         pc->onStateChange([weak, id = id_](rtc::PeerConnection::State state) {
-            LOG_INFO() << "session " << id << " pc state: "
+            LOG_INFO() << "session " << id.value << " pc state: "
                        << static_cast<int>(state);
             if (state != rtc::PeerConnection::State::Failed) {
                 return;
@@ -335,7 +335,7 @@ private:
             pc->setRemoteDescription(
                 rtc::Description(sdp, rtc::Description::Type::Offer));
         } catch (const std::exception& e) {
-            LOG_ERROR() << "setRemoteDescription failed [" << id_
+            LOG_ERROR() << "setRemoteDescription failed [" << id_.value
                         << "]: " << e.what();
         }
     }
@@ -349,14 +349,14 @@ private:
             pc = pc_;
         }
         if (!pc) {
-            LOG_WARNING() << "candidate with no peer connection [" << id_
+            LOG_WARNING() << "candidate with no peer connection [" << id_.value
                           << "], dropping";
             return;
         }
         try {
             pc->addRemoteCandidate(rtc::Candidate(candidate, mid));
         } catch (const std::exception& e) {
-            LOG_ERROR() << "addRemoteCandidate failed [" << id_
+            LOG_ERROR() << "addRemoteCandidate failed [" << id_.value
                         << "]: " << e.what();
         }
     }
@@ -365,16 +365,16 @@ private:
     {
         const auto parsed_label = channel::parse_label(dc->label());
         if (!parsed_label) {
-            LOG_WARNING() << "session " << id_ << " rejected unknown channel '"
-                          << dc->label() << "'";
+            LOG_WARNING() << "session " << id_.value
+                          << " rejected unknown channel '" << dc->label() << "'";
             dc->close();
             return;
         }
 
         const auto label = *parsed_label;
         const auto label_text = channel::to_label(label);
-        LOG_INFO() << "session " << id_ << " opened channel '" << label_text
-                   << "'";
+        LOG_INFO() << "session " << id_.value << " opened channel '"
+                   << label_text << "'";
         {
             std::scoped_lock lk(pc_mutex_);
             channels_[label] = dc;
@@ -396,7 +396,7 @@ private:
         });
 
         dc->onError([label_text, id = id_](std::string error) {
-            LOG_ERROR() << "dc '" << label_text << "' error [" << id
+            LOG_ERROR() << "dc '" << label_text << "' error [" << id.value
                         << "]: " << error;
         });
     }
@@ -412,7 +412,7 @@ private:
         {
             std::scoped_lock lk(write_mutex_);
             if (write_queue_.size() >= kMaxWriteQueueSize) {
-                LOG_WARNING() << "write queue overflow for " << id_
+                LOG_WARNING() << "write queue overflow for " << id_.value
                               << ", dropping message";
                 return;
             }
@@ -432,7 +432,7 @@ private:
         std::size_t)
     {
         if (ec) {
-            LOG_ERROR() << "http read [" << id_ << "]: " << ec.message();
+            LOG_ERROR() << "http read [" << id_.value << "]: " << ec.message();
             return;
         }
 
@@ -443,9 +443,9 @@ private:
         }
 
         room_id_ = parse_room_id(req->target());
-        username_ = parse_query_param(req->target(), "u");
-        LOG_INFO() << "session " << id_ << " joining room " << room_id_
-                   << " as '" << username_ << "'";
+        username_ = driscord::Username { parse_query_param(req->target(), "u") };
+        LOG_INFO() << "session " << id_.value << " joining room "
+                   << room_id_.value << " as '" << username_.value << "'";
 
         ws_.async_accept(*req,
             beast::bind_front_handler(&Session::on_accept, shared_from_this()));
@@ -484,7 +484,8 @@ private:
         http::async_write(ws_.next_layer(), *res,
             [self = shared_from_this(), res](beast::error_code wec, std::size_t) {
                 if (wec) {
-                    LOG_ERROR() << "http write [" << self->id_ << "]: " << wec.message();
+                    LOG_ERROR() << "http write [" << self->id_.value
+                                << "]: " << wec.message();
                 }
                 beast::error_code shut;
                 self->ws_.next_layer().socket().shutdown(tcp::socket::shutdown_send, shut);
@@ -512,7 +513,8 @@ private:
     void on_write(beast::error_code ec, std::size_t)
     {
         if (ec) {
-            LOG_ERROR() << "write error [" << id_ << "]: " << ec.message();
+            LOG_ERROR() << "write error [" << id_.value << "]: "
+                        << ec.message();
             return;
         }
         bool have_more = false;
@@ -531,7 +533,7 @@ private:
     void on_accept(beast::error_code ec)
     {
         if (ec) {
-            LOG_ERROR() << "accept [" << id_ << "]: " << ec.message();
+            LOG_ERROR() << "accept [" << id_.value << "]: " << ec.message();
             return;
         }
 
@@ -539,7 +541,8 @@ private:
             shared_from_this());
         send(std::make_shared<std::string>(std::move(welcome)));
 
-        LOG_INFO() << "session " << id_ << " connected (room=" << room_id_ << ")";
+        LOG_INFO() << "session " << id_.value << " connected (room="
+                   << room_id_.value << ")";
         do_read();
     }
 
@@ -556,7 +559,7 @@ private:
             return;
         }
         if (ec) {
-            LOG_ERROR() << "read [" << id_ << "]: " << ec.message();
+            LOG_ERROR() << "read [" << id_.value << "]: " << ec.message();
             on_close();
             return;
         }
@@ -567,7 +570,7 @@ private:
 
         auto parsed = signaling::parse(raw);
         if (!parsed) {
-            LOG_ERROR() << "signaling parse error [" << id_ << "]: "
+            LOG_ERROR() << "signaling parse error [" << id_.value << "]: "
                         << signaling::to_string(parsed.error());
             buffer_.consume(buffer_.size());
             do_read();
@@ -603,7 +606,7 @@ private:
                     signaling::dump(signaling::WatchStop { id_ }));
             } else {
                 LOG_WARNING() << "unexpected client signaling message ["
-                              << id_ << "]";
+                              << id_.value << "]";
             }
         },
             parsed.value());
@@ -616,14 +619,15 @@ private:
     {
         close_peer_connection();
         server_->unregister_session(id_, room_id_);
-        LOG_INFO() << "session " << id_ << " disconnected (room=" << room_id_ << ")";
+        LOG_INFO() << "session " << id_.value << " disconnected (room="
+                   << room_id_.value << ")";
     }
 
     beast::flat_buffer buffer_;
     websocket::stream<beast::tcp_stream> ws_;
-    std::string id_;
-    std::string room_id_;
-    std::string username_;
+    driscord::PeerId id_;
+    driscord::RoomId room_id_;
+    driscord::Username username_;
     std::shared_ptr<WebSocketServer> server_;
     std::mutex write_mutex_;
     std::deque<OutboundMessage> write_queue_;
@@ -719,13 +723,14 @@ unsigned short WebSocketServer::bound_port() const
     return endpoint.port();
 }
 
-std::string WebSocketServer::register_and_build_welcome(const std::string& id,
-    const std::string& room_id,
+std::string WebSocketServer::register_and_build_welcome(
+    const driscord::PeerId& id,
+    const driscord::RoomId& room_id,
     std::shared_ptr<Session> s)
 {
     std::vector<std::shared_ptr<Session>> existing;
     std::string welcome_payload;
-    std::string new_username;
+    driscord::Username new_username;
     {
         std::scoped_lock lk(rooms_mutex_);
 
@@ -737,7 +742,7 @@ std::string WebSocketServer::register_and_build_welcome(const std::string& id,
         for (auto& [pid, session] : room.sessions) {
             welcome.peers.push_back({
                 pid,
-                session ? session->username() : "",
+                session ? session->username() : driscord::Username {},
             });
             existing.push_back(session);
         }
@@ -747,7 +752,7 @@ std::string WebSocketServer::register_and_build_welcome(const std::string& id,
         }
 
         welcome_payload = signaling::dump(welcome);
-        new_username = s ? s->username() : "";
+        new_username = s ? s->username() : driscord::Username {};
 
         room.sessions.emplace(id, std::move(s));
     }
@@ -769,11 +774,11 @@ std::string WebSocketServer::presence_json() const
         json arr = json::array();
         for (const auto& [pid, session] : room.sessions) {
             arr.push_back({
-                { "id", pid },
-                { "username", session ? session->username() : "" },
+                { "id", pid.value },
+                { "username", session ? session->username().value : "" },
             });
         }
-        out[room_id] = std::move(arr);
+        out[room_id.value] = std::move(arr);
     }
     return out.dump();
 }
@@ -783,7 +788,7 @@ std::string WebSocketServer::media_stats_json() const
     json out = json::object();
     std::scoped_lock lk(rooms_mutex_);
     for (const auto& [room_id, room] : rooms_) {
-        out[room_id] = {
+        out[room_id.value] = {
             { "sessions", room.sessions.size() },
             { "streamingPeers", room.streaming_peers.size() },
             { "packetsIn", room.media_packets_in },
@@ -796,8 +801,8 @@ std::string WebSocketServer::media_stats_json() const
     return out.dump();
 }
 
-void WebSocketServer::unregister_session(const std::string& id,
-    const std::string& room_id)
+void WebSocketServer::unregister_session(const driscord::PeerId& id,
+    const driscord::RoomId& room_id)
 {
     std::vector<std::shared_ptr<Session>> remaining;
     {
@@ -827,8 +832,8 @@ void WebSocketServer::unregister_session(const std::string& id,
     }
 }
 
-void WebSocketServer::broadcast(const std::string& from_id,
-    const std::string& room_id,
+void WebSocketServer::broadcast(const driscord::PeerId& from_id,
+    const driscord::RoomId& room_id,
     const std::string& msg)
 {
     std::vector<std::shared_ptr<Session>> targets;
@@ -852,8 +857,8 @@ void WebSocketServer::broadcast(const std::string& from_id,
     }
 }
 
-void WebSocketServer::send_to(const std::string& target_id,
-    const std::string& room_id,
+void WebSocketServer::send_to(const driscord::PeerId& target_id,
+    const driscord::RoomId& room_id,
     const std::string& msg)
 {
     std::shared_ptr<Session> target;
@@ -873,8 +878,8 @@ void WebSocketServer::send_to(const std::string& target_id,
     }
 }
 
-void WebSocketServer::route_media(const std::string& from_id,
-    const std::string& room_id,
+void WebSocketServer::route_media(const driscord::PeerId& from_id,
+    const driscord::RoomId& room_id,
     channel::MediaChannel label,
     const uint8_t* data,
     size_t len)
@@ -885,7 +890,7 @@ void WebSocketServer::route_media(const std::string& from_id,
 
     auto encoded = protocol::encode_relayed_media(from_id, data, len);
     if (!encoded) {
-        LOG_WARNING() << "failed to frame media packet from " << from_id;
+        LOG_WARNING() << "failed to frame media packet from " << from_id.value;
         std::scoped_lock lk(rooms_mutex_);
         auto rit = rooms_.find(room_id);
         if (rit != rooms_.end()) {
@@ -944,22 +949,22 @@ size_t WebSocketServer::active_sessions() const
     return total;
 }
 
-size_t WebSocketServer::active_sessions(const std::string& room_id) const
+size_t WebSocketServer::active_sessions(const driscord::RoomId& room_id) const
 {
     std::scoped_lock lk(rooms_mutex_);
     auto it = rooms_.find(room_id);
     return it != rooms_.end() ? it->second.sessions.size() : 0;
 }
 
-void WebSocketServer::add_streaming_peer(const std::string& id,
-    const std::string& room_id)
+void WebSocketServer::add_streaming_peer(const driscord::PeerId& id,
+    const driscord::RoomId& room_id)
 {
     std::scoped_lock lk(rooms_mutex_);
     rooms_[room_id].streaming_peers.insert(id);
 }
 
-void WebSocketServer::remove_streaming_peer(const std::string& id,
-    const std::string& room_id)
+void WebSocketServer::remove_streaming_peer(const driscord::PeerId& id,
+    const driscord::RoomId& room_id)
 {
     std::scoped_lock lk(rooms_mutex_);
     auto rit = rooms_.find(room_id);
@@ -968,15 +973,15 @@ void WebSocketServer::remove_streaming_peer(const std::string& id,
     }
 }
 
-void WebSocketServer::add_video_watcher(const std::string& id,
-    const std::string& room_id)
+void WebSocketServer::add_video_watcher(const driscord::PeerId& id,
+    const driscord::RoomId& room_id)
 {
     std::scoped_lock lk(rooms_mutex_);
     rooms_[room_id].video_watchers.insert(id);
 }
 
-void WebSocketServer::remove_video_watcher(const std::string& id,
-    const std::string& room_id)
+void WebSocketServer::remove_video_watcher(const driscord::PeerId& id,
+    const driscord::RoomId& room_id)
 {
     std::scoped_lock lk(rooms_mutex_);
     auto rit = rooms_.find(room_id);

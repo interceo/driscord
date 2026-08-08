@@ -1,6 +1,7 @@
 #pragma once
 
 #include "channel_labels.hpp"
+#include "identity.hpp"
 
 #include <atomic>
 #include <boost/asio.hpp>
@@ -33,28 +34,29 @@ public:
     // to every pre-existing session in the same room. Returns the JSON-encoded
     // welcome payload. The welcome send itself happens OUTSIDE the critical
     // section.
-    std::string register_and_build_welcome(const std::string& id,
-        const std::string& room_id,
+    std::string register_and_build_welcome(const driscord::PeerId& id,
+        const driscord::RoomId& room_id,
         std::shared_ptr<Session> s);
 
-    void unregister_session(const std::string& id, const std::string& room_id);
+    void unregister_session(const driscord::PeerId& id,
+        const driscord::RoomId& room_id);
 
     // Broadcast to all sessions in the same room except the sender.
-    void broadcast(const std::string& from_id,
-        const std::string& room_id,
+    void broadcast(const driscord::PeerId& from_id,
+        const driscord::RoomId& room_id,
         const std::string& msg);
 
     // Unicast: routes only within the given room.
-    void send_to(const std::string& target_id,
-        const std::string& room_id,
+    void send_to(const driscord::PeerId& target_id,
+        const driscord::RoomId& room_id,
         const std::string& msg);
 
     // Media fan-out (SFU). Called from a client's DataChannel with the label
     // it arrived on; the server forwards the payload to the other sessions in
     // the room on their channel of the same label, prefixed with the sender id.
     // No codec-level decode happens here — the server only routes.
-    void route_media(const std::string& from_id,
-        const std::string& room_id,
+    void route_media(const driscord::PeerId& from_id,
+        const driscord::RoomId& room_id,
         channel::MediaChannel label,
         const uint8_t* data,
         size_t len);
@@ -65,17 +67,20 @@ public:
     // Total connected sessions across all rooms (for tests).
     size_t active_sessions() const;
     // Sessions in a specific room (for tests).
-    size_t active_sessions(const std::string& room_id) const;
+    size_t active_sessions(const driscord::RoomId& room_id) const;
 
-    void add_streaming_peer(const std::string& id, const std::string& room_id);
-    void remove_streaming_peer(const std::string& id,
-        const std::string& room_id);
+    void add_streaming_peer(const driscord::PeerId& id,
+        const driscord::RoomId& room_id);
+    void remove_streaming_peer(const driscord::PeerId& id,
+        const driscord::RoomId& room_id);
 
     // Watchers gate relayed screen video/screen-audio: only peers that sent
     // watch_start (and haven't sent watch_stop since) receive those relay
     // kinds, matching the P2P-mesh path's unicast-to-subscribers behavior.
-    void add_video_watcher(const std::string& id, const std::string& room_id);
-    void remove_video_watcher(const std::string& id, const std::string& room_id);
+    void add_video_watcher(const driscord::PeerId& id,
+        const driscord::RoomId& room_id);
+    void remove_video_watcher(const driscord::PeerId& id,
+        const driscord::RoomId& room_id);
 
     // Snapshot of all rooms and their sessions for the /presence HTTP endpoint.
     // Returns a JSON string: { "<room_id>": [ { "id": "...", "username": "..." }, ... ], ... }
@@ -93,9 +98,9 @@ private:
     std::atomic<bool> stopping_ { false };
 
     struct Room {
-        std::unordered_map<std::string, std::shared_ptr<Session>> sessions;
-        std::unordered_set<std::string> streaming_peers;
-        std::unordered_set<std::string> video_watchers;
+        std::unordered_map<driscord::PeerId, std::shared_ptr<Session>> sessions;
+        std::unordered_set<driscord::PeerId> streaming_peers;
+        std::unordered_set<driscord::PeerId> video_watchers;
         uint64_t media_packets_in = 0;
         uint64_t media_packets_out = 0;
         uint64_t media_bytes_in = 0;
@@ -104,7 +109,7 @@ private:
     };
 
     mutable std::mutex rooms_mutex_;
-    std::unordered_map<std::string, Room> rooms_;
+    std::unordered_map<driscord::RoomId, Room> rooms_;
 
     // Built once at construction. The UDP port range ICE binds to is taken
     // from DRISCORD_ICE_PORT_MIN/MAX so deployments behind NAT or in Docker

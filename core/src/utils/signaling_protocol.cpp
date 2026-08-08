@@ -30,6 +30,28 @@ std::optional<std::string> optional_string(const nlohmann::json& msg,
     return it->get<std::string>();
 }
 
+bool required_peer_id(const nlohmann::json& msg,
+    const char* key,
+    driscord::PeerId& out)
+{
+    std::string value;
+    if (!required_string(msg, key, value)) {
+        return false;
+    }
+    out = driscord::PeerId { std::move(value) };
+    return true;
+}
+
+std::optional<driscord::PeerId> optional_peer_id(const nlohmann::json& msg,
+    const char* key)
+{
+    auto value = optional_string(msg, key);
+    if (!value || value->empty()) {
+        return std::nullopt;
+    }
+    return driscord::PeerId { std::move(*value) };
+}
+
 nlohmann::json with_type(std::string_view type)
 {
     nlohmann::json msg = nlohmann::json::object();
@@ -37,10 +59,10 @@ nlohmann::json with_type(std::string_view type)
     return msg;
 }
 
-void add_from(nlohmann::json& msg, const std::optional<std::string>& from)
+void add_from(nlohmann::json& msg, const std::optional<driscord::PeerId>& from)
 {
-    if (from && !from->empty()) {
-        msg["from"] = *from;
+    if (from && !from->value.empty()) {
+        msg["from"] = from->value;
     }
 }
 
@@ -66,32 +88,36 @@ std::string_view to_string(ParseError error)
 nlohmann::json encode(const Welcome& value)
 {
     auto msg = with_type("welcome");
-    msg["id"] = value.id;
+    msg["id"] = value.id.value;
 
     auto peers = nlohmann::json::array();
     for (const auto& peer : value.peers) {
         peers.push_back({
-            { "id", peer.id },
-            { "username", peer.username },
+            { "id", peer.id.value },
+            { "username", peer.username.value },
         });
     }
     msg["peers"] = std::move(peers);
-    msg["streaming_peers"] = value.streaming_peers;
+    auto streaming = nlohmann::json::array();
+    for (const auto& peer_id : value.streaming_peers) {
+        streaming.push_back(peer_id.value);
+    }
+    msg["streaming_peers"] = std::move(streaming);
     return msg;
 }
 
 nlohmann::json encode(const PeerJoined& value)
 {
     auto msg = with_type("peer_joined");
-    msg["id"] = value.id;
-    msg["username"] = value.username;
+    msg["id"] = value.id.value;
+    msg["username"] = value.username.value;
     return msg;
 }
 
 nlohmann::json encode(const PeerLeft& value)
 {
     auto msg = with_type("peer_left");
-    msg["id"] = value.id;
+    msg["id"] = value.id.value;
     return msg;
 }
 
@@ -163,7 +189,7 @@ utils::Expected<Message, ParseError> parse_json(const nlohmann::json& msg)
 
     if (type == "welcome") {
         Welcome value;
-        if (!required_string(msg, "id", value.id)) {
+        if (!required_peer_id(msg, "id", value.id)) {
             return utils::Unexpected(ParseError::MissingField);
         }
         auto peers_it = msg.find("peers");
@@ -173,12 +199,12 @@ utils::Expected<Message, ParseError> parse_json(const nlohmann::json& msg)
             }
             for (const auto& item : *peers_it) {
                 PeerIdentity peer;
-                if (!item.is_object() || !required_string(item, "id", peer.id)) {
+                if (!item.is_object() || !required_peer_id(item, "id", peer.id)) {
                     return utils::Unexpected(ParseError::InvalidField);
                 }
                 auto username = optional_string(item, "username");
                 if (username && !username->empty()) {
-                    peer.username = *username;
+                    peer.username = driscord::Username { std::move(*username) };
                 }
                 value.peers.push_back(std::move(peer));
             }
@@ -192,8 +218,8 @@ utils::Expected<Message, ParseError> parse_json(const nlohmann::json& msg)
                 if (!item.is_string()) {
                     return utils::Unexpected(ParseError::InvalidField);
                 }
-                auto id = item.get<std::string>();
-                if (!id.empty()) {
+                auto id = driscord::PeerId { item.get<std::string>() };
+                if (!id.value.empty()) {
                     value.streaming_peers.push_back(std::move(id));
                 }
             }
@@ -203,19 +229,19 @@ utils::Expected<Message, ParseError> parse_json(const nlohmann::json& msg)
 
     if (type == "peer_joined") {
         PeerJoined value;
-        if (!required_string(msg, "id", value.id)) {
+        if (!required_peer_id(msg, "id", value.id)) {
             return utils::Unexpected(ParseError::MissingField);
         }
         auto username = optional_string(msg, "username");
         if (username && !username->empty()) {
-            value.username = *username;
+            value.username = driscord::Username { std::move(*username) };
         }
         return Message { std::move(value) };
     }
 
     if (type == "peer_left") {
         PeerLeft value;
-        if (!required_string(msg, "id", value.id)) {
+        if (!required_peer_id(msg, "id", value.id)) {
             return utils::Unexpected(ParseError::MissingField);
         }
         return Message { std::move(value) };
@@ -247,16 +273,16 @@ utils::Expected<Message, ParseError> parse_json(const nlohmann::json& msg)
     }
 
     if (type == "streaming_start") {
-        return Message { StreamingStart { optional_string(msg, "from") } };
+        return Message { StreamingStart { optional_peer_id(msg, "from") } };
     }
     if (type == "streaming_stop") {
-        return Message { StreamingStop { optional_string(msg, "from") } };
+        return Message { StreamingStop { optional_peer_id(msg, "from") } };
     }
     if (type == "watch_start") {
-        return Message { WatchStart { optional_string(msg, "from") } };
+        return Message { WatchStart { optional_peer_id(msg, "from") } };
     }
     if (type == "watch_stop") {
-        return Message { WatchStop { optional_string(msg, "from") } };
+        return Message { WatchStop { optional_peer_id(msg, "from") } };
     }
 
     return utils::Unexpected(ParseError::UnknownType);

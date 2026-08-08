@@ -1,6 +1,7 @@
 #pragma once
 
 #include "channel_labels.hpp"
+#include "identity.hpp"
 #include "transport_fsm.hpp"
 #include "utils/expected.hpp"
 
@@ -70,7 +71,7 @@ public:
     std::string local_id() const
     {
         std::scoped_lock lk(ws_mutex_);
-        return local_id_;
+        return local_id_.value;
     }
 
     void on_connected(std::function<void()> cb) { on_connected_ = std::move(cb); }
@@ -138,7 +139,7 @@ private:
     struct Fsm;
 
     void on_ws_message(const std::string& raw);
-    void set_peer_identity_(const std::string& peer_id, std::string username);
+    void set_peer_identity_(driscord::PeerId peer_id, driscord::Username username);
     // Builds the PeerConnection to the server, creates the registered
     // channels and sends the offer. Only ever called by the state machine,
     // on the FSM thread.
@@ -160,7 +161,7 @@ private:
     mutable std::mutex ws_mutex_;
     std::shared_ptr<rtc::WebSocket> ws_;
     std::atomic<bool> ws_connected_ { false };
-    std::string local_id_;
+    driscord::PeerId local_id_;
     std::string ws_url_;
 
     rtc::Configuration rtc_config_;
@@ -172,7 +173,7 @@ private:
 
     // Room roster, driven purely by signaling.
     mutable std::mutex peers_mutex_;
-    std::unordered_set<std::string> peers_;
+    std::unordered_set<driscord::PeerId> peers_;
 
     std::vector<ChannelSpec> channel_specs_;
     std::optional<channel::MediaChannel> primary_channel_;
@@ -187,7 +188,7 @@ private:
     PeerEventCb on_watch_stopped_;
 
     mutable std::mutex identity_mutex_;
-    std::unordered_map<std::string, std::string> peer_usernames_;
+    std::unordered_map<driscord::PeerId, driscord::Username> peer_usernames_;
     std::function<void(const std::string&, const std::string&)> on_peer_identity_;
 
     // The one thread that owns the state machine. It drains the event queue,
