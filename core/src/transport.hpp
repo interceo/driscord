@@ -6,6 +6,7 @@
 #include "utils/expected.hpp"
 
 #include <atomic>
+#include <cassert>
 #include <chrono>
 #include <condition_variable>
 #include <deque>
@@ -74,26 +75,58 @@ public:
         return local_id_.value;
     }
 
-    void on_connected(std::function<void()> cb) { on_connected_ = std::move(cb); }
-    void on_disconnected(std::function<void()> cb) { on_disconnected_ = std::move(cb); }
-    void on_peer_joined(PeerEventCb cb) { on_peer_joined_ = std::move(cb); }
-    void on_peer_left(PeerEventCb cb) { on_peer_left_ = std::move(cb); }
+    // Callback registration. These are read on the WebSocket/RTC threads once
+    // connect() has run, with no lock — so they may only be set beforehand,
+    // while this object is still owned by the constructing thread. Assigning one
+    // after connect() would race the reader; ensure_callbacks_mutable_() traps
+    // that misuse in debug builds.
+    void on_connected(std::function<void()> cb)
+    {
+        ensure_callbacks_mutable_();
+        on_connected_ = std::move(cb);
+    }
+    void on_disconnected(std::function<void()> cb)
+    {
+        ensure_callbacks_mutable_();
+        on_disconnected_ = std::move(cb);
+    }
+    void on_peer_joined(PeerEventCb cb)
+    {
+        ensure_callbacks_mutable_();
+        on_peer_joined_ = std::move(cb);
+    }
+    void on_peer_left(PeerEventCb cb)
+    {
+        ensure_callbacks_mutable_();
+        on_peer_left_ = std::move(cb);
+    }
     void on_streaming_started(PeerEventCb cb)
     {
+        ensure_callbacks_mutable_();
         on_streaming_started_ = std::move(cb);
     }
     void on_streaming_stopped(PeerEventCb cb)
     {
+        ensure_callbacks_mutable_();
         on_streaming_stopped_ = std::move(cb);
     }
-    void on_watch_started(PeerEventCb cb) { on_watch_started_ = std::move(cb); }
-    void on_watch_stopped(PeerEventCb cb) { on_watch_stopped_ = std::move(cb); }
+    void on_watch_started(PeerEventCb cb)
+    {
+        ensure_callbacks_mutable_();
+        on_watch_started_ = std::move(cb);
+    }
+    void on_watch_stopped(PeerEventCb cb)
+    {
+        ensure_callbacks_mutable_();
+        on_watch_stopped_ = std::move(cb);
+    }
 
     // Identity: usernames arrive from the signaling server (welcome/peer_joined
     // carry them, sourced from the `u=` query param on connect).
     std::string peer_username(const std::string& peer_id) const;
     void on_peer_identity(std::function<void(const std::string&, const std::string&)> cb)
     {
+        ensure_callbacks_mutable_();
         on_peer_identity_ = std::move(cb);
     }
 
@@ -138,6 +171,15 @@ private:
     // transition table's template soup — stays out of this public header.
     struct Fsm;
 
+    // Trips if a callback is registered after connect() has frozen them. The
+    // flag is written and read only on the owning thread (setters + connect),
+    // never on the network threads that consume the callbacks.
+    void ensure_callbacks_mutable_() const
+    {
+        assert(!callbacks_frozen_
+            && "register Transport callbacks before connect()");
+    }
+
     void on_ws_message(const std::string& raw);
     void set_peer_identity_(driscord::PeerId peer_id, driscord::Username username);
     // Builds the PeerConnection to the server, creates the registered
@@ -177,6 +219,10 @@ private:
 
     std::vector<ChannelSpec> channel_specs_;
     std::optional<channel::MediaChannel> primary_channel_;
+
+    // Set once by connect(); afterwards the callbacks below are read-only and
+    // safe to touch from the network threads without a lock.
+    bool callbacks_frozen_ = false;
 
     std::function<void()> on_connected_;
     std::function<void()> on_disconnected_;

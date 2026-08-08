@@ -6,6 +6,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -29,7 +31,10 @@ struct AudioHeader {
 
     static constexpr size_t kWireSize = 16;
 
-    static AudioHeader deserialize(const uint8_t* src);
+    // Returns nullopt when `src` is shorter than the header. The length lives
+    // in the API rather than at every call site, so an untrusted packet cannot
+    // trigger an out-of-bounds read no matter who parses it.
+    static std::optional<AudioHeader> deserialize(std::span<const uint8_t> src);
     void serialize(uint8_t* dst) const;
 };
 
@@ -50,7 +55,10 @@ struct VideoHeader {
 
     static constexpr size_t kWireSize = 32;
 
-    static VideoHeader deserialize(const uint8_t* src);
+    // Returns nullopt when `src` is shorter than the header or carries a codec
+    // value outside the known set — both come straight off the wire and must
+    // not reach the decoder unchecked.
+    static std::optional<VideoHeader> deserialize(std::span<const uint8_t> src);
     void serialize(uint8_t* dst) const;
 };
 
@@ -62,7 +70,8 @@ struct FrameHeader {
 
     static constexpr size_t kWireSize = 8;
 
-    static FrameHeader deserialize(const uint8_t* src);
+    // Returns nullopt when `src` is shorter than the header.
+    static std::optional<FrameHeader> deserialize(std::span<const uint8_t> src);
     void serialize(uint8_t* dst) const;
 };
 

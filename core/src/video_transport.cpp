@@ -189,18 +189,21 @@ void VideoTransport::on_frame(const std::string& peer_id,
     const uint8_t* data,
     size_t len)
 {
-    if (len <= protocol::FrameHeader::kWireSize) {
+    const auto header = protocol::FrameHeader::deserialize({ data, len });
+    if (!header) {
         return;
     }
     const size_t payload_len = len - protocol::FrameHeader::kWireSize;
+    if (payload_len == 0) {
+        return;
+    }
     if (payload_len > kMaxFrameBytes) {
         LOG_WARNING() << "[video] oversized frame from " << peer_id << " ("
                       << payload_len << " bytes), dropping";
         return;
     }
-    const auto header = protocol::FrameHeader::deserialize(data);
     on_assembled(peer_id, data + protocol::FrameHeader::kWireSize, payload_len,
-        header.frame_id);
+        header->frame_id);
 }
 
 void VideoTransport::on_control(const std::string& peer_id,

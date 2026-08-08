@@ -6,12 +6,15 @@
 
 namespace protocol {
 
-AudioHeader AudioHeader::deserialize(const uint8_t* src)
+std::optional<AudioHeader> AudioHeader::deserialize(std::span<const uint8_t> src)
 {
+    if (src.size() < kWireSize) {
+        return std::nullopt;
+    }
     AudioHeader h;
-    h.seq = utils::read_u32_le(src);
-    h.flags = utils::read_u32_le(src + 4);
-    h.sender_ts_us = static_cast<int64_t>(utils::read_u64_le(src + 8));
+    h.seq = utils::read_u32_le(src.data());
+    h.flags = utils::read_u32_le(src.data() + 4);
+    h.sender_ts_us = static_cast<int64_t>(utils::read_u64_le(src.data() + 8));
     return h;
 }
 
@@ -22,16 +25,24 @@ void AudioHeader::serialize(uint8_t* dst) const
     utils::write_u64_le(dst + 8, static_cast<uint64_t>(sender_ts_us));
 }
 
-VideoHeader VideoHeader::deserialize(const uint8_t* src)
+std::optional<VideoHeader> VideoHeader::deserialize(std::span<const uint8_t> src)
 {
+    if (src.size() < kWireSize) {
+        return std::nullopt;
+    }
+    const uint32_t codec_raw = utils::read_u32_le(src.data() + 28);
+    if (codec_raw != static_cast<uint32_t>(VideoCodec::H264)
+        && codec_raw != static_cast<uint32_t>(VideoCodec::HEVC)) {
+        return std::nullopt;
+    }
     VideoHeader h;
-    h.width = utils::read_u32_le(src);
-    h.height = utils::read_u32_le(src + 4);
-    h.sender_ts_us = static_cast<int64_t>(utils::read_u64_le(src + 8));
-    h.bitrate_kbps = utils::read_u32_le(src + 16);
-    h.frame_duration_us = utils::read_u32_le(src + 20);
-    h.flags = utils::read_u32_le(src + 24);
-    h.codec = static_cast<VideoCodec>(utils::read_u32_le(src + 28));
+    h.width = utils::read_u32_le(src.data());
+    h.height = utils::read_u32_le(src.data() + 4);
+    h.sender_ts_us = static_cast<int64_t>(utils::read_u64_le(src.data() + 8));
+    h.bitrate_kbps = utils::read_u32_le(src.data() + 16);
+    h.frame_duration_us = utils::read_u32_le(src.data() + 20);
+    h.flags = utils::read_u32_le(src.data() + 24);
+    h.codec = static_cast<VideoCodec>(codec_raw);
     return h;
 }
 
@@ -46,10 +57,13 @@ void VideoHeader::serialize(uint8_t* dst) const
     utils::write_u32_le(dst + 28, static_cast<uint32_t>(codec));
 }
 
-FrameHeader FrameHeader::deserialize(const uint8_t* src)
+std::optional<FrameHeader> FrameHeader::deserialize(std::span<const uint8_t> src)
 {
+    if (src.size() < kWireSize) {
+        return std::nullopt;
+    }
     FrameHeader h;
-    h.frame_id = utils::read_u64_le(src);
+    h.frame_id = utils::read_u64_le(src.data());
     return h;
 }
 

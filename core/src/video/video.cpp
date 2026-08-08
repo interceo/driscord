@@ -163,23 +163,27 @@ void VideoReceiver::push_video_packet(
     const utils::vector_view<const uint8_t> data,
     uint64_t frame_id)
 {
-    if (data.size() <= protocol::VideoHeader::kWireSize) {
+    const auto vh = protocol::VideoHeader::deserialize({ data.data(), data.size() });
+    if (!vh) {
+        return;
+    }
+    const size_t encoded_len = data.size() - protocol::VideoHeader::kWireSize;
+    if (encoded_len == 0) {
+        return;
+    }
+    if (vh->width == 0 || vh->height == 0 || vh->width > kMaxWidth
+        || vh->height > kMaxHeight) {
         return;
     }
 
-    const auto vh = protocol::VideoHeader::deserialize(data.data());
-    if (vh.width == 0 || vh.height == 0 || vh.width > kMaxWidth || vh.height > kMaxHeight) {
-        return;
-    }
-
-    if (!decoder_codec_.has_value() || *decoder_codec_ != vh.codec) {
-        LOG_INFO() << "video decoder: init " << utils::to_string(vh.codec)
+    if (!decoder_codec_.has_value() || *decoder_codec_ != vh->codec) {
+        LOG_INFO() << "video decoder: init " << utils::to_string(vh->codec)
                    << " for peer " << peer_id_;
-        if (!decoder_.init(vh.codec)) {
+        if (!decoder_.init(vh->codec)) {
             LOG_ERROR() << "video decoder init failed for peer " << peer_id_;
             return;
         }
-        decoder_codec_ = vh.codec;
+        decoder_codec_ = vh->codec;
         std::scoped_lock lk(mutex_);
         buffer_.reset();
     }
@@ -189,7 +193,7 @@ void VideoReceiver::push_video_packet(
     // The frame is complete only now, after every chunk of it has been
     // reassembled — which is exactly the delay that makes video lag audio, and
     // exactly what the shared clock has to measure.
-    clock_->observe(avsync::MediaClock::Stream::Video, vh.sender_ts_us,
+    clock_->observe(avsync::MediaClock::Stream::Video, vh->sender_ts_us,
         utils::MonoClock::now_us());
 
     const auto now = utils::Now();
@@ -208,7 +212,6 @@ void VideoReceiver::push_video_packet(
     }
 
     const uint8_t* encoded = data.data() + protocol::VideoHeader::kWireSize;
-    const size_t encoded_len = data.size() - protocol::VideoHeader::kWireSize;
 
     // Decode into a recycled buffer. A 1080p frame is 8 MB, so allocating one
     // per frame — sixty times a second — dominates everything else this class

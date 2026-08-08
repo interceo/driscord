@@ -96,6 +96,10 @@ utils::Expected<void, TransportError> Transport::connect(const std::string& ws_u
     disconnect();
     ws_url_ = ws_url;
 
+    // From here the network threads may read the callback set, so it must stop
+    // changing. Latches on first connect; a reconnect keeps it frozen.
+    callbacks_frozen_ = true;
+
     std::shared_ptr<rtc::WebSocket> ws;
     try {
         rtc::WebSocket::Configuration ws_config;

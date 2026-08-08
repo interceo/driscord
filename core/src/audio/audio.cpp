@@ -233,12 +233,14 @@ AudioReceiver::~AudioReceiver() = default;
 
 void AudioReceiver::push_packet(const utils::vector_view<const uint8_t> data)
 {
-    if (data.size() <= protocol::AudioHeader::kWireSize) {
+    const auto ah = protocol::AudioHeader::deserialize({ data.data(), data.size() });
+    if (!ah) {
         return;
     }
-
-    const auto ah = protocol::AudioHeader::deserialize(data.data());
     const size_t opus_len = data.size() - protocol::AudioHeader::kWireSize;
+    if (opus_len == 0) {
+        return;
+    }
 
     packets_received_.inc();
 
@@ -251,17 +253,17 @@ void AudioReceiver::push_packet(const utils::vector_view<const uint8_t> data)
         return;
     }
 
-    clock_->observe(avsync::MediaClock::Stream::Audio, ah.sender_ts_us,
+    clock_->observe(avsync::MediaClock::Stream::Audio, ah->sender_ts_us,
         utils::MonoClock::now_us());
 
     Packet pkt;
     pkt.len = static_cast<uint16_t>(opus_len);
-    pkt.flags = ah.flags;
-    pkt.sender_ts_us = ah.sender_ts_us;
+    pkt.flags = ah->flags;
+    pkt.sender_ts_us = ah->sender_ts_us;
     std::memcpy(pkt.data.data(), data.data() + protocol::AudioHeader::kWireSize, opus_len);
 
     std::scoped_lock lk(buffer_lock_);
-    if (buffer_.push(ah.seq, std::move(pkt)) != utils::PushResult::Stored) {
+    if (buffer_.push(ah->seq, std::move(pkt)) != utils::PushResult::Stored) {
         drop_count_.inc();
     }
 }

@@ -24,9 +24,10 @@ TEST(AudioHeader, Roundtrip)
     src.serialize(buf);
 
     auto dst = protocol::AudioHeader::deserialize(buf);
-    EXPECT_EQ(dst.seq, 42u);
-    EXPECT_EQ(dst.flags, protocol::flags::kTalkspurtStart);
-    EXPECT_EQ(dst.sender_ts_us, 123456789);
+    ASSERT_TRUE(dst);
+    EXPECT_EQ(dst->seq, 42u);
+    EXPECT_EQ(dst->flags, protocol::flags::kTalkspurtStart);
+    EXPECT_EQ(dst->sender_ts_us, 123456789);
 }
 
 TEST(AudioHeader, WireSize)
@@ -41,9 +42,10 @@ TEST(AudioHeader, ZeroValues)
     src.serialize(buf);
 
     auto dst = protocol::AudioHeader::deserialize(buf);
-    EXPECT_EQ(dst.seq, 0u);
-    EXPECT_EQ(dst.flags, 0u);
-    EXPECT_EQ(dst.sender_ts_us, 0);
+    ASSERT_TRUE(dst);
+    EXPECT_EQ(dst->seq, 0u);
+    EXPECT_EQ(dst->flags, 0u);
+    EXPECT_EQ(dst->sender_ts_us, 0);
 }
 
 TEST(AudioHeader, MaxSeq)
@@ -56,8 +58,9 @@ TEST(AudioHeader, MaxSeq)
     src.serialize(buf);
 
     auto dst = protocol::AudioHeader::deserialize(buf);
-    EXPECT_EQ(dst.seq, UINT32_MAX);
-    EXPECT_EQ(dst.sender_ts_us, 0);
+    ASSERT_TRUE(dst);
+    EXPECT_EQ(dst->seq, UINT32_MAX);
+    EXPECT_EQ(dst->sender_ts_us, 0);
 }
 
 // The sender clock starts at zero each process, so a receiver that boots
@@ -72,7 +75,7 @@ TEST(AudioHeader, LargeSenderTimestamp)
     uint8_t buf[protocol::AudioHeader::kWireSize] { };
     src.serialize(buf);
 
-    EXPECT_EQ(protocol::AudioHeader::deserialize(buf).sender_ts_us,
+    EXPECT_EQ(protocol::AudioHeader::deserialize(buf)->sender_ts_us,
         9'000'000'000'000LL);
 }
 
@@ -93,13 +96,14 @@ TEST(VideoHeader, Roundtrip)
     src.serialize(buf);
 
     auto dst = protocol::VideoHeader::deserialize(buf);
-    EXPECT_EQ(dst.width, 1920u);
-    EXPECT_EQ(dst.height, 1080u);
-    EXPECT_EQ(dst.sender_ts_us, 9999999);
-    EXPECT_EQ(dst.bitrate_kbps, 6000u);
-    EXPECT_EQ(dst.frame_duration_us, 16667u);
-    EXPECT_EQ(dst.flags, protocol::flags::kKeyframe);
-    EXPECT_EQ(dst.codec, protocol::VideoCodec::H264);
+    ASSERT_TRUE(dst);
+    EXPECT_EQ(dst->width, 1920u);
+    EXPECT_EQ(dst->height, 1080u);
+    EXPECT_EQ(dst->sender_ts_us, 9999999);
+    EXPECT_EQ(dst->bitrate_kbps, 6000u);
+    EXPECT_EQ(dst->frame_duration_us, 16667u);
+    EXPECT_EQ(dst->flags, protocol::flags::kKeyframe);
+    EXPECT_EQ(dst->codec, protocol::VideoCodec::H264);
 }
 
 TEST(VideoHeader, WireSize)
@@ -114,12 +118,13 @@ TEST(VideoHeader, ZeroValues)
     src.serialize(buf);
 
     auto dst = protocol::VideoHeader::deserialize(buf);
-    EXPECT_EQ(dst.width, 0u);
-    EXPECT_EQ(dst.height, 0u);
-    EXPECT_EQ(dst.bitrate_kbps, 0u);
-    EXPECT_EQ(dst.frame_duration_us, 0u);
-    EXPECT_EQ(dst.flags, 0u);
-    EXPECT_EQ(dst.codec, protocol::VideoCodec::H264); // default codec
+    ASSERT_TRUE(dst);
+    EXPECT_EQ(dst->width, 0u);
+    EXPECT_EQ(dst->height, 0u);
+    EXPECT_EQ(dst->bitrate_kbps, 0u);
+    EXPECT_EQ(dst->frame_duration_us, 0u);
+    EXPECT_EQ(dst->flags, 0u);
+    EXPECT_EQ(dst->codec, protocol::VideoCodec::H264); // default codec
 }
 
 TEST(VideoHeader, MaxValues)
@@ -137,13 +142,14 @@ TEST(VideoHeader, MaxValues)
     src.serialize(buf);
 
     auto dst = protocol::VideoHeader::deserialize(buf);
-    EXPECT_EQ(dst.width, UINT32_MAX);
-    EXPECT_EQ(dst.height, UINT32_MAX);
-    EXPECT_EQ(dst.bitrate_kbps, UINT32_MAX);
-    EXPECT_EQ(dst.frame_duration_us, UINT32_MAX);
-    EXPECT_EQ(dst.sender_ts_us, INT64_MAX);
-    EXPECT_EQ(dst.flags, UINT32_MAX);
-    EXPECT_EQ(dst.codec, protocol::VideoCodec::HEVC);
+    ASSERT_TRUE(dst);
+    EXPECT_EQ(dst->width, UINT32_MAX);
+    EXPECT_EQ(dst->height, UINT32_MAX);
+    EXPECT_EQ(dst->bitrate_kbps, UINT32_MAX);
+    EXPECT_EQ(dst->frame_duration_us, UINT32_MAX);
+    EXPECT_EQ(dst->sender_ts_us, INT64_MAX);
+    EXPECT_EQ(dst->flags, UINT32_MAX);
+    EXPECT_EQ(dst->codec, protocol::VideoCodec::HEVC);
 }
 
 TEST(VideoHeader, CodecRoundtrip)
@@ -158,7 +164,8 @@ TEST(VideoHeader, CodecRoundtrip)
         src.serialize(buf);
 
         auto dst = protocol::VideoHeader::deserialize(buf);
-        EXPECT_EQ(dst.codec, codec);
+        ASSERT_TRUE(dst);
+        EXPECT_EQ(dst->codec, codec);
     }
 }
 
@@ -179,7 +186,8 @@ TEST(FrameHeader, Roundtrip)
     src.serialize(buf);
 
     auto dst = protocol::FrameHeader::deserialize(buf);
-    EXPECT_EQ(dst.frame_id, 1000u);
+    ASSERT_TRUE(dst);
+    EXPECT_EQ(dst->frame_id, 1000u);
 }
 
 TEST(FrameHeader, WireSize)
@@ -194,7 +202,8 @@ TEST(FrameHeader, ZeroValues)
     src.serialize(buf);
 
     auto dst = protocol::FrameHeader::deserialize(buf);
-    EXPECT_EQ(dst.frame_id, 0u);
+    ASSERT_TRUE(dst);
+    EXPECT_EQ(dst->frame_id, 0u);
 }
 
 TEST(FrameHeader, MaxValues)
@@ -206,7 +215,45 @@ TEST(FrameHeader, MaxValues)
     src.serialize(buf);
 
     auto dst = protocol::FrameHeader::deserialize(buf);
-    EXPECT_EQ(dst.frame_id, UINT64_MAX);
+    ASSERT_TRUE(dst);
+    EXPECT_EQ(dst->frame_id, UINT64_MAX);
+}
+
+// ---- Rejecting malformed / untrusted input ----
+
+TEST(AudioHeader, RejectsTooShort)
+{
+    uint8_t buf[protocol::AudioHeader::kWireSize - 1] { };
+    EXPECT_FALSE(protocol::AudioHeader::deserialize(buf));
+    EXPECT_FALSE(protocol::AudioHeader::deserialize({}));
+}
+
+TEST(VideoHeader, RejectsTooShort)
+{
+    uint8_t buf[protocol::VideoHeader::kWireSize - 1] { };
+    EXPECT_FALSE(protocol::VideoHeader::deserialize(buf));
+}
+
+TEST(VideoHeader, RejectsUnknownCodec)
+{
+    protocol::VideoHeader src;
+    src.width = 1280;
+    src.height = 720;
+    src.codec = protocol::VideoCodec::H264;
+
+    uint8_t buf[protocol::VideoHeader::kWireSize] { };
+    src.serialize(buf);
+    // Corrupt the codec field (u32 LE at offset 28) to a value off the wire
+    // that maps to no known codec.
+    buf[28] = 0x7f;
+
+    EXPECT_FALSE(protocol::VideoHeader::deserialize(buf));
+}
+
+TEST(FrameHeader, RejectsTooShort)
+{
+    uint8_t buf[protocol::FrameHeader::kWireSize - 1] { };
+    EXPECT_FALSE(protocol::FrameHeader::deserialize(buf));
 }
 
 // ---- Headers don't overlap when packed adjacently ----
@@ -227,10 +274,13 @@ TEST(Protocol, AdjacentHeaders)
     // Verify both still intact
     auto ah2 = protocol::AudioHeader::deserialize(buf);
     auto fh2 = protocol::FrameHeader::deserialize(
-        buf + protocol::AudioHeader::kWireSize);
-    EXPECT_EQ(ah2.seq, 77u);
-    EXPECT_EQ(ah2.sender_ts_us, 555);
-    EXPECT_EQ(fh2.frame_id, 99u);
+        { buf + protocol::AudioHeader::kWireSize,
+            protocol::FrameHeader::kWireSize });
+    ASSERT_TRUE(ah2);
+    ASSERT_TRUE(fh2);
+    EXPECT_EQ(ah2->seq, 77u);
+    EXPECT_EQ(ah2->sender_ts_us, 555);
+    EXPECT_EQ(fh2->frame_id, 99u);
 }
 
 // ---- Signaling JSON ----
