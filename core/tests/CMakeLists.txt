@@ -80,7 +80,10 @@ if(BUILD_SERVER)
         target_link_libraries(${name} PRIVATE
             GTest::gtest_main driscord_core driscord_signaling)
         add_test(NAME ${name} COMMAND ${name})
-        set_tests_properties(${name} PROPERTIES TIMEOUT 120)
+        # These spin up real WebSocket servers + PeerConnections and assert on
+        # timing (playout deadlines, A/V skew). Under `ctest -j` alongside the
+        # CPU-heavy codec tests they flake, so pin them to run alone.
+        set_tests_properties(${name} PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
     endfunction()
 
     add_integration_test(test_sfu_transport)

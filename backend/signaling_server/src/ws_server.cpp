@@ -969,7 +969,13 @@ void WebSocketServer::add_streaming_peer(const driscord::PeerId& id,
     const driscord::RoomId& room_id)
 {
     std::scoped_lock lk(rooms_mutex_);
-    rooms_[room_id].streaming_peers.insert(id);
+    // find, not operator[]: a peer only streams in a room it already joined, so
+    // the room exists. Using operator[] here would let a stray call resurrect an
+    // empty Room that unregister_session (keyed on live sessions) never reaps.
+    auto rit = rooms_.find(room_id);
+    if (rit != rooms_.end()) {
+        rit->second.streaming_peers.insert(id);
+    }
 }
 
 void WebSocketServer::remove_streaming_peer(const driscord::PeerId& id,
@@ -986,7 +992,12 @@ void WebSocketServer::add_video_watcher(const driscord::PeerId& id,
     const driscord::RoomId& room_id)
 {
     std::scoped_lock lk(rooms_mutex_);
-    rooms_[room_id].video_watchers.insert(id);
+    // See add_streaming_peer: find, not operator[], so a watch_start can't
+    // conjure an empty room that never gets cleaned up.
+    auto rit = rooms_.find(room_id);
+    if (rit != rooms_.end()) {
+        rit->second.video_watchers.insert(id);
+    }
 }
 
 void WebSocketServer::remove_video_watcher(const driscord::PeerId& id,

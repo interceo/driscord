@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <functional>
 #include <string>
 
@@ -27,7 +28,7 @@ struct Username {
 
 template <>
 struct std::hash<driscord::PeerId> {
-    size_t operator()(const driscord::PeerId& id) const noexcept
+    std::size_t operator()(const driscord::PeerId& id) const noexcept
     {
         return std::hash<std::string> {}(id.value);
     }
@@ -35,7 +36,7 @@ struct std::hash<driscord::PeerId> {
 
 template <>
 struct std::hash<driscord::RoomId> {
-    size_t operator()(const driscord::RoomId& id) const noexcept
+    std::size_t operator()(const driscord::RoomId& id) const noexcept
     {
         return std::hash<std::string> {}(id.value);
     }

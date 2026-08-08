@@ -292,18 +292,25 @@ ScreenCapture::Frame ScreenCapture::grab_thumbnail(
     Window root = RootWindow(dpy.get(), scr);
 
     int src_x = 0, src_y = 0, src_w = 0, src_h = 0;
-    Window grab_win = root;
 
+    // Always read from the root window. A compositor redirects windows
+    // off-screen, so XGetImage on the window itself yields a blank/black image
+    // (or BadMatch) — the same reason start() captures the window's screen
+    // region from the root. Grabbing the region here keeps the preview matching
+    // what will actually be streamed.
     if (target.type == ScreenCaptureTarget::Window && !target.id.empty()) {
+        Window win { };
         try {
-            grab_win = static_cast<Window>(std::stoul(target.id));
+            win = static_cast<Window>(std::stoul(target.id));
         } catch (const std::exception& e) {
             LOG_WARNING() << "grab_thumbnail: invalid window id '" << target.id << "': " << e.what();
             return f;
         }
         XWindowAttributes attrs { };
-        if (!XGetWindowAttributes(dpy.get(), grab_win, &attrs)) {
-            LOG_WARNING() << "grab_thumbnail: XGetWindowAttributes failed for window " << target.id;
+        Window child { };
+        if (!XGetWindowAttributes(dpy.get(), win, &attrs)
+            || !XTranslateCoordinates(dpy.get(), win, root, 0, 0, &src_x, &src_y, &child)) {
+            LOG_WARNING() << "grab_thumbnail: could not resolve window " << target.id;
             return f;
         }
         src_w = attrs.width;
@@ -313,16 +320,16 @@ ScreenCapture::Frame ScreenCapture::grab_thumbnail(
         src_y = target.y;
         src_w = target.width;
         src_h = target.height;
-        // Monitor grabs read from the root window, so the rectangle must stay
-        // inside it or XGetImage fails with BadMatch.
-        clamp_to_root(dpy.get(), root, src_x, src_y, src_w, src_h);
     }
 
+    // Keep the rectangle inside the root window or XGetImage fails with
+    // BadMatch (partially off-screen monitor/window, negative coordinates).
+    clamp_to_root(dpy.get(), root, src_x, src_y, src_w, src_h);
     if (src_w <= 0 || src_h <= 0) {
         return f;
     }
 
-    XImagePtr img { XGetImage(dpy.get(), grab_win, src_x, src_y, static_cast<unsigned>(src_w),
+    XImagePtr img { XGetImage(dpy.get(), root, src_x, src_y, static_cast<unsigned>(src_w),
         static_cast<unsigned>(src_h), AllPlanes, ZPixmap) };
     if (!img) {
         return f;
