@@ -17,6 +17,54 @@ int64_t steady_now_ms()
         std::chrono::steady_clock::now().time_since_epoch())
         .count();
 }
+
+TransportConnectionState to_transport_state(rtc::PeerConnection::State state)
+{
+    switch (state) {
+    case rtc::PeerConnection::State::New:
+        return TransportConnectionState::New;
+    case rtc::PeerConnection::State::Connecting:
+        return TransportConnectionState::Connecting;
+    case rtc::PeerConnection::State::Connected:
+        return TransportConnectionState::Connected;
+    case rtc::PeerConnection::State::Disconnected:
+        return TransportConnectionState::Disconnected;
+    case rtc::PeerConnection::State::Failed:
+        return TransportConnectionState::Failed;
+    case rtc::PeerConnection::State::Closed:
+        return TransportConnectionState::Closed;
+    }
+    return TransportConnectionState::Closed;
+}
+
+const char* to_string(TransportConnectionState state)
+{
+    switch (state) {
+    case TransportConnectionState::New:
+        return "new";
+    case TransportConnectionState::Connecting:
+        return "connecting";
+    case TransportConnectionState::Connected:
+        return "connected";
+    case TransportConnectionState::Disconnected:
+        return "disconnected";
+    case TransportConnectionState::Failed:
+        return "failed";
+    case TransportConnectionState::Closed:
+        return "closed";
+    }
+    return "closed";
+}
+
+json stats_to_json(const TransportStats& stats)
+{
+    json out = json::object();
+    out["state"] = to_string(stats.state);
+    out["bytes_sent"] = stats.bytes_sent;
+    out["bytes_received"] = stats.bytes_received;
+    out["rtt_ms"] = stats.rtt_ms.value_or(-1);
+    return out;
+}
 } // namespace
 
 // Bridges the state machine's Actions interface onto the Transport, and owns
@@ -447,10 +495,15 @@ size_t Transport::channel_buffered_amount(channel::MediaChannel label) const
     }
 }
 
-std::string Transport::stats_json() const
+TransportStats Transport::stats() const
 {
     std::scoped_lock lk(stats_mutex_);
-    return stats_json_cache_;
+    return stats_cache_;
+}
+
+std::string Transport::stats_json() const
+{
+    return stats_to_json(stats()).dump();
 }
 
 void Transport::fsm_loop_()
@@ -504,39 +557,21 @@ void Transport::fsm_loop_()
             pc = pc_;
         }
 
-        json stats = json::object();
+        TransportStats stats;
         if (pc) {
-            switch (pc->state()) {
-            case rtc::PeerConnection::State::New:
-                stats["state"] = "new";
-                break;
-            case rtc::PeerConnection::State::Connecting:
-                stats["state"] = "connecting";
-                break;
-            case rtc::PeerConnection::State::Connected:
-                stats["state"] = "connected";
-                break;
-            case rtc::PeerConnection::State::Disconnected:
-                stats["state"] = "disconnected";
-                break;
-            case rtc::PeerConnection::State::Failed:
-                stats["state"] = "failed";
-                break;
-            case rtc::PeerConnection::State::Closed:
-                stats["state"] = "closed";
-                break;
-            }
-            stats["bytes_sent"] = pc->bytesSent();
-            stats["bytes_received"] = pc->bytesReceived();
+            stats.state = to_transport_state(pc->state());
+            stats.bytes_sent = pc->bytesSent();
+            stats.bytes_received = pc->bytesReceived();
             const auto rtt = pc->rtt();
-            stats["rtt_ms"] = rtt ? static_cast<int>(rtt->count()) : -1;
+            if (rtt) {
+                stats.rtt_ms = static_cast<int>(rtt->count());
+            }
         } else {
-            stats["state"] = "closed";
-            stats["rtt_ms"] = -1;
+            stats.state = TransportConnectionState::Closed;
         }
 
         std::scoped_lock lk(stats_mutex_);
-        stats_json_cache_ = stats.dump();
+        stats_cache_ = stats;
     }
 }
 

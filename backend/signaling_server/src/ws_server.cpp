@@ -5,7 +5,6 @@
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 #include <boost/beast/websocket.hpp>
-#include <deque>
 #include <iomanip>
 #include <cstdint>
 #include <cstdlib>
@@ -18,6 +17,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "bounded_queue.hpp"
 #include "channel_labels.hpp"
 #include "log.hpp"
 #include "protocol.hpp"
@@ -411,12 +411,15 @@ private:
         bool start_write = false;
         {
             std::scoped_lock lk(write_mutex_);
-            if (write_queue_.size() >= kMaxWriteQueueSize) {
+            const auto pushed = write_queue_.push_back(std::move(msg));
+            if (pushed == utils::QueuePushResult::DroppedFull) {
                 LOG_WARNING() << "write queue overflow for " << id_.value
                               << ", dropping message";
                 return;
             }
-            write_queue_.push_back(std::move(msg));
+            if (pushed == utils::QueuePushResult::Closed) {
+                return;
+            }
             start_write = (write_queue_.size() == 1);
         }
         if (start_write) {
@@ -515,6 +518,8 @@ private:
         if (ec) {
             LOG_ERROR() << "write error [" << id_.value << "]: "
                         << ec.message();
+            std::scoped_lock lk(write_mutex_);
+            write_queue_.close();
             return;
         }
         bool have_more = false;
@@ -618,6 +623,10 @@ private:
     void on_close()
     {
         close_peer_connection();
+        {
+            std::scoped_lock lk(write_mutex_);
+            write_queue_.close();
+        }
         server_->unregister_session(id_, room_id_);
         LOG_INFO() << "session " << id_.value << " disconnected (room="
                    << room_id_.value << ")";
@@ -630,7 +639,7 @@ private:
     driscord::Username username_;
     std::shared_ptr<WebSocketServer> server_;
     std::mutex write_mutex_;
-    std::deque<OutboundMessage> write_queue_;
+    utils::BoundedQueue<OutboundMessage> write_queue_ { kMaxWriteQueueSize };
 
     // Guards pc_ and channels_, both touched from libdatachannel's threads
     // and from other sessions' fan-out.

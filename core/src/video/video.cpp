@@ -241,7 +241,7 @@ void VideoReceiver::push_video_packet(
         .width = w,
         .height = h,
         .peer_id = peer_id_,
-        .sender_ts_us = vh.sender_ts_us,
+        .sender_ts_us = vh->sender_ts_us,
     };
     if (buffer_.push(frame_id, std::move(frame)) != utils::PushResult::Stored) {
         drop_count_.inc();

@@ -14,6 +14,7 @@ extern "C" {
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 
@@ -84,6 +85,62 @@ struct XFreeDeleter {
 template <typename T>
 using XFreePtr = std::unique_ptr<T, XFreeDeleter>;
 
+// Xlib's default error handler calls exit() on any protocol error. A single
+// BadMatch from a screen grab — e.g. a capture rectangle that extends past the
+// root window, or a window that stops being viewable mid-stream — would then
+// tear the whole app down. Swallow protocol errors instead: the offending call
+// returns null/blank and the capture loop recovers on its own.
+extern "C" inline int x_nonfatal_error_handler(Display* dpy, XErrorEvent* e)
+{
+    char buf[128] = { 0 };
+    if (dpy) {
+        XGetErrorText(dpy, e->error_code, buf, sizeof(buf));
+    }
+    LOG_WARNING() << "X11 protocol error (ignored): " << buf
+                  << " request=" << static_cast<int>(e->request_code)
+                  << " minor=" << static_cast<int>(e->minor_code);
+    return 0;
+}
+
+inline void install_x_error_handler_once()
+{
+    static std::once_flag once;
+    std::call_once(once, [] { XSetErrorHandler(x_nonfatal_error_handler); });
+}
+
+// Clamp a capture rectangle to the root window so XGetImage is never asked for
+// a region that leaves the drawable — the classic source of X_GetImage
+// BadMatch. Width/height are kept even, which the encoder and swscale expect.
+inline void clamp_to_root(Display* dpy, Window root, int& x, int& y, int& w, int& h)
+{
+    XWindowAttributes ra { };
+    if (!XGetWindowAttributes(dpy, root, &ra)) {
+        return;
+    }
+    if (x < 0) {
+        w += x;
+        x = 0;
+    }
+    if (y < 0) {
+        h += y;
+        y = 0;
+    }
+    if (x + w > ra.width) {
+        w = ra.width - x;
+    }
+    if (y + h > ra.height) {
+        h = ra.height - y;
+    }
+    if (w < 0) {
+        w = 0;
+    }
+    if (h < 0) {
+        h = 0;
+    }
+    w &= ~1;
+    h &= ~1;
+}
+
 } // namespace
 
 // --- target enumeration -----------------------------------------------------
@@ -116,6 +173,8 @@ static std::string x11_window_name(Display* dpy, Window win)
 
 std::vector<ScreenCaptureTarget> ScreenCapture::list_targets()
 {
+    install_x_error_handler_once();
+
     std::vector<ScreenCaptureTarget> targets;
 
     DisplayPtr dpy { XOpenDisplay(nullptr) };
@@ -221,6 +280,8 @@ ScreenCapture::Frame ScreenCapture::grab_thumbnail(
     int max_w,
     int max_h)
 {
+    install_x_error_handler_once();
+
     Frame f;
     DisplayPtr dpy { XOpenDisplay(nullptr) };
     if (!dpy) {
@@ -252,6 +313,9 @@ ScreenCapture::Frame ScreenCapture::grab_thumbnail(
         src_y = target.y;
         src_w = target.width;
         src_h = target.height;
+        // Monitor grabs read from the root window, so the rectangle must stay
+        // inside it or XGetImage fails with BadMatch.
+        clamp_to_root(dpy.get(), root, src_x, src_y, src_w, src_h);
     }
 
     if (src_w <= 0 || src_h <= 0) {
@@ -307,6 +371,8 @@ public:
             return false;
         }
 
+        install_x_error_handler_once();
+
         callback_ = std::move(cb);
         max_w_ = max_w;
         max_h_ = max_h;
@@ -329,6 +395,12 @@ public:
         std::string display = display_env ? display_env : ":0";
         std::string url;
 
+        // One connection for the whole region resolution below: it queries the
+        // window geometry and clamps the capture rectangle to the root, so the
+        // rectangle handed to x11grab always sits inside the drawable.
+        DisplayPtr xdpy { XOpenDisplay(nullptr) };
+        Window xroot = xdpy ? DefaultRootWindow(xdpy.get()) : 0;
+
         if (target.type == ScreenCaptureTarget::Window && !target.id.empty()) {
             // Compositors redirect windows off-screen so window_id capture via XGetImage
             // fails with BadMatch. Instead, resolve the window's absolute screen position
@@ -338,7 +410,7 @@ public:
             int cap_w = target.width, cap_h = target.height;
             bool got_abs = false;
 
-            if (DisplayPtr dpy { XOpenDisplay(nullptr) }) {
+            if (xdpy) {
                 Window win { };
                 try {
                     win = static_cast<Window>(std::stoul(target.id));
@@ -349,7 +421,7 @@ public:
                 if (win) {
                     Window child { };
                     XWindowAttributes attrs { };
-                    if (XGetWindowAttributes(dpy.get(), win, &attrs) && XTranslateCoordinates(dpy.get(), win, DefaultRootWindow(dpy.get()), 0, 0, &abs_x, &abs_y, &child)) {
+                    if (XGetWindowAttributes(xdpy.get(), win, &attrs) && XTranslateCoordinates(xdpy.get(), win, xroot, 0, 0, &abs_x, &abs_y, &child)) {
                         cap_w = attrs.width;
                         cap_h = attrs.height;
                         got_abs = true;
@@ -362,6 +434,16 @@ public:
             }
 
             if (got_abs) {
+                // A window near a screen edge (or with negative coords) yields a
+                // region that spills past the root; clamp it before x11grab grabs.
+                if (xroot) {
+                    clamp_to_root(xdpy.get(), xroot, abs_x, abs_y, cap_w, cap_h);
+                }
+                if (cap_w <= 0 || cap_h <= 0) {
+                    LOG_ERROR() << "window capture: window is off-screen, nothing to grab";
+                    av_dict_free(&opts);
+                    return false;
+                }
                 LOG_INFO() << "window capture: using root region at "
                            << abs_x << "," << abs_y << " " << cap_w << "x" << cap_h;
                 url = display + "+" + std::to_string(abs_x) + "," + std::to_string(abs_y);
@@ -374,8 +456,19 @@ public:
             std::string vsize = std::to_string(cap_w) + "x" + std::to_string(cap_h);
             av_dict_set(&opts, "video_size", vsize.c_str(), 0);
         } else {
-            url = display + "+" + std::to_string(target.x) + "," + std::to_string(target.y);
-            std::string vsize = std::to_string(target.width) + "x" + std::to_string(target.height);
+            int mx = target.x, my = target.y, mw = target.width, mh = target.height;
+            if (xdpy && xroot) {
+                clamp_to_root(xdpy.get(), xroot, mx, my, mw, mh);
+            }
+            if (mw <= 0 || mh <= 0) {
+                LOG_ERROR() << "monitor capture: empty region after clamping ("
+                            << target.width << "x" << target.height << " at "
+                            << target.x << "," << target.y << ")";
+                av_dict_free(&opts);
+                return false;
+            }
+            url = display + "+" + std::to_string(mx) + "," + std::to_string(my);
+            std::string vsize = std::to_string(mw) + "x" + std::to_string(mh);
             av_dict_set(&opts, "video_size", vsize.c_str(), 0);
         }
 
@@ -400,6 +493,11 @@ public:
             return false;
         }
         fmt_ctx_.reset(fmt_raw);
+
+        // x11grab's SHM probe resets the X error handler to Xlib's fatal
+        // default during read_header; re-assert ours so a mid-stream grab
+        // error can't abort the process.
+        XSetErrorHandler(x_nonfatal_error_handler);
 
         if (avformat_find_stream_info(fmt_ctx_.get(), nullptr) < 0) {
             LOG_ERROR() << "avformat_find_stream_info failed";

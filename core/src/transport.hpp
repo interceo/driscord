@@ -26,6 +26,22 @@ enum class TransportError {
     WebSocketCreateFailed,
 };
 
+enum class TransportConnectionState {
+    New,
+    Connecting,
+    Connected,
+    Disconnected,
+    Failed,
+    Closed,
+};
+
+struct TransportStats {
+    TransportConnectionState state = TransportConnectionState::Closed;
+    uint64_t bytes_sent = 0;
+    uint64_t bytes_received = 0;
+    std::optional<int> rtt_ms;
+};
+
 // Owns the client's two links to the signaling server:
 //   - a WebSocket carrying JSON signaling (room roster, identity, stream
 //     lifecycle) and the SDP/ICE exchange;
@@ -151,6 +167,7 @@ public:
     size_t channel_buffered_amount(channel::MediaChannel label) const;
 
     // Stats for the connection to the server: bytes sent/received, RTT, state.
+    TransportStats stats() const;
     std::string stats_json() const;
 
     struct PeerInfo {
@@ -256,5 +273,5 @@ private:
     std::mutex fsm_run_mutex_;
 
     mutable std::mutex stats_mutex_;
-    std::string stats_json_cache_ { "{}" };
+    TransportStats stats_cache_;
 };

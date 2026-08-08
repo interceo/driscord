@@ -54,6 +54,7 @@ add_core_test(test_protocol)
 add_unit_test(test_spinlock)
 add_unit_test(test_vector_view)
 add_unit_test(test_expected)
+add_unit_test(test_bounded_queue)
 
 # --- Connection lifecycle state machines ---
 # Both tables are deliberately free of libdatachannel/Beast, so they run as
