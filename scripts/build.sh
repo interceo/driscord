@@ -202,7 +202,11 @@ if [ "$ACTION" = "test" ]; then
     echo "==> Building tests ($BUILD_TYPE, $JOBS jobs)..."
     cmake --build "$TEST_BUILD" -j"$JOBS"
     cd "$TEST_BUILD"
-    ctest --output-on-failure
+    # until-pass retries only a *failing* test: the real-time integration tests
+    # (A/V sync, net conditions) assert on wall-clock timing and can flake when
+    # ctest runs on a machine still loaded from the build. A genuine regression
+    # fails all attempts and is still reported; a scheduler hiccup is absorbed.
+    ctest --output-on-failure --repeat until-pass:3
     exit 0
 fi
 

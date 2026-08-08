@@ -1,12 +1,14 @@
 #include "transport.hpp"
 
 #include "log.hpp"
+#include "match.hpp"
 #include "protocol.hpp"
 #include "signaling_protocol.hpp"
 #include "transport_fsm_table.hpp"
 
 #include <cstring>
 #include <type_traits>
+#include <variant>
 
 using json = nlohmann::json;
 
@@ -622,6 +624,12 @@ void Transport::set_peer_identity_(
 
 void Transport::on_ws_message(const std::string& raw)
 {
+    // Compile-time tripwire: if signaling::Message gains an alternative, this
+    // fires so someone adds a handler below instead of letting the new type
+    // fall through to the catch-all's runtime invariant unnoticed.
+    static_assert(std::variant_size_v<signaling::Message> == 10,
+        "signaling::Message changed — add/adjust a handler in on_ws_message");
+
     auto parsed = signaling::parse(raw);
     if (!parsed) {
         LOG_ERROR() << "on_ws_message: "
@@ -629,17 +637,16 @@ void Transport::on_ws_message(const std::string& raw)
         return;
     }
 
-    std::visit([this](auto&& message) {
-        using T = std::decay_t<decltype(message)>;
-
-        if constexpr (std::is_same_v<T, signaling::Welcome>) {
+    utils::Match(
+        parsed.value(),
+        [this](const signaling::Welcome& m) {
             {
                 std::scoped_lock lk(ws_mutex_);
-                local_id_ = message.id;
+                local_id_ = m.id;
             }
-            LOG_INFO() << "assigned id: " << message.id.value;
+            LOG_INFO() << "assigned id: " << m.id.value;
 
-            for (const auto& peer : message.peers) {
+            for (const auto& peer : m.peers) {
                 set_peer_identity_(peer.id, peer.username);
                 {
                     std::scoped_lock lk(peers_mutex_);
@@ -650,62 +657,75 @@ void Transport::on_ws_message(const std::string& raw)
                 }
             }
 
-            for (const auto& id : message.streaming_peers) {
+            for (const auto& id : m.streaming_peers) {
                 if (on_streaming_started_) {
                     on_streaming_started_(id.value);
                 }
             }
-        } else if constexpr (std::is_same_v<T, signaling::PeerJoined>) {
-            LOG_INFO() << "peer joined: " << message.id.value;
-            set_peer_identity_(message.id, message.username);
+        },
+        [this](const signaling::PeerJoined& m) {
+            LOG_INFO() << "peer joined: " << m.id.value;
+            set_peer_identity_(m.id, m.username);
             {
                 std::scoped_lock lk(peers_mutex_);
-                peers_.insert(message.id);
+                peers_.insert(m.id);
             }
             if (on_peer_joined_) {
-                on_peer_joined_(message.id.value);
+                on_peer_joined_(m.id.value);
             }
-        } else if constexpr (std::is_same_v<T, signaling::PeerLeft>) {
-            LOG_INFO() << "peer left: " << message.id.value;
+        },
+        [this](const signaling::PeerLeft& m) {
+            LOG_INFO() << "peer left: " << m.id.value;
             {
                 std::scoped_lock lk(peers_mutex_);
-                peers_.erase(message.id);
+                peers_.erase(m.id);
             }
             {
                 std::scoped_lock lk(identity_mutex_);
-                peer_usernames_.erase(message.id);
+                peer_usernames_.erase(m.id);
             }
             if (on_peer_left_) {
-                on_peer_left_(message.id.value);
+                on_peer_left_(m.id.value);
             }
-        } else if constexpr (std::is_same_v<T, signaling::Answer>) {
+        },
+        [this](const signaling::Answer& m) {
             // Through the machine: whether an answer is meaningful depends on
             // the phase we are in, and it alone knows that.
-            post_event(transport_fsm::AnswerReceived { message.sdp });
-        } else if constexpr (std::is_same_v<T, signaling::Candidate>) {
-            post_event(transport_fsm::RemoteCandidate {
-                message.candidate, message.sdp_mid });
-        } else if constexpr (std::is_same_v<T, signaling::StreamingStart>) {
-            if (message.from && on_streaming_started_) {
-                on_streaming_started_(message.from->value);
+            post_event(transport_fsm::AnswerReceived { m.sdp });
+        },
+        [this](const signaling::Candidate& m) {
+            post_event(transport_fsm::RemoteCandidate { m.candidate, m.sdp_mid });
+        },
+        [this](const signaling::StreamingStart& m) {
+            if (m.from && on_streaming_started_) {
+                on_streaming_started_(m.from->value);
             }
-        } else if constexpr (std::is_same_v<T, signaling::StreamingStop>) {
-            if (message.from && on_streaming_stopped_) {
-                on_streaming_stopped_(message.from->value);
+        },
+        [this](const signaling::StreamingStop& m) {
+            if (m.from && on_streaming_stopped_) {
+                on_streaming_stopped_(m.from->value);
             }
-        } else if constexpr (std::is_same_v<T, signaling::WatchStart>) {
-            if (message.from && on_watch_started_) {
-                on_watch_started_(message.from->value);
+        },
+        [this](const signaling::WatchStart& m) {
+            if (m.from && on_watch_started_) {
+                on_watch_started_(m.from->value);
             }
-        } else if constexpr (std::is_same_v<T, signaling::WatchStop>) {
-            if (message.from && on_watch_stopped_) {
-                on_watch_stopped_(message.from->value);
+        },
+        [this](const signaling::WatchStop& m) {
+            if (m.from && on_watch_stopped_) {
+                on_watch_stopped_(m.from->value);
             }
-        } else if constexpr (std::is_same_v<T, signaling::Offer>) {
+        },
+        [](const signaling::Offer&) {
             LOG_WARNING() << "ignoring offer from signaling server";
-        }
-    },
-        parsed.value());
+        },
+        [](const auto&) {
+            // Unreachable while every alternative above is handled (the
+            // static_assert guards that). A loud invariant rather than a silent
+            // drop if a future edit ever removes a handler.
+            assert(false && "unhandled signaling message type");
+            LOG_ERROR() << "on_ws_message: unhandled signaling message type";
+        });
 }
 
 void Transport::send_streaming_start()

@@ -1,22 +1,5 @@
 #pragma once
 
-// Connection lifecycle for the client's single media link to the server.
-//
-// Deliberately free of libdatachannel: everything the machine does to the
-// outside world goes through the Actions interface below, so the whole table
-// can be exercised in a unit test without a network or a PeerConnection.
-//
-// The transition table itself lives in transport_fsm_table.hpp, which is the
-// only place <boost/sml.hpp> is pulled in — this header stays light enough to
-// be included from transport.hpp.
-//
-// Threading: this machine is NOT thread-safe and is not meant to be. Transport
-// serialises every event onto one thread (see Transport::fsm_loop_), which is
-// why no sml::thread_safe policy is used — that policy guards the machine's own
-// state but not the order in which its lock is taken relative to pc_mutex_,
-// and an action that blocks in PeerConnection::close() while an RTC worker
-// waits for the same lock would deadlock.
-
 #include <algorithm>
 #include <cstdint>
 #include <string>
