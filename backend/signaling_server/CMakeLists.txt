@@ -23,6 +23,7 @@ target_include_directories(driscord_signaling PUBLIC
 )
 
 target_link_libraries(driscord_signaling PUBLIC
+    driscord_protocol
     Boost::boost
     OpenSSL::SSL
     OpenSSL::Crypto

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "channel_labels.hpp"
+
 #include <atomic>
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
@@ -53,7 +55,7 @@ public:
     // No codec-level decode happens here — the server only routes.
     void route_media(const std::string& from_id,
         const std::string& room_id,
-        const std::string& label,
+        channel::MediaChannel label,
         const uint8_t* data,
         size_t len);
 

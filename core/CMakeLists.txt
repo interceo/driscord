@@ -165,6 +165,7 @@ target_link_libraries(driscord_core PRIVATE
 #   config.hpp       → fmt/compile.h, fmt/format.h
 #   transport.hpp    → rtc/rtc.hpp, nlohmann/json.hpp
 target_link_libraries(driscord_core PUBLIC
+    driscord_protocol
     datachannel-static
     fmt::fmt
     nlohmann_json::nlohmann_json

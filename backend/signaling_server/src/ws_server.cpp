@@ -9,18 +9,20 @@
 #include <iomanip>
 #include <cstdint>
 #include <cstdlib>
-#include <cstring>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <random>
 #include <sstream>
 #include <string_view>
+#include <type_traits>
 #include <unordered_map>
 #include <vector>
 
 #include "channel_labels.hpp"
 #include "log.hpp"
+#include "protocol.hpp"
 #include "session_fsm_table.hpp"
+#include "signaling_protocol.hpp"
 
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -123,33 +125,6 @@ std::string parse_query_param(std::string_view target, std::string_view key)
 constexpr size_t kMaxMessageSize = 256 * 1024;
 constexpr size_t kMaxWriteQueueSize = 128;
 
-// Server → client media framing: u8 sender-id length, the sender id, then the
-// untouched payload. The DataChannel label already says what kind of media it
-// is, so no kind byte is needed on the wire.
-constexpr size_t kSenderPrefixSize = 1;
-
-std::string build_media_packet(const std::string& from_id,
-    const uint8_t* payload,
-    size_t payload_len)
-{
-    const auto from_len = static_cast<uint8_t>(
-        std::min<size_t>(from_id.size(), 255));
-    std::string out;
-    out.resize(kSenderPrefixSize + from_len + payload_len);
-    auto* dst = reinterpret_cast<uint8_t*>(out.data());
-    dst[0] = from_len;
-    std::memcpy(dst + kSenderPrefixSize, from_id.data(), from_len);
-    std::memcpy(dst + kSenderPrefixSize + from_len, payload, payload_len);
-    return out;
-}
-
-// Screen video and its system audio only go to peers that asked to watch;
-// voice and control reach everyone in the room.
-bool is_watcher_gated(const std::string& label)
-{
-    return label == channel::kVideo || label == channel::kScreenAudio;
-}
-
 } // namespace
 
 namespace driscord {
@@ -227,7 +202,7 @@ public:
     // Sends an already-framed media packet on this session's DataChannel with
     // the given label. Called from other sessions' DataChannel threads during
     // fan-out; a closed or not-yet-open channel is silently skipped.
-    void send_media(const std::string& label, const std::string& payload)
+    void send_media(channel::MediaChannel label, const std::string& payload)
     {
         std::shared_ptr<rtc::DataChannel> dc;
         {
@@ -244,7 +219,8 @@ public:
             dc->send(reinterpret_cast<const std::byte*>(payload.data()),
                 payload.size());
         } catch (const std::exception& e) {
-            LOG_ERROR() << "send_media[" << label << "][" << id_
+            LOG_ERROR() << "send_media[" << channel::to_label(label) << "]["
+                        << id_
                         << "]: " << e.what();
         }
     }
@@ -252,7 +228,9 @@ public:
     void close_peer_connection()
     {
         std::shared_ptr<rtc::PeerConnection> pc;
-        std::unordered_map<std::string, std::shared_ptr<rtc::DataChannel>> chans;
+        std::unordered_map<channel::MediaChannel,
+            std::shared_ptr<rtc::DataChannel>>
+            chans;
         {
             std::scoped_lock lk(pc_mutex_);
             pc = std::move(pc_);
@@ -311,10 +289,14 @@ private:
             if (!self) {
                 return;
             }
-            nlohmann::json m;
-            m["type"] = desc.typeString();
-            m["sdp"] = std::string(desc);
-            self->send(std::make_shared<std::string>(m.dump()));
+            const auto type = desc.typeString();
+            if (type == "answer") {
+                self->send(std::make_shared<std::string>(
+                    signaling::dump(signaling::Answer { std::string(desc) })));
+            } else if (type == "offer") {
+                self->send(std::make_shared<std::string>(
+                    signaling::dump(signaling::Offer { std::string(desc) })));
+            }
         });
 
         pc->onLocalCandidate([weak](rtc::Candidate cand) {
@@ -322,11 +304,9 @@ private:
             if (!self) {
                 return;
             }
-            nlohmann::json m;
-            m["type"] = "candidate";
-            m["candidate"] = std::string(cand);
-            m["sdpMid"] = cand.mid();
-            self->send(std::make_shared<std::string>(m.dump()));
+            self->send(std::make_shared<std::string>(
+                signaling::dump(signaling::Candidate { std::string(cand),
+                    cand.mid() })));
         });
 
         pc->onDataChannel([weak](std::shared_ptr<rtc::DataChannel> dc) {
@@ -383,8 +363,18 @@ private:
 
     void setup_channel(std::shared_ptr<rtc::DataChannel> dc)
     {
-        const std::string label = dc->label();
-        LOG_INFO() << "session " << id_ << " opened channel '" << label << "'";
+        const auto parsed_label = channel::parse_label(dc->label());
+        if (!parsed_label) {
+            LOG_WARNING() << "session " << id_ << " rejected unknown channel '"
+                          << dc->label() << "'";
+            dc->close();
+            return;
+        }
+
+        const auto label = *parsed_label;
+        const auto label_text = channel::to_label(label);
+        LOG_INFO() << "session " << id_ << " opened channel '" << label_text
+                   << "'";
         {
             std::scoped_lock lk(pc_mutex_);
             channels_[label] = dc;
@@ -405,8 +395,9 @@ private:
                 reinterpret_cast<const uint8_t*>(bin->data()), bin->size());
         });
 
-        dc->onError([label, id = id_](std::string error) {
-            LOG_ERROR() << "dc '" << label << "' error [" << id << "]: " << error;
+        dc->onError([label_text, id = id_](std::string error) {
+            LOG_ERROR() << "dc '" << label_text << "' error [" << id
+                        << "]: " << error;
         });
     }
 
@@ -574,48 +565,48 @@ private:
         const size_t raw_len = buffer_.data().size();
         std::string_view raw { reinterpret_cast<const char*>(raw_data), raw_len };
 
-        try {
-            auto msg = json::parse(raw);
-            msg["from"] = id_;
+        auto parsed = signaling::parse(raw);
+        if (!parsed) {
+            LOG_ERROR() << "signaling parse error [" << id_ << "]: "
+                        << signaling::to_string(parsed.error());
+            buffer_.consume(buffer_.size());
+            do_read();
+            return;
+        }
 
-            std::string type = msg.value("type", "");
+        std::visit([this](auto&& message) {
+            using T = std::decay_t<decltype(message)>;
 
             // SDP/ICE are addressed to the server itself — it terminates the
             // PeerConnection, so these are consumed here and never forwarded
             // to other clients.
-            if (type == "offer") {
-                post_fsm(session_fsm::OfferReceived { msg.value("sdp", "") });
-                buffer_.consume(buffer_.size());
-                do_read();
-                return;
-            }
-            if (type == "candidate") {
+            if constexpr (std::is_same_v<T, signaling::Offer>) {
+                post_fsm(session_fsm::OfferReceived { message.sdp });
+            } else if constexpr (std::is_same_v<T, signaling::Candidate>) {
                 post_fsm(session_fsm::RemoteCandidate {
-                    msg.value("candidate", ""), msg.value("sdpMid", "") });
-                buffer_.consume(buffer_.size());
-                do_read();
-                return;
-            }
-
-            if (type == "streaming_start") {
+                    message.candidate, message.sdp_mid });
+            } else if constexpr (std::is_same_v<T, signaling::StreamingStart>) {
                 server_->add_streaming_peer(id_, room_id_);
-            } else if (type == "streaming_stop") {
+                server_->broadcast(id_, room_id_,
+                    signaling::dump(signaling::StreamingStart { id_ }));
+            } else if constexpr (std::is_same_v<T, signaling::StreamingStop>) {
                 server_->remove_streaming_peer(id_, room_id_);
-            } else if (type == "watch_start") {
+                server_->broadcast(id_, room_id_,
+                    signaling::dump(signaling::StreamingStop { id_ }));
+            } else if constexpr (std::is_same_v<T, signaling::WatchStart>) {
                 server_->add_video_watcher(id_, room_id_);
-            } else if (type == "watch_stop") {
+                server_->broadcast(id_, room_id_,
+                    signaling::dump(signaling::WatchStart { id_ }));
+            } else if constexpr (std::is_same_v<T, signaling::WatchStop>) {
                 server_->remove_video_watcher(id_, room_id_);
-            }
-
-            if (msg.contains("to")) {
-                std::string to = msg["to"];
-                server_->send_to(to, room_id_, msg.dump());
+                server_->broadcast(id_, room_id_,
+                    signaling::dump(signaling::WatchStop { id_ }));
             } else {
-                server_->broadcast(id_, room_id_, msg.dump());
+                LOG_WARNING() << "unexpected client signaling message ["
+                              << id_ << "]";
             }
-        } catch (const json::exception& e) {
-            LOG_ERROR() << "json parse error [" << id_ << "]: " << e.what();
-        }
+        },
+            parsed.value());
 
         buffer_.consume(buffer_.size());
         do_read();
@@ -641,7 +632,8 @@ private:
     // and from other sessions' fan-out.
     std::mutex pc_mutex_;
     std::shared_ptr<rtc::PeerConnection> pc_;
-    std::unordered_map<std::string, std::shared_ptr<rtc::DataChannel>> channels_;
+    std::unordered_map<channel::MediaChannel, std::shared_ptr<rtc::DataChannel>>
+        channels_;
 
     // Only ever touched on this session's strand — see post_fsm().
     FsmActions fsm_actions_;
@@ -739,37 +731,29 @@ std::string WebSocketServer::register_and_build_welcome(const std::string& id,
 
         auto& room = rooms_[room_id];
 
-        json welcome;
-        welcome["type"] = "welcome";
-        welcome["id"] = id;
-        json peers = json::array();
+        signaling::Welcome welcome;
+        welcome.id = id;
         existing.reserve(room.sessions.size());
         for (auto& [pid, session] : room.sessions) {
-            peers.push_back({
-                { "id", pid },
-                { "username", session ? session->username() : "" },
+            welcome.peers.push_back({
+                pid,
+                session ? session->username() : "",
             });
             existing.push_back(session);
         }
-        welcome["peers"] = std::move(peers);
 
-        json streaming = json::array();
         for (auto& sid : room.streaming_peers) {
-            streaming.push_back(sid);
+            welcome.streaming_peers.push_back(sid);
         }
-        welcome["streaming_peers"] = std::move(streaming);
 
-        welcome_payload = welcome.dump();
+        welcome_payload = signaling::dump(welcome);
         new_username = s ? s->username() : "";
 
         room.sessions.emplace(id, std::move(s));
     }
 
-    json joined;
-    joined["type"] = "peer_joined";
-    joined["id"] = id;
-    joined["username"] = new_username;
-    auto joined_msg = std::make_shared<std::string>(joined.dump());
+    auto joined_msg = std::make_shared<std::string>(
+        signaling::dump(signaling::PeerJoined { id, new_username }));
     for (auto& session : existing) {
         session->send(joined_msg);
     }
@@ -836,10 +820,8 @@ void WebSocketServer::unregister_session(const std::string& id,
         }
     }
 
-    json left;
-    left["type"] = "peer_left";
-    left["id"] = id;
-    auto msg = std::make_shared<std::string>(left.dump());
+    auto msg = std::make_shared<std::string>(
+        signaling::dump(signaling::PeerLeft { id }));
     for (auto& session : remaining) {
         session->send(msg);
     }
@@ -893,7 +875,7 @@ void WebSocketServer::send_to(const std::string& target_id,
 
 void WebSocketServer::route_media(const std::string& from_id,
     const std::string& room_id,
-    const std::string& label,
+    channel::MediaChannel label,
     const uint8_t* data,
     size_t len)
 {
@@ -901,7 +883,17 @@ void WebSocketServer::route_media(const std::string& from_id,
         return;
     }
 
-    const std::string packet = build_media_packet(from_id, data, len);
+    auto encoded = protocol::encode_relayed_media(from_id, data, len);
+    if (!encoded) {
+        LOG_WARNING() << "failed to frame media packet from " << from_id;
+        std::scoped_lock lk(rooms_mutex_);
+        auto rit = rooms_.find(room_id);
+        if (rit != rooms_.end()) {
+            rit->second.media_packets_dropped++;
+        }
+        return;
+    }
+    const std::string& packet = encoded.value();
 
     std::vector<std::shared_ptr<Session>> targets;
     {
@@ -914,7 +906,7 @@ void WebSocketServer::route_media(const std::string& from_id,
         room.media_packets_in++;
         room.media_bytes_in += len;
 
-        if (is_watcher_gated(label)) {
+        if (channel::is_watcher_gated(label)) {
             targets.reserve(room.video_watchers.size());
             for (auto& pid : room.video_watchers) {
                 if (pid == from_id) {

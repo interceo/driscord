@@ -2,8 +2,12 @@
 
 #include "utils/enum_strings.hpp"
 #include "utils/protocol.hpp"
+#include "utils/signaling_protocol.hpp"
+#include "channel_labels.hpp"
 
 #include <cstring>
+#include <string>
+#include <variant>
 
 using namespace std::chrono_literals;
 
@@ -227,4 +231,133 @@ TEST(Protocol, AdjacentHeaders)
     EXPECT_EQ(ah2.seq, 77u);
     EXPECT_EQ(ah2.sender_ts_us, 555);
     EXPECT_EQ(fh2.frame_id, 99u);
+}
+
+// ---- Signaling JSON ----
+
+TEST(SignalingProtocol, WelcomeRoundtrip)
+{
+    signaling::Welcome src;
+    src.id = "self";
+    src.peers.push_back({ "peer-1", "alice" });
+    src.streaming_peers.push_back("peer-2");
+
+    const auto parsed = signaling::parse(signaling::dump(src));
+    ASSERT_TRUE(parsed);
+
+    const auto* dst = std::get_if<signaling::Welcome>(&parsed.value());
+    ASSERT_NE(dst, nullptr);
+    EXPECT_EQ(dst->id, "self");
+    ASSERT_EQ(dst->peers.size(), 1u);
+    EXPECT_EQ(dst->peers[0].id, "peer-1");
+    EXPECT_EQ(dst->peers[0].username, "alice");
+    ASSERT_EQ(dst->streaming_peers.size(), 1u);
+    EXPECT_EQ(dst->streaming_peers[0], "peer-2");
+}
+
+TEST(SignalingProtocol, CandidateRoundtrip)
+{
+    const auto parsed = signaling::parse(signaling::dump(
+        signaling::Candidate { "candidate:1", "0" }));
+    ASSERT_TRUE(parsed);
+
+    const auto* candidate = std::get_if<signaling::Candidate>(&parsed.value());
+    ASSERT_NE(candidate, nullptr);
+    EXPECT_EQ(candidate->candidate, "candidate:1");
+    EXPECT_EQ(candidate->sdp_mid, "0");
+}
+
+TEST(SignalingProtocol, ControlMessageCanCarrySender)
+{
+    const auto parsed = signaling::parse(signaling::dump(
+        signaling::StreamingStart { std::string("peer-1") }));
+    ASSERT_TRUE(parsed);
+
+    const auto* start = std::get_if<signaling::StreamingStart>(&parsed.value());
+    ASSERT_NE(start, nullptr);
+    ASSERT_TRUE(start->from);
+    EXPECT_EQ(*start->from, "peer-1");
+}
+
+TEST(SignalingProtocol, RejectsUnknownMessageType)
+{
+    const auto parsed = signaling::parse(R"({"type":"bogus"})");
+    ASSERT_FALSE(parsed);
+    EXPECT_EQ(parsed.error(), signaling::ParseError::UnknownType);
+}
+
+TEST(SignalingProtocol, RejectsMissingRequiredPayload)
+{
+    const auto parsed = signaling::parse(R"({"type":"candidate","candidate":"x"})");
+    ASSERT_FALSE(parsed);
+    EXPECT_EQ(parsed.error(), signaling::ParseError::MissingField);
+}
+
+// ---- Relayed media framing ----
+
+TEST(RelayedMedia, Roundtrip)
+{
+    const uint8_t payload[] = { 1, 2, 3, 4 };
+    auto encoded = protocol::encode_relayed_media("peer-1", payload,
+        sizeof(payload));
+    ASSERT_TRUE(encoded);
+
+    auto decoded = protocol::decode_relayed_media(
+        reinterpret_cast<const uint8_t*>(encoded->data()), encoded->size());
+    ASSERT_TRUE(decoded);
+
+    EXPECT_EQ(decoded->sender_id, "peer-1");
+    ASSERT_EQ(decoded->payload_len, sizeof(payload));
+    EXPECT_EQ(std::memcmp(decoded->payload, payload, sizeof(payload)), 0);
+}
+
+TEST(RelayedMedia, RejectsOverlongSender)
+{
+    const uint8_t payload[] = { 1 };
+    const std::string sender(protocol::kMaxRelayedMediaSenderLen + 1, 'x');
+
+    auto encoded = protocol::encode_relayed_media(sender, payload,
+        sizeof(payload));
+
+    ASSERT_FALSE(encoded);
+    EXPECT_EQ(encoded.error(), protocol::RelayedMediaError::SenderTooLong);
+}
+
+TEST(RelayedMedia, RejectsTruncatedPacket)
+{
+    const uint8_t packet[] = { 4, 'p', 'e' };
+
+    auto decoded = protocol::decode_relayed_media(packet, sizeof(packet));
+
+    ASSERT_FALSE(decoded);
+    EXPECT_EQ(decoded.error(), protocol::RelayedMediaError::Truncated);
+}
+
+// ---- Media channel labels ----
+
+TEST(MediaChannel, LabelRoundtrip)
+{
+    for (auto channel : {
+             channel::MediaChannel::Audio,
+             channel::MediaChannel::Video,
+             channel::MediaChannel::ScreenAudio,
+             channel::MediaChannel::Control,
+         }) {
+        auto parsed = channel::parse_label(channel::to_label(channel));
+        ASSERT_TRUE(parsed);
+        EXPECT_EQ(*parsed, channel);
+    }
+}
+
+TEST(MediaChannel, RejectsUnknownLabel)
+{
+    EXPECT_FALSE(channel::parse_label("unknown"));
+}
+
+TEST(MediaChannel, WatcherGatingIsExplicit)
+{
+    EXPECT_FALSE(channel::is_watcher_gated(channel::MediaChannel::Audio));
+    EXPECT_TRUE(channel::is_watcher_gated(channel::MediaChannel::Video));
+    EXPECT_TRUE(channel::is_watcher_gated(channel::MediaChannel::ScreenAudio));
+    EXPECT_FALSE(channel::is_watcher_gated(channel::MediaChannel::Control));
 }

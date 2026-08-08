@@ -10,7 +10,7 @@ AudioTransport::AudioTransport(Transport& transport)
     auto recv_count = std::make_shared<std::atomic<uint64_t>>(0);
 
     transport.register_channel({
-        .label = channel::kAudio,
+        .label = channel::MediaChannel::Audio,
         .unordered = true,
         .max_retransmits = 0,
         .on_data =
@@ -33,7 +33,7 @@ AudioTransport::AudioTransport(Transport& transport)
     });
 
     transport.register_channel({
-        .label = channel::kScreenAudio,
+        .label = channel::MediaChannel::ScreenAudio,
         .unordered = true,
         .max_retransmits = 0,
         .on_data =
@@ -52,12 +52,12 @@ AudioTransport::AudioTransport(Transport& transport)
 
 void AudioTransport::send_audio(const uint8_t* data, size_t len)
 {
-    transport_.send_on_channel(channel::kAudio, data, len);
+    transport_.send_on_channel(channel::MediaChannel::Audio, data, len);
 }
 
 void AudioTransport::send_screen_audio(const uint8_t* data, size_t len)
 {
-    transport_.send_on_channel(channel::kScreenAudio, data, len);
+    transport_.send_on_channel(channel::MediaChannel::ScreenAudio, data, len);
 }
 
 utils::Expected<void, AudioError> AudioTransport::start()

@@ -52,8 +52,8 @@ struct ReceivedPacket {
 // `send(...)` and asserts on what the *other* nodes received.
 //
 // Typical usage:
-//   PeerNode a("data");
-//   PeerNode b("data");
+//   PeerNode a(channel::MediaChannel::Audio);
+//   PeerNode b(channel::MediaChannel::Audio);
 //   a.connect(server.ws_url());
 //   b.connect(server.ws_url());
 //   wait_for_rendezvous(a, b);
@@ -64,7 +64,7 @@ struct ReceivedPacket {
 // the test body's scope → destructed last), which avoids races on teardown.
 struct PeerNode {
     std::unique_ptr<Transport> transport;
-    std::string label;
+    channel::MediaChannel label;
 
     // Non-null when this node was constructed with a NetProfile.
     std::shared_ptr<NetworkConditioner> conditioner;
@@ -81,9 +81,10 @@ struct PeerNode {
     Waiter channel_open;
     EventCollector<ReceivedPacket> received;
 
-    explicit PeerNode(std::string channel_label = "data")
+    explicit PeerNode(
+        channel::MediaChannel channel_label = channel::MediaChannel::Audio)
         : transport(make_test_transport())
-        , label(std::move(channel_label))
+        , label(channel_label)
     {
         register_transport_callbacks_();
         register_channel_(/*conditioner=*/nullptr);
@@ -92,9 +93,9 @@ struct PeerNode {
     // Conditioned constructor: applies NetProfile impairments to the receive
     // path of this node's media channel. Must be called before connect() so
     // the wrapped callback is captured at channel-creation time.
-    PeerNode(std::string channel_label, NetProfile profile)
+    PeerNode(channel::MediaChannel channel_label, NetProfile profile)
         : transport(make_test_transport())
-        , label(std::move(channel_label))
+        , label(channel_label)
         , conditioner(std::make_shared<NetworkConditioner>(std::move(profile)))
     {
         register_transport_callbacks_();
@@ -163,7 +164,7 @@ public:
     // Returns a shared pointer to the collector so the test can assert on
     // per-channel delivery.
     std::shared_ptr<EventCollector<ReceivedPacket>> add_channel(
-        const std::string& extra_label)
+        channel::MediaChannel extra_label)
     {
         auto collector = std::make_shared<EventCollector<ReceivedPacket>>();
         Transport::ChannelSpec spec;
@@ -198,7 +199,7 @@ public:
         transport->send_on_channel(label, payload.data(), payload.size());
     }
 
-    void send_on(const std::string& channel_label,
+    void send_on(channel::MediaChannel channel_label,
         const std::vector<uint8_t>& payload)
     {
         transport->send_on_channel(channel_label, payload.data(), payload.size());

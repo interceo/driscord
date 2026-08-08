@@ -1,17 +1,16 @@
 #include "transport.hpp"
 
 #include "log.hpp"
+#include "protocol.hpp"
+#include "signaling_protocol.hpp"
 #include "transport_fsm_table.hpp"
 
 #include <cstring>
+#include <type_traits>
 
 using json = nlohmann::json;
 
 namespace {
-// Server → client media framing: u8 sender-id length, sender id, payload.
-// Mirrors build_media_packet() in backend/signaling_server/src/ws_server.cpp.
-constexpr size_t kSenderPrefixSize = 1;
-
 int64_t steady_now_ms()
 {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -86,7 +85,7 @@ void Transport::post_event(transport_fsm::Event ev)
 
 void Transport::register_channel(ChannelSpec spec)
 {
-    if (primary_channel_.empty()) {
+    if (!primary_channel_) {
         primary_channel_ = spec.label;
     }
     channel_specs_.push_back(std::move(spec));
@@ -167,18 +166,17 @@ void Transport::create_server_connection()
     }
 
     pc->onLocalDescription([this](rtc::Description desc) {
-        json msg;
-        msg["type"] = desc.typeString();
-        msg["sdp"] = std::string(desc);
-        send_signal(msg);
+        const auto type = desc.typeString();
+        if (type == "offer") {
+            send_signal(signaling::encode(signaling::Offer { std::string(desc) }));
+        } else if (type == "answer") {
+            send_signal(signaling::encode(signaling::Answer { std::string(desc) }));
+        }
     });
 
     pc->onLocalCandidate([this](rtc::Candidate cand) {
-        json msg;
-        msg["type"] = "candidate";
-        msg["candidate"] = std::string(cand);
-        msg["sdpMid"] = cand.mid();
-        send_signal(msg);
+        send_signal(signaling::encode(
+            signaling::Candidate { std::string(cand), cand.mid() }));
     });
 
     pc->onStateChange([this](rtc::PeerConnection::State state) {
@@ -211,10 +209,11 @@ void Transport::create_server_connection()
             init.reliability.maxRetransmits = spec.max_retransmits;
         }
         try {
-            auto dc = pc->createDataChannel(spec.label, init);
+            auto dc = pc->createDataChannel(
+                std::string(channel::to_label(spec.label)), init);
             setup_channel(spec.label, std::move(dc));
         } catch (const std::exception& e) {
-            LOG_ERROR() << "createDataChannel[" << spec.label
+            LOG_ERROR() << "createDataChannel[" << channel::to_label(spec.label)
                         << "]: " << e.what();
         }
     }
@@ -258,7 +257,7 @@ void Transport::handle_candidate(const std::string& candidate,
     }
 }
 
-void Transport::setup_channel(const std::string& label,
+void Transport::setup_channel(channel::MediaChannel label,
     std::shared_ptr<rtc::DataChannel> dc)
 {
     PacketCb on_data;
@@ -276,13 +275,14 @@ void Transport::setup_channel(const std::string& label,
         }
     }
 
+    const auto label_text = channel::to_label(label);
     if (!found) {
-        LOG_WARNING() << "unknown channel label '" << label << "'";
+        LOG_WARNING() << "unknown channel label '" << label_text << "'";
         return;
     }
 
-    dc->onOpen([this, label, on_open_cb]() {
-        LOG_INFO() << "'" << label << "' channel open";
+    dc->onOpen([this, label, label_text, on_open_cb]() {
+        LOG_INFO() << "'" << label_text << "' channel open";
         {
             std::scoped_lock lk(pc_mutex_);
             channels_[label].open = true;
@@ -292,8 +292,8 @@ void Transport::setup_channel(const std::string& label,
         }
     });
 
-    dc->onClosed([this, label, on_close_cb]() {
-        LOG_INFO() << "'" << label << "' channel closed";
+    dc->onClosed([this, label, label_text, on_close_cb]() {
+        LOG_INFO() << "'" << label_text << "' channel closed";
         {
             std::scoped_lock lk(pc_mutex_);
             channels_[label].open = false;
@@ -305,30 +305,24 @@ void Transport::setup_channel(const std::string& label,
 
     // Every media message is prefixed by the server with the id of the peer
     // that sent it.
-    dc->onMessage([on_data, label](auto msg) {
+    dc->onMessage([on_data, label_text](auto msg) {
         auto* data = std::get_if<rtc::binary>(&msg);
         if (!data || !on_data) {
             return;
         }
         const auto* bytes = reinterpret_cast<const uint8_t*>(data->data());
         const size_t len = data->size();
-        if (len < kSenderPrefixSize) {
-            return;
-        }
-        const size_t from_len = bytes[0];
-        if (len < kSenderPrefixSize + from_len) {
-            LOG_WARNING() << "malformed media packet on '" << label << "' ("
+        auto packet = protocol::decode_relayed_media(bytes, len);
+        if (!packet) {
+            LOG_WARNING() << "malformed media packet on '" << label_text << "' ("
                           << len << " bytes)";
             return;
         }
-        std::string from(reinterpret_cast<const char*>(bytes + kSenderPrefixSize),
-            from_len);
-        on_data(from, bytes + kSenderPrefixSize + from_len,
-            len - kSenderPrefixSize - from_len);
+        on_data(packet->sender_id, packet->payload, packet->payload_len);
     });
 
-    dc->onError([label](std::string error) {
-        LOG_ERROR() << "'" << label << "' dc error: " << error;
+    dc->onError([label_text](std::string error) {
+        LOG_ERROR() << "'" << label_text << "' dc error: " << error;
     });
 
     std::scoped_lock lk(pc_mutex_);
@@ -336,7 +330,7 @@ void Transport::setup_channel(const std::string& label,
 }
 
 std::shared_ptr<rtc::DataChannel> Transport::open_channel(
-    const std::string& label) const
+    channel::MediaChannel label) const
 {
     std::scoped_lock lk(pc_mutex_);
     auto it = channels_.find(label);
@@ -349,7 +343,7 @@ std::shared_ptr<rtc::DataChannel> Transport::open_channel(
 void Transport::close_server_connection()
 {
     std::shared_ptr<rtc::PeerConnection> pc;
-    std::unordered_map<std::string, ChannelState> channels;
+    std::unordered_map<channel::MediaChannel, ChannelState> channels;
     {
         std::scoped_lock lk(pc_mutex_);
         pc = std::move(pc_);
@@ -406,7 +400,7 @@ void Transport::disconnect()
     local_id_.clear();
 }
 
-void Transport::send_on_channel(const std::string& label,
+void Transport::send_on_channel(channel::MediaChannel label,
     const uint8_t* data,
     size_t len)
 {
@@ -417,11 +411,12 @@ void Transport::send_on_channel(const std::string& label,
     try {
         dc->send(reinterpret_cast<const std::byte*>(data), len);
     } catch (const std::exception& e) {
-        LOG_ERROR() << "send_on_channel[" << label << "]: " << e.what();
+        LOG_ERROR() << "send_on_channel[" << channel::to_label(label)
+                    << "]: " << e.what();
     }
 }
 
-void Transport::send_on_channel(const std::string& label, rtc::binary&& data)
+void Transport::send_on_channel(channel::MediaChannel label, rtc::binary&& data)
 {
     auto dc = open_channel(label);
     if (!dc) {
@@ -430,11 +425,12 @@ void Transport::send_on_channel(const std::string& label, rtc::binary&& data)
     try {
         dc->send(std::move(data));
     } catch (const std::exception& e) {
-        LOG_ERROR() << "send_on_channel[" << label << "]: " << e.what();
+        LOG_ERROR() << "send_on_channel[" << channel::to_label(label)
+                    << "]: " << e.what();
     }
 }
 
-size_t Transport::channel_buffered_amount(const std::string& label) const
+size_t Transport::channel_buffered_amount(channel::MediaChannel label) const
 {
     auto dc = open_channel(label);
     if (!dc) {
@@ -545,8 +541,10 @@ std::vector<Transport::PeerInfo> Transport::peers() const
     bool media_up = false;
     {
         std::scoped_lock lk(pc_mutex_);
-        auto it = channels_.find(primary_channel_);
-        media_up = it != channels_.end() && it->second.open;
+        if (primary_channel_) {
+            auto it = channels_.find(*primary_channel_);
+            media_up = it != channels_.end() && it->second.open;
+        }
     }
 
     std::scoped_lock lk(peers_mutex_);
@@ -583,125 +581,111 @@ void Transport::set_peer_identity_(const std::string& peer_id, std::string usern
 
 void Transport::on_ws_message(const std::string& raw)
 {
-    try {
-        auto msg = json::parse(raw);
-        std::string type = msg.value("type", "");
+    auto parsed = signaling::parse(raw);
+    if (!parsed) {
+        LOG_ERROR() << "on_ws_message: "
+                    << signaling::to_string(parsed.error());
+        return;
+    }
 
-        if (type == "welcome") {
-            std::string assigned_id = msg["id"];
+    std::visit([this](auto&& message) {
+        using T = std::decay_t<decltype(message)>;
+
+        if constexpr (std::is_same_v<T, signaling::Welcome>) {
+            std::string assigned_id = message.id;
             {
                 std::scoped_lock lk(ws_mutex_);
                 local_id_ = assigned_id;
             }
             LOG_INFO() << "assigned id: " << assigned_id;
-            if (msg.contains("peers")) {
-                for (auto& peer : msg["peers"]) {
-                    std::string pid = peer.value("id", "");
-                    if (pid.empty()) {
-                        continue;
-                    }
-                    set_peer_identity_(pid, peer.value("username", ""));
-                    {
-                        std::scoped_lock lk(peers_mutex_);
-                        peers_.insert(pid);
-                    }
-                    if (on_peer_joined_) {
-                        on_peer_joined_(pid);
-                    }
+
+            for (const auto& peer : message.peers) {
+                set_peer_identity_(peer.id, peer.username);
+                {
+                    std::scoped_lock lk(peers_mutex_);
+                    peers_.insert(peer.id);
+                }
+                if (on_peer_joined_) {
+                    on_peer_joined_(peer.id);
                 }
             }
-            if (msg.contains("streaming_peers")) {
-                for (auto& sid : msg["streaming_peers"]) {
-                    std::string id = sid;
-                    if (on_streaming_started_) {
-                        on_streaming_started_(id);
-                    }
+
+            for (const auto& id : message.streaming_peers) {
+                if (on_streaming_started_) {
+                    on_streaming_started_(id);
                 }
             }
-        } else if (type == "peer_joined") {
-            std::string peer_id = msg["id"];
-            LOG_INFO() << "peer joined: " << peer_id;
-            set_peer_identity_(peer_id, msg.value("username", ""));
+        } else if constexpr (std::is_same_v<T, signaling::PeerJoined>) {
+            LOG_INFO() << "peer joined: " << message.id;
+            set_peer_identity_(message.id, message.username);
             {
                 std::scoped_lock lk(peers_mutex_);
-                peers_.insert(peer_id);
+                peers_.insert(message.id);
             }
             if (on_peer_joined_) {
-                on_peer_joined_(peer_id);
+                on_peer_joined_(message.id);
             }
-        } else if (type == "peer_left") {
-            std::string peer_id = msg["id"];
-            LOG_INFO() << "peer left: " << peer_id;
+        } else if constexpr (std::is_same_v<T, signaling::PeerLeft>) {
+            LOG_INFO() << "peer left: " << message.id;
             {
                 std::scoped_lock lk(peers_mutex_);
-                peers_.erase(peer_id);
+                peers_.erase(message.id);
             }
             {
                 std::scoped_lock lk(identity_mutex_);
-                peer_usernames_.erase(peer_id);
+                peer_usernames_.erase(message.id);
             }
             if (on_peer_left_) {
-                on_peer_left_(peer_id);
+                on_peer_left_(message.id);
             }
-        } else if (type == "answer") {
+        } else if constexpr (std::is_same_v<T, signaling::Answer>) {
             // Through the machine: whether an answer is meaningful depends on
             // the phase we are in, and it alone knows that.
-            post_event(transport_fsm::AnswerReceived { msg.value("sdp", "") });
-        } else if (type == "candidate") {
+            post_event(transport_fsm::AnswerReceived { message.sdp });
+        } else if constexpr (std::is_same_v<T, signaling::Candidate>) {
             post_event(transport_fsm::RemoteCandidate {
-                msg.value("candidate", ""), msg.value("sdpMid", "") });
-        } else if (type == "streaming_start") {
-            std::string from = msg["from"];
-            if (on_streaming_started_) {
-                on_streaming_started_(from);
+                message.candidate, message.sdp_mid });
+        } else if constexpr (std::is_same_v<T, signaling::StreamingStart>) {
+            if (message.from && on_streaming_started_) {
+                on_streaming_started_(*message.from);
             }
-        } else if (type == "streaming_stop") {
-            std::string from = msg["from"];
-            if (on_streaming_stopped_) {
-                on_streaming_stopped_(from);
+        } else if constexpr (std::is_same_v<T, signaling::StreamingStop>) {
+            if (message.from && on_streaming_stopped_) {
+                on_streaming_stopped_(*message.from);
             }
-        } else if (type == "watch_start") {
-            std::string from = msg["from"];
-            if (on_watch_started_) {
-                on_watch_started_(from);
+        } else if constexpr (std::is_same_v<T, signaling::WatchStart>) {
+            if (message.from && on_watch_started_) {
+                on_watch_started_(*message.from);
             }
-        } else if (type == "watch_stop") {
-            std::string from = msg["from"];
-            if (on_watch_stopped_) {
-                on_watch_stopped_(from);
+        } else if constexpr (std::is_same_v<T, signaling::WatchStop>) {
+            if (message.from && on_watch_stopped_) {
+                on_watch_stopped_(*message.from);
             }
+        } else if constexpr (std::is_same_v<T, signaling::Offer>) {
+            LOG_WARNING() << "ignoring offer from signaling server";
         }
-    } catch (const std::exception& e) {
-        LOG_ERROR() << "on_ws_message: " << e.what();
-    }
+    },
+        parsed.value());
 }
 
 void Transport::send_streaming_start()
 {
-    json msg;
-    msg["type"] = "streaming_start";
-    send_signal(msg);
+    send_signal(signaling::encode(signaling::StreamingStart {}));
 }
 
 void Transport::send_streaming_stop()
 {
-    json msg;
-    msg["type"] = "streaming_stop";
-    send_signal(msg);
+    send_signal(signaling::encode(signaling::StreamingStop {}));
 }
 
 void Transport::send_watch_start()
 {
-    json msg;
-    msg["type"] = "watch_start";
-    send_signal(msg);
+    send_signal(signaling::encode(signaling::WatchStart {}));
 }
 
 void Transport::send_watch_stop()
 {
-    json msg;
-    msg["type"] = "watch_stop";
-    send_signal(msg);
+    send_signal(signaling::encode(signaling::WatchStop {}));
 }
 
 void Transport::send_signal(const json& msg)

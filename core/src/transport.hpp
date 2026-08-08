@@ -1,5 +1,6 @@
 #pragma once
 
+#include "channel_labels.hpp"
 #include "transport_fsm.hpp"
 #include "utils/expected.hpp"
 
@@ -11,6 +12,7 @@
 #include <memory>
 #include <mutex>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <rtc/rtc.hpp>
 #include <string>
 #include <thread>
@@ -43,7 +45,7 @@ public:
     using ChannelEventCb = std::function<void()>;
 
     struct ChannelSpec {
-        std::string label;
+        channel::MediaChannel label;
         bool unordered = true;
         int max_retransmits = 0;
         PacketCb on_data;
@@ -101,18 +103,18 @@ public:
 
     // Send media to the server, which fans it out to the room. Who receives it
     // is the server's decision (see watch_start/watch_stop for screen share).
-    void send_on_channel(const std::string& label,
+    void send_on_channel(channel::MediaChannel label,
         const uint8_t* data,
         size_t len);
 
     // Move-based overload: transfers ownership to libdatachannel, avoids an
     // internal copy on the hot video path.
-    void send_on_channel(const std::string& label, rtc::binary&& data);
+    void send_on_channel(channel::MediaChannel label, rtc::binary&& data);
 
     // Bytes queued but not yet handed to the network on this channel. Used for
     // backpressure: when the uplink can't keep up, dropping a frame beats
     // growing an unbounded queue and with it the latency.
-    size_t channel_buffered_amount(const std::string& label) const;
+    size_t channel_buffered_amount(channel::MediaChannel label) const;
 
     // Stats for the connection to the server: bytes sent/received, RTT, state.
     std::string stats_json() const;
@@ -144,10 +146,11 @@ private:
     void close_server_connection();
     void handle_answer(const std::string& sdp);
     void handle_candidate(const std::string& candidate, const std::string& mid);
-    void setup_channel(const std::string& label,
+    void setup_channel(channel::MediaChannel label,
         std::shared_ptr<rtc::DataChannel> dc);
     void send_signal(const nlohmann::json& msg);
-    std::shared_ptr<rtc::DataChannel> open_channel(const std::string& label) const;
+    std::shared_ptr<rtc::DataChannel> open_channel(
+        channel::MediaChannel label) const;
 
     // Hands an event to the state machine. Callable from any thread: the event
     // is queued and replayed on the FSM thread, which is the only place the
@@ -165,14 +168,14 @@ private:
     // The single connection to the server and its channels.
     mutable std::mutex pc_mutex_;
     std::shared_ptr<rtc::PeerConnection> pc_;
-    std::unordered_map<std::string, ChannelState> channels_;
+    std::unordered_map<channel::MediaChannel, ChannelState> channels_;
 
     // Room roster, driven purely by signaling.
     mutable std::mutex peers_mutex_;
     std::unordered_set<std::string> peers_;
 
     std::vector<ChannelSpec> channel_specs_;
-    std::string primary_channel_;
+    std::optional<channel::MediaChannel> primary_channel_;
 
     std::function<void()> on_connected_;
     std::function<void()> on_disconnected_;

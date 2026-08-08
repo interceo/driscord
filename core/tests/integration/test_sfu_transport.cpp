@@ -200,27 +200,27 @@ TEST_F(SfuTransportTest, Send_FansOutToAllPeers)
 //    on another.
 TEST_F(SfuTransportTest, MultipleChannels_RoutedIndependently)
 {
-    PeerNode a("data"), b("data");
-    auto a_extra = a.add_channel("extra");
-    auto b_extra = b.add_channel("extra");
+    PeerNode a(channel::MediaChannel::Audio), b(channel::MediaChannel::Audio);
+    auto a_control = a.add_channel(channel::MediaChannel::Control);
+    auto b_control = b.add_channel(channel::MediaChannel::Control);
 
     ASSERT_TRUE(a.connect(server.ws_url()));
     ASSERT_TRUE(b.connect(server.ws_url()));
     ASSERT_TRUE(wait_for_rendezvous(a, b));
 
-    const std::vector<uint8_t> on_data { 0x01 };
-    const std::vector<uint8_t> on_extra { 0x02 };
-    a.send(on_data);
-    a.send_on("extra", on_extra);
+    const std::vector<uint8_t> on_audio { 0x01 };
+    const std::vector<uint8_t> on_control { 0x02 };
+    a.send(on_audio);
+    a.send_on(channel::MediaChannel::Control, on_control);
 
     ASSERT_TRUE(b.received.wait_for_count(1));
-    ASSERT_TRUE(b_extra->wait_for_count(1));
+    ASSERT_TRUE(b_control->wait_for_count(1));
 
-    EXPECT_EQ(b.received.snapshot().front().bytes, on_data);
-    EXPECT_EQ(b_extra->snapshot().front().bytes, on_extra);
+    EXPECT_EQ(b.received.snapshot().front().bytes, on_audio);
+    EXPECT_EQ(b_control->snapshot().front().bytes, on_control);
     EXPECT_EQ(b.received.snapshot().size(), 1u);
-    EXPECT_EQ(b_extra->snapshot().size(), 1u);
-    EXPECT_TRUE(a_extra->snapshot().empty());
+    EXPECT_EQ(b_control->snapshot().size(), 1u);
+    EXPECT_TRUE(a_control->snapshot().empty());
 }
 
 // 10. A payload far larger than one MTU survives the round trip: it is sent
@@ -278,13 +278,13 @@ TEST_F(SfuTransportTest, SendBeforeChannelOpen_NoCrash)
 //     everyone regardless — the server gates on the channel label.
 TEST_F(SfuTransportTest, ScreenVideo_OnlyReachesWatchers)
 {
-    PeerNode streamer(channel::kVideo);
-    PeerNode watcher(channel::kVideo);
-    PeerNode bystander(channel::kVideo);
+    PeerNode streamer(channel::MediaChannel::Video);
+    PeerNode watcher(channel::MediaChannel::Video);
+    PeerNode bystander(channel::MediaChannel::Video);
 
-    auto streamer_audio = streamer.add_channel(channel::kAudio);
-    auto watcher_audio = watcher.add_channel(channel::kAudio);
-    auto bystander_audio = bystander.add_channel(channel::kAudio);
+    auto streamer_audio = streamer.add_channel(channel::MediaChannel::Audio);
+    auto watcher_audio = watcher.add_channel(channel::MediaChannel::Audio);
+    auto bystander_audio = bystander.add_channel(channel::MediaChannel::Audio);
     (void)streamer_audio;
 
     ASSERT_TRUE(streamer.connect(server.ws_url()));
@@ -312,7 +312,7 @@ TEST_F(SfuTransportTest, ScreenVideo_OnlyReachesWatchers)
 
     // Voice is not gated: it reaches the bystander too.
     const std::vector<uint8_t> voice { 0x77 };
-    streamer.send_on(channel::kAudio, voice);
+    streamer.send_on(channel::MediaChannel::Audio, voice);
     ASSERT_TRUE(bystander_audio->wait_for_count(1));
     ASSERT_TRUE(watcher_audio->wait_for_count(1));
     EXPECT_EQ(bystander_audio->snapshot().front().bytes, voice);

@@ -1,9 +1,12 @@
 #pragma once
 
+#include "expected.hpp"
+
 #include <cstddef>
 #include <cstdint>
-
-#include "byte_utils.hpp"
+#include <limits>
+#include <string>
+#include <string_view>
 
 namespace protocol {
 
@@ -25,21 +28,8 @@ struct AudioHeader {
 
     static constexpr size_t kWireSize = 16;
 
-    static AudioHeader deserialize(const uint8_t* src)
-    {
-        AudioHeader h;
-        h.seq = utils::read_u32_le(src);
-        h.flags = utils::read_u32_le(src + 4);
-        h.sender_ts_us = static_cast<int64_t>(utils::read_u64_le(src + 8));
-        return h;
-    }
-
-    void serialize(uint8_t* dst) const
-    {
-        utils::write_u32_le(dst, seq);
-        utils::write_u32_le(dst + 4, flags);
-        utils::write_u64_le(dst + 8, static_cast<uint64_t>(sender_ts_us));
-    }
+    static AudioHeader deserialize(const uint8_t* src);
+    void serialize(uint8_t* dst) const;
 };
 
 enum class VideoCodec : uint8_t {
@@ -59,29 +49,8 @@ struct VideoHeader {
 
     static constexpr size_t kWireSize = 32;
 
-    static VideoHeader deserialize(const uint8_t* src)
-    {
-        VideoHeader h;
-        h.width = utils::read_u32_le(src);
-        h.height = utils::read_u32_le(src + 4);
-        h.sender_ts_us = static_cast<int64_t>(utils::read_u64_le(src + 8));
-        h.bitrate_kbps = utils::read_u32_le(src + 16);
-        h.frame_duration_us = utils::read_u32_le(src + 20);
-        h.flags = utils::read_u32_le(src + 24);
-        h.codec = static_cast<VideoCodec>(utils::read_u32_le(src + 28));
-        return h;
-    }
-
-    void serialize(uint8_t* dst) const
-    {
-        utils::write_u32_le(dst, width);
-        utils::write_u32_le(dst + 4, height);
-        utils::write_u64_le(dst + 8, static_cast<uint64_t>(sender_ts_us));
-        utils::write_u32_le(dst + 16, bitrate_kbps);
-        utils::write_u32_le(dst + 20, frame_duration_us);
-        utils::write_u32_le(dst + 24, flags);
-        utils::write_u32_le(dst + 28, static_cast<uint32_t>(codec));
-    }
+    static VideoHeader deserialize(const uint8_t* src);
+    void serialize(uint8_t* dst) const;
 };
 
 // Prepended to every encoded video frame. Frames are sent as one DataChannel
@@ -92,17 +61,38 @@ struct FrameHeader {
 
     static constexpr size_t kWireSize = 8;
 
-    static FrameHeader deserialize(const uint8_t* src)
-    {
-        FrameHeader h;
-        h.frame_id = utils::read_u64_le(src);
-        return h;
-    }
-
-    void serialize(uint8_t* dst) const
-    {
-        utils::write_u64_le(dst, frame_id);
-    }
+    static FrameHeader deserialize(const uint8_t* src);
+    void serialize(uint8_t* dst) const;
 };
+
+// Server -> client media framing: u8 sender-id length, sender id, payload.
+// The DataChannel label carries the media kind; this wrapper only identifies
+// the peer that originally sent the payload.
+enum class RelayedMediaError {
+    MissingSender,
+    SenderTooLong,
+    MissingPayload,
+    PacketTooLarge,
+    Truncated,
+};
+
+struct RelayedMediaPacket {
+    std::string sender_id;
+    const uint8_t* payload = nullptr;
+    size_t payload_len = 0;
+};
+
+inline constexpr size_t kRelayedMediaSenderLenSize = 1;
+inline constexpr size_t kMaxRelayedMediaSenderLen =
+    std::numeric_limits<uint8_t>::max();
+
+utils::Expected<std::string, RelayedMediaError> encode_relayed_media(
+    std::string_view sender_id,
+    const uint8_t* payload,
+    size_t payload_len);
+
+utils::Expected<RelayedMediaPacket, RelayedMediaError> decode_relayed_media(
+    const uint8_t* data,
+    size_t len);
 
 } // namespace protocol

@@ -19,7 +19,7 @@ VideoTransport::VideoTransport(Transport& transport)
 {
     // Video: pure data, no embedded control tags.
     transport.register_channel({
-        .label = channel::kVideo,
+        .label = channel::MediaChannel::Video,
         .unordered = true,
         .max_retransmits = 0,
         .on_data =
@@ -41,7 +41,7 @@ VideoTransport::VideoTransport(Transport& transport)
     // Control: ordered, reliable — keyframe requests and stream lifecycle.
     // Identity is exchanged at the signaling layer (Transport::peer_username).
     transport.register_channel({
-        .label = channel::kControl,
+        .label = channel::MediaChannel::Control,
         .unordered = false,
         .max_retransmits = -1, // reliable
         .on_data =
@@ -62,7 +62,7 @@ void VideoTransport::send_video(const uint8_t* data, size_t len)
     // Backpressure: if the send buffer is already deep, the uplink cannot keep
     // up. Queueing this frame would only add latency, so drop it and ask the
     // encoder for a keyframe to resync once the buffer drains.
-    if (transport_.channel_buffered_amount(channel::kVideo)
+    if (transport_.channel_buffered_amount(channel::MediaChannel::Video)
         > stream_defaults::kVideoSendBufferLimitBytes) {
         const uint64_t n = ++frames_dropped_backpressure_;
         if (n == 1 || n % 60 == 0) {
@@ -81,17 +81,17 @@ void VideoTransport::send_video(const uint8_t* data, size_t len)
         reinterpret_cast<uint8_t*>(pkt.data()));
     std::memcpy(pkt.data() + protocol::FrameHeader::kWireSize, data, len);
 
-    transport_.send_on_channel(channel::kVideo, std::move(pkt));
+    transport_.send_on_channel(channel::MediaChannel::Video, std::move(pkt));
 }
 
 void VideoTransport::send_keyframe_request()
 {
-    transport_.send_on_channel(channel::kControl, &kKeyframeRequestTag, 1);
+    transport_.send_on_channel(channel::MediaChannel::Control, &kKeyframeRequestTag, 1);
 }
 
 void VideoTransport::send_stop_stream()
 {
-    transport_.send_on_channel(channel::kControl, &kStopStreamTag, 1);
+    transport_.send_on_channel(channel::MediaChannel::Control, &kStopStreamTag, 1);
 }
 
 void VideoTransport::on_new_streaming_peer(

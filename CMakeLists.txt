@@ -75,6 +75,27 @@ if(_sml_include_dirs)
         INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_sml_include_dirs}")
 endif()
 
+# Shared wire/signaling protocol code used by both the client core and the
+# signaling server. Keep implementations out of headers so protocol changes
+# compile as normal translation units instead of spreading inline code through
+# every consumer.
+add_library(driscord_protocol STATIC
+    core/src/utils/protocol.cpp
+    core/src/utils/signaling_protocol.cpp
+)
+target_include_directories(driscord_protocol PUBLIC
+    ${CMAKE_SOURCE_DIR}/core/src
+    ${CMAKE_SOURCE_DIR}/core/src/utils
+)
+target_link_libraries(driscord_protocol PUBLIC
+    nlohmann_json::nlohmann_json
+)
+if(MSVC)
+    target_compile_options(driscord_protocol PRIVATE /W4)
+else()
+    target_compile_options(driscord_protocol PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
 # The signaling server is Linux-only; disable when cross-compiling for Windows.
 option(BUILD_SERVER "Build the signaling server" ON)
 if(BUILD_SERVER)

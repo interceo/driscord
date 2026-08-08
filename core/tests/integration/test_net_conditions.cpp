@@ -45,7 +45,7 @@ protected:
 // Helper: send n packets of the given size to the server, which fans them out
 // to the rest of the room.
 static void send_n_packets(Transport& src,
-    const std::string& channel_label,
+    channel::MediaChannel channel_label,
     int count,
     size_t payload_size = 32)
 {
@@ -80,7 +80,7 @@ TEST_F(NetConditionsTransportTest, AudioLoss_StatsAccumulate)
 {
     // b has 8% loss conditioned on its receive path.
     PeerNode a;
-    PeerNode b("data", NetProfile { .loss_pct = 8.0f });
+    PeerNode b(channel::MediaChannel::Audio, NetProfile { .loss_pct = 8.0f });
     ASSERT_TRUE(a.connect(server.ws_url()));
     ASSERT_TRUE(b.connect(server.ws_url()));
     ASSERT_TRUE(wait_for_rendezvous(a, b));
@@ -108,13 +108,13 @@ TEST_F(NetConditionsTransportTest, AudioLoss_StatsAccumulate)
 // =============================================================================
 TEST_F(NetConditionsTransportTest, ControlChannel_ReliableUnderLoss)
 {
-    PeerNode a("audio");
-    PeerNode b("audio", NetProfile { .loss_pct = 10.0f });
+    PeerNode a(channel::MediaChannel::Audio);
+    PeerNode b(channel::MediaChannel::Audio, NetProfile { .loss_pct = 10.0f });
 
     // Register control channels before connecting — they are negotiated
     // alongside the primary channel during offer/answer exchange.
-    auto b_ctrl = b.add_channel("control");
-    a.add_channel("control"); // sender side (return value unused)
+    auto b_ctrl = b.add_channel(channel::MediaChannel::Control);
+    a.add_channel(channel::MediaChannel::Control); // sender side
 
     ASSERT_TRUE(a.connect(server.ws_url()));
     ASSERT_TRUE(b.connect(server.ws_url()));
@@ -124,7 +124,7 @@ TEST_F(NetConditionsTransportTest, ControlChannel_ReliableUnderLoss)
     std::this_thread::sleep_for(300ms);
 
     constexpr int kCtrlCount = 20;
-    send_n_packets(*a.transport, "control", kCtrlCount, 16);
+    send_n_packets(*a.transport, channel::MediaChannel::Control, kCtrlCount, 16);
 
     ASSERT_TRUE(b_ctrl->wait_for_count(kCtrlCount));
     EXPECT_EQ(b_ctrl->snapshot().size(), static_cast<size_t>(kCtrlCount));
@@ -137,7 +137,7 @@ TEST_F(NetConditionsTransportTest, Reordering_DoesNotDeadlock)
 {
     PeerNode a;
     // 100% reorder: every packet gets the extra reorder gap added.
-    PeerNode b("data",
+    PeerNode b(channel::MediaChannel::Audio,
         NetProfile { .delay_ms = 10, .reorder_pct = 100.0f, .reorder_gap_ms = 30 });
     ASSERT_TRUE(a.connect(server.ws_url()));
     ASSERT_TRUE(b.connect(server.ws_url()));
@@ -157,7 +157,8 @@ TEST_F(NetConditionsTransportTest, Reordering_DoesNotDeadlock)
 TEST_F(NetConditionsTransportTest, Duplicate_InflatesReceivedCount)
 {
     PeerNode a;
-    PeerNode b("data", NetProfile { .duplicate_pct = 100.0f });
+    PeerNode b(channel::MediaChannel::Audio,
+        NetProfile { .duplicate_pct = 100.0f });
     ASSERT_TRUE(a.connect(server.ws_url()));
     ASSERT_TRUE(b.connect(server.ws_url()));
     ASSERT_TRUE(wait_for_rendezvous(a, b));
@@ -179,7 +180,7 @@ TEST_F(NetConditionsTransportTest, Duplicate_InflatesReceivedCount)
 TEST_F(NetConditionsTransportTest, DynamicProfileChange_TakesEffectImmediately)
 {
     PeerNode a;
-    PeerNode b("data", NetProfile::clean());
+    PeerNode b(channel::MediaChannel::Audio, NetProfile::clean());
     ASSERT_TRUE(a.connect(server.ws_url()));
     ASSERT_TRUE(b.connect(server.ws_url()));
     ASSERT_TRUE(wait_for_rendezvous(a, b));
