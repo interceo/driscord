@@ -403,6 +403,77 @@ void DecodedVideoSink::OnFrame(const webrtc::VideoFrame& frame)
                     });
 }
 
+LocalVideoSink::LocalVideoSink(Callback callback)
+    : callback_(std::move(callback))
+{
+}
+
+LocalVideoSink::~LocalVideoSink()
+{
+    clear();
+}
+
+bool LocalVideoSink::attach(
+    webrtc::scoped_refptr<webrtc::VideoTrackInterface> track)
+{
+    if (!track || !callback_) {
+        return false;
+    }
+
+    webrtc::scoped_refptr<webrtc::VideoTrackInterface> old_track;
+    std::unique_ptr<DecodedVideoSink> old_sink;
+    uint64_t generation = 0;
+    {
+        std::scoped_lock lock(binding_mutex_);
+        if (track_ == track && sink_) {
+            return true;
+        }
+        generation = ++generation_;
+        old_track = std::move(track_);
+        old_sink = std::move(sink_);
+    }
+    if (old_track && old_sink) {
+        old_track->RemoveSink(old_sink.get());
+    }
+
+    auto candidate = std::make_unique<DecodedVideoSink>("local-preview",
+        [this](std::string_view, DecodedVideoFrameView frame) {
+            callback_(frame);
+        });
+    webrtc::VideoSinkWants wants;
+    wants.rotation_applied = true;
+    track->AddOrUpdateSink(candidate.get(), wants);
+
+    bool retained = false;
+    {
+        std::scoped_lock lock(binding_mutex_);
+        if (generation_ == generation && !track_ && !sink_) {
+            track_ = track;
+            sink_ = std::move(candidate);
+            retained = true;
+        }
+    }
+    if (!retained) {
+        track->RemoveSink(candidate.get());
+    }
+    return retained;
+}
+
+void LocalVideoSink::clear() noexcept
+{
+    webrtc::scoped_refptr<webrtc::VideoTrackInterface> track;
+    std::unique_ptr<DecodedVideoSink> sink;
+    {
+        std::scoped_lock lock(binding_mutex_);
+        ++generation_;
+        track = std::move(track_);
+        sink = std::move(sink_);
+    }
+    if (track && sink) {
+        track->RemoveSink(sink.get());
+    }
+}
+
 RemoteScreenSinks::RemoteScreenSinks(
     VideoCallback on_video, AudioCallback on_audio,
     webrtc::Thread* signaling_thread)

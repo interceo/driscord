@@ -66,6 +66,7 @@ public:
         bool share_audio);
     void stop_sharing();
     [[nodiscard]] bool sharing() const;
+    void set_local_preview_enabled(bool enabled);
     void set_stream_volume(const std::string& peer_id, float volume);
     [[nodiscard]] float stream_volume(const std::string& peer_id) const;
     [[nodiscard]] std::string screen_stats_json(

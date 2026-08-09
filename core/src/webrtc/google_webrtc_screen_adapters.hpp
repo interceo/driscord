@@ -94,6 +94,31 @@ private:
     std::vector<uint8_t> rgba_;
 };
 
+// Optional sink for the publisher's own source track. It is attached only
+// while the UI needs a preview, so an inactive/minimized client does not pay
+// for I420 -> RGBA conversion or Qt frame uploads. Capture and RTP sending are
+// independent from this sink.
+class LocalVideoSink final {
+public:
+    using Callback = std::function<void(DecodedVideoFrameView frame)>;
+
+    explicit LocalVideoSink(Callback callback);
+    ~LocalVideoSink();
+
+    LocalVideoSink(const LocalVideoSink&) = delete;
+    LocalVideoSink& operator=(const LocalVideoSink&) = delete;
+
+    bool attach(webrtc::scoped_refptr<webrtc::VideoTrackInterface> track);
+    void clear() noexcept;
+
+private:
+    const Callback callback_;
+    std::mutex binding_mutex_;
+    uint64_t generation_ = 0;
+    webrtc::scoped_refptr<webrtc::VideoTrackInterface> track_;
+    std::unique_ptr<DecodedVideoSink> sink_;
+};
+
 // Owns the mandatory native sink objects and detaches them before their tracks
 // disappear. It is deliberately independent of signaling/session state.
 class RemoteScreenSinks final {

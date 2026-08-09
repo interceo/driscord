@@ -324,6 +324,11 @@ bool DriscordCore::screen_sharing() const
     return media_->sharing();
 }
 
+void DriscordCore::screen_set_local_preview_enabled(bool enabled)
+{
+    media_->set_local_preview_enabled(enabled);
+}
+
 std::string DriscordCore::screen_stats_json(const std::string& peer) const
 {
     return media_->screen_stats_json(peer);

@@ -173,6 +173,10 @@ bool DriscordBridge::sharing() const
 {
     return g_core->screen_sharing();
 }
+void DriscordBridge::setLocalPreviewEnabled(bool enabled)
+{
+    g_core->screen_set_local_preview_enabled(enabled);
+}
 
 bool DriscordBridge::videoWatching() const { return g_core->video_watching(); }
 

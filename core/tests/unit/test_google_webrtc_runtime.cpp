@@ -32,6 +32,14 @@ struct OfferResult {
     std::string error;
 };
 
+struct PreviewResult {
+    std::mutex mutex;
+    std::condition_variable changed;
+    size_t frames = 0;
+    int width = 0;
+    int height = 0;
+};
+
 } // namespace
 
 TEST(GoogleWebRtcRuntime, OwnsFactoryAndThreadsBehindPimpl)
@@ -204,6 +212,67 @@ TEST(GoogleWebRtcScreenSession, CreatesPairedSendAndReceiveTracks)
     EXPECT_FALSE(session.sharing_enabled());
     session.set_sharing_enabled(true);
     EXPECT_TRUE(session.sharing_enabled());
+    session.close();
+}
+
+TEST(GoogleWebRtcScreenSession, LocalPreviewCanBeDetachedWithoutStoppingShare)
+{
+    using namespace std::chrono_literals;
+    using driscord::media::GoogleWebRtcScreenSession;
+
+    driscord::media::GoogleWebRtcRuntime runtime;
+    auto preview = std::make_shared<PreviewResult>();
+    driscord::media::ScreenSessionCallbacks callbacks;
+    callbacks.on_local_video =
+        [preview](driscord::media::DecodedVideoFrameView frame) {
+            {
+                std::scoped_lock lock(preview->mutex);
+                ++preview->frames;
+                preview->width = frame.width;
+                preview->height = frame.height;
+            }
+            preview->changed.notify_all();
+        };
+    GoogleWebRtcScreenSession session(runtime,
+        {
+            .remote_stream_slots = 0,
+            .sharing_enabled = true,
+            .local_preview_enabled = true,
+        },
+        std::move(callbacks));
+
+    ASSERT_TRUE(session.start());
+    constexpr int kWidth = 64;
+    constexpr int kHeight = 36;
+    const std::vector<uint8_t> bgra(
+        static_cast<size_t>(kWidth * kHeight * 4), 127);
+    ASSERT_TRUE(session.submit_bgra_frame(
+        bgra, kWidth, kHeight, kWidth * 4, 1'000'000));
+    {
+        std::unique_lock lock(preview->mutex);
+        ASSERT_TRUE(preview->changed.wait_for(
+            lock, 2s, [&] { return preview->frames == 1; }));
+        EXPECT_EQ(preview->width, kWidth);
+        EXPECT_EQ(preview->height, kHeight);
+    }
+
+    session.set_local_preview_enabled(false);
+    EXPECT_TRUE(session.sharing_enabled());
+    (void)session.submit_bgra_frame(
+        bgra, kWidth, kHeight, kWidth * 4, 1'033'333);
+    {
+        std::scoped_lock lock(preview->mutex);
+        EXPECT_EQ(preview->frames, 1u);
+    }
+
+    session.set_local_preview_enabled(true);
+    ASSERT_TRUE(session.submit_bgra_frame(
+        bgra, kWidth, kHeight, kWidth * 4, 2'000'000));
+    {
+        std::unique_lock lock(preview->mutex);
+        EXPECT_TRUE(preview->changed.wait_for(
+            lock, 2s, [&] { return preview->frames == 2; }));
+    }
     session.close();
 }
 

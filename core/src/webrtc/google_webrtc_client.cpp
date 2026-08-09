@@ -418,11 +418,13 @@ struct GoogleWebRtcClient::Impl
     void start_screen_if_requested()
     {
         std::scoped_lock lifecycle_lock(screen_lifecycle_mutex);
+        bool local_preview = false;
         {
             std::scoped_lock lock(mutex);
             if (!screen_requested || screen_session || !transport.connected()) {
                 return;
             }
+            local_preview = local_preview_enabled;
         }
         if (!screen_playout->start()) {
             LOG_WARNING()
@@ -469,6 +471,12 @@ struct GoogleWebRtcClient::Impl
                     self->deliver_video(mid, frame);
                 }
             };
+        session_callbacks.on_local_video =
+            [weak](driscord::media::DecodedVideoFrameView frame) {
+                if (auto self = weak.lock()) {
+                    self->deliver_local_video(frame);
+                }
+            };
         session_callbacks.on_state =
             [weak, session_token, recovery_scheduled](
                 driscord::media::ScreenConnectionState state) {
@@ -491,6 +499,7 @@ struct GoogleWebRtcClient::Impl
                 .remote_stream_slots = stream_defaults::kScreenReceiveSlots,
                 .sharing_enabled = false,
                 .system_audio_enabled = false,
+                .local_preview_enabled = local_preview,
                 .max_video_bitrate_bps
                 = stream_defaults::kScreenVideoBitrateBps,
                 .max_system_audio_bitrate_bps = stream_defaults::kSystemAudioBitrateKbps * 1000,
@@ -550,6 +559,7 @@ struct GoogleWebRtcClient::Impl
         std::shared_ptr<driscord::media::GoogleWebRtcScreenSession> old;
         std::unique_ptr<SystemAudioCapture> old_capture;
         std::vector<std::string> removed_peers;
+        std::string removed_local_preview;
         {
             std::scoped_lock lock(mutex);
             old = std::move(screen_session);
@@ -565,6 +575,7 @@ struct GoogleWebRtcClient::Impl
             screen_audio_mids.clear();
             screen_stats.reset_session();
             sharing_active = false;
+            removed_local_preview = std::move(local_preview_peer_id);
         }
         if (old_capture) {
             old_capture->stop();
@@ -583,6 +594,9 @@ struct GoogleWebRtcClient::Impl
             for (const auto& peer : removed_peers) {
                 callbacks.on_frame_removed(peer);
             }
+            if (!removed_local_preview.empty()) {
+                callbacks.on_frame_removed(removed_local_preview);
+            }
         }
     }
 
@@ -599,6 +613,25 @@ struct GoogleWebRtcClient::Impl
                 return;
             }
             peer = binding->second;
+            on_frame = callbacks.on_frame;
+        }
+        if (on_frame) {
+            on_frame(peer, frame.rgba.data(), frame.width, frame.height);
+        }
+    }
+
+    void deliver_local_video(
+        driscord::media::DecodedVideoFrameView frame)
+    {
+        FrameCallback on_frame;
+        std::string peer;
+        {
+            std::scoped_lock lock(mutex);
+            if (!sharing_active || !local_preview_enabled
+                || local_preview_peer_id.empty()) {
+                return;
+            }
+            peer = local_preview_peer_id;
             on_frame = callbacks.on_frame;
         }
         if (on_frame) {
@@ -767,6 +800,8 @@ struct GoogleWebRtcClient::Impl
     bool voice_deafened = false;
     bool screen_requested = false;
     bool sharing_active = false;
+    bool local_preview_enabled = false;
+    std::string local_preview_peer_id;
     driscord::media::ScreenStatsTracker screen_stats;
 };
 
@@ -1090,6 +1125,7 @@ bool GoogleWebRtcClient::start_sharing(const std::string& target_json,
     }
     session->set_system_audio_enabled(share_audio);
 
+    const std::string local_peer_id = impl_->transport.local_id();
     bool retained = false;
     {
         std::scoped_lock lock(impl_->mutex);
@@ -1097,6 +1133,7 @@ bool GoogleWebRtcClient::start_sharing(const std::string& target_json,
             && impl_->screen_session == session) {
             impl_->system_audio_capture = std::move(capture);
             impl_->sharing_active = true;
+            impl_->local_preview_peer_id = local_peer_id;
             retained = true;
         }
     }
@@ -1119,12 +1156,14 @@ void GoogleWebRtcClient::stop_sharing()
     std::unique_ptr<SystemAudioCapture> capture;
     std::shared_ptr<driscord::media::GoogleWebRtcScreenSession> session;
     bool was_sharing = false;
+    std::string removed_local_preview;
     {
         std::scoped_lock lock(impl_->mutex);
         capture = std::move(impl_->system_audio_capture);
         session = impl_->screen_session;
         was_sharing = impl_->sharing_active;
         impl_->sharing_active = false;
+        removed_local_preview = std::move(impl_->local_preview_peer_id);
     }
     if (session) {
         session->set_system_audio_enabled(false);
@@ -1138,12 +1177,41 @@ void GoogleWebRtcClient::stop_sharing()
     if (was_sharing) {
         impl_->transport.send_streaming_stop();
     }
+    if (!removed_local_preview.empty()
+        && impl_->callbacks.on_frame_removed) {
+        impl_->callbacks.on_frame_removed(removed_local_preview);
+    }
 }
 
 bool GoogleWebRtcClient::sharing() const
 {
     std::scoped_lock lock(impl_->mutex);
     return impl_->sharing_active;
+}
+
+void GoogleWebRtcClient::set_local_preview_enabled(bool enabled)
+{
+    std::scoped_lock lifecycle_lock(impl_->screen_lifecycle_mutex);
+    std::shared_ptr<driscord::media::GoogleWebRtcScreenSession> session;
+    std::string removed_local_preview;
+    {
+        std::scoped_lock lock(impl_->mutex);
+        if (impl_->local_preview_enabled == enabled) {
+            return;
+        }
+        impl_->local_preview_enabled = enabled;
+        session = impl_->screen_session;
+        if (!enabled) {
+            removed_local_preview = impl_->local_preview_peer_id;
+        }
+    }
+    if (session) {
+        session->set_local_preview_enabled(enabled);
+    }
+    if (!removed_local_preview.empty()
+        && impl_->callbacks.on_frame_removed) {
+        impl_->callbacks.on_frame_removed(removed_local_preview);
+    }
 }
 
 void GoogleWebRtcClient::set_stream_volume(

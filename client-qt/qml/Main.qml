@@ -15,7 +15,16 @@ ApplicationWindow {
 
     property string authError: ""
 
-    Component.onCompleted: authManager.tryRestoreSession()
+    function syncLocalPreview() {
+        bridge.setLocalPreviewEnabled(root.active && root.visible)
+    }
+
+    Component.onCompleted: {
+        root.syncLocalPreview()
+        authManager.tryRestoreSession()
+    }
+    onActiveChanged: root.syncLocalPreview()
+    onVisibleChanged: root.syncLocalPreview()
 
     Connections {
         target: authManager

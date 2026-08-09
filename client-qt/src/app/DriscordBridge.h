@@ -54,6 +54,7 @@ public:
     Q_INVOKABLE void startSharing(const QString& targetJson, int maxW, int maxH, int fps, bool audio);
     Q_INVOKABLE void stopSharing();
     Q_INVOKABLE bool sharing() const;
+    Q_INVOKABLE void setLocalPreviewEnabled(bool enabled);
     Q_INVOKABLE bool videoWatching() const;
     Q_INVOKABLE void joinStream(const QString& peerId);
     Q_INVOKABLE void leaveStream(const QString& peerId);

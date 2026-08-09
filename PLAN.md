@@ -43,6 +43,11 @@ PeerConnection/MediaStream, чтобы RTCP sync работал внутри о�
   ложного объявления непроксируемых transport-cc/REMB).
 - [x] `screen` vertical slice: DesktopCapturer/VideoTrackSource, несколько video
   sinks и связанный system-audio track.
+- [x] Локальная screen-трансляция показывается автору обычной stream-плиткой
+  напрямую из исходного Google WebRTC track, без self-subscription и петли
+  через SFU. Preview sink подключён только пока окно Qt активно; при потере
+  фокуса RGBA-конвертация и загрузка кадров в UI прекращаются, но capture/RTP
+  отправка продолжаются.
 - [x] Screen SFU RTP routing: связанные audio/video slots, локальный NACK cache,
   PLI upstream, сохранение track identity и непрерывная RTP timeline при
   переназначении slot другому publisher.

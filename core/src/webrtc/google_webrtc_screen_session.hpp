@@ -37,6 +37,7 @@ struct ScreenSessionConfig {
     size_t remote_stream_slots = 4;
     bool sharing_enabled = false;
     bool system_audio_enabled = false;
+    bool local_preview_enabled = false;
     int max_video_bitrate_bps = 4'000'000;
     int max_system_audio_bitrate_bps = 128'000;
 };
@@ -81,6 +82,7 @@ struct ScreenSessionCallbacks {
         on_remote_track;
     std::function<void(std::string_view mid, DecodedVideoFrameView frame)>
         on_remote_video;
+    std::function<void(DecodedVideoFrameView frame)> on_local_video;
     std::function<void(std::string_view mid, DecodedAudioFrameView frame)>
         on_remote_audio;
     std::function<void(ScreenConnectionState)> on_state;
@@ -112,6 +114,7 @@ public:
 
     void set_sharing_enabled(bool enabled);
     void set_system_audio_enabled(bool enabled);
+    void set_local_preview_enabled(bool enabled);
     [[nodiscard]] bool sharing_enabled() const noexcept;
     [[nodiscard]] size_t remote_stream_slots() const noexcept;
     bool set_remote_audio_enabled(std::string_view mid, bool enabled);

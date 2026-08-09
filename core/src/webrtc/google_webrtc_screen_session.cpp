@@ -35,11 +35,13 @@ struct GoogleWebRtcScreenSession::Impl final
     webrtc::scoped_refptr<webrtc::AudioSourceInterface> audio_source;
     webrtc::scoped_refptr<webrtc::AudioTrackInterface> audio_track;
     std::shared_ptr<detail::RemoteScreenSinks> remote_sinks;
+    std::shared_ptr<detail::LocalVideoSink> local_preview_sink;
     bool started = false;
     bool start_attempted = false;
     bool close_requested = false;
     bool desired_sharing_enabled;
     bool desired_system_audio_enabled;
+    bool desired_local_preview_enabled;
 
     Impl(std::shared_ptr<GoogleWebRtcRuntime::Impl> runtime_value,
         ScreenSessionConfig config_value,
@@ -49,6 +51,7 @@ struct GoogleWebRtcScreenSession::Impl final
         , callbacks(std::move(callbacks_value))
         , desired_sharing_enabled(config.sharing_enabled)
         , desired_system_audio_enabled(config.system_audio_enabled)
+        , desired_local_preview_enabled(config.local_preview_enabled)
     {
     }
 
@@ -149,6 +152,22 @@ struct GoogleWebRtcScreenSession::Impl final
                 }
             },
             runtime->signaling_thread.get());
+        auto new_local_preview_sink
+            = std::make_shared<detail::LocalVideoSink>(
+                [weak](DecodedVideoFrameView frame) {
+                    if (auto self = weak.lock()) {
+                        {
+                            std::scoped_lock lock(self->mutex);
+                            if (!self->started
+                                || !self->desired_local_preview_enabled) {
+                                return;
+                            }
+                        }
+                        if (self->callbacks.on_local_video) {
+                            self->callbacks.on_local_video(frame);
+                        }
+                    }
+                });
         auto new_proxied_source = webrtc::CreateVideoTrackSourceProxy(
             runtime->signaling_thread.get(), runtime->worker_thread.get(),
             new_video_source.get());
@@ -162,6 +181,9 @@ struct GoogleWebRtcScreenSession::Impl final
         new_video_track->set_content_hint(
             webrtc::VideoTrackInterface::ContentHint::kDetailed);
         new_video_track->set_enabled(sharing_enabled);
+        if (config.local_preview_enabled && callbacks.on_local_video) {
+            (void)new_local_preview_sink->attach(new_video_track);
+        }
 
         webrtc::AudioOptions audio_options;
         audio_options.echo_cancellation = false;
@@ -235,6 +257,7 @@ struct GoogleWebRtcScreenSession::Impl final
                 audio_source = std::move(new_audio_source);
                 audio_track = std::move(new_audio_track);
                 remote_sinks = std::move(new_remote_sinks);
+                local_preview_sink = std::move(new_local_preview_sink);
                 started = true;
             }
         }
@@ -260,6 +283,7 @@ struct GoogleWebRtcScreenSession::Impl final
         webrtc::scoped_refptr<webrtc::PeerConnectionInterface> old_pc;
         webrtc::scoped_refptr<detail::DesktopVideoSource> old_source;
         std::shared_ptr<detail::RemoteScreenSinks> old_sinks;
+        std::shared_ptr<detail::LocalVideoSink> old_local_preview_sink;
         {
             std::scoped_lock lock(mutex);
             old_pc = std::move(pc);
@@ -269,6 +293,7 @@ struct GoogleWebRtcScreenSession::Impl final
             audio_track = nullptr;
             audio_source = nullptr;
             old_sinks = std::move(remote_sinks);
+            old_local_preview_sink = std::move(local_preview_sink);
             started = false;
             close_requested = true;
         }
@@ -277,6 +302,9 @@ struct GoogleWebRtcScreenSession::Impl final
         }
         if (old_sinks) {
             old_sinks->clear();
+        }
+        if (old_local_preview_sink) {
+            old_local_preview_sink->clear();
         }
         if (old_pc) {
             old_pc->Close();
@@ -432,6 +460,26 @@ struct GoogleWebRtcScreenSession::Impl final
         }
         if (track) {
             track->set_enabled(enabled);
+        }
+    }
+
+    void set_local_preview_enabled(bool enabled)
+    {
+        std::shared_ptr<detail::LocalVideoSink> sink;
+        webrtc::scoped_refptr<webrtc::VideoTrackInterface> track;
+        {
+            std::scoped_lock lock(mutex);
+            desired_local_preview_enabled = enabled;
+            sink = local_preview_sink;
+            track = video_track;
+        }
+        if (!sink) {
+            return;
+        }
+        if (enabled && callbacks.on_local_video) {
+            (void)sink->attach(std::move(track));
+        } else {
+            sink->clear();
         }
     }
 
@@ -643,6 +691,13 @@ void GoogleWebRtcScreenSession::set_system_audio_enabled(bool enabled)
 {
     if (impl_) {
         impl_->set_system_audio_enabled(enabled);
+    }
+}
+
+void GoogleWebRtcScreenSession::set_local_preview_enabled(bool enabled)
+{
+    if (impl_) {
+        impl_->set_local_preview_enabled(enabled);
     }
 }
 

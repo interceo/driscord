@@ -22,7 +22,8 @@ Rectangle {
             root.collapseExpanded()
             return
         }
-        if (kind === "stream" && !appState.isWatchingStream(peerId)) {
+        if (kind === "stream" && !isYou
+            && !appState.isWatchingStream(peerId)) {
             appState.joinStream(peerId)
         }
         root.expandedHasFrame  = false
@@ -60,7 +61,8 @@ Rectangle {
     }
 
     // Build a unified model: local user + remote peers + a separate tile for
-    // each streaming peer. Recomputed on connection/peer changes.
+    // each stream. The local preview uses the same tile/frame path as remote
+    // streams, but never creates a self-subscription through the SFU.
     function buildTiles() {
         var tiles = []
         if (appState.connectionState === "connected") {
@@ -87,8 +89,19 @@ Rectangle {
                     isYou: false
                 })
             }
+            var localId = bridge.localId()
+            if (appState.sharing && localId.length > 0) {
+                tiles.push({
+                    kind: "stream",
+                    id: localId,
+                    username: authManager.username,
+                    displayName: localDisplay,
+                    isYou: true
+                })
+            }
             for (var j = 0; j < appState.streamingPeers.length; j++) {
                 var sid = appState.streamingPeers[j]
+                if (sid === localId) continue
                 var sLabel = sid, sUsername = ""
                 for (var k = 0; k < appState.peers.length; k++) {
                     if (appState.peers[k].id === sid) {
@@ -99,7 +112,8 @@ Rectangle {
                     }
                 }
                 tiles.push({ kind: "stream", id: sid,
-                             username: sUsername, displayName: sLabel })
+                             username: sUsername, displayName: sLabel,
+                             isYou: false })
             }
         }
         return tiles
@@ -112,6 +126,7 @@ Rectangle {
         function onStreamingPeersChanged() { root.tiles = root.buildTiles() }
         function onConnectionChanged()     { root.tiles = root.buildTiles() }
         function onUserProfileChanged()    { root.tiles = root.buildTiles() }
+        function onSharingChanged()        { root.tiles = root.buildTiles() }
     }
 
     ColumnLayout {
@@ -160,9 +175,10 @@ Rectangle {
                     clip: true
 
                     readonly property bool isStream: modelData.kind === "stream"
-                    readonly property bool isYou:    modelData.kind === "peer" && modelData.isYou
+                    readonly property bool isYou:    modelData.isYou ?? false
                     readonly property bool watching: isStream
-                            && appState.watchedPeerIds.indexOf(modelData.id) !== -1
+                            && (isYou
+                                || appState.watchedPeerIds.indexOf(modelData.id) !== -1)
                     property bool hasFrame: false
                     onWatchingChanged: if (!watching) hasFrame = false
 
@@ -255,7 +271,7 @@ Rectangle {
 
                     StreamStatsOverlay {
                         anchors { top: parent.top; left: parent.left; margins: 6 }
-                        active: tile.isStream && tile.watching
+                        active: tile.isStream && tile.watching && !tile.isYou
                         compact: true
                         peerId: modelData.id
                     }
@@ -282,7 +298,7 @@ Rectangle {
                         onClicked: (mouse) => {
                             if (mouse.button === Qt.RightButton) {
                                 // Leave-stream confirm only for stream tiles the user is watching.
-                                if (tile.isStream && tile.watching) {
+                                if (tile.isStream && tile.watching && !tile.isYou) {
                                     leaveConfirm.peerId   = modelData.id
                                     leaveConfirm.peerName = modelData.displayName ?? modelData.username ?? ""
                                     leaveConfirm.open()
@@ -399,7 +415,7 @@ Rectangle {
                         color: "#000000aa"
                         Text {
                             anchors { left: parent.left; verticalCenter: parent.verticalCenter; leftMargin: 12 }
-                            text: expandedView.isPeer && root.expandedIsYou
+                            text: root.expandedIsYou
                                   ? (root.expandedPeerName + qsTr(" (you)"))
                                   : root.expandedPeerName
                             color: "white"; font.pixelSize: 14
@@ -424,7 +440,7 @@ Rectangle {
 
                     StreamStatsOverlay {
                         anchors { top: parent.top; left: parent.left; margins: 12 }
-                        active: expandedView.isStream
+                        active: expandedView.isStream && !root.expandedIsYou
                         compact: false
                         peerId: root.expandedPeerId
                     }
@@ -436,7 +452,7 @@ Rectangle {
                         cursorShape: Qt.PointingHandCursor
                         onClicked: (mouse) => {
                             if (mouse.button === Qt.RightButton) {
-                                if (expandedView.isStream) {
+                                if (expandedView.isStream && !root.expandedIsYou) {
                                     leaveConfirm.peerId   = root.expandedPeerId
                                     leaveConfirm.peerName = root.expandedPeerName
                                     leaveConfirm.open()
@@ -471,13 +487,13 @@ Rectangle {
                 Connections {
                     target: appState
                     function onWatchedStreamsChanged() {
-                        if (expandedView.isStream
+                        if (expandedView.isStream && !root.expandedIsYou
                             && !appState.isWatchingStream(root.expandedPeerId)) {
                             root.collapseExpanded()
                         }
                     }
                     function onStreamingPeersChanged() {
-                        if (!expandedView.isStream) return
+                        if (!expandedView.isStream || root.expandedIsYou) return
                         var still = false
                         for (var i = 0; i < appState.streamingPeers.length; i++) {
                             if (appState.streamingPeers[i] === root.expandedPeerId) {
@@ -485,6 +501,12 @@ Rectangle {
                             }
                         }
                         if (!still) root.collapseExpanded()
+                    }
+                    function onSharingChanged() {
+                        if (expandedView.isStream && root.expandedIsYou
+                            && !appState.sharing) {
+                            root.collapseExpanded()
+                        }
                     }
                     function onPeersChanged() {
                         if (!expandedView.isPeer) return
