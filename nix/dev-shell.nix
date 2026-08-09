@@ -5,6 +5,7 @@ let
 in
 pkgs.mkShell {
   packages = with pkgs; [
+    alsa-lib
     boost
     ccache
     clang
@@ -54,6 +55,9 @@ pkgs.mkShell {
     export QML2_IMPORT_PATH="$QML_IMPORT_PATH"
     export PKG_CONFIG_PATH="${pkgs.openssl.dev}/lib/pkgconfig:${pkgs.libpulseaudio}/lib/pkgconfig:$PKG_CONFIG_PATH"
     export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [
+      # WebRTC's Linux audio backends are dlopen'd, not linked, so libasound
+      # and libpulse have to be resolvable at runtime rather than at link time.
+      pkgs.alsa-lib
       pkgs.gnutls
       pkgs.libpulseaudio
       pkgs.nss
@@ -62,8 +66,17 @@ pkgs.mkShell {
       pkgs.qt6.qt5compat
       pkgs.qt6.qtdeclarative
       pkgs.qt6.qtsvg
+      # WebRTC's DesktopCapturer pulls in the X11 extensions, and the archive
+      # is built against the process libstdc++ rather than a custom libc++.
+      pkgs.stdenv.cc.cc.lib
+      pkgs.libglvnd
       pkgs.libx11
+      pkgs.libxcomposite
+      pkgs.libxdamage
+      pkgs.libxext
+      pkgs.libxfixes
       pkgs.libxrandr
+      pkgs.libxtst
     ]}:$LD_LIBRARY_PATH"
   '';
 }

@@ -54,14 +54,24 @@ find_package(Threads REQUIRED)
 find_package(X11 REQUIRED)
 find_program(DRISCORD_LLD_LINKER ld.lld REQUIRED)
 
+# WebRTC's public headers include Abseil as "absl/..." and libyuv as
+# "libyuv/...", which the GN build resolves through its own -I flags on those
+# third_party directories. Consumers of the archive get no such flags, so the
+# same directories have to travel with the imported target.
+set(_driscord_webrtc_include_dirs
+    "${DRISCORD_WEBRTC_SOURCE_DIR}"
+    "${DRISCORD_WEBRTC_SOURCE_DIR}/third_party/abseil-cpp"
+    "${DRISCORD_WEBRTC_SOURCE_DIR}/third_party/libyuv/include"
+    "${DRISCORD_WEBRTC_OUT_DIR}/gen")
+
 add_library(driscord_google_webrtc STATIC IMPORTED GLOBAL)
 add_library(driscord::google_webrtc ALIAS driscord_google_webrtc)
 set_target_properties(driscord_google_webrtc PROPERTIES
     IMPORTED_LOCATION "${_driscord_webrtc_archive}"
     INTERFACE_INCLUDE_DIRECTORIES
-        "${DRISCORD_WEBRTC_SOURCE_DIR};${DRISCORD_WEBRTC_OUT_DIR}/gen"
+        "${_driscord_webrtc_include_dirs}"
     INTERFACE_SYSTEM_INCLUDE_DIRECTORIES
-        "${DRISCORD_WEBRTC_SOURCE_DIR};${DRISCORD_WEBRTC_OUT_DIR}/gen"
+        "${_driscord_webrtc_include_dirs}"
     # These definitions are part of the public header ABI, not merely build
     # switches. In particular DesktopCaptureOptions conditionally contains an
     # x_display_ member; omitting WEBRTC_USE_X11 in consumers makes its

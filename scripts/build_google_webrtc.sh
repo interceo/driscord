@@ -18,6 +18,10 @@ CHECKOUT_ROOT="${DRISCORD_WEBRTC_CHECKOUT_ROOT:-$PROJECT_ROOT/.cache/google-webr
 SOURCE_DIR="$CHECKOUT_ROOT/src"
 OUT_DIR="${DRISCORD_WEBRTC_OUT_DIR:-$SOURCE_DIR/out/driscord-release}"
 SDK_ROOT="${DRISCORD_WEBRTC_SDK_ROOT:-$PROJECT_ROOT/.cache/google-webrtc-sdk}"
+# gclient defaults to max(8, nproc) concurrent clones. On a many-core machine
+# that reliably trips googlesource's anonymous rate limit (HTTP 429,
+# "shared_anonymous") partway through a first sync.
+GCLIENT_JOBS="${DRISCORD_GCLIENT_JOBS:-8}"
 
 if [ ! -x "$DEPOT_TOOLS_DIR/gclient" ]; then
     echo "==> Fetching depot_tools..."
@@ -73,7 +77,8 @@ echo "==> Syncing Google WebRTC at $REVISION..."
     cd "$CHECKOUT_ROOT"
     # WebRTC's unconditional resource hook downloads gigabytes of test media.
     # Production //:webrtc with rtc_include_tests=false does not consume it.
-    "$DEPOT_TOOLS_DIR/gclient" sync --nohooks --revision "src@$REVISION"
+    "$DEPOT_TOOLS_DIR/gclient" sync --nohooks --revision "src@$REVISION" \
+        -j"$GCLIENT_JOBS"
 )
 
 ACTUAL_REVISION="$(git -C "$SOURCE_DIR" rev-parse HEAD)"

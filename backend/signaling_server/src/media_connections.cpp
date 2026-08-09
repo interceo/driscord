@@ -83,6 +83,13 @@ struct MediaConnections::Impl : std::enable_shared_from_this<Impl> {
                 if (!self || !owner || !self->owns(connection, owner)) {
                     return;
                 }
+                // Whether the SFU offers a candidate a remote client can
+                // actually reach is the difference between working media and
+                // a connection that fails ~15s after signalling succeeds, so
+                // the gathered addresses are worth having in the log.
+                LOG_INFO() << "local candidate ("
+                           << signaling::to_string(connection)
+                           << "): " << std::string(candidate);
                 self->send_signal(signaling::dump(signaling::Candidate {
                     std::string(candidate), candidate.mid(), connection }));
             });

@@ -482,10 +482,7 @@ WebSocketServer::WebSocketServer(boost::asio::io_context& io_context,
     , acceptor_(io_context_, tcp::endpoint(tcp::v4(), port))
     , fault_config_(fault_config)
 {
-    // The public server currently advertises host candidates only. This is
-    // sufficient while clients can send UDP to the SFU; restricted networks
-    // still need a future TURN/TCP/TLS fallback. Pinning the UDP range keeps
-    // firewall/Docker port-forwarding tractable.
+    // Pinning the UDP range keeps firewall/Docker port-forwarding tractable.
     auto env_port = [](const char* name, uint16_t fallback) -> uint16_t {
         if (const char* v = std::getenv(name)) {
             try {
@@ -501,6 +498,52 @@ WebSocketServer::WebSocketServer(boost::asio::io_context& io_context,
     rtc_config_.portRangeEnd = env_port("DRISCORD_ICE_PORT_MAX", 49200);
     LOG_INFO() << "ICE UDP port range: " << rtc_config_.portRangeBegin << "-"
                << rtc_config_.portRangeEnd;
+
+    // Host candidates carry whatever address the SFU's own interfaces have.
+    // Under Docker bridge networking that is the container address and behind
+    // a home router it is a LAN address, neither of which a remote client can
+    // reach, so host candidates alone only work when a public address sits
+    // directly on the interface. STUN is what lets the SFU learn its
+    // server-reflexive candidate; TURN URLs are accepted here as well.
+    //
+    // Set DRISCORD_ICE_STUN_URLS to a private STUN/TURN deployment to avoid
+    // the public default, or to "none" to advertise host candidates only.
+    rtc_config_.iceServers = [] {
+        std::vector<rtc::IceServer> servers;
+        const char* raw = std::getenv("DRISCORD_ICE_STUN_URLS");
+        const std::string value(
+            raw != nullptr ? raw : "stun:stun.l.google.com:19302");
+        if (value == "none") {
+            return servers;
+        }
+        std::istringstream stream(value);
+        std::string url;
+        while (std::getline(stream, url, ',')) {
+            const auto begin = url.find_first_not_of(" \t");
+            if (begin == std::string::npos) {
+                continue;
+            }
+            url = url.substr(begin, url.find_last_not_of(" \t") - begin + 1);
+            try {
+                servers.emplace_back(url);
+            } catch (const std::exception& error) {
+                LOG_WARNING() << "Ignoring ICE server '" << url
+                              << "': " << error.what();
+            }
+        }
+        return servers;
+    }();
+
+    if (rtc_config_.iceServers.empty()) {
+        LOG_WARNING() << "No ICE servers configured; clients can only reach "
+                         "the SFU if a publicly routable address sits on its "
+                         "own interface";
+    } else {
+        for (const auto& server : rtc_config_.iceServers) {
+            LOG_INFO() << "ICE server: " << server.hostname << ":"
+                       << server.port;
+        }
+    }
 }
 
 void WebSocketServer::run()

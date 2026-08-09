@@ -42,13 +42,34 @@ done
 TYPE_LOWER="${BUILD_TYPE,,}"
 JOBS="$(nproc 2>/dev/null || echo 4)"
 
+# Anything linking driscord_core needs the pinned artifact, which on NixOS is
+# produced by scripts/nixos-webrtc.sh rather than scripts/build_google_webrtc.sh
+# directly.
+require_webrtc() {
+    if [ ! -f "$ROOT/.cache/google-webrtc-sdk/src/api/peer_connection_interface.h" ] \
+        && [ ! -f "$ROOT/.cache/google-webrtc/src/api/peer_connection_interface.h" ]; then
+        echo "ERROR: pinned Google WebRTC is missing." >&2
+        echo "       Run scripts/nixos-webrtc.sh first." >&2
+        exit 1
+    fi
+}
+
 configure() {
     local build_dir="$1"
     shift
-    if [ ! -f "$build_dir/CMakeCache.txt" ]; then
+    # A configure that died part way through (a missing WebRTC artifact, say)
+    # still leaves CMakeCache.txt behind but no generator output, so keying off
+    # the cache alone would skip straight to a build that cannot start.
+    if [ ! -f "$build_dir/build.ninja" ]; then
+        # CMake turns on C++20 module scanning for every C++20 target, but
+        # clang-scan-deps does not execute the nixpkgs cc wrapper: it takes the
+        # compiler path and drives its own clang, losing the wrapper's injected
+        # system include paths. Nothing here uses modules, so scanning is only
+        # a way to fail on 'stdio.h' file not found.
         cmake -S "$ROOT" -B "$build_dir" -G Ninja \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_CXX_SCAN_FOR_MODULES=OFF \
             -DCMAKE_BUILD_TYPE="$BUILD_TYPE" -Wno-dev "$@"
     fi
 }
@@ -78,6 +99,7 @@ if [ "$TARGET" = "server" ] && [ "$ACTION" = "build" ]; then
 fi
 
 if [ "$ACTION" = "test" ]; then
+    require_webrtc
     BUILD_DIR="$BUILDS_DIR/cmake/google-webrtc-test-$TYPE_LOWER"
     configure "$BUILD_DIR" -DBUILD_CORE=ON -DBUILD_SERVER=ON \
         -DBUILD_TESTS=ON -DBUILD_QT_CLIENT=OFF
@@ -92,6 +114,7 @@ if [ "$ACTION" = "test" ]; then
     exit 0
 fi
 
+require_webrtc
 BUILD_DIR="$BUILDS_DIR/cmake/qt-webrtc-$TYPE_LOWER"
 configure "$BUILD_DIR" -DBUILD_CORE=ON -DBUILD_SERVER=OFF \
     -DBUILD_TESTS=OFF -DBUILD_QT_CLIENT=ON
