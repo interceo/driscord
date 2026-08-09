@@ -38,6 +38,16 @@ struct CaptureSelection {
     int64_t id;
 };
 
+// Everything needed to start the same capture again after the screen session
+// is recreated.
+struct SharingRequest {
+    CaptureSelection selection;
+    int max_width = 0;
+    int max_height = 0;
+    int fps = 0;
+    bool share_audio = false;
+};
+
 std::optional<CaptureSelection> parse_capture_selection(
     const std::string& target_json)
 {
@@ -90,6 +100,8 @@ struct GoogleWebRtcClient::Impl
         , callbacks(std::move(callbacks_value))
         , screen_playout(std::make_shared<GoogleWebRtcPcmPlayout>())
         , voice_runtime(driscord::media::GoogleWebRtcRuntimeConfig {
+              // Voice uses the real audio device; only screen injects PCM.
+              .injected_audio_device = std::nullopt,
               .ice_servers = ice_servers,
           })
         , screen_runtime(driscord::media::GoogleWebRtcRuntimeConfig {
@@ -191,6 +203,7 @@ struct GoogleWebRtcClient::Impl
     void recover_screen_session(const std::shared_ptr<int>& token)
     {
         bool was_sharing = false;
+        std::optional<SharingRequest> request;
         {
             std::scoped_lock lock(mutex);
             if (!screen_requested || screen_session_token != token
@@ -198,14 +211,23 @@ struct GoogleWebRtcClient::Impl
                 return;
             }
             was_sharing = sharing_active;
+            request = sharing_request;
         }
         LOG_WARNING() << "Google WebRTC screen connection failed; "
                          "recreating PeerConnection";
+        // Viewers re-subscribe on the stop/start pair, so the announcement
+        // still brackets the rebuilt session rather than spanning it.
         if (was_sharing) {
             transport.send_streaming_stop();
         }
         stop_screen_session();
         start_screen_if_requested();
+        if (was_sharing && request && !apply_sharing(*request)) {
+            LOG_ERROR() << "Google WebRTC screen capture could not be resumed "
+                           "after recovery; the stream stays stopped";
+            std::scoped_lock lock(mutex);
+            sharing_request.reset();
+        }
     }
 
     static void schedule_recovery(std::function<void()> task) noexcept
@@ -419,6 +441,69 @@ struct GoogleWebRtcClient::Impl
             return;
         }
         apply(std::move(updates));
+    }
+
+    // Starts the capture described by `request` against whatever screen session
+    // exists now. Shared by the user-initiated path and by recovery, so a
+    // recreated PeerConnection resumes the same stream.
+    [[nodiscard]] bool apply_sharing(const SharingRequest& request)
+    {
+        std::scoped_lock sharing_lock(sharing_mutex);
+        std::shared_ptr<driscord::media::GoogleWebRtcScreenSession> session;
+        {
+            std::scoped_lock lock(mutex);
+            if (sharing_active || !screen_requested || !screen_session) {
+                return false;
+            }
+            session = screen_session;
+        }
+        if (!session->start_desktop_capture(request.selection.kind,
+                request.selection.id, request.fps, request.max_width,
+                request.max_height)) {
+            return false;
+        }
+
+        std::unique_ptr<SystemAudioCapture> capture;
+        if (request.share_audio) {
+            capture = SystemAudioCapture::create();
+            const std::weak_ptr<Impl> weak = weak_from_this();
+            if (!capture
+                || !capture->start([weak](const float* samples, size_t frames,
+                                       int channels) {
+                       if (auto self = weak.lock()) {
+                           self->submit_system_audio(samples, frames, channels);
+                       }
+                   })) {
+                session->stop_desktop_capture();
+                session->set_sharing_enabled(false);
+                return false;
+            }
+        }
+        session->set_system_audio_enabled(request.share_audio);
+
+        const std::string local_peer_id = transport.local_id();
+        bool retained = false;
+        {
+            std::scoped_lock lock(mutex);
+            if (screen_requested && !sharing_active
+                && screen_session == session) {
+                system_audio_capture = std::move(capture);
+                sharing_active = true;
+                local_preview_peer_id = local_peer_id;
+                retained = true;
+            }
+        }
+        if (!retained) {
+            if (capture) {
+                capture->stop();
+            }
+            session->set_system_audio_enabled(false);
+            session->set_sharing_enabled(false);
+            session->stop_desktop_capture();
+            return false;
+        }
+        transport.send_streaming_start();
+        return true;
     }
 
     void apply_selected_audio_devices()
@@ -840,6 +925,11 @@ struct GoogleWebRtcClient::Impl
     bool voice_deafened = false;
     bool screen_requested = false;
     bool sharing_active = false;
+    // What the user asked to share, kept for as long as they want to share it.
+    // sharing_active only says whether a capture is running right now, so it is
+    // lost whenever the screen session is torn down; without this the stream
+    // would end permanently on the first transient PeerConnection failure.
+    std::optional<SharingRequest> sharing_request;
     bool local_preview_enabled = false;
     std::string local_preview_peer_id;
     driscord::media::ScreenStatsTracker screen_stats;
@@ -1169,60 +1259,18 @@ bool GoogleWebRtcClient::start_sharing(const std::string& target_json,
     if (!selection) {
         return false;
     }
-
-    std::scoped_lock sharing_lock(impl_->sharing_mutex);
-    std::shared_ptr<driscord::media::GoogleWebRtcScreenSession> session;
-    {
-        std::scoped_lock lock(impl_->mutex);
-        if (impl_->sharing_active || !impl_->screen_requested
-            || !impl_->screen_session) {
-            return false;
-        }
-        session = impl_->screen_session;
-    }
-    if (!session->start_desktop_capture(selection->kind,
-            selection->id, fps, max_width, max_height)) {
+    const SharingRequest request {
+        .selection = *selection,
+        .max_width = max_width,
+        .max_height = max_height,
+        .fps = fps,
+        .share_audio = share_audio,
+    };
+    if (!impl_->apply_sharing(request)) {
         return false;
     }
-
-    std::unique_ptr<SystemAudioCapture> capture;
-    if (share_audio) {
-        capture = SystemAudioCapture::create();
-        const std::weak_ptr<Impl> weak = impl_;
-        if (!capture || !capture->start([weak](const float* samples, size_t frames, int channels) {
-                if (auto self = weak.lock()) {
-                    self->submit_system_audio(samples, frames, channels);
-                }
-            })) {
-            session->stop_desktop_capture();
-            session->set_sharing_enabled(false);
-            return false;
-        }
-    }
-    session->set_system_audio_enabled(share_audio);
-
-    const std::string local_peer_id = impl_->transport.local_id();
-    bool retained = false;
-    {
-        std::scoped_lock lock(impl_->mutex);
-        if (impl_->screen_requested && !impl_->sharing_active
-            && impl_->screen_session == session) {
-            impl_->system_audio_capture = std::move(capture);
-            impl_->sharing_active = true;
-            impl_->local_preview_peer_id = local_peer_id;
-            retained = true;
-        }
-    }
-    if (!retained) {
-        if (capture) {
-            capture->stop();
-        }
-        session->set_system_audio_enabled(false);
-        session->set_sharing_enabled(false);
-        session->stop_desktop_capture();
-        return false;
-    }
-    impl_->transport.send_streaming_start();
+    std::scoped_lock lock(impl_->mutex);
+    impl_->sharing_request = request;
     return true;
 }
 
@@ -1239,6 +1287,9 @@ void GoogleWebRtcClient::stop_sharing()
         session = impl_->screen_session;
         was_sharing = impl_->sharing_active;
         impl_->sharing_active = false;
+        // Clearing the intent as well, so recovery does not resurrect a stream
+        // the user has stopped.
+        impl_->sharing_request.reset();
         removed_local_preview = std::move(impl_->local_preview_peer_id);
     }
     if (session) {
