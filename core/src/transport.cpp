@@ -82,11 +82,19 @@ utils::Expected<void, TransportError> Transport::connect(
             return;
         }
         const bool was_connected = ws_connected_.exchange(false);
+        {
+            std::scoped_lock lock(ws_mutex_);
+            if (ws_ == socket) {
+                ws_.reset();
+                local_id_.value.clear();
+            }
+        }
         update_state(TransportConnectionState::Disconnected);
         if (!was_connected) {
             return;
         }
         LOG_INFO() << "ws disconnected";
+        clear_peers();
         for (const auto& listener : connection_listeners_) {
             if (listener) {
                 listener(false);
@@ -135,14 +143,7 @@ void Transport::disconnect()
         ws = std::move(ws_);
         local_id_.value.clear();
     }
-    {
-        std::scoped_lock lock(peers_mutex_);
-        peers_.clear();
-    }
-    {
-        std::scoped_lock lock(identity_mutex_);
-        peer_usernames_.clear();
-    }
+    clear_peers();
     if (ws) {
         ws->close();
     }
@@ -225,6 +226,18 @@ void Transport::update_state(TransportConnectionState state)
     stats_.state = state;
 }
 
+void Transport::clear_peers()
+{
+    {
+        std::scoped_lock lock(peers_mutex_);
+        peers_.clear();
+    }
+    {
+        std::scoped_lock lock(identity_mutex_);
+        peer_usernames_.clear();
+    }
+}
+
 bool Transport::is_current_socket(
     const std::shared_ptr<rtc::WebSocket>& socket) const
 {
@@ -256,7 +269,7 @@ std::vector<Transport::PeerInfo> Transport::peers() const
     std::vector<PeerInfo> result;
     result.reserve(peers_.size());
     for (const auto& peer : peers_) {
-        result.push_back({ peer.value, ws_connected_ });
+        result.push_back({ peer.value });
     }
     return result;
 }

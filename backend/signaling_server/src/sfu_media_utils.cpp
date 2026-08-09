@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <stdexcept>
 #include <string>
 #include <unordered_set>
 
@@ -27,6 +28,26 @@ namespace {
             "red", "rtx", "ulpfec", "flexfec-03"
         };
         return auxiliary.contains(format);
+    }
+
+    rtc::Description::Media::RtpMap* try_rtp_map(
+        rtc::Description::Media& description, int payload_type) noexcept
+    {
+        try {
+            return description.rtpMap(payload_type);
+        } catch (const std::invalid_argument&) {
+            return nullptr;
+        }
+    }
+
+    const rtc::Description::Media::RtpMap* try_rtp_map(
+        const rtc::Description::Media& description, int payload_type) noexcept
+    {
+        try {
+            return description.rtpMap(payload_type);
+        } catch (const std::invalid_argument&) {
+            return nullptr;
+        }
     }
 
 } // namespace
@@ -67,7 +88,7 @@ RtpFaultResult apply_rtp_faults(const RtpFaultConfig& config,
 void apply_forwarding_feedback_policy(rtc::Description::Media& description)
 {
     for (const int payload_type : description.payloadTypes()) {
-        if (auto* mapping = description.rtpMap(payload_type)) {
+        if (auto* mapping = try_rtp_map(description, payload_type)) {
             mapping->removeFeedback("transport-cc");
             mapping->removeFeedback("goog-remb");
         }
@@ -115,7 +136,7 @@ RtpFormat primary_rtp_format(const rtc::Description::Media& description,
     std::string_view media_type) noexcept
 {
     for (const int payload_type : description.payloadTypes()) {
-        const auto* mapping = description.rtpMap(payload_type);
+        const auto* mapping = try_rtp_map(description, payload_type);
         if (!mapping || payload_type < 0 || payload_type > 127) {
             continue;
         }

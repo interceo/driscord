@@ -101,12 +101,19 @@ TEST_F(RoomIsolationTest, DifferentRooms_PeerLeftNotBroadcastCrossRoom)
     ASSERT_TRUE(a.joined.wait_for_count(1, kDefaultTimeout));
     ASSERT_TRUE(b.joined.wait_for_count(1, kDefaultTimeout));
 
+    b.transport->send_streaming_start();
+    ASSERT_TRUE(a.streaming_started.wait_for_count(1, kDefaultTimeout));
+
     // Save b's id before disconnecting (disconnect() clears local_id).
     const std::string b_id = b.id();
     b.transport->disconnect();
 
+    EXPECT_TRUE(b.transport->peers().empty());
+
     ASSERT_TRUE(a.left.wait_for_count(1, kDefaultTimeout));
     EXPECT_EQ(a.left.snapshot().front(), b_id);
+    ASSERT_TRUE(a.streaming_stopped.wait_for_count(1, kDefaultTimeout));
+    EXPECT_EQ(a.streaming_stopped.snapshot().front(), b_id);
 
     // c must not receive any peer_left.
     EXPECT_FALSE(c.left.wait_for_count(1, kNegativeTimeout));

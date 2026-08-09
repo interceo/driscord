@@ -126,7 +126,8 @@ bool rewrite_rtp_for_slot(rtc::binary& packet,
     }
 
     const bool has_extension = (byte_at(packet, 0) & 0x10) != 0;
-    if (publisher_mid_extension_id && has_extension) {
+    size_t payload_begin = header_size;
+    if (has_extension) {
         if (header_size + 4 > packet.size()) {
             return false;
         }
@@ -138,17 +139,35 @@ bool rewrite_rtp_for_slot(rtc::binary& packet,
             return false;
         }
         const size_t body_end = body_begin + extension_size;
-        bool valid = true;
-        if (profile == 0xbede) {
-            valid = clear_one_byte_mid(packet, body_begin, body_end,
-                *publisher_mid_extension_id);
-        } else if ((profile & 0xfff0) == 0x1000) {
-            valid = clear_two_byte_mid(packet, body_begin, body_end,
-                *publisher_mid_extension_id);
+        payload_begin = body_end;
+        if (publisher_mid_extension_id) {
+            bool valid = true;
+            if (profile == 0xbede) {
+                valid = clear_one_byte_mid(packet, body_begin, body_end,
+                    *publisher_mid_extension_id);
+            } else if ((profile & 0xfff0) == 0x1000) {
+                valid = clear_two_byte_mid(packet, body_begin, body_end,
+                    *publisher_mid_extension_id);
+            }
+            if (!valid) {
+                return false;
+            }
         }
-        if (!valid) {
+    }
+
+    // libdatachannel's RtcpSrReporter asserts on padded RTP. Strip valid
+    // padding before the packet reaches its media-handler chain while keeping
+    // the RTP packet (and therefore sequence continuity) intact.
+    if ((byte_at(packet, 0) & 0x20) != 0) {
+        if (packet.size() <= payload_begin) {
             return false;
         }
+        const size_t padding_size = byte_at(packet, packet.size() - 1);
+        if (padding_size == 0 || padding_size > packet.size() - payload_begin) {
+            return false;
+        }
+        packet.resize(packet.size() - padding_size);
+        packet[0] = std::byte { static_cast<uint8_t>(byte_at(packet, 0) & ~0x20) };
     }
 
     set_network_u32(packet, 8, output_ssrc);

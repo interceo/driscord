@@ -18,6 +18,10 @@
 #include <thread>
 #include <vector>
 
+namespace webrtc {
+class Thread;
+}
+
 namespace driscord::media::detail {
 
 // The only state here belongs to the native source contract: frame adaptation
@@ -99,7 +103,8 @@ public:
     using AudioCallback = std::function<void(
         std::string_view mid, DecodedAudioFrameView frame)>;
 
-    RemoteScreenSinks(VideoCallback on_video, AudioCallback on_audio);
+    RemoteScreenSinks(VideoCallback on_video, AudioCallback on_audio,
+        webrtc::Thread* signaling_thread);
     ~RemoteScreenSinks();
 
     RemoteScreenSinks(const RemoteScreenSinks&) = delete;
@@ -126,6 +131,7 @@ private:
 
     const VideoCallback on_video_;
     const AudioCallback on_audio_;
+    webrtc::Thread* const signaling_thread_;
     std::mutex sinks_mutex_;
     std::vector<VideoBinding> video_;
     std::vector<AudioBinding> audio_;

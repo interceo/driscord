@@ -9,6 +9,7 @@
 #include "libyuv/scale_argb.h"
 #include "modules/desktop_capture/desktop_capture_options.h"
 #include "modules/desktop_capture/desktop_frame.h"
+#include "rtc_base/thread.h"
 #include "rtc_base/time_utils.h"
 
 #include <algorithm>
@@ -403,9 +404,11 @@ void DecodedVideoSink::OnFrame(const webrtc::VideoFrame& frame)
 }
 
 RemoteScreenSinks::RemoteScreenSinks(
-    VideoCallback on_video, AudioCallback on_audio)
+    VideoCallback on_video, AudioCallback on_audio,
+    webrtc::Thread* signaling_thread)
     : on_video_(std::move(on_video))
     , on_audio_(std::move(on_audio))
+    , signaling_thread_(signaling_thread)
 {
 }
 
@@ -502,10 +505,16 @@ bool RemoteScreenSinks::attach_audio(std::string mid,
 bool RemoteScreenSinks::set_audio_enabled(
     std::string_view mid, bool enabled)
 {
-    std::scoped_lock lock(sinks_mutex_);
-    const auto it = std::find_if(audio_.begin(), audio_.end(),
-        [mid](const AudioBinding& binding) { return binding.mid == mid; });
-    return it != audio_.end() && it->track && it->track->set_enabled(enabled);
+    webrtc::scoped_refptr<webrtc::AudioTrackInterface> track;
+    {
+        std::scoped_lock lock(sinks_mutex_);
+        const auto it = std::find_if(audio_.begin(), audio_.end(),
+            [mid](const AudioBinding& binding) { return binding.mid == mid; });
+        if (it != audio_.end()) {
+            track = it->track;
+        }
+    }
+    return track && track->set_enabled(enabled);
 }
 
 bool RemoteScreenSinks::set_audio_volume(
@@ -514,14 +523,26 @@ bool RemoteScreenSinks::set_audio_volume(
     if (!std::isfinite(volume) || volume < 0.0 || volume > 10.0) {
         return false;
     }
-    std::scoped_lock lock(sinks_mutex_);
-    const auto it = std::find_if(audio_.begin(), audio_.end(),
-        [mid](const AudioBinding& binding) { return binding.mid == mid; });
-    if (it == audio_.end() || !it->track || !it->track->GetSource()) {
+    webrtc::scoped_refptr<webrtc::AudioTrackInterface> track;
+    {
+        std::scoped_lock lock(sinks_mutex_);
+        const auto it = std::find_if(audio_.begin(), audio_.end(),
+            [mid](const AudioBinding& binding) { return binding.mid == mid; });
+        if (it != audio_.end()) {
+            track = it->track;
+        }
+    }
+    if (!track || !signaling_thread_) {
         return false;
     }
-    it->track->GetSource()->SetVolume(volume);
-    return true;
+    return signaling_thread_->BlockingCall([track = std::move(track), volume] {
+        auto source = track->GetSource();
+        if (!source) {
+            return false;
+        }
+        source->SetVolume(volume);
+        return true;
+    });
 }
 
 void RemoteScreenSinks::clear() noexcept

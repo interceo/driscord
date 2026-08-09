@@ -163,6 +163,99 @@ TEST(RtpHeaderRewrite, RejectsMalformedAndRtcpPackets)
         rtcp, 0x11223344, std::nullopt));
 }
 
+TEST(RtpHeaderRewrite, StripsValidPaddingBeforeMediaHandlers)
+{
+    auto packet = bytes({
+        0xa0,
+        111,
+        0,
+        1,
+        0,
+        0,
+        0,
+        2,
+        0xaa,
+        0xbb,
+        0xcc,
+        0xdd,
+        0x42,
+        0,
+        2,
+    });
+
+    ASSERT_TRUE(driscord::sfu::rewrite_rtp_for_slot(
+        packet, 0x11223344, std::nullopt));
+    ASSERT_EQ(packet.size(), 13u);
+    EXPECT_EQ(value(packet, 0), 0x80);
+    EXPECT_EQ(value(packet, 12), 0x42);
+    EXPECT_EQ(value32(packet, 8), 0x11223344u);
+}
+
+TEST(RtpHeaderRewrite, RejectsInvalidPadding)
+{
+    auto zero_padding = bytes({
+        0xa0,
+        111,
+        0,
+        1,
+        0,
+        0,
+        0,
+        2,
+        0xaa,
+        0xbb,
+        0xcc,
+        0xdd,
+        0,
+    });
+    EXPECT_FALSE(driscord::sfu::rewrite_rtp_for_slot(
+        zero_padding, 0x11223344, std::nullopt));
+
+    auto oversized_padding = bytes({
+        0xa0,
+        111,
+        0,
+        1,
+        0,
+        0,
+        0,
+        2,
+        0xaa,
+        0xbb,
+        0xcc,
+        0xdd,
+        2,
+    });
+    EXPECT_FALSE(driscord::sfu::rewrite_rtp_for_slot(
+        oversized_padding, 0x11223344, std::nullopt));
+}
+
+TEST(SfuMediaUtils, IgnoresPayloadTypesWithoutRtpMap)
+{
+    rtc::Description::Media audio(
+        "audio 9 UDP/TLS/RTP/SAVPF 0 111", "voice");
+    audio.addRtpMap(
+        rtc::Description::Media::RtpMap("111 opus/48000/2"));
+
+    EXPECT_NO_THROW(
+        driscord::sfu::apply_forwarding_feedback_policy(audio));
+    const auto format = driscord::sfu::primary_rtp_format(audio, "audio");
+    EXPECT_EQ(format.payload_type, 111);
+    EXPECT_EQ(format.clock_rate, 48'000u);
+}
+
+TEST(SfuMediaUtils, FallsBackWhenAllPayloadTypesAreUnmapped)
+{
+    rtc::Description::Media audio(
+        "audio 9 UDP/TLS/RTP/SAVPF 0", "voice");
+
+    EXPECT_NO_THROW(
+        driscord::sfu::apply_forwarding_feedback_policy(audio));
+    const auto format = driscord::sfu::primary_rtp_format(audio, "audio");
+    EXPECT_EQ(format.payload_type, 111);
+    EXPECT_EQ(format.clock_rate, 48'000u);
+}
+
 TEST(RtpSlotRewriter, KeepsTimelineContinuousAcrossPublisherSwitch)
 {
     driscord::sfu::RtpSlotRewriter rewriter(48'000, 960);

@@ -94,13 +94,21 @@ struct MediaConnections::Impl : std::enable_shared_from_this<Impl> {
             }
             self->register_track(connection, owner, std::move(track));
         });
-        pc->onStateChange([weak, connection](rtc::PeerConnection::State state) {
-            if (auto self = weak.lock()) {
+        pc->onStateChange(
+            [weak, weak_pc, connection](rtc::PeerConnection::State state) {
+                auto self = weak.lock();
+                auto owner = weak_pc.lock();
+                if (!self || !owner) {
+                    return;
+                }
                 LOG_INFO() << "session " << self->peer_id.value << " "
                            << signaling::to_string(connection) << " pc state: "
                            << static_cast<int>(state);
-            }
-        });
+                if (state == rtc::PeerConnection::State::Failed
+                    || state == rtc::PeerConnection::State::Closed) {
+                    self->remove_and_close(connection, owner);
+                }
+            });
 
         {
             std::scoped_lock lk(mutex);

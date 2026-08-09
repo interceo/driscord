@@ -1,18 +1,3 @@
-diff --git a/BUILD.gn b/BUILD.gn
-index 7c48268a24..2f5c8ff1d7 100644
---- a/BUILD.gn
-+++ b/BUILD.gn
-@@ -548,7 +548,9 @@ if (!build_with_chromium) {
-     deps = [
-       "api:create_modular_peer_connection_factory",
-       "api:create_peerconnection_factory",
--      "api:enable_media",
-+      "api:enable_media_with_defaults",
-+      "modules/audio_device:test_audio_device_module",
-       "api:rtc_error",
-       "api:transport_api",
-+      "api/video:adapted_video_track_source",
-       "api/audio_codecs:opus_audio_decoder_factory",
 diff --git a/call/rtp_config.cc b/call/rtp_config.cc
 index 560ec099d6..207c5e392a 100644
 --- a/call/rtp_config.cc

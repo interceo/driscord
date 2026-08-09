@@ -239,7 +239,8 @@ Dialog {
                 label: qsTr("FPS")
                 boxWidth: 60
                 options: root.fpsPresets
-                currentIndex: 0
+                currentIndex: Math.max(
+                    0, root.fpsPresets.indexOf(defaultScreenFps))
             }
 
             // Share Audio checkbox

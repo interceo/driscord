@@ -99,6 +99,23 @@ target_link_libraries(driscord_client PRIVATE
     Qt6::Core5Compat
 )
 
+if(UNIX AND NOT APPLE AND TARGET datachannel)
+    # libdatachannel is deliberately a DSO isolation boundary next to Google
+    # WebRTC. Make a build-tree client directory self-contained instead of
+    # embedding an absolute path to FetchContent's temporary build directory.
+    set_target_properties(driscord_client PROPERTIES
+        BUILD_WITH_INSTALL_RPATH TRUE
+        INSTALL_RPATH "$ORIGIN")
+    add_custom_command(TARGET driscord_client POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:datachannel>
+            $<TARGET_FILE_DIR:driscord_client>/$<TARGET_FILE_NAME:datachannel>
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:datachannel>
+            $<TARGET_FILE_DIR:driscord_client>/$<TARGET_SONAME_FILE_NAME:datachannel>
+        VERBATIM)
+endif()
+
 if(WIN32)
     set_target_properties(driscord_client PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()

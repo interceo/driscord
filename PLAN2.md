@@ -1,5 +1,21 @@
 # Ревью миграции на Google WebRTC + RTP SFU, и план правок
 
+> **Статус исполнения, 9 августа 2026.** Документ ниже сохранён как исходное
+> ревью. Все дефекты корректности из §1 закрыты: lock inversion в роутерах и
+> screen sinks, client mutex вокруг WebRTC, thread-affinity `SetVolume`,
+> исключение `rtpMap`, padded RTP, lifetime callbacks и QML reactivity.
+> Дополнительно исправлены очистка peers/streams при disconnect, terminal-state
+> recovery обеих media PeerConnection, `streaming_stop` при deinit, CI,
+> воспроизводимость `depot_tools`, компактная упаковка WebRTC SDK и
+> `libdatachannel.so`.
+>
+> §2.1 (адресные подписки), reconnect replay, per-peer RTCStats и реальные
+> loss/reorder/restart tests также реализованы. Актуальными остаются
+> production congestion control/simulcast, выбор и loopback policy system
+> audio, slot-capacity/active-speaker policy, расширенная observability и
+> длительный soak. Фактический статус и оставшийся порядок работы ведутся в
+> `PLAN.md`.
+
 ## Context
 
 В рабочем дереве лежит незакоммиченная миграция: самописный медиа-пайплайн

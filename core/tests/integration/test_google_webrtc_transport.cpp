@@ -1,3 +1,4 @@
+#include "rtc_cleanup_env.hpp"
 #include "signaling_test_fixture.hpp"
 #include "transport.hpp"
 #include "transport_harness.hpp"
@@ -54,6 +55,20 @@ public:
             observation.non_silent_samples += static_cast<size_t>(non_silent);
             observation.sample_rate_hz = frame.sample_rate_hz;
             observation.channels = frame.channels;
+            for (size_t i = 0; i < frame.samples.size(); i += frame.channels) {
+                const int sample = frame.samples[i];
+                int polarity = observation.last_polarity;
+                if (sample > 500) {
+                    polarity = 1;
+                } else if (sample < -500) {
+                    polarity = -1;
+                }
+                if (observation.last_polarity < 0 && polarity > 0) {
+                    ++observation.positive_crossings;
+                }
+                observation.last_polarity = polarity;
+                ++observation.analyzed_samples;
+            }
         }
         changed_.notify_all();
     }
@@ -74,6 +89,17 @@ public:
         size_t non_silent_samples = 0;
         int sample_rate_hz = 0;
         size_t channels = 0;
+        size_t positive_crossings = 0;
+        size_t analyzed_samples = 0;
+        int last_polarity = 0;
+
+        [[nodiscard]] double estimated_frequency_hz() const
+        {
+            return analyzed_samples == 0
+                ? 0.0
+                : static_cast<double>(positive_crossings) * sample_rate_hz
+                    / static_cast<double>(analyzed_samples);
+        }
     };
 
     std::map<std::string, Observation> snapshot() const
@@ -421,6 +447,10 @@ TEST_F(GoogleWebRtcTransportTest, RoutesAndDecodesTwoConcurrentPcmSources)
     const std::set<std::string> expected_publishers {
         first_transport.local_id(), second_transport.local_id()
     };
+    const std::map<std::string, double> expected_frequency_by_peer {
+        { first_transport.local_id(), 440.0 },
+        { second_transport.local_id(), 880.0 },
+    };
 
     ASSERT_TRUE(first_voice->start());
     ASSERT_TRUE(second_voice->start());
@@ -467,6 +497,9 @@ TEST_F(GoogleWebRtcTransportTest, RoutesAndDecodesTwoConcurrentPcmSources)
         EXPECT_GT(found->second.non_silent_samples, 0u);
         EXPECT_EQ(found->second.sample_rate_hz, 48'000);
         EXPECT_EQ(found->second.channels, 1u);
+        EXPECT_NEAR(found->second.estimated_frequency_hz(),
+            expected_frequency_by_peer.at(peer), 140.0)
+            << "decoded tone was routed to the wrong mid " << mid;
     }
 
     EventCollector<VoiceSessionStats> listener_stats;

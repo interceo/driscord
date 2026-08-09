@@ -30,7 +30,7 @@ template <>
 struct std::hash<driscord::PeerId> {
     std::size_t operator()(const driscord::PeerId& id) const noexcept
     {
-        return std::hash<std::string> {}(id.value);
+        return std::hash<std::string> { }(id.value);
     }
 };
 
@@ -38,6 +38,6 @@ template <>
 struct std::hash<driscord::RoomId> {
     std::size_t operator()(const driscord::RoomId& id) const noexcept
     {
-        return std::hash<std::string> {}(id.value);
+        return std::hash<std::string> { }(id.value);
     }
 };

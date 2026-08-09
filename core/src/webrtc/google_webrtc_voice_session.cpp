@@ -579,11 +579,19 @@ bool GoogleWebRtcVoiceSession::set_remote_track_volume(
         return false;
     }
     auto track = impl_->remote_audio_track(mid);
-    if (!track || !track->GetSource()) {
+    auto runtime = impl_->runtime;
+    if (!track || !runtime || !runtime->signaling_thread) {
         return false;
     }
-    track->GetSource()->SetVolume(volume);
-    return true;
+    return runtime->signaling_thread->BlockingCall(
+        [track = std::move(track), volume] {
+            auto source = track->GetSource();
+            if (!source) {
+                return false;
+            }
+            source->SetVolume(volume);
+            return true;
+        });
 }
 
 bool GoogleWebRtcVoiceSession::get_stats(

@@ -60,6 +60,8 @@ int main(int argc, char* argv[])
         engine.rootContext()->setContextProperty("authManager", authManager);
         engine.rootContext()->setContextProperty("bridge", bridge);
         engine.rootContext()->setContextProperty("avatarTint", avatarTint);
+        engine.rootContext()->setContextProperty(
+            "defaultScreenFps", cfg.screenFps);
 
         QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app, []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);
         engine.loadFromModule("driscord", "Main");

@@ -62,8 +62,8 @@ DriscordCore::DriscordCore()
 
 DriscordCore::~DriscordCore()
 {
-    media_.reset();
     transport.disconnect();
+    media_.reset();
 }
 
 void DriscordCore::init_screen_session()
@@ -159,7 +159,6 @@ std::string DriscordCore::peers_json() const
     for (const auto& peer : transport.peers()) {
         result.push_back({
             { "id", peer.id },
-            { "connected", peer.primary_open },
             { "username", transport.peer_username(peer.id) },
         });
     }

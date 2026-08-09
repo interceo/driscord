@@ -648,6 +648,7 @@ void WebSocketServer::unregister_session(const driscord::PeerId& id,
     std::vector<std::shared_ptr<Session>> remaining;
     std::shared_ptr<VoiceRouter> voice_router;
     std::shared_ptr<ScreenRouter> screen_router;
+    bool was_streaming = false;
     {
         std::scoped_lock lk(rooms_mutex_);
         auto rit = rooms_.find(room_id);
@@ -658,7 +659,7 @@ void WebSocketServer::unregister_session(const driscord::PeerId& id,
         voice_router = room.voice_router;
         screen_router = room.screen_router;
         room.sessions.erase(id);
-        room.streaming_peers.erase(id);
+        was_streaming = room.streaming_peers.erase(id) > 0;
         room.video_watchers.erase(id);
         for (auto watcher = room.video_watchers.begin();
             watcher != room.video_watchers.end();) {
@@ -686,9 +687,17 @@ void WebSocketServer::unregister_session(const driscord::PeerId& id,
         screen_router->remove_peer(id);
     }
 
+    std::shared_ptr<std::string> stopped;
+    if (was_streaming) {
+        stopped = std::make_shared<std::string>(
+            signaling::dump(signaling::StreamingStop { id }));
+    }
     auto msg = std::make_shared<std::string>(
         signaling::dump(signaling::PeerLeft { id }));
     for (auto& session : remaining) {
+        if (stopped) {
+            session->send(stopped);
+        }
         session->send(msg);
     }
 }

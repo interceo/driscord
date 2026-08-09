@@ -13,10 +13,13 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
+#include <functional>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <optional>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -67,21 +70,40 @@ float clamp_volume(float volume)
 
 struct GoogleWebRtcClient::Impl
     : std::enable_shared_from_this<GoogleWebRtcClient::Impl> {
+    struct VoiceTrackUpdate {
+        std::shared_ptr<driscord::media::GoogleWebRtcVoiceSession> session;
+        std::string mid;
+        bool enabled = false;
+        std::optional<double> volume;
+    };
+
+    struct ScreenAudioUpdate {
+        std::shared_ptr<driscord::media::GoogleWebRtcScreenSession> session;
+        std::string mid;
+        bool enabled = false;
+        std::optional<double> volume;
+    };
+
     explicit Impl(Transport& transport_value, Callbacks callbacks_value)
         : transport(transport_value)
         , callbacks(std::move(callbacks_value))
+        , screen_playout(std::make_shared<GoogleWebRtcPcmPlayout>())
         , screen_runtime(driscord::media::GoogleWebRtcRuntimeConfig {
               .injected_audio_device = driscord::media::InjectedAudioDeviceConfig {
                   .sample_rate_hz = GoogleWebRtcPcmPlayout::kSampleRate,
                   .channels = GoogleWebRtcPcmPlayout::kChannels,
                   .max_buffered_frames = 100,
                   .on_rendered_audio =
-                      [this](std::span<const int16_t> samples, int rate,
+                      [playout = std::weak_ptr<GoogleWebRtcPcmPlayout>(
+                           screen_playout)](
+                          std::span<const int16_t> samples, int rate,
                           size_t channels) {
                           if (rate == GoogleWebRtcPcmPlayout::kSampleRate
                               && channels
                                   == GoogleWebRtcPcmPlayout::kChannels) {
-                              screen_playout.push(samples);
+                              if (auto sink = playout.lock()) {
+                                  sink->push(samples);
+                              }
                           }
                       },
               },
@@ -93,7 +115,7 @@ struct GoogleWebRtcClient::Impl
     {
         stop_screen_session();
         stop_voice_session();
-        screen_playout.stop();
+        screen_playout->stop();
     }
 
     void bind_callbacks()
@@ -136,6 +158,51 @@ struct GoogleWebRtcClient::Impl
         } else {
             stop_voice_session();
             stop_screen_session();
+        }
+    }
+
+    void recover_voice_session(const std::shared_ptr<int>& token)
+    {
+        {
+            std::scoped_lock lock(mutex);
+            if (!voice_requested || voice_session_token != token
+                || !transport.connected()) {
+                return;
+            }
+        }
+        LOG_WARNING() << "Google WebRTC voice connection failed; "
+                         "recreating PeerConnection";
+        stop_voice_session();
+        start_voice_if_requested();
+    }
+
+    void recover_screen_session(const std::shared_ptr<int>& token)
+    {
+        bool was_sharing = false;
+        {
+            std::scoped_lock lock(mutex);
+            if (!screen_requested || screen_session_token != token
+                || !transport.connected()) {
+                return;
+            }
+            was_sharing = sharing_active;
+        }
+        LOG_WARNING() << "Google WebRTC screen connection failed; "
+                         "recreating PeerConnection";
+        if (was_sharing) {
+            transport.send_streaming_stop();
+        }
+        stop_screen_session();
+        start_screen_if_requested();
+    }
+
+    static void schedule_recovery(std::function<void()> task) noexcept
+    {
+        try {
+            std::thread(std::move(task)).detach();
+        } catch (const std::exception& error) {
+            LOG_ERROR() << "Unable to schedule WebRTC recovery: "
+                        << error.what();
         }
     }
 
@@ -198,6 +265,8 @@ struct GoogleWebRtcClient::Impl
     {
         PeerCallback removed;
         std::string removed_peer;
+        std::optional<VoiceTrackUpdate> voice_update;
+        std::optional<ScreenAudioUpdate> screen_update;
         {
             std::scoped_lock lock(mutex);
             auto& bindings = connection == signaling::ConnectionId::Voice
@@ -225,11 +294,13 @@ struct GoogleWebRtcClient::Impl
                 bindings.erase(mid);
             }
             if (connection == signaling::ConnectionId::Voice) {
-                apply_voice_mid_locked(mid);
+                voice_update = voice_update_locked(mid);
             } else if (connection == signaling::ConnectionId::Screen) {
-                apply_screen_audio_mid_locked(mid);
+                screen_update = screen_update_locked(mid);
             }
         }
+        apply(std::move(voice_update));
+        apply(std::move(screen_update));
         if (removed && !removed_peer.empty()) {
             removed(removed_peer);
         }
@@ -238,76 +309,134 @@ struct GoogleWebRtcClient::Impl
     void start_voice_if_requested()
     {
         std::scoped_lock lifecycle_lock(voice_lifecycle_mutex);
-        std::scoped_lock lock(mutex);
-        if (!voice_requested || voice_session || !transport.connected()) {
-            return;
+        bool microphone_enabled = false;
+        {
+            std::scoped_lock lock(mutex);
+            if (!voice_requested || voice_session || !transport.connected()) {
+                return;
+            }
+            microphone_enabled = !voice_muted;
         }
         const std::weak_ptr<Impl> weak = weak_from_this();
+        const auto session_token = std::make_shared<int>(0);
+        const auto recovery_scheduled = std::make_shared<std::atomic_bool>(false);
         driscord::media::VoiceSessionCallbacks session_callbacks;
-        session_callbacks.on_offer = [this](std::string sdp) {
-            transport.send_media_offer(signaling::ConnectionId::Voice, sdp);
+        session_callbacks.on_offer = [weak](std::string sdp) {
+            if (auto self = weak.lock()) {
+                self->transport.send_media_offer(
+                    signaling::ConnectionId::Voice, sdp);
+            }
         };
         session_callbacks.on_candidate =
-            [this](std::string candidate, std::string mid) {
-                transport.send_media_candidate(signaling::ConnectionId::Voice,
-                    candidate, mid);
+            [weak](std::string candidate, std::string mid) {
+                if (auto self = weak.lock()) {
+                    self->transport.send_media_candidate(
+                        signaling::ConnectionId::Voice, candidate, mid);
+                }
             };
         session_callbacks.on_remote_track =
             [weak](std::string mid, std::string) {
                 if (auto self = weak.lock()) {
-                    std::scoped_lock callback_lock(self->mutex);
-                    self->apply_voice_mid_locked(mid);
+                    std::optional<VoiceTrackUpdate> update;
+                    {
+                        std::scoped_lock callback_lock(self->mutex);
+                        update = self->voice_update_locked(mid);
+                    }
+                    apply(std::move(update));
                 }
+            };
+        session_callbacks.on_state =
+            [weak, session_token, recovery_scheduled](
+                driscord::media::VoiceConnectionState state) {
+                if (state != driscord::media::MediaConnectionState::Failed
+                    || recovery_scheduled->exchange(true)) {
+                    return;
+                }
+                schedule_recovery([weak, session_token] {
+                    if (auto self = weak.lock()) {
+                        self->recover_voice_session(session_token);
+                    }
+                });
             };
         session_callbacks.on_error = [](std::string message) {
             LOG_ERROR() << "Google WebRTC voice: " << message;
         };
-        auto next = std::make_unique<driscord::media::GoogleWebRtcVoiceSession>(
+        auto next = std::make_shared<driscord::media::GoogleWebRtcVoiceSession>(
             voice_runtime,
             driscord::media::VoiceSessionConfig {
                 .remote_track_slots = 16,
-                .microphone_enabled = !voice_muted,
+                .microphone_enabled = microphone_enabled,
+                .max_microphone_bitrate_bps
+                = stream_defaults::kVoiceBitrateKbps * 1000,
             },
             std::move(session_callbacks));
         if (!next->start()) {
             LOG_ERROR() << "Google WebRTC voice session failed to start";
             return;
         }
-        voice_session = std::move(next);
+        std::vector<VoiceTrackUpdate> updates;
+        bool retained = false;
+        {
+            std::scoped_lock lock(mutex);
+            if (voice_requested && !voice_session && transport.connected()) {
+                voice_session = next;
+                voice_session_token = session_token;
+                updates = all_voice_updates_locked();
+                retained = true;
+            }
+        }
+        if (!retained) {
+            next->close();
+            return;
+        }
+        apply(std::move(updates));
     }
 
     void start_screen_if_requested()
     {
         std::scoped_lock lifecycle_lock(screen_lifecycle_mutex);
-        std::scoped_lock lock(mutex);
-        if (!screen_requested || screen_session || !transport.connected()) {
-            return;
+        {
+            std::scoped_lock lock(mutex);
+            if (!screen_requested || screen_session || !transport.connected()) {
+                return;
+            }
         }
-        if (!screen_playout.start()) {
+        if (!screen_playout->start()) {
             LOG_WARNING()
                 << "Google WebRTC screen playout device is unavailable; "
                    "screen video remains enabled";
         }
         const std::weak_ptr<Impl> weak = weak_from_this();
+        const auto session_token = std::make_shared<int>(0);
+        const auto recovery_scheduled = std::make_shared<std::atomic_bool>(false);
         driscord::media::ScreenSessionCallbacks session_callbacks;
-        session_callbacks.on_offer = [this](std::string sdp) {
-            transport.send_media_offer(signaling::ConnectionId::Screen, sdp);
+        session_callbacks.on_offer = [weak](std::string sdp) {
+            if (auto self = weak.lock()) {
+                self->transport.send_media_offer(
+                    signaling::ConnectionId::Screen, sdp);
+            }
         };
         session_callbacks.on_candidate =
-            [this](std::string candidate, std::string mid) {
-                transport.send_media_candidate(signaling::ConnectionId::Screen,
-                    candidate, mid);
+            [weak](std::string candidate, std::string mid) {
+                if (auto self = weak.lock()) {
+                    self->transport.send_media_candidate(
+                        signaling::ConnectionId::Screen, candidate, mid);
+                }
             };
         session_callbacks.on_remote_track =
             [weak](std::string mid, std::string, bool video) {
                 if (auto self = weak.lock()) {
-                    std::scoped_lock callback_lock(self->mutex);
-                    if (video) {
-                        self->screen_video_mids.insert(mid);
-                    } else {
-                        self->screen_audio_mids.insert(mid);
-                        self->apply_screen_audio_mid_locked(mid);
+                    std::optional<ScreenAudioUpdate> update;
+                    {
+                        std::scoped_lock callback_lock(self->mutex);
+                        if (video) {
+                            self->screen_video_mids.insert(mid);
+                        } else {
+                            self->screen_audio_mids.insert(mid);
+                            update = self->screen_update_locked(mid);
+                        }
                     }
+                    apply(std::move(update));
                 }
             };
         session_callbacks.on_remote_video =
@@ -316,6 +445,19 @@ struct GoogleWebRtcClient::Impl
                 if (auto self = weak.lock()) {
                     self->deliver_video(mid, frame);
                 }
+            };
+        session_callbacks.on_state =
+            [weak, session_token, recovery_scheduled](
+                driscord::media::ScreenConnectionState state) {
+                if (state != driscord::media::MediaConnectionState::Failed
+                    || recovery_scheduled->exchange(true)) {
+                    return;
+                }
+                schedule_recovery([weak, session_token] {
+                    if (auto self = weak.lock()) {
+                        self->recover_screen_session(session_token);
+                    }
+                });
             };
         session_callbacks.on_error = [](std::string message) {
             LOG_ERROR() << "Google WebRTC screen: " << message;
@@ -326,20 +468,39 @@ struct GoogleWebRtcClient::Impl
                 .remote_stream_slots = 8,
                 .sharing_enabled = false,
                 .system_audio_enabled = false,
-                .max_video_bitrate_bps = 4'000'000,
+                .max_video_bitrate_bps
+                = stream_defaults::kScreenVideoBitrateBps,
                 .max_system_audio_bitrate_bps = stream_defaults::kSystemAudioBitrateKbps * 1000,
             },
             std::move(session_callbacks));
         if (!next->start()) {
             LOG_ERROR() << "Google WebRTC screen session failed to start";
-            screen_playout.stop();
+            screen_playout->stop();
             return;
         }
-        screen_session = std::move(next);
+        std::vector<std::string> watched;
+        std::vector<ScreenAudioUpdate> updates;
+        bool retained = false;
+        {
+            std::scoped_lock lock(mutex);
+            if (screen_requested && !screen_session && transport.connected()) {
+                screen_session = next;
+                screen_session_token = session_token;
+                watched.assign(watched_peers.begin(), watched_peers.end());
+                updates = all_screen_updates_locked();
+                retained = true;
+            }
+        }
+        if (!retained) {
+            next->close();
+            screen_playout->stop();
+            return;
+        }
+        apply(std::move(updates));
         // A reconnect creates a fresh server-side room/session, so targeted
         // subscriptions must be replayed even though the local watched set is
         // intentionally preserved across signaling loss.
-        for (const auto& peer : watched_peers) {
+        for (const auto& peer : watched) {
             transport.send_watch_start(peer);
         }
     }
@@ -347,10 +508,11 @@ struct GoogleWebRtcClient::Impl
     void stop_voice_session()
     {
         std::scoped_lock lifecycle_lock(voice_lifecycle_mutex);
-        std::unique_ptr<driscord::media::GoogleWebRtcVoiceSession> old;
+        std::shared_ptr<driscord::media::GoogleWebRtcVoiceSession> old;
         {
             std::scoped_lock lock(mutex);
             old = std::move(voice_session);
+            voice_session_token.reset();
             voice_bindings.clear();
         }
         if (old) {
@@ -361,12 +523,14 @@ struct GoogleWebRtcClient::Impl
     void stop_screen_session()
     {
         std::scoped_lock lifecycle_lock(screen_lifecycle_mutex);
+        std::scoped_lock sharing_lock(sharing_mutex);
         std::shared_ptr<driscord::media::GoogleWebRtcScreenSession> old;
         std::unique_ptr<SystemAudioCapture> old_capture;
         std::vector<std::string> removed_peers;
         {
             std::scoped_lock lock(mutex);
             old = std::move(screen_session);
+            screen_session_token.reset();
             old_capture = std::move(system_audio_capture);
             for (const auto& [mid, peer] : screen_bindings) {
                 if (screen_video_mids.contains(mid)) {
@@ -387,7 +551,7 @@ struct GoogleWebRtcClient::Impl
             old->stop_desktop_capture();
             old->close();
         }
-        screen_playout.stop();
+        screen_playout->stop();
         std::sort(removed_peers.begin(), removed_peers.end());
         removed_peers.erase(
             std::unique(removed_peers.begin(), removed_peers.end()),
@@ -419,40 +583,115 @@ struct GoogleWebRtcClient::Impl
         }
     }
 
-    void apply_voice_mid_locked(const std::string& mid)
+    static void apply(std::optional<VoiceTrackUpdate> update)
+    {
+        if (!update) {
+            return;
+        }
+        update->session->set_remote_track_enabled(
+            update->mid, update->enabled);
+        if (update->volume) {
+            update->session->set_remote_track_volume(
+                update->mid, *update->volume);
+        }
+    }
+
+    static void apply(std::vector<VoiceTrackUpdate> updates)
+    {
+        for (auto& update : updates) {
+            apply(std::optional<VoiceTrackUpdate>(std::move(update)));
+        }
+    }
+
+    static void apply(std::optional<ScreenAudioUpdate> update)
+    {
+        if (!update) {
+            return;
+        }
+        update->session->set_remote_audio_enabled(
+            update->mid, update->enabled);
+        if (update->volume) {
+            update->session->set_remote_audio_volume(
+                update->mid, *update->volume);
+        }
+    }
+
+    static void apply(std::vector<ScreenAudioUpdate> updates)
+    {
+        for (auto& update : updates) {
+            apply(std::optional<ScreenAudioUpdate>(std::move(update)));
+        }
+    }
+
+    std::optional<VoiceTrackUpdate> voice_update_locked(
+        const std::string& mid) const
     {
         if (!voice_session) {
-            return;
+            return std::nullopt;
         }
         const auto binding = voice_bindings.find(mid);
         const bool bound = binding != voice_bindings.end();
         bool enabled = bound && !voice_deafened;
         float volume = master_volume_value;
         if (bound) {
-            enabled = enabled && !voice_peer_muted[binding->second];
+            const auto muted = voice_peer_muted.find(binding->second);
+            enabled = enabled
+                && (muted == voice_peer_muted.end() || !muted->second);
             const auto it = voice_peer_volumes.find(binding->second);
             volume *= it == voice_peer_volumes.end() ? 1.0f : it->second;
         }
-        voice_session->set_remote_track_enabled(mid, enabled);
-        if (bound) {
-            voice_session->set_remote_track_volume(mid, volume);
-        }
+        return VoiceTrackUpdate {
+            .session = voice_session,
+            .mid = mid,
+            .enabled = enabled,
+            .volume = bound ? std::optional<double>(volume) : std::nullopt,
+        };
     }
 
-    void apply_screen_audio_mid_locked(const std::string& mid)
+    std::vector<VoiceTrackUpdate> all_voice_updates_locked() const
+    {
+        std::vector<VoiceTrackUpdate> updates;
+        updates.reserve(voice_bindings.size());
+        for (const auto& [mid, _] : voice_bindings) {
+            if (auto update = voice_update_locked(mid)) {
+                updates.push_back(std::move(*update));
+            }
+        }
+        return updates;
+    }
+
+    std::optional<ScreenAudioUpdate> screen_update_locked(
+        const std::string& mid) const
     {
         if (!screen_session || !screen_audio_mids.contains(mid)) {
-            return;
+            return std::nullopt;
         }
         const auto binding = screen_bindings.find(mid);
         const bool enabled = binding != screen_bindings.end()
             && watched_peers.contains(binding->second);
-        screen_session->set_remote_audio_enabled(mid, enabled);
+        std::optional<double> volume;
         if (binding != screen_bindings.end()) {
             const auto it = screen_peer_volumes.find(binding->second);
-            screen_session->set_remote_audio_volume(mid,
-                it == screen_peer_volumes.end() ? 1.0f : it->second);
+            volume = it == screen_peer_volumes.end() ? 1.0f : it->second;
         }
+        return ScreenAudioUpdate {
+            .session = screen_session,
+            .mid = mid,
+            .enabled = enabled,
+            .volume = volume,
+        };
+    }
+
+    std::vector<ScreenAudioUpdate> all_screen_updates_locked() const
+    {
+        std::vector<ScreenAudioUpdate> updates;
+        updates.reserve(screen_audio_mids.size());
+        for (const auto& mid : screen_audio_mids) {
+            if (auto update = screen_update_locked(mid)) {
+                updates.push_back(std::move(*update));
+            }
+        }
+        return updates;
     }
 
     void submit_system_audio(
@@ -476,14 +715,17 @@ struct GoogleWebRtcClient::Impl
 
     Transport& transport;
     const Callbacks callbacks;
-    GoogleWebRtcPcmPlayout screen_playout;
+    std::shared_ptr<GoogleWebRtcPcmPlayout> screen_playout;
     driscord::media::GoogleWebRtcRuntime voice_runtime;
     driscord::media::GoogleWebRtcRuntime screen_runtime;
     std::mutex voice_lifecycle_mutex;
     std::mutex screen_lifecycle_mutex;
+    std::mutex sharing_mutex;
     mutable std::mutex mutex;
-    std::unique_ptr<driscord::media::GoogleWebRtcVoiceSession> voice_session;
+    std::shared_ptr<driscord::media::GoogleWebRtcVoiceSession> voice_session;
     std::shared_ptr<driscord::media::GoogleWebRtcScreenSession> screen_session;
+    std::shared_ptr<int> voice_session_token;
+    std::shared_ptr<int> screen_session_token;
     std::unique_ptr<SystemAudioCapture> system_audio_capture;
     std::unordered_map<std::string, std::string> voice_bindings;
     std::unordered_map<std::string, std::string> screen_bindings;
@@ -534,10 +776,14 @@ void GoogleWebRtcClient::stop_voice()
 
 void GoogleWebRtcClient::set_muted(bool muted)
 {
-    std::scoped_lock lock(impl_->mutex);
-    impl_->voice_muted = muted;
-    if (impl_->voice_session) {
-        impl_->voice_session->set_microphone_enabled(!muted);
+    std::shared_ptr<driscord::media::GoogleWebRtcVoiceSession> session;
+    {
+        std::scoped_lock lock(impl_->mutex);
+        impl_->voice_muted = muted;
+        session = impl_->voice_session;
+    }
+    if (session) {
+        session->set_microphone_enabled(!muted);
     }
 }
 
@@ -549,11 +795,14 @@ bool GoogleWebRtcClient::muted() const
 
 void GoogleWebRtcClient::set_deafened(bool deafened)
 {
-    std::scoped_lock lock(impl_->mutex);
-    impl_->voice_deafened = deafened;
-    for (const auto& [mid, _] : impl_->voice_bindings) {
-        impl_->apply_voice_mid_locked(mid);
+    std::vector<Impl::VoiceTrackUpdate> updates;
+    {
+        std::scoped_lock lock(impl_->mutex);
+        impl_->voice_deafened = deafened;
+        updates = impl_->all_voice_updates_locked();
     }
+    Impl::apply(std::move(updates));
+    impl_->screen_playout->set_muted(deafened);
 }
 
 bool GoogleWebRtcClient::deafened() const
@@ -564,11 +813,15 @@ bool GoogleWebRtcClient::deafened() const
 
 void GoogleWebRtcClient::set_master_volume(float volume)
 {
-    std::scoped_lock lock(impl_->mutex);
-    impl_->master_volume_value = clamp_volume(volume);
-    for (const auto& [mid, _] : impl_->voice_bindings) {
-        impl_->apply_voice_mid_locked(mid);
+    const float clamped = clamp_volume(volume);
+    std::vector<Impl::VoiceTrackUpdate> updates;
+    {
+        std::scoped_lock lock(impl_->mutex);
+        impl_->master_volume_value = clamped;
+        updates = impl_->all_voice_updates_locked();
     }
+    Impl::apply(std::move(updates));
+    impl_->screen_playout->set_volume(clamped);
 }
 
 float GoogleWebRtcClient::master_volume() const
@@ -580,13 +833,13 @@ float GoogleWebRtcClient::master_volume() const
 void GoogleWebRtcClient::set_peer_volume(
     const std::string& peer_id, float volume)
 {
-    std::scoped_lock lock(impl_->mutex);
-    impl_->voice_peer_volumes[peer_id] = clamp_volume(volume);
-    for (const auto& [mid, peer] : impl_->voice_bindings) {
-        if (peer == peer_id) {
-            impl_->apply_voice_mid_locked(mid);
-        }
+    std::vector<Impl::VoiceTrackUpdate> updates;
+    {
+        std::scoped_lock lock(impl_->mutex);
+        impl_->voice_peer_volumes[peer_id] = clamp_volume(volume);
+        updates = impl_->all_voice_updates_locked();
     }
+    Impl::apply(std::move(updates));
 }
 
 float GoogleWebRtcClient::peer_volume(const std::string& peer_id) const
@@ -599,13 +852,13 @@ float GoogleWebRtcClient::peer_volume(const std::string& peer_id) const
 void GoogleWebRtcClient::set_peer_muted(
     const std::string& peer_id, bool muted)
 {
-    std::scoped_lock lock(impl_->mutex);
-    impl_->voice_peer_muted[peer_id] = muted;
-    for (const auto& [mid, peer] : impl_->voice_bindings) {
-        if (peer == peer_id) {
-            impl_->apply_voice_mid_locked(mid);
-        }
+    std::vector<Impl::VoiceTrackUpdate> updates;
+    {
+        std::scoped_lock lock(impl_->mutex);
+        impl_->voice_peer_muted[peer_id] = muted;
+        updates = impl_->all_voice_updates_locked();
     }
+    Impl::apply(std::move(updates));
 }
 
 bool GoogleWebRtcClient::peer_muted(const std::string& peer_id) const
@@ -635,6 +888,7 @@ void GoogleWebRtcClient::deinit_screen()
         impl_->watched_peers.clear();
         impl_->screen_stats.clear_watched();
     }
+    stop_sharing();
     for (const auto& peer : watched) {
         impl_->transport.send_watch_stop(peer);
     }
@@ -644,16 +898,16 @@ void GoogleWebRtcClient::deinit_screen()
 void GoogleWebRtcClient::join_stream(const std::string& peer_id)
 {
     bool inserted = false;
+    std::vector<Impl::ScreenAudioUpdate> updates;
     {
         std::scoped_lock lock(impl_->mutex);
         inserted = impl_->watched_peers.insert(peer_id).second;
         if (inserted) {
             impl_->screen_stats.set_watched(peer_id, true);
         }
-        for (const auto& mid : impl_->screen_audio_mids) {
-            impl_->apply_screen_audio_mid_locked(mid);
-        }
+        updates = impl_->all_screen_updates_locked();
     }
+    Impl::apply(std::move(updates));
     if (inserted) {
         impl_->transport.send_watch_start(peer_id);
     }
@@ -662,16 +916,16 @@ void GoogleWebRtcClient::join_stream(const std::string& peer_id)
 void GoogleWebRtcClient::leave_streams()
 {
     std::vector<std::string> removed;
+    std::vector<Impl::ScreenAudioUpdate> updates;
     {
         std::scoped_lock lock(impl_->mutex);
         removed.assign(
             impl_->watched_peers.begin(), impl_->watched_peers.end());
         impl_->watched_peers.clear();
         impl_->screen_stats.clear_watched();
-        for (const auto& mid : impl_->screen_audio_mids) {
-            impl_->apply_screen_audio_mid_locked(mid);
-        }
+        updates = impl_->all_screen_updates_locked();
     }
+    Impl::apply(std::move(updates));
     for (const auto& peer : removed) {
         impl_->transport.send_watch_stop(peer);
     }
@@ -685,14 +939,14 @@ void GoogleWebRtcClient::leave_streams()
 void GoogleWebRtcClient::leave_stream(const std::string& peer_id)
 {
     bool removed = false;
+    std::vector<Impl::ScreenAudioUpdate> updates;
     {
         std::scoped_lock lock(impl_->mutex);
         removed = impl_->watched_peers.erase(peer_id) > 0;
         impl_->screen_stats.set_watched(peer_id, false);
-        for (const auto& mid : impl_->screen_audio_mids) {
-            impl_->apply_screen_audio_mid_locked(mid);
-        }
+        updates = impl_->all_screen_updates_locked();
     }
+    Impl::apply(std::move(updates));
     if (!removed) {
         return;
     }
@@ -705,6 +959,7 @@ void GoogleWebRtcClient::leave_stream(const std::string& peer_id)
 void GoogleWebRtcClient::remove_peer(const std::string& peer_id)
 {
     bool removed = false;
+    std::vector<Impl::ScreenAudioUpdate> updates;
     {
         std::scoped_lock lock(impl_->mutex);
         removed = impl_->watched_peers.erase(peer_id) > 0;
@@ -712,10 +967,9 @@ void GoogleWebRtcClient::remove_peer(const std::string& peer_id)
         impl_->voice_peer_muted.erase(peer_id);
         impl_->screen_peer_volumes.erase(peer_id);
         impl_->screen_stats.remove_peer(peer_id);
-        for (const auto& mid : impl_->screen_audio_mids) {
-            impl_->apply_screen_audio_mid_locked(mid);
-        }
+        updates = impl_->all_screen_updates_locked();
     }
+    Impl::apply(std::move(updates));
     if (removed) {
         impl_->transport.send_watch_stop(peer_id);
     }
@@ -782,50 +1036,85 @@ bool GoogleWebRtcClient::start_sharing(const std::string& target_json,
         return false;
     }
 
-    std::scoped_lock lock(impl_->mutex);
-    if (impl_->sharing_active || !impl_->screen_session
-        || !impl_->screen_session->start_desktop_capture(selection->kind,
+    std::scoped_lock sharing_lock(impl_->sharing_mutex);
+    std::shared_ptr<driscord::media::GoogleWebRtcScreenSession> session;
+    {
+        std::scoped_lock lock(impl_->mutex);
+        if (impl_->sharing_active || !impl_->screen_requested
+            || !impl_->screen_session) {
+            return false;
+        }
+        session = impl_->screen_session;
+    }
+    if (!session->start_desktop_capture(selection->kind,
             selection->id, fps, max_width, max_height)) {
         return false;
     }
+
+    std::unique_ptr<SystemAudioCapture> capture;
     if (share_audio) {
-        auto capture = SystemAudioCapture::create();
+        capture = SystemAudioCapture::create();
         const std::weak_ptr<Impl> weak = impl_;
         if (!capture || !capture->start([weak](const float* samples, size_t frames, int channels) {
                 if (auto self = weak.lock()) {
                     self->submit_system_audio(samples, frames, channels);
                 }
             })) {
-            impl_->screen_session->stop_desktop_capture();
-            impl_->screen_session->set_sharing_enabled(false);
+            session->stop_desktop_capture();
+            session->set_sharing_enabled(false);
             return false;
         }
-        impl_->system_audio_capture = std::move(capture);
     }
-    impl_->screen_session->set_system_audio_enabled(share_audio);
-    impl_->sharing_active = true;
+    session->set_system_audio_enabled(share_audio);
+
+    bool retained = false;
+    {
+        std::scoped_lock lock(impl_->mutex);
+        if (impl_->screen_requested && !impl_->sharing_active
+            && impl_->screen_session == session) {
+            impl_->system_audio_capture = std::move(capture);
+            impl_->sharing_active = true;
+            retained = true;
+        }
+    }
+    if (!retained) {
+        if (capture) {
+            capture->stop();
+        }
+        session->set_system_audio_enabled(false);
+        session->set_sharing_enabled(false);
+        session->stop_desktop_capture();
+        return false;
+    }
     impl_->transport.send_streaming_start();
     return true;
 }
 
 void GoogleWebRtcClient::stop_sharing()
 {
+    std::scoped_lock sharing_lock(impl_->sharing_mutex);
     std::unique_ptr<SystemAudioCapture> capture;
+    std::shared_ptr<driscord::media::GoogleWebRtcScreenSession> session;
+    bool was_sharing = false;
     {
         std::scoped_lock lock(impl_->mutex);
         capture = std::move(impl_->system_audio_capture);
-        if (impl_->screen_session) {
-            impl_->screen_session->set_system_audio_enabled(false);
-            impl_->screen_session->set_sharing_enabled(false);
-            impl_->screen_session->stop_desktop_capture();
-        }
+        session = impl_->screen_session;
+        was_sharing = impl_->sharing_active;
         impl_->sharing_active = false;
+    }
+    if (session) {
+        session->set_system_audio_enabled(false);
+        session->set_sharing_enabled(false);
+        session->stop_desktop_capture();
     }
     if (capture) {
         capture->stop();
     }
     impl_->system_audio_position = 0;
-    impl_->transport.send_streaming_stop();
+    if (was_sharing) {
+        impl_->transport.send_streaming_stop();
+    }
 }
 
 bool GoogleWebRtcClient::sharing() const
@@ -837,15 +1126,13 @@ bool GoogleWebRtcClient::sharing() const
 void GoogleWebRtcClient::set_stream_volume(
     const std::string& peer_id, float volume)
 {
-    std::scoped_lock lock(impl_->mutex);
-    impl_->screen_peer_volumes[peer_id] = clamp_volume(volume);
-    for (const auto& mid : impl_->screen_audio_mids) {
-        const auto binding = impl_->screen_bindings.find(mid);
-        if (binding != impl_->screen_bindings.end()
-            && binding->second == peer_id) {
-            impl_->apply_screen_audio_mid_locked(mid);
-        }
+    std::vector<Impl::ScreenAudioUpdate> updates;
+    {
+        std::scoped_lock lock(impl_->mutex);
+        impl_->screen_peer_volumes[peer_id] = clamp_volume(volume);
+        updates = impl_->all_screen_updates_locked();
     }
+    Impl::apply(std::move(updates));
 }
 
 float GoogleWebRtcClient::stream_volume(const std::string& peer_id) const

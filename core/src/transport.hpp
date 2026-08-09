@@ -99,7 +99,6 @@ public:
 
     struct PeerInfo {
         std::string id;
-        bool primary_open = false;
     };
     [[nodiscard]] std::vector<PeerInfo> peers() const;
 
@@ -114,6 +113,7 @@ private:
         driscord::Username username);
     void send_signal(const nlohmann::json& message);
     void update_state(TransportConnectionState state);
+    void clear_peers();
     [[nodiscard]] bool is_current_socket(
         const std::shared_ptr<rtc::WebSocket>& socket) const;
 

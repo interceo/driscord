@@ -1,3 +1,4 @@
+#include "rtc_cleanup_env.hpp"
 #include "signaling_test_fixture.hpp"
 #include "transport.hpp"
 #include "transport_harness.hpp"
@@ -45,7 +46,11 @@ public:
             return;
         }
         size_t colored = 0;
+        uint64_t red_sum = 0;
+        uint64_t blue_sum = 0;
         for (size_t i = 0; i + 3 < frame.rgba.size(); i += 4) {
+            red_sum += frame.rgba[i];
+            blue_sum += frame.rgba[i + 2];
             if (frame.rgba[i] > 20 || frame.rgba[i + 1] > 20
                 || frame.rgba[i + 2] > 20) {
                 ++colored;
@@ -59,6 +64,9 @@ public:
             auto& observation = observations_[std::string(mid)];
             ++observation.frames;
             observation.colored_pixels += colored;
+            observation.red_sum += red_sum;
+            observation.blue_sum += blue_sum;
+            observation.sampled_pixels += frame.rgba.size() / 4;
             observation.width = frame.width;
             observation.height = frame.height;
         }
@@ -105,6 +113,18 @@ public:
         size_t colored_pixels = 0;
         int width = 0;
         int height = 0;
+        uint64_t red_sum = 0;
+        uint64_t blue_sum = 0;
+        size_t sampled_pixels = 0;
+
+        [[nodiscard]] double red_minus_blue() const
+        {
+            return sampled_pixels == 0
+                ? 0.0
+                : (static_cast<double>(red_sum)
+                      - static_cast<double>(blue_sum))
+                    / static_cast<double>(sampled_pixels);
+        }
     };
 
     std::map<std::string, Observation> snapshot() const
@@ -347,6 +367,13 @@ TEST_F(GoogleWebRtcScreenTransportTest,
         for (const auto& [publisher, mids] : mids_by_publisher) {
             if (mids.contains(mid)) {
                 video_publishers.insert(publisher);
+                if (publisher == first_transport.local_id()) {
+                    EXPECT_GT(observation.red_minus_blue(), 90.0)
+                        << "first publisher decoded on wrong mid " << mid;
+                } else if (publisher == second_transport.local_id()) {
+                    EXPECT_LT(observation.red_minus_blue(), 65.0)
+                        << "second publisher decoded on wrong mid " << mid;
+                }
             }
         }
     }

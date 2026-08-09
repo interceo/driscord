@@ -66,8 +66,37 @@ PeerConnection/MediaStream, чтобы RTCP sync работал внутри о�
   на реальном RTP пути: voice декодируется при drop каждого 11-го пакета и
   reorder каждого 7-го, screen — при drop каждого 37-го и reorder каждого
   11-го; `RTCStats` подтверждает ненулевые реальные потери.
+- [x] Закрыт correctness-review из `PLAN2.md`: shutdown SFU не вызывает
+  внешние callbacks под router mutex; вызовы Google WebRTC вынесены из-под
+  client/sink mutex; `SetVolume` маршалится на signaling thread; неизвестный
+  RTP payload type и padded RTP покрыты regression-тестами и не могут аварийно
+  завершить сервер.
+- [x] Media connection state больше не игнорируется: клиент пересоздаёт
+  одноразовую voice/screen PeerConnection после `Failed`, сервер освобождает
+  failed/closed connection и её tracks. При остановке screen session активный
+  publisher отправляет `streaming_stop`, а signaling disconnect очищает
+  устаревший peer/stream roster, сохраняя targeted watch intents для replay.
+- [x] CI переведён на pinned Google WebRTC: вместо полного Chromium checkout
+  кэшируется компактный SDK (заголовки + проверенный GN-архив), `depot_tools`
+  закреплён на ревизии, cache miss освобождает место только на ephemeral hosted
+  runner и проверяет доступную ёмкость; удалён гарантированно падающий Windows
+  job, исправлены зависимости и пути Linux-артефактов.
+- [x] Client-only сборка отключает ненужный RTP/media слой libdatachannel.
+  Необходимая WebSocket DSO пакуется рядом с клиентом с `RUNPATH=$ORIGIN`.
+- [x] Интеграционные тесты теперь проверяют не только наличие PCM/пикселей, но
+  и идентичность маршрутизации: независимые 440/880-Hz sources и различимые
+  цветовые сигнатуры screen publishers обязаны прийти в правильные mid.
 - [ ] Завершить reliability gate длительной soak-проверкой нескольких
   voice/screen publishers и достижением slot capacity.
+- [ ] Добавить явную реакцию signaling/UI на исчерпание слотов и политику
+  выбора publishers/active speaker вместо порядка `unordered_map`.
+- [ ] Выбрать production congestion-control стратегию для SFU и добавить
+  simulcast/SVC для screen share; текущий bounded single-rendition режим
+  остаётся честным, но не адаптируется к медленному подписчику.
+- [ ] После correctness/reliability gate распилить `GoogleWebRtcClient` на
+  voice/screen/sharing coordinators и вынести общий lifecycle PeerConnection в
+  небольшой `PeerSessionCore`; отдельные классы `AudioSender/Receiver` и
+  `VideoSender/Receiver` для этого не возвращать.
 
 Проверка реализованного среза:
 
@@ -98,6 +127,12 @@ PeerConnection/MediaStream, чтобы RTCP sync работал внутри о�
 - UI пока честно показывает только `System default`: выбор audio device и
   input/output level нужно подключить к native ADM, не возвращая miniaudio
   capture pipeline;
+- default Pulse monitor для system audio пока не выбирается из UI и может
+  захватывать воспроизводимые голоса обратно; deafen/master volume уже
+  применяются к screen playout, но выбор monitor и loopback policy остаются;
+- после ICE failure screen-viewer автоматически восстанавливает session и
+  targeted subscriptions, но активный desktop sharing останавливается честным
+  `streaming_stop` и требует повторного выбора source пользователем;
 - screen publisher пока отправляет одну video rendition: несколько трансляций
   работают, но simulcast/SVC и выбор low/high слоя SFU ещё не реализованы;
 - сеть сейчас использует публичные host candidates SFU и исходящий UDP;

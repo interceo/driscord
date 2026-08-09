@@ -77,13 +77,9 @@ struct GoogleWebRtcScreenSession::Impl final
             report_error("screen audio bitrate is outside the Opus range");
             return false;
         }
-        if (desired_system_audio_enabled
-            && (!runtime || !runtime->injected_pcm_source)) {
-            report_error("screen system audio requires an injected-audio runtime");
-            return false;
-        }
-
         bool runtime_ready = false;
+        bool sharing_enabled = false;
+        bool system_audio_enabled = false;
         {
             std::scoped_lock lock(mutex);
             if (start_attempted || close_requested) {
@@ -91,9 +87,15 @@ struct GoogleWebRtcScreenSession::Impl final
             }
             start_attempted = true;
             runtime_ready = runtime && runtime->factory;
+            sharing_enabled = desired_sharing_enabled;
+            system_audio_enabled = desired_system_audio_enabled;
         }
         if (!runtime_ready) {
             report_error("Google WebRTC runtime is not ready");
+            return false;
+        }
+        if (system_audio_enabled && !runtime->injected_pcm_source) {
+            report_error("screen system audio requires an injected-audio runtime");
             return false;
         }
 
@@ -145,7 +147,8 @@ struct GoogleWebRtcScreenSession::Impl final
                         self->callbacks.on_remote_audio(mid, frame);
                     }
                 }
-            });
+            },
+            runtime->signaling_thread.get());
         auto new_proxied_source = webrtc::CreateVideoTrackSourceProxy(
             runtime->signaling_thread.get(), runtime->worker_thread.get(),
             new_video_source.get());
@@ -158,7 +161,7 @@ struct GoogleWebRtcScreenSession::Impl final
         }
         new_video_track->set_content_hint(
             webrtc::VideoTrackInterface::ContentHint::kDetailed);
-        new_video_track->set_enabled(desired_sharing_enabled);
+        new_video_track->set_enabled(sharing_enabled);
 
         webrtc::AudioOptions audio_options;
         audio_options.echo_cancellation = false;
@@ -173,7 +176,7 @@ struct GoogleWebRtcScreenSession::Impl final
             new_pc->Close();
             return false;
         }
-        new_audio_track->set_enabled(desired_system_audio_enabled);
+        new_audio_track->set_enabled(system_audio_enabled);
 
         webrtc::RtpTransceiverInit video_send_init;
         video_send_init.direction = webrtc::RtpTransceiverDirection::kSendOnly;

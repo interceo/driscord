@@ -9,6 +9,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(BUILD_CORE "Build the core library" ON)
+option(BUILD_SERVER "Build the signaling server" ON)
 
 # Google WebRTC is the only client media backend. Server-only builds remain
 # independent of the external GN artifact by configuring BUILD_CORE=OFF.
@@ -53,7 +54,7 @@ FetchContent_MakeAvailable(json)
 # --- libdatachannel (WebSocket client + server-side Track SFU) ---
 option(DRISCORD_ENABLE_RTP_MEDIA
     "Build libdatachannel RTP/RTCP media support for the SFU" ON)
-if(DRISCORD_ENABLE_RTP_MEDIA)
+if(BUILD_SERVER AND DRISCORD_ENABLE_RTP_MEDIA)
     set(NO_MEDIA OFF CACHE BOOL "" FORCE)
 else()
     set(NO_MEDIA ON CACHE BOOL "" FORCE)
@@ -145,7 +146,6 @@ target_include_directories(driscord_protocol PUBLIC
 )
 target_link_libraries(driscord_protocol PUBLIC
     nlohmann_json::nlohmann_json
-    Boost::boost
 )
 if(MSVC)
     target_compile_options(driscord_protocol PRIVATE /W4)
@@ -154,7 +154,6 @@ else()
 endif()
 
 # The signaling server is Linux-only; disable when cross-compiling for Windows.
-option(BUILD_SERVER "Build the signaling server" ON)
 if(BUILD_SERVER)
     add_subdirectory(backend/signaling_server)
 endif()

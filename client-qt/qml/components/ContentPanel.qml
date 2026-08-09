@@ -161,7 +161,8 @@ Rectangle {
 
                     readonly property bool isStream: modelData.kind === "stream"
                     readonly property bool isYou:    modelData.kind === "peer" && modelData.isYou
-                    readonly property bool watching: isStream && appState.isWatchingStream(modelData.id)
+                    readonly property bool watching: isStream
+                            && appState.watchedPeerIds.indexOf(modelData.id) !== -1
                     property bool hasFrame: false
                     onWatchingChanged: if (!watching) hasFrame = false
 

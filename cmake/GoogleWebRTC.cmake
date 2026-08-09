@@ -21,8 +21,15 @@ if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         "with CC=clang CXX=clang++ when DRISCORD_USE_GOOGLE_WEBRTC=ON.")
 endif()
 
+set(_driscord_webrtc_default_source
+    "${CMAKE_SOURCE_DIR}/.cache/google-webrtc/src")
+if(EXISTS
+    "${CMAKE_SOURCE_DIR}/.cache/google-webrtc-sdk/src/api/peer_connection_interface.h")
+    set(_driscord_webrtc_default_source
+        "${CMAKE_SOURCE_DIR}/.cache/google-webrtc-sdk/src")
+endif()
 set(DRISCORD_WEBRTC_SOURCE_DIR
-    "${CMAKE_SOURCE_DIR}/.cache/google-webrtc/src"
+    "${_driscord_webrtc_default_source}"
     CACHE PATH "Path to the pinned Google WebRTC source checkout")
 set(DRISCORD_WEBRTC_OUT_DIR
     "${DRISCORD_WEBRTC_SOURCE_DIR}/out/driscord-release"
@@ -68,3 +75,4 @@ set_target_properties(driscord_google_webrtc PROPERTIES
 )
 
 unset(_driscord_webrtc_archive)
+unset(_driscord_webrtc_default_source)

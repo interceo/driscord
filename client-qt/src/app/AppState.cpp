@@ -67,6 +67,14 @@ void AppState::connectBridgeSignals()
         m_connectionState = QStringLiteral("disconnected");
         m_statsTimer->stop();
         resetConnectionStats();
+        if (!m_peers.isEmpty()) {
+            m_peers.clear();
+            emit peersChanged();
+        }
+        if (!m_streamingPeers.isEmpty()) {
+            m_streamingPeers.clear();
+            emit streamingPeersChanged();
+        }
         emit connectionChanged();
     });
 
@@ -82,6 +90,12 @@ void AppState::connectBridgeSignals()
             return v.toMap().value("id").toString() == id;
         });
         emit peersChanged();
+        if (m_streamingPeers.removeAll(id)) {
+            emit streamingPeersChanged();
+        }
+        if (m_watchedPeerIds.removeAll(id)) {
+            emit watchedStreamsChanged();
+        }
     });
     connect(m_bridge, &DriscordBridge::peerIdentityReceived, this,
         [this](const QString& id, const QString& username) {

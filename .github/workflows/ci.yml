@@ -14,9 +14,60 @@ env:
   BOOST_VERSION: '1.89.0'
 
 jobs:
+  google-webrtc:
+    name: Prepare pinned Google WebRTC
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y \
+            clang lld cmake git python3 ca-certificates curl
+
+      - name: Restore pinned WebRTC artifact
+        id: cache-webrtc
+        uses: actions/cache@v4
+        with:
+          path: |
+            .cache/google-webrtc-sdk
+          key: google-webrtc-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('third_party/google_webrtc_revision.txt', 'third_party/depot_tools_revision.txt', 'third_party/patches/*.patch', 'scripts/build_google_webrtc.sh') }}
+
+      # A standard hosted Linux runner exposes only 14 GB of workspace storage,
+      # while a first WebRTC sync temporarily needs substantially more. These
+      # are preinstalled SDKs on an ephemeral GitHub VM, not workspace data.
+      - name: Reclaim hosted-runner disk for first WebRTC build
+        if: steps.cache-webrtc.outputs.cache-hit != 'true' && runner.environment == 'github-hosted'
+        run: |
+          sudo rm -rf \
+            /usr/local/lib/android \
+            /usr/local/.ghcup \
+            /usr/share/dotnet
+
+      - name: Verify disk capacity for first WebRTC build
+        if: steps.cache-webrtc.outputs.cache-hit != 'true'
+        run: |
+          available_kb="$(df --output=avail -k "$GITHUB_WORKSPACE" | tail -n 1)"
+          required_kb=$((35 * 1024 * 1024))
+          if (( available_kb < required_kb )); then
+            echo "WebRTC cache miss requires at least 35 GiB free; configure RUNNER_LABEL with a larger runner." >&2
+            exit 1
+          fi
+
+      - name: Build pinned WebRTC artifact
+        if: steps.cache-webrtc.outputs.cache-hit != 'true'
+        run: ./scripts/build_google_webrtc.sh
+
+      - name: Verify cached artifact
+        run: |
+          test -f .cache/google-webrtc-sdk/src/api/peer_connection_interface.h
+          test -f .cache/google-webrtc-sdk/src/out/driscord-release/obj/libwebrtc.a
+
   tests:
     name: Tests (Linux)
-    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    needs: google-webrtc
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -24,20 +75,25 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y \
-            cmake ninja-build \
-            libssl-dev \
-            libavcodec-dev libavformat-dev libavdevice-dev \
-            libswscale-dev libswresample-dev libavutil-dev \
-            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
-            libwayland-dev libxkbcommon-dev \
-            libpulse-dev
+            clang lld cmake ninja-build wget \
+            libgnutls28-dev libnss3-dev libpulse-dev \
+            libx11-dev libxcomposite-dev libxdamage-dev libxext-dev \
+            libxfixes-dev libxrandr-dev libxtst-dev
+
+      - name: Restore pinned WebRTC artifact
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .cache/google-webrtc-sdk
+          key: google-webrtc-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('third_party/google_webrtc_revision.txt', 'third_party/depot_tools_revision.txt', 'third_party/patches/*.patch', 'scripts/build_google_webrtc.sh') }}
+          fail-on-cache-miss: true
 
       - name: Cache Boost headers
         id: cache-boost
         uses: actions/cache@v4
         with:
           path: ~/boost-cache
-          key: boost-${{ env.BOOST_VERSION }}-${{ runner.os }}
+          key: boost-${{ env.BOOST_VERSION }}-${{ runner.os }}-${{ runner.arch }}
 
       - name: Download Boost headers
         if: steps.cache-boost.outputs.cache-hit != 'true'
@@ -51,21 +107,24 @@ jobs:
             "boost_${BOOST_VER_UNDER}/boost"
 
       - name: Set BOOST_ROOT
-        run: echo "BOOST_ROOT=$HOME/boost-cache" >> $GITHUB_ENV
+        run: echo "BOOST_ROOT=$HOME/boost-cache" >> "$GITHUB_ENV"
 
-      - name: Cache CMake FetchContent dependencies
+      - name: Cache CMake dependencies
         uses: actions/cache@v4
         with:
-          path: .builds/cmake/linux-release/_deps
-          key: cmake-deps-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt') }}
-          restore-keys: cmake-deps-${{ runner.os }}-
+          path: .builds/cmake/google-webrtc-test-release/_deps
+          key: cmake-test-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/CMakeLists.txt') }}
+          restore-keys: cmake-test-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Check formatting
+        run: ./scripts/format.sh --check
 
       - name: Build and run tests
         run: ./scripts/build.sh --test
 
   build-server:
-    name: Build / Signaling Server (Linux)
-    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    name: Build signaling server (OpenSSL)
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -73,15 +132,14 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y \
-            cmake ninja-build \
-            libssl-dev
+            clang cmake ninja-build libssl-dev wget
 
       - name: Cache Boost headers
         id: cache-boost
         uses: actions/cache@v4
         with:
           path: ~/boost-cache
-          key: boost-${{ env.BOOST_VERSION }}-${{ runner.os }}
+          key: boost-${{ env.BOOST_VERSION }}-${{ runner.os }}-${{ runner.arch }}
 
       - name: Download Boost headers
         if: steps.cache-boost.outputs.cache-hit != 'true'
@@ -95,14 +153,7 @@ jobs:
             "boost_${BOOST_VER_UNDER}/boost"
 
       - name: Set BOOST_ROOT
-        run: echo "BOOST_ROOT=$HOME/boost-cache" >> $GITHUB_ENV
-
-      - name: Cache CMake FetchContent dependencies
-        uses: actions/cache@v4
-        with:
-          path: .builds/cmake/linux-release/_deps
-          key: cmake-deps-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt') }}
-          restore-keys: cmake-deps-${{ runner.os }}-
+        run: echo "BOOST_ROOT=$HOME/boost-cache" >> "$GITHUB_ENV"
 
       - name: Build signaling server
         run: ./scripts/build.sh --server
@@ -114,8 +165,9 @@ jobs:
           path: .builds/server/release/driscord_server
 
   build-client:
-    name: Build / Qt Client (Linux)
-    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    name: Build Qt client (Linux)
+    needs: google-webrtc
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -123,29 +175,34 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y \
-            cmake ninja-build \
-            libssl-dev \
-            libavcodec-dev libavformat-dev libavdevice-dev \
-            libswscale-dev libswresample-dev libavutil-dev \
-            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            clang lld cmake ninja-build wget \
+            libgnutls28-dev libnss3-dev libpulse-dev \
+            libx11-dev libxcomposite-dev libxdamage-dev libxext-dev \
+            libxfixes-dev libxrandr-dev libxtst-dev \
+            libxinerama-dev libxcursor-dev libxi-dev \
             libwayland-dev libxkbcommon-dev \
-            libpulse-dev \
             libgl1-mesa-dev libegl1-mesa-dev
 
-      # Ubuntu's apt qt6-base-dev is 6.4.2; client-qt requires 6.5+ (uses
-      # QQmlApplicationEngine::loadFromModule). Pull a newer Qt from upstream.
       - name: Install Qt 6.7
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.7.3'
           cache: true
 
+      - name: Restore pinned WebRTC artifact
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .cache/google-webrtc-sdk
+          key: google-webrtc-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('third_party/google_webrtc_revision.txt', 'third_party/depot_tools_revision.txt', 'third_party/patches/*.patch', 'scripts/build_google_webrtc.sh') }}
+          fail-on-cache-miss: true
+
       - name: Cache Boost headers
         id: cache-boost
         uses: actions/cache@v4
         with:
           path: ~/boost-cache
-          key: boost-${{ env.BOOST_VERSION }}-${{ runner.os }}
+          key: boost-${{ env.BOOST_VERSION }}-${{ runner.os }}-${{ runner.arch }}
 
       - name: Download Boost headers
         if: steps.cache-boost.outputs.cache-hit != 'true'
@@ -159,27 +216,29 @@ jobs:
             "boost_${BOOST_VER_UNDER}/boost"
 
       - name: Set BOOST_ROOT
-        run: echo "BOOST_ROOT=$HOME/boost-cache" >> $GITHUB_ENV
+        run: echo "BOOST_ROOT=$HOME/boost-cache" >> "$GITHUB_ENV"
 
-      - name: Cache CMake FetchContent dependencies
+      - name: Cache CMake dependencies
         uses: actions/cache@v4
         with:
-          path: .builds/cmake/qt-release/_deps
-          key: cmake-deps-qt-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt') }}
-          restore-keys: cmake-deps-qt-${{ runner.os }}-
+          path: .builds/cmake/qt-webrtc-release/_deps
+          key: cmake-qt-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/CMakeLists.txt') }}
+          restore-keys: cmake-qt-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build Qt client
         run: ./scripts/build.sh --qt
 
-      - name: Upload artifact
+      - name: Upload runnable client directory
         uses: actions/upload-artifact@v4
         with:
           name: driscord-client-linux
-          path: .builds/cmake/qt-release/client-qt/driscord_client
+          path: |
+            .builds/cmake/qt-webrtc-release/client-qt/driscord_client
+            .builds/cmake/qt-webrtc-release/client-qt/libdatachannel.so*
 
   build-api:
-    name: Build / API
-    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    name: Build API
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -191,64 +250,3 @@ jobs:
 
       - name: Install API dependencies
         run: ./scripts/build.sh --api
-
-  build-windows-cross:
-    name: Build / Windows core tests (cross-compile)
-    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install system dependencies + MinGW
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y \
-            cmake ninja-build \
-            libssl-dev \
-            mingw-w64 gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
-          # Select POSIX threading variant (required for std::thread / std::mutex)
-          sudo update-alternatives --set x86_64-w64-mingw32-gcc \
-            /usr/bin/x86_64-w64-mingw32-gcc-posix
-          sudo update-alternatives --set x86_64-w64-mingw32-g++ \
-            /usr/bin/x86_64-w64-mingw32-g++-posix
-
-      - name: Cache Boost headers
-        id: cache-boost
-        uses: actions/cache@v4
-        with:
-          path: ~/boost-cache
-          key: boost-${{ env.BOOST_VERSION }}-${{ runner.os }}
-
-      - name: Download Boost headers
-        if: steps.cache-boost.outputs.cache-hit != 'true'
-        run: |
-          BOOST_VER_UNDER="${BOOST_VERSION//./_}"
-          wget -q "https://archives.boost.io/release/${BOOST_VERSION}/source/boost_${BOOST_VER_UNDER}.tar.gz"
-          mkdir -p ~/boost-cache/include
-          tar xzf "boost_${BOOST_VER_UNDER}.tar.gz" \
-            --strip-components=1 \
-            -C ~/boost-cache/include \
-            "boost_${BOOST_VER_UNDER}/boost"
-
-      - name: Set BOOST_ROOT
-        run: echo "BOOST_ROOT=$HOME/boost-cache" >> $GITHUB_ENV
-
-      - name: Cache CMake FetchContent dependencies
-        uses: actions/cache@v4
-        with:
-          path: .builds/cmake/windows-test/_deps
-          key: cmake-deps-windows-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt') }}
-          restore-keys: cmake-deps-windows-${{ runner.os }}-
-
-      - name: Cache Windows third-party prebuilts (FFmpeg + OpenSSL)
-        id: cache-win-deps
-        uses: actions/cache@v4
-        with:
-          path: third_party/windows
-          key: win-deps-${{ hashFiles('third_party/fetch_win_deps.sh') }}
-
-      - name: Fetch Windows prebuilt dependencies
-        if: steps.cache-win-deps.outputs.cache-hit != 'true'
-        run: ./third_party/fetch_win_deps.sh
-
-      - name: Build core tests for Windows (no Wine on CI — build only)
-        run: ./scripts/build.sh --windows --test

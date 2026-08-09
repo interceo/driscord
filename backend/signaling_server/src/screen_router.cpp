@@ -581,32 +581,39 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
 
     void close()
     {
-        std::scoped_lock lock(mutex);
-        if (closed) {
-            return;
-        }
-        closed = true;
-        for (auto& [_, peer] : peers) {
-            if (auto track = peer.input_video.lock()) {
-                track->onMessage(nullptr);
-                track->setMediaHandler(nullptr);
+        std::vector<std::shared_ptr<rtc::Track>> tracks;
+        {
+            std::scoped_lock lock(mutex);
+            if (closed) {
+                return;
             }
-            if (auto track = peer.input_audio.lock()) {
-                track->onMessage(nullptr);
-                track->setMediaHandler(nullptr);
-            }
-            for (auto& pair : peer.outputs) {
-                for (auto* output : { &pair.video, &pair.audio }) {
-                    if (*output) {
-                        if (auto track = (*output)->track.lock()) {
-                            track->onMessage(nullptr);
-                            track->setMediaHandler(nullptr);
+            closed = true;
+            for (auto& [_, peer] : peers) {
+                if (auto track = peer.input_video.lock()) {
+                    tracks.push_back(std::move(track));
+                }
+                if (auto track = peer.input_audio.lock()) {
+                    tracks.push_back(std::move(track));
+                }
+                for (auto& pair : peer.outputs) {
+                    for (auto* output : { &pair.video, &pair.audio }) {
+                        if (*output) {
+                            if (auto track = (*output)->track.lock()) {
+                                tracks.push_back(std::move(track));
+                            }
                         }
                     }
                 }
             }
+            peers.clear();
         }
-        peers.clear();
+
+        // Detaching may wait for an in-flight route callback, which itself
+        // takes mutex. Keep all external libdatachannel calls outside it.
+        for (const auto& track : tracks) {
+            track->onMessage(nullptr);
+            track->setMediaHandler(nullptr);
+        }
     }
 };
 

@@ -327,23 +327,32 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
 
     void close()
     {
-        std::scoped_lock lock(mutex);
-        if (closed) {
-            return;
-        }
-        closed = true;
-        for (auto& [_, peer] : peers) {
-            if (auto input = peer.input.lock()) {
-                input->onMessage(nullptr);
+        std::vector<std::shared_ptr<rtc::Track>> tracks;
+        {
+            std::scoped_lock lock(mutex);
+            if (closed) {
+                return;
             }
-            for (auto& output : peer.outputs) {
-                if (auto track = output.track.lock()) {
-                    track->onMessage(nullptr);
-                    track->setMediaHandler(nullptr);
+            closed = true;
+            for (auto& [_, peer] : peers) {
+                if (auto input = peer.input.lock()) {
+                    tracks.push_back(std::move(input));
+                }
+                for (auto& output : peer.outputs) {
+                    if (auto track = output.track.lock()) {
+                        tracks.push_back(std::move(track));
+                    }
                 }
             }
+            peers.clear();
         }
-        peers.clear();
+
+        // synchronized_callback waits for an in-flight callback. Never do
+        // that while holding the router mutex: route() takes the same mutex.
+        for (const auto& track : tracks) {
+            track->onMessage(nullptr);
+            track->setMediaHandler(nullptr);
+        }
     }
 };
 

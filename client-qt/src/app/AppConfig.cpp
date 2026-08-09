@@ -1,11 +1,11 @@
 #include "AppConfig.h"
-#include <algorithm>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStringList>
+#include <algorithm>
 
 static QString findConfigFile()
 {
@@ -82,8 +82,12 @@ AppConfig AppConfig::load()
         cfg.server = obj["server"].toString();
     if (obj.contains("api"))
         cfg.api = obj["api"].toString();
-    if (obj.contains("screen_fps"))
-        cfg.screenFps = obj["screen_fps"].toInt(60);
+    if (obj.contains("screen_fps")) {
+        const int configuredFps = obj["screen_fps"].toInt(60);
+        cfg.screenFps = configuredFps == 30 || configuredFps == 60
+            ? configuredFps
+            : 60;
+    }
 
     return cfg;
 }
