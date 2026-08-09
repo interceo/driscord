@@ -88,6 +88,12 @@ PeerConnection/MediaStream, чтобы RTCP sync работал внутри о�
   job, исправлены зависимости и пути Linux-артефактов.
 - [x] Client-only сборка отключает ненужный RTP/media слой libdatachannel.
   Необходимая WebSocket DSO пакуется рядом с клиентом с `RUNPATH=$ORIGIN`.
+- [x] Закрыто усечение больших signaling frames в GnuTLS backend
+  `libdatachannel v0.24.5`: положительный partial return
+  `gnutls_record_send()` теперь дописывается до конца через воспроизводимый
+  dependency patch. Локальный WSS regression-тест проверяет целостность
+  32-KiB text frame за границей одного TLS record; реальные voice/screen SDP
+  размером около 20/40 KiB проходят production ingress без close `1007`.
 - [x] Интеграционные тесты теперь проверяют не только наличие PCM/пикселей, но
   и идентичность маршрутизации: независимые 440/880-Hz sources и различимые
   цветовые сигнатуры screen publishers обязаны прийти в правильные mid.
@@ -128,7 +134,7 @@ PeerConnection/MediaStream, чтобы RTCP sync работал внутри о�
   и sink callback, и `RTCStatsReport`; замена publisher PeerConnection в той
   же signaling-сессии и новый RTP epoch проверены, focused-прогон 10/10;
 - signaling room isolation и быстрый reconnect проверяются отдельно от media;
-  полный актуальный набор 11/11 содержит только тесты реально существующей
+  полный актуальный набор 12/12 содержит только тесты реально существующей
   архитектуры, без удалённого legacy quality harness; voice и screen
   fault/reconnect прогоны стабильны 10/10 каждый;
 - signaling-тесты проверяют typed rejection на девятую screen-подписку,
