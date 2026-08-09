@@ -7,12 +7,31 @@
 # Prereqs: kubectl context set; SOPS age key at ~/.config/sops/age/keys.txt
 # (secret.yaml is rendered from secret.sops.yaml at apply time, then shredded).
 #
-# Usage: scripts/deploy.sh
+# Usage: scripts/deploy.sh [api|sig]
+# Without an argument, build and roll out both services.
 set -eu
 
 NS=driscord
 MANIFESTS=/homelab/apps/driscord
 APPLY=/homelab/system/scripts/apply.sh
+
+case "${1:-all}" in
+    all)
+        components="api sig"
+        ;;
+    api|sig)
+        components=$1
+        ;;
+    *)
+        echo "Usage: $0 [api|sig]" >&2
+        exit 2
+        ;;
+esac
+
+if [ "$#" -gt 1 ]; then
+    echo "Usage: $0 [api|sig]" >&2
+    exit 2
+fi
 
 build_image() {
     job=$1
@@ -28,17 +47,33 @@ build_image() {
     fi
 }
 
-build_image driscord-api-build api-build-job.yaml
-build_image driscord-signaling-build signaling-build-job.yaml
+for component in $components; do
+    case "$component" in
+        api)
+            build_image driscord-api-build api-build-job.yaml
+            ;;
+        sig)
+            build_image driscord-signaling-build signaling-build-job.yaml
+            ;;
+    esac
+done
 
 echo ">> applying manifests and rolling out..."
 "$APPLY" "$MANIFESTS/"
 
-for deployment in driscord-api driscord-signaling; do
+for component in $components; do
+    case "$component" in
+        api) deployment=driscord-api ;;
+        sig) deployment=driscord-signaling ;;
+    esac
     kubectl rollout restart "deployment/${deployment}" -n "$NS"
 done
 
-for deployment in driscord-api driscord-signaling; do
+for component in $components; do
+    case "$component" in
+        api) deployment=driscord-api ;;
+        sig) deployment=driscord-signaling ;;
+    esac
     kubectl rollout status "deployment/${deployment}" -n "$NS" --timeout=180s
 done
 
