@@ -40,7 +40,7 @@ if [ "$TARGET" = "server" ]; then
         bash "$(dirname "$0")/build.sh" --server $TYPE_FLAG
     fi
     echo "==> Launching server ($BUILD_TYPE)..."
-    exec "$SERVER_BIN" "$@"
+    exec "$SERVER_BIN"
 fi
 
 # ===== API =====
@@ -53,11 +53,11 @@ if [ "$TARGET" = "api" ]; then
     fi
     echo "==> Launching API server..."
     cd "$API_DIR"
-    exec "$VENV_DIR/bin/python" main.py "$@"
+    exec "$VENV_DIR/bin/python" main.py
 fi
 
 # ===== QT CLIENT =====
-QT_BIN="$ROOT/.builds/cmake/qt-$BUILD_TYPE/client-qt/driscord_client"
+QT_BIN="$ROOT/.builds/cmake/qt-webrtc-$BUILD_TYPE/client-qt/driscord_client"
 if [ ! -f "$QT_BIN" ]; then
     echo "==> Qt client binary not found — building..."
     TYPE_FLAG="--release"

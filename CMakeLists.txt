@@ -8,6 +8,21 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+option(BUILD_CORE "Build the core library" ON)
+
+# Google WebRTC is the only client media backend. Server-only builds remain
+# independent of the external GN artifact by configuring BUILD_CORE=OFF.
+option(DRISCORD_USE_GOOGLE_WEBRTC
+    "Build the Google WebRTC client media backend" ON)
+if(BUILD_CORE AND NOT DRISCORD_USE_GOOGLE_WEBRTC)
+    message(FATAL_ERROR
+        "The legacy media backend was removed; BUILD_CORE requires "
+        "DRISCORD_USE_GOOGLE_WEBRTC=ON.")
+endif()
+if(BUILD_CORE)
+    include(cmake/GoogleWebRTC.cmake)
+endif()
+
 if(MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "")
 endif()
@@ -20,7 +35,7 @@ include(FetchContent)
 FetchContent_Declare(
     fmt
     GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-    GIT_TAG        10.2.1
+    GIT_TAG        12.2.0
     GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(fmt)
@@ -35,50 +50,86 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(json)
 
-# --- libdatachannel (shared by core + signaling server) ---
-# The client uses rtc::WebSocket for signaling and one rtc::PeerConnection to
-# the server; the server terminates a PeerConnection per client (SFU), so both
-# targets need this. Declared here because the server subdirectory is added
-# before core/ and is also built standalone with -DBUILD_CORE=OFF.
-set(NO_MEDIA ON CACHE BOOL "" FORCE)
+# --- libdatachannel (WebSocket client + server-side Track SFU) ---
+option(DRISCORD_ENABLE_RTP_MEDIA
+    "Build libdatachannel RTP/RTCP media support for the SFU" ON)
+if(DRISCORD_ENABLE_RTP_MEDIA)
+    set(NO_MEDIA OFF CACHE BOOL "" FORCE)
+else()
+    set(NO_MEDIA ON CACHE BOOL "" FORCE)
+endif()
+# BoringSSL in Google's complete static archive intentionally exports the same
+# C symbols as OpenSSL. The Qt client still uses libdatachannel's WebSocket, so
+# its DSO is built with GnuTLS to prevent TLS symbol interposition. A standalone
+# server build remains on libdatachannel's default OpenSSL backend.
+if(BUILD_CORE)
+    set(USE_GNUTLS ON CACHE BOOL "Use GnuTLS instead of OpenSSL" FORCE)
+    set(USE_MBEDTLS OFF CACHE BOOL "Use Mbed TLS instead of OpenSSL" FORCE)
+    set(ENABLE_OPENSSL OFF CACHE BOOL
+        "Disable OpenSSL in bundled libSRTP for BoringSSL coexistence" FORCE)
+    # GnuTLS handles DTLS in libdatachannel, but bundled libSRTP still needs
+    # an external AES-GCM implementation. NSS is selected only for that nested
+    # library; USE_MBEDTLS above remains OFF.
+    set(ENABLE_MBEDTLS OFF CACHE BOOL
+        "Disable Mbed TLS crypto in bundled libSRTP" FORCE)
+    set(ENABLE_NSS ON CACHE BOOL
+        "Use NSS crypto in bundled libSRTP" FORCE)
+    # libSRTP stores the selected engine in INTERNAL cache variables but does
+    # not clear a previously selected one when a build directory is
+    # reconfigured. Avoid an impossible OPENSSL+NSS config after migration.
+    unset(OPENSSL CACHE)
+    unset(MBEDTLS CACHE)
+else()
+    set(USE_GNUTLS OFF CACHE BOOL "Use GnuTLS instead of OpenSSL" FORCE)
+    set(ENABLE_OPENSSL ON CACHE BOOL
+        "Use OpenSSL crypto in bundled libSRTP" FORCE)
+    set(ENABLE_NSS OFF CACHE BOOL
+        "Disable NSS crypto in bundled libSRTP" FORCE)
+    unset(NSS CACHE)
+    unset(MBEDTLS CACHE)
+endif()
 set(NO_EXAMPLES ON CACHE BOOL "" FORCE)
 set(NO_TESTS ON CACHE BOOL "" FORCE)
 FetchContent_Declare(
     libdatachannel
     GIT_REPOSITORY https://github.com/paullouisageneau/libdatachannel.git
-    GIT_TAG        v0.22.5
+    GIT_TAG        v0.24.5
     GIT_SHALLOW    TRUE
 )
+# In the client process libdatachannel must be a shared isolation boundary.
+# Both projects embed libSRTP and intentionally expose the same C
+# API; linking both static archives into one executable either produces
+# duplicate definitions or, depending on archive order, silently mixes their
+# process-global state. Keep libdatachannel's bundled dependencies local to
+# its DSO below. Other builds retain the project's explicit static target.
+if(BUILD_CORE)
+    set(_driscord_saved_build_shared_libs "${BUILD_SHARED_LIBS}")
+    set(BUILD_SHARED_LIBS ON)
+endif()
 FetchContent_MakeAvailable(libdatachannel)
+if(BUILD_CORE)
+    set(BUILD_SHARED_LIBS "${_driscord_saved_build_shared_libs}")
+    unset(_driscord_saved_build_shared_libs)
+    set(DRISCORD_LIBDATACHANNEL_TARGET datachannel)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        # Make libSRTP/usrsctp/libjuice symbols from dependency archives local
+        # to libdatachannel.so. Its annotated public rtc::* API remains
+        # exported, while Google WebRTC keeps its own private media stack.
+        target_link_options(datachannel PRIVATE "LINKER:--exclude-libs,ALL")
+    endif()
+else()
+    set(DRISCORD_LIBDATACHANNEL_TARGET datachannel-static)
+endif()
 
-# --- boost-ext/SML (shared by core + signaling server) ---
-# Connection lifecycle state machines: one for the client's link to the server
-# (core/src/transport_fsm.hpp) and one per server-side session
-# (backend/signaling_server/src/session_fsm.hpp). Header-only.
-set(SML_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(SML_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(SML_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(
-    sml
-    GIT_REPOSITORY https://github.com/boost-ext/sml.git
-    GIT_TAG        v1.1.13
-    GIT_SHALLOW    TRUE
-)
-FetchContent_MakeAvailable(sml)
-
-# Treat SML's header as a system include: instantiating its templates under
-# GCC 16 trips -Wmaybe-uninitialized inside the library itself, which is noise
-# we can neither fix nor act on.
-get_target_property(_sml_include_dirs sml INTERFACE_INCLUDE_DIRECTORIES)
-if(_sml_include_dirs)
-    set_target_properties(sml PROPERTIES
-        INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_sml_include_dirs}")
+# The non-WebRTC build links the explicit static target everywhere. Upstream's
+# shared target would otherwise compile the stack a second time unused.
+if(TARGET datachannel AND NOT BUILD_CORE)
+    set_target_properties(datachannel PROPERTIES EXCLUDE_FROM_ALL TRUE)
 endif()
 
 # --- Boost (header-only, shared by protocol + core + signaling server) ---
-# Endian for the wire format, circular_buffer and accumulators in the audio
-# receive path, ASIO/Beast in the server. For the MinGW cross build this
-# resolves through third_party/windows/boost — see cmake/toolchain-mingw64.cmake.
+# Lock-free/bounded queues are used by hardware adapters; ASIO/Beast powers the
+# signaling server.
 find_package(Boost 1.89 REQUIRED)
 
 # Shared wire/signaling protocol code used by both the client core and the
@@ -86,7 +137,6 @@ find_package(Boost 1.89 REQUIRED)
 # compile as normal translation units instead of spreading inline code through
 # every consumer.
 add_library(driscord_protocol STATIC
-    core/src/utils/protocol.cpp
     core/src/utils/signaling_protocol.cpp
 )
 target_include_directories(driscord_protocol PUBLIC
@@ -109,7 +159,6 @@ if(BUILD_SERVER)
     add_subdirectory(backend/signaling_server)
 endif()
 
-option(BUILD_CORE "Build the core library" ON)
 if(BUILD_CORE)
     add_subdirectory(core)
 endif()
@@ -118,11 +167,6 @@ option(BUILD_TESTS "Build tests" OFF)
 if(BUILD_TESTS)
     enable_testing()
     add_subdirectory(core/tests)
-endif()
-
-option(BUILD_BENCHMARKS "Build benchmarks" OFF)
-if(BUILD_BENCHMARKS)
-    add_subdirectory(core/benchmarks)
 endif()
 
 option(BUILD_QT_CLIENT "Build the Qt/QML client" OFF)

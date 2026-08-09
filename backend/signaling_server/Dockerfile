@@ -32,7 +32,6 @@ RUN cmake -S . -B /build -G Ninja \
         -DBUILD_CORE=OFF \
         -DBUILD_SERVER=ON \
         -DBUILD_TESTS=OFF \
-        -DBUILD_BENCHMARKS=OFF \
         -DBUILD_QT_CLIENT=OFF \
     && cmake --build /build --target driscord_server --parallel
 

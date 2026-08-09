@@ -60,7 +60,7 @@ if [ "$TARGET" = "api" ]; then
     exec "$VENV_DIR/bin/python" main.py "${PASSTHRU[@]}"
 fi
 
-QT_BIN="$ROOT/.builds/nixos/cmake/qt-$BUILD_TYPE/client-qt/driscord_client"
+QT_BIN="$ROOT/.builds/nixos/cmake/qt-webrtc-$BUILD_TYPE/client-qt/driscord_client"
 if [ ! -f "$QT_BIN" ]; then
     echo "==> Qt client binary not found; building..."
     TYPE_FLAG="--release"

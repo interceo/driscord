@@ -1,4 +1,156 @@
-# MVP: автоматизированная проверка качества трансляции
+# Миграция media engine на Google WebRTC
+
+## Решение
+
+Собственные аудио/video playout, packetization и codec orchestration заменяются
+Google WebRTC на клиенте. Сервер остаётся лёгким SFU на `libdatachannel::Track`:
+он завершает ICE/DTLS/SRTP и маршрутизирует RTP, но не декодирует медиа.
+
+На клиент приходится два логических соединения:
+
+- `voice`: один исходящий микрофон и несколько входящих голосовых tracks;
+- `screen`: одна исходящая пара screen video/system audio и несколько входящих
+  пар трансляций.
+
+Обе модели используют Unified Plan: один transceiver на независимый track.
+Screen video и соответствующий system audio всегда остаются в одном
+PeerConnection/MediaStream, чтобы RTCP sync работал внутри одной временной базы.
+
+## Текущий статус миграции (9 августа 2026)
+
+- [x] Выбрана граница: Google WebRTC client + libdatachannel Track SFU.
+- [x] Подтверждена поддержка нескольких video tracks и сведения нескольких
+  входящих audio streams штатным `AudioMixer`.
+- [x] Signaling использует обязательный `connection=voice|screen`; старое
+  значение `legacy` и отсутствие поля отвергаются парсером.
+- [x] Серверная зависимость libdatachannel обновлена до `v0.24.5`, RTP media
+  support включён отдельной CMake-опцией.
+- [x] Закреплённый checkout Google WebRTC
+  `956083e9a9f487b9c2d0cdb96c64ba23cfc1ac76`: воспроизводимая GN-сборка
+  полного `libwebrtc.a` проверена.
+- [x] Узкий adapter target: типы Google WebRTC не выходят в публичные
+  заголовки `driscord_core` и Qt-клиента.
+- [x] Основа `voice`: один local audio track, bounded pool из нескольких
+  recvonly transceivers, mute/reconnect и реальный Google WebRTC ↔
+  libdatachannel ICE/DTLS/SRTP handshake.
+- [x] Voice SFU routing: room-level назначение publisher → subscriber slot,
+  стабильный SSRC, `mid -> peer_id`, локальный NACK cache и несколько
+  одновременных участников без renegotiation.
+- [x] Завершение `voice` vertical slice: штатный clocked
+  `TestAudioDeviceModule` с bounded 10-ms PCM queue, два одновременно
+  декодируемых remote track по независимым `mid`, spec-compliant RTCStats и
+  явная congestion policy (64-kbit/s Opus ceiling, hop-local RR/NACK, без
+  ложного объявления непроксируемых transport-cc/REMB).
+- [x] `screen` vertical slice: DesktopCapturer/VideoTrackSource, несколько video
+  sinks и связанный system-audio track.
+- [x] Screen SFU RTP routing: связанные audio/video slots, локальный NACK cache,
+  PLI upstream, сохранение track identity и непрерывная RTP timeline при
+  переназначении slot другому publisher.
+- [x] UI переведён с одного `watchedPeerId` на множество одновременно
+  просматриваемых трансляций.
+- [x] `watch_start/watch_stop` адресуют конкретный `peer_id`; SFU заполняет
+  slots только выбранными publishers и не тратит downlink на остальные.
+- [x] Legacy media pipeline удалён по принятому решению: больше нет собственных
+  sender/receiver, Opus/FFmpeg orchestration, DataChannel media protocol,
+  WSOLA, MediaClock и старых quality/benchmark harnesses.
+- [x] Runtime-метрики экрана переведены на стандартный `RTCStatsReport`.
+- [x] Screen RTCStats группируются по `mid -> peer_id`; каждая плитка получает
+  собственные counters/delay/rate, а параллельные UI polls объединяются в один
+  in-flight `GetStats` request. Stateful aggregation вынесена из client
+  coordinator в отдельный `ScreenStatsTracker` и покрыта unit-тестами смены
+  binding epoch и stale session callback.
+- [x] Targeted screen subscriptions автоматически переотправляются после
+  signaling reconnect; end-to-end тест подтверждает возобновление кадров без
+  ручного повторного `joinStream`.
+- [x] Reconnect/churn и детерминированные loss/reorder fault injection проходят
+  на реальном RTP пути: voice декодируется при drop каждого 11-го пакета и
+  reorder каждого 7-го, screen — при drop каждого 37-го и reorder каждого
+  11-го; `RTCStats` подтверждает ненулевые реальные потери.
+- [ ] Завершить reliability gate длительной soak-проверкой нескольких
+  voice/screen publishers и достижением slot capacity.
+
+Проверка реализованного среза:
+
+- полный pinned `libwebrtc.a` и Qt-клиент с
+  `DRISCORD_USE_GOOGLE_WEBRTC=ON` собираются Clang/lld;
+- Google WebRTC ↔ libdatachannel handshake, три одновременных voice peer,
+  независимые slot bindings и очистка slot при disconnect проходят; focused
+  churn-прогон стабилен 10/10;
+- два детерминированных PCM tone source проходят реальный
+  encode → SRTP → SFU rewrite/fan-out → NetEq decode путь в два remote `mid`;
+  outbound/inbound packets/bytes и jitter-buffer emission подтверждены через
+  RTCStats, включая loss/reorder режим; focused-прогон стабилен 10/10;
+- два одновременно публикуемых screen track проходят реальный
+  encode → SRTP → SFU rewrite/fan-out → decode путь; связанные video/audio
+  slot bindings сохраняют publisher identity, а video decode подтверждается
+  и sink callback, и `RTCStatsReport`; замена publisher PeerConnection в той
+  же signaling-сессии и новый RTP epoch проверены, focused-прогон 10/10;
+- signaling room isolation и быстрый reconnect проверяются отдельно от media;
+  полный актуальный набор 11/11 содержит только тесты реально существующей
+  архитектуры, без удалённого legacy quality harness; voice и screen
+  fault/reconnect прогоны стабильны 10/10 каждый.
+
+Оставшиеся ограничения, которые нельзя маскировать совместимостью:
+
+- pinned Google WebRTC artifact сейчас поддержан только на Linux x86_64 и
+  требует Clang/lld; другие архитектуры, Windows и macOS core build
+  заблокированы до появления воспроизводимых артефактов для этих платформ;
+- UI пока честно показывает только `System default`: выбор audio device и
+  input/output level нужно подключить к native ADM, не возвращая miniaudio
+  capture pipeline;
+- screen publisher пока отправляет одну video rendition: несколько трансляций
+  работают, но simulcast/SVC и выбор low/high слоя SFU ещё не реализованы;
+- сеть сейчас использует публичные host candidates SFU и исходящий UDP;
+  TURN/TCP/TLS fallback для окружений, блокирующих UDP, ещё не реализован;
+
+## Порядок перехода
+
+1. **Инфраструктура без изменения поведения — выполнено.** Закрепить WebRTC revision и GN
+   args, добавить CMake imported target, идентификатор соединения в signaling,
+   включить media API libdatachannel на сервере.
+2. **Voice end-to-end — выполнено.** Один `voice` PeerConnection на клиента,
+   один upstream mic track, заранее выделенные recvonly audio transceivers и
+   track binding `mid -> peer_id` от SFU.
+3. **Несколько screen shares — выполнено.** Отдельный `screen` PeerConnection,
+   bounded pool video/audio slots и подписка на конкретный `peer_id`.
+   Simulcast/SVC и low/high layer selection остаются отдельным этапом.
+4. **System audio default monitor — выполнено.** Custom ADM/PCM bridge остаётся
+   изолированным адаптером; выбор конкретного monitor ещё нужно провести через
+   UI. Приватные `cricket::*` API в публичный core не допускаются.
+5. **Удаление legacy — выполнено по явному разрешению.** Удалены
+   `AudioReceiver`, `VideoReceiver`, `Wsola`, `MediaClock`, `PlayoutPolicy`,
+   Opus/FFmpeg orchestration и media DataChannels.
+
+Fallback намеренно отсутствует: Google WebRTC является единственным client
+media backend. Дальнейшие изменения обязаны сохранять собираемый вертикальный
+срез и проверяться реальным client ↔ SFU integration path.
+
+`GoogleWebRtcRuntime` остаётся классом, потому что владеет фабрикой, потоками и
+порядком их остановки (RAII). Аналогов старых `AudioSender/AudioReceiver` и
+`VideoSender/VideoReceiver` в новом backend не создаём: PCM/video входят через
+штатные source/track API, выходят через sink API, а `VoiceSession` и
+`ScreenSession` координируют только signaling, подписки и привязку `mid`.
+
+Linux backend собирается Clang с `use_custom_libcxx=false`: WebRTC и остальной
+процесс используют одну libstdc++ ABI. Для закреплённой ревизии хранится один
+явный patch-файл с тремя узкими дельтами: `nullptr_t` → `std::nullptr_t`,
+совместимый с libstdc++ вызов `optional::emplace` и включение штатных default
+media factories вместе с официальным `TestAudioDeviceModule` в полный archive
+target. Подключение libc++ рядом с Qt/core не допускается. В совместном
+Google-WebRTC тестовом/клиентском процессе
+libdatachannel собирается с GnuTLS: это исключает interposition одинаковых
+OpenSSL/BoringSSL C-символов. Его libSRTP использует NSS для AES-GCM и
+изолирован внутри `libdatachannel.so`, поэтому два набора process-global
+`srtp_*`-символов также не смешиваются. Самостоятельный server build от этих
+ограничений не зависит.
+
+---
+
+# Исторический план (не исполняется): legacy MVP проверки качества
+
+Раздел ниже сохранён только как журнал причин миграции. Упомянутые в нём
+`AudioReceiver`, `VideoReceiver`, `MediaClock`, custom network model и старые
+benchmarks удалены и не являются частью текущей архитектуры или test gate.
 
 ## Context
 

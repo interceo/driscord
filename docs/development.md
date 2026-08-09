@@ -2,9 +2,18 @@
 
 ## Зависимости
 
-Для всего проекта нужны CMake 3.20+, C++20-компилятор, Boost 1.89+, OpenSSL,
-Qt 6, FFmpeg и Python 3. Для API нужен PostgreSQL. Часть C++-зависимостей CMake
-загружает через `FetchContent`.
+Для client/core нужны Linux, CMake 3.20+, Clang/lld, Boost 1.89+, Qt 6,
+GnuTLS/NSS, X11 extensions и PulseAudio. Для standalone SFU нужен OpenSSL. Для
+API нужны Python 3 и PostgreSQL. Часть C++-зависимостей CMake загружает через
+`FetchContent`.
+
+Перед первой client/core сборкой создайте pinned Google WebRTC artifact:
+
+```bash
+./scripts/build_google_webrtc.sh
+```
+
+Артефакт пока Linux-only; Windows/macOS core build намеренно отключён.
 
 ## PostgreSQL и API
 
@@ -44,10 +53,12 @@ DRISCORD_PORT=9001 ./.builds/server/release/driscord_server
 curl http://127.0.0.1:9001/presence
 ```
 
-У бинаря порт также можно передать первым позиционным аргументом. В текущем
-`scripts/run.sh` аргумент `--server` ошибочно передаётся самому бинарю, который
-пытается преобразовать его в число. Поэтому до исправления launcher используйте
-прямой запуск выше.
+У бинаря порт также можно передать первым позиционным аргументом. Обычный
+launcher не пересылает собственные флаги в сервер:
+
+```bash
+./scripts/run.sh --server
+```
 
 ## Клиент
 
@@ -57,8 +68,7 @@ curl http://127.0.0.1:9001/presence
 {
   "server": "127.0.0.1:9001",
   "api": "127.0.0.1:9002",
-  "screen_fps": 60,
-  "turn_servers": []
+  "screen_fps": 60
 }
 ```
 
@@ -74,8 +84,8 @@ curl http://127.0.0.1:9001/presence
 `%LOCALAPPDATA%/driscord/config.json` на Windows. Если ничего не найдено,
 используются `localhost:9001`, `localhost:9002` и 60 FPS.
 
-Ключ `video_bitrate_kbps`, показанный в корневом README, текущий `AppConfig` не
-читает. Настраиваемый ключ называется `screen_fps`.
+Настраиваемый media-ключ сейчас только `screen_fps`; bitrate ограничивается
+Google WebRTC session policy.
 
 ## Тесты
 

@@ -6,14 +6,23 @@ Rectangle {
 
     property bool active: true
     property bool compact: true
+    property string peerId: ""
     property var stats: ({})
     property var history: []
     property var rates: ({})
     property var previousCounters: ({})
     property double previousAtMs: 0
 
+    onPeerIdChanged: {
+        stats = ({})
+        history = []
+        rates = ({})
+        previousCounters = ({})
+        previousAtMs = 0
+    }
+
     width: compact ? 232 : 320
-    height: compact ? 158 : 210
+    height: compact ? 158 : 190
     radius: 6
     color: "#000000b3"
     border.color: "#ffffff22"
@@ -44,47 +53,41 @@ Rectangle {
 
     function refresh() {
         try {
-            var parsed = JSON.parse(bridge.screenStatsJson())
+            var parsed = JSON.parse(bridge.screenStatsJson(root.peerId))
             root.stats = parsed
             var video = parsed.video || {}
             var audio = parsed.audio || {}
             var nowMs = Date.now()
             var elapsedSec = root.previousAtMs > 0 ? (nowMs - root.previousAtMs) / 1000 : 0
             var counters = {
-                videoLate: root.counterAt(video, "late"),
-                videoDrops: root.counterAt(video, "drops"),
-                videoDecodeFailures: root.counterAt(video, "decodeFailures"),
-                videoKeyframes: root.counterAt(video, "keyframeRequests"),
+                videoLoss: root.counterAt(video, "packetsLost"),
+                videoDrops: root.counterAt(video, "framesDropped"),
+                videoDecoded: root.counterAt(video, "framesDecoded"),
+                videoKeyframes: root.counterAt(video, "keyFramesDecoded"),
                 videoPackets: root.counterAt(video, "packetsReceived"),
-                audioDrops: root.counterAt(audio, "drops"),
-                audioConceals: root.counterAt(audio, "conceals"),
-                audioUnderruns: root.counterAt(audio, "underruns"),
-                audioFec: root.counterAt(audio, "fecRecovered"),
-                audioStretches: root.counterAt(audio, "stretches"),
+                audioLoss: root.counterAt(audio, "packetsLost"),
+                audioConceals: root.counterAt(audio, "concealedSamples"),
                 audioPackets: root.counterAt(audio, "packetsReceived")
             }
             root.rates = {
-                videoLate: root.rateFor("videoLate", counters.videoLate, elapsedSec),
+                videoLoss: root.rateFor("videoLoss", counters.videoLoss, elapsedSec),
                 videoDrops: root.rateFor("videoDrops", counters.videoDrops, elapsedSec),
-                videoDecodeFailures: root.rateFor("videoDecodeFailures", counters.videoDecodeFailures, elapsedSec),
+                videoDecoded: root.rateFor("videoDecoded", counters.videoDecoded, elapsedSec),
                 videoKeyframes: root.rateFor("videoKeyframes", counters.videoKeyframes, elapsedSec),
                 videoPackets: root.rateFor("videoPackets", counters.videoPackets, elapsedSec),
-                audioDrops: root.rateFor("audioDrops", counters.audioDrops, elapsedSec),
+                audioLoss: root.rateFor("audioLoss", counters.audioLoss, elapsedSec),
                 audioConceals: root.rateFor("audioConceals", counters.audioConceals, elapsedSec),
-                audioUnderruns: root.rateFor("audioUnderruns", counters.audioUnderruns, elapsedSec),
-                audioFec: root.rateFor("audioFec", counters.audioFec, elapsedSec),
-                audioStretches: root.rateFor("audioStretches", counters.audioStretches, elapsedSec),
                 audioPackets: root.rateFor("audioPackets", counters.audioPackets, elapsedSec)
             }
             root.previousCounters = counters
             root.previousAtMs = nowMs
 
-            var p95 = root.numberAt(video, "p95DelayMs", -1)
+            var actual = root.numberAt(video, "actualDelayMs", -1)
             var target = root.numberAt(video, "targetDelayMs", -1)
-            var audioP95 = root.numberAt(audio, "p95DelayMs", -1)
-            if (p95 >= 0 || target >= 0 || audioP95 >= 0) {
+            var audioActual = root.numberAt(audio, "actualDelayMs", -1)
+            if (actual >= 0 || target >= 0 || audioActual >= 0) {
                 var next = root.history.slice(Math.max(0, root.history.length - 47))
-                next.push({ p95: p95, target: target, audioP95: audioP95 })
+                next.push({ actual: actual, target: target, audioActual: audioActual })
                 root.history = next
             }
             graph.requestPaint()
@@ -116,7 +119,6 @@ Rectangle {
             Text {
                 Layout.fillWidth: true
                 text: root.numberAt(root.stats, "measuredKbps", 0) + " kbps"
-                    + "  skew " + root.fmtMs(root.numberAt(root.stats, "avSkewMs", 0))
                 color: "#23a55a"
                 font { pixelSize: compact ? 9 : 10; bold: true }
                 horizontalAlignment: Text.AlignRight
@@ -141,7 +143,7 @@ Rectangle {
                 var hist = root.history
                 var maxValue = 80
                 for (var i = 0; i < hist.length; i++) {
-                    maxValue = Math.max(maxValue, hist[i].p95, hist[i].target, hist[i].audioP95)
+                    maxValue = Math.max(maxValue, hist[i].actual, hist[i].target, hist[i].audioActual)
                 }
                 maxValue = Math.ceil(maxValue / 50) * 50
 
@@ -177,8 +179,8 @@ Rectangle {
                 }
 
                 drawLine("target", "#5865f2")
-                drawLine("p95", "#f0b232")
-                drawLine("audioP95", "#23a55a")
+                drawLine("actual", "#f0b232")
+                drawLine("audioActual", "#23a55a")
 
                 ctx.fillStyle = "#b9bbbe"
                 ctx.font = "9px sans-serif"
@@ -193,7 +195,7 @@ Rectangle {
             rowSpacing: 2
 
             Text {
-                text: "V p50/p95/p99"
+                text: "V actual / target"
                 color: "#b9bbbe"
                 font.pixelSize: 10
             }
@@ -202,16 +204,15 @@ Rectangle {
                 horizontalAlignment: Text.AlignRight
                 text: {
                     var v = root.stats.video || {}
-                    root.fmtMs(root.numberAt(v, "p50DelayMs", -1)) + " / "
-                        + root.fmtMs(root.numberAt(v, "p95DelayMs", -1)) + " / "
-                        + root.fmtMs(root.numberAt(v, "p99DelayMs", -1))
+                    root.fmtMs(root.numberAt(v, "actualDelayMs", -1)) + " / "
+                        + root.fmtMs(root.numberAt(v, "targetDelayMs", -1))
                 }
                 color: "#ffffff"
                 font.pixelSize: 10
             }
 
             Text {
-                text: "A p95 / actual"
+                text: "A actual / target"
                 color: "#b9bbbe"
                 font.pixelSize: 10
             }
@@ -220,15 +221,15 @@ Rectangle {
                 horizontalAlignment: Text.AlignRight
                 text: {
                     var a = root.stats.audio || {}
-                    root.fmtMs(root.numberAt(a, "p95DelayMs", -1)) + " / "
-                        + root.fmtMs(root.numberAt(a, "actualDelayMs", -1))
+                    root.fmtMs(root.numberAt(a, "actualDelayMs", -1)) + " / "
+                        + root.fmtMs(root.numberAt(a, "targetDelayMs", -1))
                 }
                 color: "#ffffff"
                 font.pixelSize: 10
             }
 
             Text {
-                text: "V late/drop/s"
+                text: "V loss / drop · s⁻¹"
                 color: "#b9bbbe"
                 font.pixelSize: 10
             }
@@ -236,7 +237,7 @@ Rectangle {
                 Layout.fillWidth: true
                 horizontalAlignment: Text.AlignRight
                 text: {
-                    root.fmtRate(root.numberAt(root.rates, "videoLate", 0)) + " / "
+                    root.fmtRate(root.numberAt(root.rates, "videoLoss", 0)) + " / "
                         + root.fmtRate(root.numberAt(root.rates, "videoDrops", 0))
                 }
                 color: "#ffffff"
@@ -244,7 +245,7 @@ Rectangle {
             }
 
             Text {
-                text: "A conceal/drop/s"
+                text: "A conceal / loss · s⁻¹"
                 color: "#b9bbbe"
                 font.pixelSize: 10
             }
@@ -253,14 +254,14 @@ Rectangle {
                 horizontalAlignment: Text.AlignRight
                 text: {
                     root.fmtRate(root.numberAt(root.rates, "audioConceals", 0)) + " / "
-                        + root.fmtRate(root.numberAt(root.rates, "audioDrops", 0))
+                        + root.fmtRate(root.numberAt(root.rates, "audioLoss", 0))
                 }
                 color: "#ffffff"
                 font.pixelSize: 10
             }
 
             Text {
-                text: "V q/pkt/s"
+                text: "V decoded / keyframe · s⁻¹"
                 color: "#b9bbbe"
                 font.pixelSize: 10
             }
@@ -268,16 +269,15 @@ Rectangle {
                 Layout.fillWidth: true
                 horizontalAlignment: Text.AlignRight
                 text: {
-                    var v = root.stats.video || {}
-                    root.numberAt(v, "queue", 0) + " / "
-                        + root.fmtRate(root.numberAt(root.rates, "videoPackets", 0))
+                    root.fmtRate(root.numberAt(root.rates, "videoDecoded", 0)) + " / "
+                        + root.fmtRate(root.numberAt(root.rates, "videoKeyframes", 0))
                 }
                 color: "#ffffff"
                 font.pixelSize: 10
             }
 
             Text {
-                text: "A q/pkt/s"
+                text: "V / A packets · s⁻¹"
                 color: "#b9bbbe"
                 font.pixelSize: 10
             }
@@ -285,41 +285,13 @@ Rectangle {
                 Layout.fillWidth: true
                 horizontalAlignment: Text.AlignRight
                 text: {
-                    var a = root.stats.audio || {}
-                    root.numberAt(a, "queue", 0) + " / "
+                    root.fmtRate(root.numberAt(root.rates, "videoPackets", 0)) + " / "
                         + root.fmtRate(root.numberAt(root.rates, "audioPackets", 0))
                 }
                 color: "#ffffff"
                 font.pixelSize: 10
             }
 
-            Text {
-                text: "V dec/kf/s"
-                color: "#b9bbbe"
-                font.pixelSize: 10
-            }
-            Text {
-                Layout.fillWidth: true
-                horizontalAlignment: Text.AlignRight
-                text: root.fmtRate(root.numberAt(root.rates, "videoDecodeFailures", 0))
-                    + " / " + root.fmtRate(root.numberAt(root.rates, "videoKeyframes", 0))
-                color: "#ffffff"
-                font.pixelSize: 10
-            }
-
-            Text {
-                text: "A fec/stretch/s"
-                color: "#b9bbbe"
-                font.pixelSize: 10
-            }
-            Text {
-                Layout.fillWidth: true
-                horizontalAlignment: Text.AlignRight
-                text: root.fmtRate(root.numberAt(root.rates, "audioFec", 0))
-                    + " / " + root.fmtRate(root.numberAt(root.rates, "audioStretches", 0))
-                color: "#ffffff"
-                font.pixelSize: 10
-            }
         }
     }
 }

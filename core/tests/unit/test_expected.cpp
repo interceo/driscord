@@ -71,7 +71,7 @@ TEST(Expected, CustomErrorType)
     enum Err { NotFound,
         Timeout };
 
-    Expected<int, Err> r(Unexpected(Err::Timeout));
+    Expected<int, Err> r { Unexpected(Err::Timeout) };
 
     EXPECT_FALSE(r);
     EXPECT_EQ(r.error(), Err::Timeout);

@@ -1,113 +1,118 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Repository guidance for coding agents.
 
-## Build & Run
+## Build and run
 
 ```bash
-# Build Qt client (release, default)
-./scripts/build.sh
-./scripts/build.sh --debug
+./scripts/build.sh                 # Qt client, Release
+./scripts/build.sh --debug         # Qt client, Debug
+./scripts/build.sh --test          # core + signaling + real WebRTC integration
+./scripts/build.sh --server        # standalone signaling/SFU server
+./scripts/build.sh --server --test # room/signaling tests
+./scripts/build.sh --api           # Python API environment
 
-# Build signaling server
-./scripts/build.sh --server
-./scripts/build.sh --server --debug
-
-# Build API (create venv + install deps)
-./scripts/build.sh --api
-
-# Tests & benchmarks (target + action are independent axes)
-./scripts/build.sh --test             # test core
-./scripts/build.sh --bench            # bench core
-./scripts/build.sh --server --test    # test server
-./scripts/build.sh --api --test       # test API (pytest)
-./scripts/build.sh --windows --test   # core tests on Windows under Wine (MinGW)
-
-# Run Qt client
 ./scripts/run.sh
-./scripts/run.sh --debug
-
-# Run signaling server
 ./scripts/run.sh --server
-./scripts/run.sh --server --debug
-
-# Run API server
 ./scripts/run.sh --api
-
-# Debug Qt client with GDB
-./scripts/run.sh --gdb
 ```
 
-Build outputs:
-- `.builds/cmake/qt-{release,debug}/client-qt/driscord_client` — Qt client binary
-- `.builds/server/{release,debug}/` — driscord_server
+Client/core builds currently require Linux x86_64, Clang/lld and the pinned
+Google WebRTC checkout/archive produced by `scripts/build_google_webrtc.sh`.
+Do not restore the deleted MinGW or legacy benchmark paths as fake
+compatibility.
 
-Runtime config is loaded from `config.json` (server host/port, API host/port, video bitrate). Example:
-```json
-{ "server": "host:9001", "api": "host:9002", "video_bitrate_kbps": 8000 }
-```
-The signaling server reads `DRISCORD_PORT` plus `DRISCORD_ICE_PORT_MIN`/`DRISCORD_ICE_PORT_MAX` (default 49160-49200) for the UDP range it accepts media on.
-API config is loaded from `backend/api/.env` (see `.env.example` for template).
+Outputs:
+
+- `.builds/cmake/qt-webrtc-{release,debug}/client-qt/driscord_client`
+- `.builds/server/{release,debug}/driscord_server`
 
 ## Architecture
 
-Driscord is a WebRTC-based voice and screen-sharing app (Discord-like) with three backend/library layers plus a Qt client. Media flows **client → server → clients**: the signaling server terminates each client's PeerConnection and fans media out (SFU). There is no peer mesh, and therefore no STUN/TURN/coturn anywhere.
+Driscord is client → SFU → clients; there is no peer mesh.
 
-### 1. Signaling Server (`backend/signaling_server/`)
-Boost.Beast WebSocket (rooms, SDP/ICE) plus libdatachannel. Each session owns one `rtc::PeerConnection` to its client; incoming DataChannel messages are re-sent to the other sessions in the room on the channel of the same label, prefixed with the sender id. The server never decodes codecs — it routes on the channel label alone. `audio`/`control` go to everyone in the room; `video`/`screen_audio` only to peers that sent `watch_start` (tracked per room in `Room::video_watchers`).
+### Signaling/SFU (`backend/signaling_server/`)
 
-### 2. API Server (`backend/api/`)
-Python/FastAPI backend with PostgreSQL (asyncpg + SQLAlchemy). Provides user auth (JWT), channel management, and update distribution. All endpoints except `/auth/*` and `/health` require a Bearer token.
+Boost.Beast owns WebSocket rooms and signaling. Each session can own two
+libdatachannel PeerConnections through `MediaConnections`: `voice` and
+`screen`. `VoiceRouter` and `ScreenRouter` forward encoded RTP between stable
+subscriber transceiver slots and rewrite the fields required for a coherent
+downstream RTP stream. They terminate RTCP per hop, cache packets for local
+NACK and forward PLI for screen video. The server never decodes media.
 
-### 3. C++ Core Library (`core/src/`, built as `driscord_core` static lib)
-The core has two parallel transport systems:
+`connection` is mandatory in offer/answer/candidate/track-binding signaling and
+is only `voice` or `screen`. There is no legacy DataChannel media protocol.
 
-**Audio pipeline**: `audio_sender` → mic capture (miniaudio) → Opus encode (48kHz/mono) → DataChannel → `audio_receiver` → reorder buffer → decode (PLC/FEC on gaps) → WSOLA → PCM ring → `audio_mixer` → playback
+### C++ core (`core/src/`)
 
-**Video pipeline**: `video_sender` → screen capture (platform-specific) → H.264/H.265 encode (FFmpeg) → one DataChannel message per frame (`FrameHeader` + payload, fragmented by SCTP) → server → `video_receiver` → decode → OpenGL texture
+Google WebRTC is the only client media engine:
 
-Frames are **not** chunked at the application level — SCTP fragments them. Before sending, `VideoTransport::send_video` checks `bufferedAmount()` and drops the frame if the send queue is over `stream_defaults::kVideoSendBufferLimitBytes`, since queueing behind a saturated uplink buys latency and nothing else.
+- `GoogleWebRtcRuntime` owns threads, PeerConnectionFactory and audio devices.
+- `GoogleWebRtcVoiceSession` owns one microphone track and a bounded set of
+  recvonly voice transceivers.
+- `GoogleWebRtcScreenSession` owns a screen video/system-audio pair and bounded
+  recvonly video/audio pairs. Desktop capture uses WebRTC DesktopCapturer.
+- `GoogleWebRtcClient` coordinates both sessions, `mid -> peer` bindings and UI
+  preferences. It is a lifecycle coordinator, not a codec/packet pipeline.
+- `Transport` is WebSocket signaling only. It uses libdatachannel's mature
+  WebSocket implementation but owns no libdatachannel PeerConnection.
 
-**A/V synchronisation** (`core/src/sync/`): both pipelines stamp packets from one monotonic `utils::MonoClock` per sending process. On the receiving side a `MediaClock` per peer turns those timestamps into playout deadlines — `sender_ts + offset + target_delay` — shared by that peer's audio and video, so the two cannot drift apart. `ScreenReceiver` owns the clock for a screen share (video + its system audio); voice gets its own, which stays at low latency because no video is waiting on it.
+Do not add AudioSender/AudioReceiver or VideoSender/VideoReceiver wrappers.
+Capture enters official source/track APIs; decoded media exits sink/render APIs.
+Use RAII classes only where lifetime and shutdown ordering matter. Stateless
+SDP/stats/RTP transforms should remain free functions or small value types.
 
-**Transport layer** (`transport.cpp`): owns the WebSocket signaling connection and the single `rtc::PeerConnection` to the server. The client is always the offerer and creates the channels (audio, video, control, screen_audio); `audio`/`video`/`screen_audio` are unordered with no retransmits (a lost packet stays lost, playout keeps moving), `control` is ordered and reliable. Peer identity (usernames) arrives via signaling — the `?u=` connect param, echoed back in `welcome`/`peer_joined` — not over any channel.
+System loopback capture is the sole remaining platform capture adapter under
+`core/src/audio/capture/`; Google WebRTC owns microphone capture/playout and
+audio processing. `GoogleWebRtcPcmPlayout` is a small hardware-output boundary
+for mixed screen system audio.
 
-### 4. UI Client (`client-qt/`)
-Qt6 / QML application. Links `driscord_core` directly as a C++ library. Enabled via `-DBUILD_QT_CLIENT=ON`; requires `Qt6::{Quick,Network,Widgets,QuickDialogs2}`. C++↔QML bridging lives in `client-qt/src/app/DriscordBridge.*`.
+### Qt client (`client-qt/`)
 
-### Wire Protocol (`core/src/utils/protocol.hpp`)
-Custom binary headers prepended to all media packets:
-- `AudioHeader`: 16 bytes (u32 seq, u32 flags, i64 sender_ts_us) + Opus payload
-- `VideoHeader`: 32 bytes (width, height, sender_ts_us, bitrate, frame duration, flags, codec)
-- `FrameHeader`: 8 bytes (frame_id) + payload, one per video frame
+Qt6/QML links `driscord_core`. C++ ↔ QML bridging lives in
+`client-qt/src/app/DriscordBridge.*`. Watched streams are a set/list, not a
+single peer. Decoded video is push-driven by WebRTC sinks.
 
-Server → client, every media message is prefixed with `u8` sender-id length followed by the sender id.
+### API (`backend/api/`)
 
-`sender_ts_us` is microseconds on the sender's `utils::MonoClock`, shared by both
-media headers — that shared timeline is what A/V sync is built on. `flags` carries
-`kTalkspurtStart` for audio (silence the sender chose, as opposed to loss) and
-`kKeyframe` for video.
+FastAPI/PostgreSQL service for auth, channels, invites and updates. Runtime
+configuration is in `backend/api/.env`.
 
-### Platform Abstraction
-- Audio I/O: miniaudio (single header, all platforms)
-- Screen capture: `core/src/video/capture/` — separate `.cpp` per platform (Linux/X11+Xrandr, Windows/D3D11, macOS/ScreenCaptureKit)
-- System audio capture: `core/src/audio/capture/` — same pattern (Linux/PulseAudio, Windows/Media Foundation, macOS/AudioToolbox)
+## Testing
 
-### Logging
-`core/src/utils/log.hpp` — thread-safe, millisecond timestamps. Use macros: `LOG_INFO()`, `LOG_WARNING()`, `LOG_ERROR()`.
+The integration gate starts the real signaling/SFU server in-process and tests
+Google WebRTC encode → SRTP → libdatachannel Track routing → decode. Keep voice
+and screen tests on that production path; avoid mocks for codec, jitter buffer,
+RTP packetization or decode. The test server's deterministic `RtpFaultConfig`
+injects post-SRTP loss/reorder while production defaults remain disabled.
+Unit-test deterministic signaling parsers and pure RTP transforms separately.
 
-### Key Config
-`core/src/config.hpp` holds `stream_defaults` (bitrates, buffer sizes) and `sync_defaults` (playout delay bounds, time-stretch limits). `config.json` provides runtime values; the Qt client parses it in `client-qt/src/app/AppConfig.*`.
+`rtc::Cleanup()` must run only after all libdatachannel users have stopped.
+Google WebRTC sessions must close before their owning runtimes/factories.
 
-## Dependencies
-All C++ deps except FFmpeg, Qt, and system libs are fetched at configure time via CMake FetchContent:
-- libdatachannel v0.22.5 (WebRTC + WebSocket client)
-- Opus v1.5.2 (audio codec)
-- Boost ≥1.89 (ASIO + Beast, system-installed)
-- FFmpeg (system-installed, required for video encode/decode)
-- nlohmann/json v3.11.3, fmt v10.2.1
+## Dependencies and ABI constraints
 
-Qt client additionally requires system-installed Qt6 (Quick, Network, Widgets, QuickDialogs2).
+- pinned Google WebRTC revision: `third_party/google_webrtc_revision.txt`
+- libdatachannel v0.24.5
+- Boost ≥ 1.89, Qt6, miniaudio, nlohmann/json v3.11.3, fmt v12.2.0
 
-Python API deps (installed via `./scripts/build.sh --api`):
-- FastAPI, uvicorn, SQLAlchemy (asyncpg), python-jose (JWT), passlib (bcrypt), pydantic-settings
+The combined client/test process has Google BoringSSL and therefore builds
+libdatachannel as a GnuTLS DSO with NSS-backed libSRTP. Keep the DSO symbol
+isolation and `--exclude-libs,ALL`; linking both media stacks statically can
+silently interpose OpenSSL/libSRTP global symbols. A server-only `BUILD_CORE=OFF`
+configuration stays independent of Google WebRTC and uses OpenSSL.
+
+Google WebRTC is compiled with `use_custom_libcxx=false` to share the process
+libstdc++ ABI. Backend code compiles without RTTI; do not leak WebRTC types into
+public Qt/DriscordCore headers.
+
+## Known follow-ups
+
+- expose native ADM device enumeration/selection and input/output levels;
+- continue splitting the private `GoogleWebRtcClient::Impl` into voice and
+  screen lifecycle components without recreating sender/receiver abstraction
+  layers; stateful screen stats are already isolated in `ScreenStatsTracker`;
+- add a long-running multi-publisher soak/capacity gate;
+- add screen simulcast/SVC and SFU layer selection if multi-tile bandwidth
+  becomes part of the MVP target;
+- produce pinned Windows/macOS WebRTC artifacts before enabling those clients.

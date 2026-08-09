@@ -255,7 +255,7 @@ private:
         WAVEFORMATEX desired { };
         desired.wFormatTag = WAVE_FORMAT_IEEE_FLOAT;
         desired.nChannels = kChannels;
-        desired.nSamplesPerSec = opus::kSampleRate;
+        desired.nSamplesPerSec = kSampleRate;
         desired.wBitsPerSample = 32;
         desired.nBlockAlign = desired.nChannels * desired.wBitsPerSample / 8;
         desired.nAvgBytesPerSec = desired.nSamplesPerSec * desired.nBlockAlign;

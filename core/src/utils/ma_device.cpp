@@ -1,3 +1,4 @@
+#define MINIAUDIO_IMPLEMENTATION
 #include "ma_device.hpp"
 
 bool MaDevice::start(const ma_device_config& cfg)

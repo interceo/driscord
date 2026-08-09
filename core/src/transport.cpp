@@ -2,42 +2,14 @@
 
 #include "log.hpp"
 #include "match.hpp"
-#include "protocol.hpp"
-#include "signaling_protocol.hpp"
-#include "transport_fsm_table.hpp"
 
-#include <cstring>
+#include <chrono>
 #include <type_traits>
 #include <variant>
 
 using json = nlohmann::json;
 
 namespace {
-int64_t steady_now_ms()
-{
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now().time_since_epoch())
-        .count();
-}
-
-TransportConnectionState to_transport_state(rtc::PeerConnection::State state)
-{
-    switch (state) {
-    case rtc::PeerConnection::State::New:
-        return TransportConnectionState::New;
-    case rtc::PeerConnection::State::Connecting:
-        return TransportConnectionState::Connecting;
-    case rtc::PeerConnection::State::Connected:
-        return TransportConnectionState::Connected;
-    case rtc::PeerConnection::State::Disconnected:
-        return TransportConnectionState::Disconnected;
-    case rtc::PeerConnection::State::Failed:
-        return TransportConnectionState::Failed;
-    case rtc::PeerConnection::State::Closed:
-        return TransportConnectionState::Closed;
-    }
-    return TransportConnectionState::Closed;
-}
 
 const char* to_string(TransportConnectionState state)
 {
@@ -58,700 +30,394 @@ const char* to_string(TransportConnectionState state)
     return "closed";
 }
 
-json stats_to_json(const TransportStats& stats)
-{
-    json out = json::object();
-    out["state"] = to_string(stats.state);
-    out["bytes_sent"] = stats.bytes_sent;
-    out["bytes_received"] = stats.bytes_received;
-    out["rtt_ms"] = stats.rtt_ms.value_or(-1);
-    return out;
-}
 } // namespace
-
-// Bridges the state machine's Actions interface onto the Transport, and owns
-// the machine itself. Defined here so <boost/sml.hpp> never reaches
-// transport.hpp.
-struct Transport::Fsm : transport_fsm::Actions {
-    explicit Fsm(Transport& t)
-        : owner(t)
-        , machine(static_cast<transport_fsm::Actions&>(*this), backoff)
-    {
-    }
-
-    void create_peer_connection() override { owner.create_server_connection(); }
-    void apply_answer(const std::string& sdp) override { owner.handle_answer(sdp); }
-    void apply_candidate(const std::string& candidate,
-        const std::string& mid) override
-    {
-        owner.handle_candidate(candidate, mid);
-    }
-    void close_peer_connection() override { owner.close_server_connection(); }
-    void log_ignored(const char* what) override
-    {
-        LOG_WARNING() << "ignoring out-of-phase " << what;
-    }
-
-    Transport& owner;
-    transport_fsm::Backoff backoff;
-    boost::sml::sm<transport_fsm::Machine> machine;
-};
-
-Transport::Transport()
-{
-    // No ICE servers: the server is publicly reachable and answers, so its
-    // host candidates suffice and the client only ever dials out. Nothing here
-    // needs STUN, and TURN is not part of this architecture at all.
-    // Video frames are sent whole and fragmented by SCTP; 256 KB is a generous
-    // ceiling for a single encoded frame.
-    rtc_config_.maxMessageSize = 256 * 1024;
-
-    fsm_ = std::make_unique<Fsm>(*this);
-    fsm_thread_ = std::thread(&Transport::fsm_loop_, this);
-}
 
 Transport::~Transport()
 {
     disconnect();
-
-    stop_fsm_ = true;
-    fsm_cv_.notify_all();
-    if (fsm_thread_.joinable()) {
-        fsm_thread_.join();
-    }
 }
 
-void Transport::post_event(transport_fsm::Event ev)
-{
-    {
-        std::scoped_lock lk(fsm_mutex_);
-        if (stop_fsm_) {
-            return;
-        }
-        fsm_queue_.push_back(std::move(ev));
-    }
-    fsm_cv_.notify_all();
-}
-
-void Transport::register_channel(ChannelSpec spec)
-{
-    if (!primary_channel_) {
-        primary_channel_ = spec.label;
-    }
-    channel_specs_.push_back(std::move(spec));
-}
-
-utils::Expected<void, TransportError> Transport::connect(const std::string& ws_url)
+utils::Expected<void, TransportError> Transport::connect(
+    const std::string& ws_url)
 {
     disconnect();
     ws_url_ = ws_url;
-
-    // From here the network threads may read the callback set, so it must stop
-    // changing. Latches on first connect; a reconnect keeps it frozen.
     callbacks_frozen_ = true;
+    update_state(TransportConnectionState::Connecting);
 
     std::shared_ptr<rtc::WebSocket> ws;
     try {
-        rtc::WebSocket::Configuration ws_config;
-        ws_config.pingInterval = std::chrono::seconds(15);
-        ws_config.maxOutstandingPings = 2;
-        ws = std::make_shared<rtc::WebSocket>(ws_config);
-    } catch (const std::exception& ex) {
-        LOG_ERROR() << "Transport: WebSocket create failed: " << ex.what();
+        rtc::WebSocket::Configuration config;
+        config.pingInterval = std::chrono::seconds(15);
+        config.maxOutstandingPings = 2;
+        ws = std::make_shared<rtc::WebSocket>(config);
+    } catch (const std::exception& exception) {
+        LOG_ERROR() << "Transport: WebSocket create failed: "
+                    << exception.what();
+        update_state(TransportConnectionState::Failed);
         return utils::Unexpected(TransportError::WebSocketCreateFailed);
     }
 
-    ws->onOpen([this]() {
+    const std::weak_ptr<rtc::WebSocket> weak_ws = ws;
+    ws->onOpen([this, weak_ws] {
+        const auto socket = weak_ws.lock();
+        if (!socket || !is_current_socket(socket)) {
+            return;
+        }
         LOG_INFO() << "ws connected to " << ws_url_;
         ws_connected_ = true;
-        // Hand off to the state machine: it owns when the offer goes out.
-        post_event(transport_fsm::WsOpened { });
-        if (on_connected_)
+        update_state(TransportConnectionState::Connected);
+        for (const auto& listener : connection_listeners_) {
+            if (listener) {
+                listener(true);
+            }
+        }
+        if (on_connected_) {
             on_connected_();
+        }
     });
-
-    ws->onClosed([this]() {
+    ws->onClosed([this, weak_ws] {
+        const auto socket = weak_ws.lock();
+        if (!socket || !is_current_socket(socket)) {
+            return;
+        }
+        const bool was_connected = ws_connected_.exchange(false);
+        update_state(TransportConnectionState::Disconnected);
+        if (!was_connected) {
+            return;
+        }
         LOG_INFO() << "ws disconnected";
-        ws_connected_ = false;
-        post_event(transport_fsm::WsClosed { });
-        if (on_disconnected_)
+        for (const auto& listener : connection_listeners_) {
+            if (listener) {
+                listener(false);
+            }
+        }
+        if (on_disconnected_) {
             on_disconnected_();
+        }
     });
-
-    ws->onError([](std::string error) { LOG_ERROR() << "ws error: " << error; });
-
-    ws->onMessage([this](auto msg) {
-        if (auto* str = std::get_if<std::string>(&msg)) {
-            on_ws_message(*str);
+    ws->onError([this, weak_ws](std::string error) {
+        const auto socket = weak_ws.lock();
+        if (!socket || !is_current_socket(socket)) {
+            return;
+        }
+        LOG_ERROR() << "ws error: " << error;
+        update_state(TransportConnectionState::Failed);
+    });
+    ws->onMessage([this, weak_ws](auto message) {
+        const auto socket = weak_ws.lock();
+        if (!socket || !is_current_socket(socket)) {
+            return;
+        }
+        if (auto* text = std::get_if<std::string>(&message)) {
+            {
+                std::scoped_lock lock(stats_mutex_);
+                stats_.bytes_received += text->size();
+            }
+            on_ws_message(*text);
         }
     });
 
-    // Publish before opening: onOpen fires on a libdatachannel thread and the
-    // offer that follows goes out through send_signal(), which would find ws_
-    // still empty and silently drop it.
     {
-        std::scoped_lock lk(ws_mutex_);
+        std::scoped_lock lock(ws_mutex_);
         ws_ = ws;
     }
-    post_event(transport_fsm::ConnectRequested { });
     ws->open(ws_url);
     return { };
 }
 
-void Transport::create_server_connection()
-{
-    // A Tick queued before disconnect() could otherwise resurrect the media
-    // path after the caller already tore everything down.
-    if (!ws_connected_) {
-        LOG_WARNING() << "skipping peer connection setup: signaling is down";
-        return;
-    }
-
-    // Defensive: the machine always closes before it re-creates, but a stray
-    // connection here would leak ICE ports and leave stale channel entries.
-    close_server_connection();
-
-    std::shared_ptr<rtc::PeerConnection> pc;
-    try {
-        pc = std::make_shared<rtc::PeerConnection>(rtc_config_);
-    } catch (const std::exception& e) {
-        LOG_ERROR() << "peer connection create failed: " << e.what();
-        return;
-    }
-
-    pc->onLocalDescription([this](rtc::Description desc) {
-        const auto type = desc.typeString();
-        if (type == "offer") {
-            send_signal(signaling::encode(signaling::Offer { std::string(desc) }));
-        } else if (type == "answer") {
-            send_signal(signaling::encode(signaling::Answer { std::string(desc) }));
-        }
-    });
-
-    pc->onLocalCandidate([this](rtc::Candidate cand) {
-        send_signal(signaling::encode(
-            signaling::Candidate { std::string(cand), cand.mid() }));
-    });
-
-    pc->onStateChange([this](rtc::PeerConnection::State state) {
-        LOG_INFO() << "server connection state: " << static_cast<int>(state);
-        switch (state) {
-        case rtc::PeerConnection::State::Connected:
-            post_event(transport_fsm::PcConnected { });
-            break;
-        case rtc::PeerConnection::State::Failed:
-            // Disconnected is transient — ICE may still recover on its own, so
-            // only a hard Failed is worth tearing the connection down for.
-            post_event(transport_fsm::PcFailed { steady_now_ms() });
-            break;
-        default:
-            break;
-        }
-    });
-
-    {
-        std::scoped_lock lk(pc_mutex_);
-        pc_ = pc;
-        channels_.clear();
-    }
-
-    // The client is always the offerer and owns the channel set.
-    for (const auto& spec : channel_specs_) {
-        rtc::DataChannelInit init;
-        init.reliability.unordered = spec.unordered;
-        if (spec.max_retransmits >= 0) {
-            init.reliability.maxRetransmits = spec.max_retransmits;
-        }
-        try {
-            auto dc = pc->createDataChannel(
-                std::string(channel::to_label(spec.label)), init);
-            setup_channel(spec.label, std::move(dc));
-        } catch (const std::exception& e) {
-            LOG_ERROR() << "createDataChannel[" << channel::to_label(spec.label)
-                        << "]: " << e.what();
-        }
-    }
-}
-
-void Transport::handle_answer(const std::string& sdp)
-{
-    std::shared_ptr<rtc::PeerConnection> pc;
-    {
-        std::scoped_lock lk(pc_mutex_);
-        pc = pc_;
-    }
-    if (!pc) {
-        LOG_WARNING() << "answer with no peer connection, dropping";
-        return;
-    }
-    try {
-        pc->setRemoteDescription(
-            rtc::Description(sdp, rtc::Description::Type::Answer));
-    } catch (const std::exception& e) {
-        LOG_ERROR() << "setRemoteDescription: " << e.what();
-    }
-}
-
-void Transport::handle_candidate(const std::string& candidate,
-    const std::string& mid)
-{
-    std::shared_ptr<rtc::PeerConnection> pc;
-    {
-        std::scoped_lock lk(pc_mutex_);
-        pc = pc_;
-    }
-    if (!pc) {
-        LOG_WARNING() << "candidate with no peer connection, dropping";
-        return;
-    }
-    try {
-        pc->addRemoteCandidate(rtc::Candidate(candidate, mid));
-    } catch (const std::exception& e) {
-        LOG_ERROR() << "addRemoteCandidate: " << e.what();
-    }
-}
-
-void Transport::setup_channel(channel::MediaChannel label,
-    std::shared_ptr<rtc::DataChannel> dc)
-{
-    PacketCb on_data;
-    ChannelEventCb on_open_cb;
-    ChannelEventCb on_close_cb;
-    bool found = false;
-
-    for (const auto& spec : channel_specs_) {
-        if (spec.label == label) {
-            on_data = spec.on_data;
-            on_open_cb = spec.on_open;
-            on_close_cb = spec.on_close;
-            found = true;
-            break;
-        }
-    }
-
-    const auto label_text = channel::to_label(label);
-    if (!found) {
-        LOG_WARNING() << "unknown channel label '" << label_text << "'";
-        return;
-    }
-
-    dc->onOpen([this, label, label_text, on_open_cb]() {
-        LOG_INFO() << "'" << label_text << "' channel open";
-        {
-            std::scoped_lock lk(pc_mutex_);
-            channels_[label].open = true;
-        }
-        if (on_open_cb) {
-            on_open_cb();
-        }
-    });
-
-    dc->onClosed([this, label, label_text, on_close_cb]() {
-        LOG_INFO() << "'" << label_text << "' channel closed";
-        {
-            std::scoped_lock lk(pc_mutex_);
-            channels_[label].open = false;
-        }
-        if (on_close_cb) {
-            on_close_cb();
-        }
-    });
-
-    // Every media message is prefixed by the server with the id of the peer
-    // that sent it.
-    dc->onMessage([on_data, label_text](auto msg) {
-        auto* data = std::get_if<rtc::binary>(&msg);
-        if (!data || !on_data) {
-            return;
-        }
-        const auto* bytes = reinterpret_cast<const uint8_t*>(data->data());
-        const size_t len = data->size();
-        auto packet = protocol::decode_relayed_media(bytes, len);
-        if (!packet) {
-            LOG_WARNING() << "malformed media packet on '" << label_text << "' ("
-                          << len << " bytes)";
-            return;
-        }
-        on_data(packet->sender_id.value, packet->payload, packet->payload_len);
-    });
-
-    dc->onError([label_text](std::string error) {
-        LOG_ERROR() << "'" << label_text << "' dc error: " << error;
-    });
-
-    std::scoped_lock lk(pc_mutex_);
-    channels_[label].dc = std::move(dc);
-}
-
-std::shared_ptr<rtc::DataChannel> Transport::open_channel(
-    channel::MediaChannel label) const
-{
-    std::scoped_lock lk(pc_mutex_);
-    auto it = channels_.find(label);
-    if (it == channels_.end() || !it->second.dc || !it->second.open) {
-        return nullptr;
-    }
-    return it->second.dc;
-}
-
-void Transport::close_server_connection()
-{
-    std::shared_ptr<rtc::PeerConnection> pc;
-    std::unordered_map<channel::MediaChannel, ChannelState> channels;
-    {
-        std::scoped_lock lk(pc_mutex_);
-        pc = std::move(pc_);
-        channels = std::move(channels_);
-        pc_.reset();
-        channels_.clear();
-    }
-    for (auto& [_, ch] : channels) {
-        if (ch.dc) {
-            ch.dc->close();
-        }
-    }
-    if (pc) {
-        pc->close();
-    }
-}
-
 void Transport::disconnect()
 {
-    // Tell the machine to stop trying to reconnect, then tear down here rather
-    // than waiting on the FSM thread: callers expect the transport to be down
-    // by the time this returns. close_server_connection() is idempotent, so the
-    // machine repeating it later is harmless.
-    post_event(transport_fsm::DisconnectRequested { });
-
-    // Drop the socket first. create_server_connection() refuses to run without
-    // it, so from here on the machine cannot build a new connection even if a
-    // stale event is still queued.
     std::shared_ptr<rtc::WebSocket> ws;
+    const bool was_connected = ws_connected_.exchange(false);
     {
-        std::scoped_lock lk(ws_mutex_);
+        std::scoped_lock lock(ws_mutex_);
         ws = std::move(ws_);
-        ws_connected_ = false;
+        local_id_.value.clear();
     }
-
-    // Wait out any transition already in flight — otherwise it could finish
-    // building a connection right after the teardown below.
-    std::scoped_lock run(fsm_run_mutex_);
-
-    close_server_connection();
-
     {
-        std::scoped_lock lk(peers_mutex_);
+        std::scoped_lock lock(peers_mutex_);
         peers_.clear();
     }
     {
-        std::scoped_lock lk(identity_mutex_);
+        std::scoped_lock lock(identity_mutex_);
         peer_usernames_.clear();
     }
-
     if (ws) {
         ws->close();
     }
-    local_id_.value.clear();
-}
-
-void Transport::send_on_channel(channel::MediaChannel label,
-    const uint8_t* data,
-    size_t len)
-{
-    auto dc = open_channel(label);
-    if (!dc) {
-        return;
-    }
-    try {
-        dc->send(reinterpret_cast<const std::byte*>(data), len);
-    } catch (const std::exception& e) {
-        LOG_ERROR() << "send_on_channel[" << channel::to_label(label)
-                    << "]: " << e.what();
+    update_state(TransportConnectionState::Closed);
+    if (was_connected) {
+        for (const auto& listener : connection_listeners_) {
+            if (listener) {
+                listener(false);
+            }
+        }
+        if (on_disconnected_) {
+            on_disconnected_();
+        }
     }
 }
 
-void Transport::send_on_channel(channel::MediaChannel label, rtc::binary&& data)
+std::string Transport::local_id() const
 {
-    auto dc = open_channel(label);
-    if (!dc) {
-        return;
-    }
-    try {
-        dc->send(std::move(data));
-    } catch (const std::exception& e) {
-        LOG_ERROR() << "send_on_channel[" << channel::to_label(label)
-                    << "]: " << e.what();
-    }
+    std::scoped_lock lock(ws_mutex_);
+    return local_id_.value;
 }
 
-size_t Transport::channel_buffered_amount(channel::MediaChannel label) const
+#define DRISCORD_SET_CALLBACK(method, member, type) \
+    void Transport::method(type callback)           \
+    {                                               \
+        ensure_callbacks_mutable_();                \
+        member = std::move(callback);               \
+    }
+
+DRISCORD_SET_CALLBACK(on_connected, on_connected_, std::function<void()>)
+DRISCORD_SET_CALLBACK(on_disconnected, on_disconnected_, std::function<void()>)
+DRISCORD_SET_CALLBACK(on_peer_joined, on_peer_joined_, PeerEventCb)
+DRISCORD_SET_CALLBACK(on_peer_left, on_peer_left_, PeerEventCb)
+DRISCORD_SET_CALLBACK(
+    on_streaming_started, on_streaming_started_, PeerEventCb)
+DRISCORD_SET_CALLBACK(
+    on_streaming_stopped, on_streaming_stopped_, PeerEventCb)
+DRISCORD_SET_CALLBACK(on_media_answer, on_media_answer_, MediaAnswerCb)
+DRISCORD_SET_CALLBACK(on_media_candidate, on_media_candidate_, MediaCandidateCb)
+DRISCORD_SET_CALLBACK(on_media_track_binding, on_media_track_binding_,
+    MediaTrackBindingCb)
+
+#undef DRISCORD_SET_CALLBACK
+
+void Transport::add_connection_listener(ConnectionEventCb callback)
 {
-    auto dc = open_channel(label);
-    if (!dc) {
-        return 0;
-    }
-    try {
-        return dc->bufferedAmount();
-    } catch (const std::exception&) {
-        return 0;
-    }
+    ensure_callbacks_mutable_();
+    connection_listeners_.push_back(std::move(callback));
+}
+
+void Transport::add_media_answer_listener(MediaAnswerCb callback)
+{
+    ensure_callbacks_mutable_();
+    media_answer_listeners_.push_back(std::move(callback));
+}
+
+void Transport::add_media_candidate_listener(MediaCandidateCb callback)
+{
+    ensure_callbacks_mutable_();
+    media_candidate_listeners_.push_back(std::move(callback));
+}
+
+void Transport::add_media_track_binding_listener(
+    MediaTrackBindingCb callback)
+{
+    ensure_callbacks_mutable_();
+    media_track_binding_listeners_.push_back(std::move(callback));
+}
+
+void Transport::on_peer_identity(
+    std::function<void(const std::string&, const std::string&)> callback)
+{
+    ensure_callbacks_mutable_();
+    on_peer_identity_ = std::move(callback);
+}
+
+void Transport::update_state(TransportConnectionState state)
+{
+    std::scoped_lock lock(stats_mutex_);
+    stats_.state = state;
+}
+
+bool Transport::is_current_socket(
+    const std::shared_ptr<rtc::WebSocket>& socket) const
+{
+    std::scoped_lock lock(ws_mutex_);
+    return ws_ == socket;
 }
 
 TransportStats Transport::stats() const
 {
-    std::scoped_lock lk(stats_mutex_);
-    return stats_cache_;
+    std::scoped_lock lock(stats_mutex_);
+    return stats_;
 }
 
 std::string Transport::stats_json() const
 {
-    return stats_to_json(stats()).dump();
-}
-
-void Transport::fsm_loop_()
-{
-    // Ticks drive the reconnect backoff, so they need to be finer-grained than
-    // the old stats interval; stats are refreshed on a slower counter below.
-    constexpr auto kTickInterval = std::chrono::milliseconds(250);
-    constexpr int kTicksPerStatsRefresh = 8; // ~2 s, as before
-    int ticks_since_stats = 0;
-
-    while (true) {
-        std::deque<transport_fsm::Event> batch;
-        {
-            std::unique_lock lk(fsm_mutex_);
-            fsm_cv_.wait_for(lk, kTickInterval,
-                [this] { return stop_fsm_.load() || !fsm_queue_.empty(); });
-            batch.swap(fsm_queue_);
-        }
-
-        {
-            // Excludes disconnect() for the duration, so teardown can never
-            // interleave with a transition that is building a connection.
-            std::scoped_lock run(fsm_run_mutex_);
-
-            // Drain queued events first, then tick — so a PcFailed that arrived
-            // in this batch arms the backoff before the tick that could act on
-            // it.
-            for (auto& ev : batch) {
-                std::visit([this](auto&& e) { fsm_->machine.process_event(e); },
-                    ev);
-            }
-
-            if (!stop_fsm_) {
-                fsm_->machine.process_event(
-                    transport_fsm::Tick { steady_now_ms() });
-            }
-        }
-
-        if (stop_fsm_) {
-            break;
-        }
-
-        if (++ticks_since_stats < kTicksPerStatsRefresh) {
-            continue;
-        }
-        ticks_since_stats = 0;
-
-        std::shared_ptr<rtc::PeerConnection> pc;
-        {
-            std::scoped_lock lk(pc_mutex_);
-            pc = pc_;
-        }
-
-        TransportStats stats;
-        if (pc) {
-            stats.state = to_transport_state(pc->state());
-            stats.bytes_sent = pc->bytesSent();
-            stats.bytes_received = pc->bytesReceived();
-            const auto rtt = pc->rtt();
-            if (rtt) {
-                stats.rtt_ms = static_cast<int>(rtt->count());
-            }
-        } else {
-            stats.state = TransportConnectionState::Closed;
-        }
-
-        std::scoped_lock lk(stats_mutex_);
-        stats_cache_ = stats;
+    const auto snapshot = stats();
+    return json {
+        { "state", to_string(snapshot.state) },
+        { "bytes_sent", snapshot.bytes_sent },
+        { "bytes_received", snapshot.bytes_received },
+        { "rtt_ms", snapshot.rtt_ms.value_or(-1) },
     }
+        .dump();
 }
 
 std::vector<Transport::PeerInfo> Transport::peers() const
 {
-    bool media_up = false;
-    {
-        std::scoped_lock lk(pc_mutex_);
-        if (primary_channel_) {
-            auto it = channels_.find(*primary_channel_);
-            media_up = it != channels_.end() && it->second.open;
-        }
-    }
-
-    std::scoped_lock lk(peers_mutex_);
+    std::scoped_lock lock(peers_mutex_);
     std::vector<PeerInfo> result;
     result.reserve(peers_.size());
-    for (const auto& id : peers_) {
-        result.emplace_back(id.value, media_up);
+    for (const auto& peer : peers_) {
+        result.push_back({ peer.value, ws_connected_ });
     }
     return result;
 }
 
 std::string Transport::peer_username(const std::string& peer_id) const
 {
-    std::scoped_lock lk(identity_mutex_);
-    auto it = peer_usernames_.find(driscord::PeerId { peer_id });
-    return it != peer_usernames_.end() ? it->second.value : "";
+    std::scoped_lock lock(identity_mutex_);
+    const auto found = peer_usernames_.find(driscord::PeerId { peer_id });
+    return found == peer_usernames_.end() ? "" : found->second.value;
 }
 
 void Transport::set_peer_identity_(
-    driscord::PeerId peer_id,
-    driscord::Username username)
+    driscord::PeerId peer_id, driscord::Username username)
 {
     if (username.value.empty()) {
         return;
     }
-    std::function<void(const std::string&, const std::string&)> cb;
+    std::function<void(const std::string&, const std::string&)> callback;
     {
-        std::scoped_lock lk(identity_mutex_);
+        std::scoped_lock lock(identity_mutex_);
         peer_usernames_[peer_id] = username;
-        cb = on_peer_identity_;
+        callback = on_peer_identity_;
     }
-    if (cb) {
-        cb(peer_id.value, username.value);
+    if (callback) {
+        callback(peer_id.value, username.value);
     }
 }
 
 void Transport::on_ws_message(const std::string& raw)
 {
-    // Compile-time tripwire: if signaling::Message gains an alternative, this
-    // fires so someone adds a handler below instead of letting the new type
-    // fall through to the catch-all's runtime invariant unnoticed.
-    static_assert(std::variant_size_v<signaling::Message> == 10,
-        "signaling::Message changed — add/adjust a handler in on_ws_message");
-
+    static_assert(std::variant_size_v<signaling::Message> == 11,
+        "signaling::Message changed; update Transport::on_ws_message");
     auto parsed = signaling::parse(raw);
     if (!parsed) {
-        LOG_ERROR() << "on_ws_message: "
-                    << signaling::to_string(parsed.error());
+        LOG_ERROR() << "on_ws_message: " << signaling::to_string(parsed.error());
         return;
     }
 
-    utils::Match(
-        parsed.value(),
-        [this](const signaling::Welcome& m) {
+    utils::Match(parsed.value(), [this](const signaling::Welcome& message) {
             {
-                std::scoped_lock lk(ws_mutex_);
-                local_id_ = m.id;
+                std::scoped_lock lock(ws_mutex_);
+                local_id_ = message.id;
             }
-            LOG_INFO() << "assigned id: " << m.id.value;
-
-            for (const auto& peer : m.peers) {
+            for (const auto& peer : message.peers) {
                 set_peer_identity_(peer.id, peer.username);
                 {
-                    std::scoped_lock lk(peers_mutex_);
+                    std::scoped_lock lock(peers_mutex_);
                     peers_.insert(peer.id);
                 }
                 if (on_peer_joined_) {
                     on_peer_joined_(peer.id.value);
                 }
             }
-
-            for (const auto& id : m.streaming_peers) {
+            for (const auto& peer : message.streaming_peers) {
                 if (on_streaming_started_) {
-                    on_streaming_started_(id.value);
+                    on_streaming_started_(peer.value);
                 }
-            }
-        },
-        [this](const signaling::PeerJoined& m) {
-            LOG_INFO() << "peer joined: " << m.id.value;
-            set_peer_identity_(m.id, m.username);
+            } }, [this](const signaling::PeerJoined& message) {
+            set_peer_identity_(message.id, message.username);
             {
-                std::scoped_lock lk(peers_mutex_);
-                peers_.insert(m.id);
+                std::scoped_lock lock(peers_mutex_);
+                peers_.insert(message.id);
             }
             if (on_peer_joined_) {
-                on_peer_joined_(m.id.value);
-            }
-        },
-        [this](const signaling::PeerLeft& m) {
-            LOG_INFO() << "peer left: " << m.id.value;
+                on_peer_joined_(message.id.value);
+            } }, [this](const signaling::PeerLeft& message) {
             {
-                std::scoped_lock lk(peers_mutex_);
-                peers_.erase(m.id);
+                std::scoped_lock lock(peers_mutex_);
+                peers_.erase(message.id);
             }
             {
-                std::scoped_lock lk(identity_mutex_);
-                peer_usernames_.erase(m.id);
+                std::scoped_lock lock(identity_mutex_);
+                peer_usernames_.erase(message.id);
             }
             if (on_peer_left_) {
-                on_peer_left_(m.id.value);
+                on_peer_left_(message.id.value);
+            } }, [this](const signaling::Answer& message) {
+            if (on_media_answer_) {
+                on_media_answer_(message.connection, message.sdp);
             }
-        },
-        [this](const signaling::Answer& m) {
-            // Through the machine: whether an answer is meaningful depends on
-            // the phase we are in, and it alone knows that.
-            post_event(transport_fsm::AnswerReceived { m.sdp });
-        },
-        [this](const signaling::Candidate& m) {
-            post_event(transport_fsm::RemoteCandidate { m.candidate, m.sdp_mid });
-        },
-        [this](const signaling::StreamingStart& m) {
-            if (m.from && on_streaming_started_) {
-                on_streaming_started_(m.from->value);
+            for (const auto& listener : media_answer_listeners_) {
+                if (listener) {
+                    listener(message.connection, message.sdp);
+                }
+            } }, [this](const signaling::Candidate& message) {
+            if (on_media_candidate_) {
+                on_media_candidate_(message.connection, message.candidate,
+                    message.sdp_mid);
             }
-        },
-        [this](const signaling::StreamingStop& m) {
-            if (m.from && on_streaming_stopped_) {
-                on_streaming_stopped_(m.from->value);
+            for (const auto& listener : media_candidate_listeners_) {
+                if (listener) {
+                    listener(message.connection, message.candidate,
+                        message.sdp_mid);
+                }
+            } }, [this](const signaling::TrackBinding& message) {
+            if (on_media_track_binding_) {
+                on_media_track_binding_(message.connection, message.sdp_mid,
+                    message.peer_id);
             }
-        },
-        [this](const signaling::WatchStart& m) {
-            if (m.from && on_watch_started_) {
-                on_watch_started_(m.from->value);
-            }
-        },
-        [this](const signaling::WatchStop& m) {
-            if (m.from && on_watch_stopped_) {
-                on_watch_stopped_(m.from->value);
-            }
-        },
-        [](const signaling::Offer&) {
-            LOG_WARNING() << "ignoring offer from signaling server";
-        },
-        [](const auto&) {
-            // Unreachable while every alternative above is handled (the
-            // static_assert guards that). A loud invariant rather than a silent
-            // drop if a future edit ever removes a handler.
-            assert(false && "unhandled signaling message type");
-            LOG_ERROR() << "on_ws_message: unhandled signaling message type";
-        });
+            for (const auto& listener : media_track_binding_listeners_) {
+                if (listener) {
+                    listener(message.connection, message.sdp_mid,
+                        message.peer_id);
+                }
+            } }, [this](const signaling::StreamingStart& message) {
+            if (message.from && on_streaming_started_) {
+                on_streaming_started_(message.from->value);
+            } }, [this](const signaling::StreamingStop& message) {
+            if (message.from && on_streaming_stopped_) {
+                on_streaming_stopped_(message.from->value);
+            } }, [](const signaling::WatchStart&) { }, [](const signaling::WatchStop&) { }, [](const signaling::Offer&) { LOG_WARNING() << "ignoring offer from signaling server"; });
 }
 
 void Transport::send_streaming_start()
 {
-    send_signal(signaling::encode(signaling::StreamingStart {}));
+    send_signal(signaling::encode(signaling::StreamingStart { }));
 }
 
 void Transport::send_streaming_stop()
 {
-    send_signal(signaling::encode(signaling::StreamingStop {}));
+    send_signal(signaling::encode(signaling::StreamingStop { }));
 }
 
-void Transport::send_watch_start()
+void Transport::send_watch_start(const std::string& peer_id)
 {
-    send_signal(signaling::encode(signaling::WatchStart {}));
+    send_signal(signaling::encode(
+        signaling::WatchStart { driscord::PeerId { peer_id } }));
 }
 
-void Transport::send_watch_stop()
+void Transport::send_watch_stop(const std::string& peer_id)
 {
-    send_signal(signaling::encode(signaling::WatchStop {}));
+    send_signal(signaling::encode(
+        signaling::WatchStop { driscord::PeerId { peer_id } }));
 }
 
-void Transport::send_signal(const json& msg)
+void Transport::send_media_offer(
+    signaling::ConnectionId connection, const std::string& sdp)
 {
-    std::scoped_lock lk(ws_mutex_);
-    if (ws_ && ws_connected_) {
-        ws_->send(msg.dump());
+    send_signal(signaling::encode(signaling::Offer { sdp, connection }));
+}
+
+void Transport::send_media_candidate(signaling::ConnectionId connection,
+    const std::string& candidate,
+    const std::string& sdp_mid)
+{
+    send_signal(signaling::encode(
+        signaling::Candidate { candidate, sdp_mid, connection }));
+}
+
+void Transport::send_signal(const json& message)
+{
+    const std::string payload = message.dump();
+    std::scoped_lock lock(ws_mutex_);
+    if (!ws_ || !ws_connected_) {
+        return;
+    }
+    try {
+        ws_->send(payload);
+        std::scoped_lock stats_lock(stats_mutex_);
+        stats_.bytes_sent += payload.size();
+    } catch (const std::exception& exception) {
+        LOG_ERROR() << "WebSocket send failed: " << exception.what();
     }
 }

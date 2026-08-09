@@ -4,7 +4,6 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
-#include <QTimer>
 
 // Wraps DriscordCore — all methods callable from QML via Q_INVOKABLE.
 // Callbacks from the core are forwarded to the main thread via QMetaObject::invokeMethod.
@@ -55,13 +54,12 @@ public:
     Q_INVOKABLE void startSharing(const QString& targetJson, int maxW, int maxH, int fps, bool audio);
     Q_INVOKABLE void stopSharing();
     Q_INVOKABLE bool sharing() const;
-    Q_INVOKABLE void setVideoWatching(bool watching);
     Q_INVOKABLE bool videoWatching() const;
     Q_INVOKABLE void joinStream(const QString& peerId);
-    Q_INVOKABLE void leaveStream();
-    Q_INVOKABLE QString screenStatsJson() const;
+    Q_INVOKABLE void leaveStream(const QString& peerId);
+    Q_INVOKABLE QString screenStatsJson(const QString& peerId) const;
     Q_INVOKABLE void setStreamVolume(const QString& peerId, float vol);
-    Q_INVOKABLE float streamVolume() const;
+    Q_INVOKABLE float streamVolume(const QString& peerId) const;
 
 signals:
     void wsConnected();
@@ -71,16 +69,10 @@ signals:
     void peerIdentityReceived(const QString& peerId, const QString& username);
     void streamingStarted(const QString& peerId);
     void streamingStopped(const QString& peerId);
-    void newStreamingPeer(const QString& peerId);
-    void streamingPeerRemoved(const QString& peerId);
     void frameRemoved(const QString& peerId);
     void frameUpdated(const QString& peerId);
 
 private:
     FrameProvider* m_frameProvider = nullptr;
     ThumbnailProvider* m_thumbnailProvider = nullptr;
-    // Drives ScreenSession::update() at ~60Hz so decoded video frames are
-    // delivered to on_frame_cb_. Without this tick, the receiver decodes
-    // chunks but never hands frames to the UI.
-    QTimer* m_screenTickTimer = nullptr;
 };

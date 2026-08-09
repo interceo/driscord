@@ -1,7 +1,5 @@
 #pragma once
 
-#include "opus_codec.hpp"
-
 #include <cstddef>
 #include <functional>
 #include <memory>
@@ -24,7 +22,9 @@ struct AudioCaptureTarget {
 
 class SystemAudioCapture {
 public:
+    static constexpr int kSampleRate = 48'000;
     static constexpr int kChannels = 2;
+    static constexpr size_t kFramesPerRead = 960;
     using AudioCallback = std::function<
         void(const float* samples, size_t frame_count, int channels)>;
 

@@ -22,7 +22,7 @@ Rectangle {
             root.collapseExpanded()
             return
         }
-        if (kind === "stream" && appState.watchedPeerId !== peerId) {
+        if (kind === "stream" && !appState.isWatchingStream(peerId)) {
             appState.joinStream(peerId)
         }
         root.expandedHasFrame  = false
@@ -161,7 +161,7 @@ Rectangle {
 
                     readonly property bool isStream: modelData.kind === "stream"
                     readonly property bool isYou:    modelData.kind === "peer" && modelData.isYou
-                    readonly property bool watching: isStream && appState.watchedPeerId === modelData.id
+                    readonly property bool watching: isStream && appState.isWatchingStream(modelData.id)
                     property bool hasFrame: false
                     onWatchingChanged: if (!watching) hasFrame = false
 
@@ -256,6 +256,7 @@ Rectangle {
                         anchors { top: parent.top; left: parent.left; margins: 6 }
                         active: tile.isStream && tile.watching
                         compact: true
+                        peerId: modelData.id
                     }
 
                     // Name label
@@ -424,6 +425,7 @@ Rectangle {
                         anchors { top: parent.top; left: parent.left; margins: 12 }
                         active: expandedView.isStream
                         compact: false
+                        peerId: root.expandedPeerId
                     }
 
                     // LMB anywhere collapses. RMB opens leave dialog only for streams.
@@ -467,9 +469,9 @@ Rectangle {
                 // left elsewhere. Peer expansion is collapsed when the peer leaves.
                 Connections {
                     target: appState
-                    function onWatchedPeerChanged() {
+                    function onWatchedStreamsChanged() {
                         if (expandedView.isStream
-                            && appState.watchedPeerId !== root.expandedPeerId) {
+                            && !appState.isWatchingStream(root.expandedPeerId)) {
                             root.collapseExpanded()
                         }
                     }
@@ -516,7 +518,7 @@ Rectangle {
         property string peerName: ""
 
         function accept() {
-            if (appState.watchedPeerId === peerId) appState.leaveStream()
+            if (appState.isWatchingStream(peerId)) appState.leaveStream(peerId)
             if (root.expandedKind === "stream"
                 && root.expandedPeerId === peerId) {
                 root.collapseExpanded()

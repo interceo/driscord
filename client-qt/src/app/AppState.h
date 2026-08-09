@@ -39,7 +39,7 @@ class AppState : public QObject {
     // Screen sharing
     Q_PROPERTY(bool sharing READ sharing NOTIFY sharingChanged)
     Q_PROPERTY(QVariantList streamingPeers READ streamingPeers NOTIFY streamingPeersChanged)
-    Q_PROPERTY(QString watchedPeerId READ watchedPeerId NOTIFY watchedPeerChanged)
+    Q_PROPERTY(QStringList watchedPeerIds READ watchedPeerIds NOTIFY watchedStreamsChanged)
 
     // Network / call stats (polled while connected)
     Q_PROPERTY(int avgRttMs READ avgRttMs NOTIFY connectionStatsChanged)
@@ -78,7 +78,7 @@ public:
     int lastRttMs() const { return m_lastRttMs; }
     QVariantList rttHistory() const { return m_rttHistory; }
     QString primaryPeerId() const { return m_primaryPeerId; }
-    QString watchedPeerId() const { return m_watchedPeerId; }
+    QStringList watchedPeerIds() const { return m_watchedPeerIds; }
 
     void setApiError(const QString& e);
 
@@ -92,7 +92,8 @@ public:
     Q_INVOKABLE void startSharing(const QString& targetJson, int maxW, int maxH, int fps, bool audio);
     Q_INVOKABLE void stopSharing();
     Q_INVOKABLE void joinStream(const QString& peerId);
-    Q_INVOKABLE void leaveStream();
+    Q_INVOKABLE void leaveStream(const QString& peerId);
+    Q_INVOKABLE bool isWatchingStream(const QString& peerId) const;
     Q_INVOKABLE void createServer(const QString& name, const QString& description);
     Q_INVOKABLE void createChannel(const QString& name, const QString& kind);
     Q_INVOKABLE void acceptInvite(const QString& code);
@@ -120,7 +121,7 @@ signals:
     void audioLevelsChanged();
     void sharingChanged();
     void streamingPeersChanged();
-    void watchedPeerChanged();
+    void watchedStreamsChanged();
     void connectionStatsChanged();
 
 private:
@@ -152,7 +153,7 @@ private:
     int m_avgRttMs = -1;
     int m_lastRttMs = -1;
     QString m_primaryPeerId;
-    QString m_watchedPeerId;
+    QStringList m_watchedPeerIds;
     QVariantList m_rttHistory; // each entry: {"t": ms, "rtt": int}
     QString m_signalingUrl;
     QString m_apiBaseUrl;

@@ -104,7 +104,7 @@ public:
             SCStreamConfiguration* config = [[SCStreamConfiguration alloc] init];
             config.capturesAudio = YES;
             config.excludesCurrentProcessAudio = YES;
-            config.sampleRate = opus::kSampleRate;
+            config.sampleRate = kSampleRate;
             config.channelCount = 2;
 
             config.width = 2;

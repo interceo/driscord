@@ -18,9 +18,11 @@ namespace test_util {
 // Transport's WS callbacks.
 class SignalingServerFixture {
 public:
-    SignalingServerFixture()
+    explicit SignalingServerFixture(
+        driscord::sfu::RtpFaultConfig fault_config = { })
     {
-        server_ = std::make_shared<driscord::WebSocketServer>(io_, /*port=*/0);
+        server_ = std::make_shared<driscord::WebSocketServer>(
+            io_, /*port=*/0, fault_config);
         server_->run();
         port_ = server_->bound_port();
         work_.emplace(boost::asio::make_work_guard(io_));

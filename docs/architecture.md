@@ -4,17 +4,14 @@
 
 Driscord состоит из четырёх частей:
 
-1. `client-qt/` — Qt 6/QML приложение. Оно работает с REST API и напрямую
-   использует C++-ядро.
-2. `core/` — C++20 медиаядро: WebRTC DataChannel, Opus, захват и воспроизведение
-   аудио, захват экрана и FFmpeg-видео.
-3. `backend/signaling_server/` — Boost.Beast WebSocket (комната и сигналинг)
-   плюс libdatachannel: сервер терминирует WebRTC клиентов и разводит медиа.
+1. `client-qt/` — Qt 6/QML приложение, REST client и UI.
+2. `core/` — C++20 lifecycle/signaling слой над Google WebRTC.
+3. `backend/signaling_server/` — Boost.Beast WebSocket и SFU на
+   libdatachannel Tracks.
 4. `backend/api/` — FastAPI, PostgreSQL и JWT.
 
-Медиа идёт через сигналинг-сервер: он терминирует WebRTC каждого клиента и
-разводит потоки по комнате (SFU). Прямых соединений между клиентами нет, поэтому
-отдельный STUN/TURN (coturn) не нужен.
+Медиа идёт client → SFU → clients. Прямых соединений между клиентами нет, а SFU
+не декодирует звук или видео.
 
 ## Потоки данных
 
@@ -27,77 +24,75 @@ Driscord состоит из четырёх частей:
                    /                 \
              HTTP/JWT             HTTP/JWT
                  /                     \
-          Qt client A              Qt client B
+       Qt + Google WebRTC A    Qt + Google WebRTC B
                  \                     /
-                  \  WS: комната+SDP  /
-                   \ DataChannel: медиа
-                    Signaling :9001 (SFU)
+                  \ WebSocket signaling
+                   \ ICE/DTLS/SRTP (RTP/RTCP)
+                    Signaling/SFU :9001 + UDP range
 ```
 
-У каждого клиента ровно одно медиасоединение — к серверу. Клиент всегда
-offerer: он поднимает `PeerConnection`, создаёт каналы и шлёт offer по тому же
-WebSocket, что несёт сигналинг; сервер отвечает answer и своими ICE-кандидатами.
-SDP между клиентами не ходит вообще — сервер его потребляет, а не пересылает.
+Клиент является offerer и устанавливает с сервером два PeerConnection:
 
-Каналы и их надёжность:
+- `voice`: один upstream microphone track и bounded pool recvonly audio slots;
+- `screen`: один upstream screen-video/system-audio pair и bounded pool
+  recvonly video/audio pairs.
 
-| Канал | Режим | Что несёт |
-|---|---|---|
-| `audio` | unordered, без ретрансмитов | голос (Opus) |
-| `video` | unordered, без ретрансмитов | экран (H.264/H.265) |
-| `screen_audio` | unordered, без ретрансмитов | системный звук демонстрации |
-| `control` | ordered, надёжный | запросы keyframe, остановка стрима |
+Независимые remote tracks имеют стабильные SDP `mid`. Сервер сообщает
+`mid -> peer_id` через `track_binding`, поэтому перепривязка publisher к
+заранее согласованному слоту не требует renegotiation.
 
-Медиа-каналы намеренно ненадёжны: потерянный пакет теряется, а playout едет
-дальше. Для realtime это правильнее, чем ждать ретрансмита, — иначе одна потеря
-морозит весь поток.
+## Клиентский media engine
 
-Сервер кодеки не декодирует. Он читает метку канала и решает, кому переслать
-пакет, добавив в начало id отправителя:
+Google WebRTC штатно выполняет microphone capture, APM, Opus, video encoding,
+RTP/RTCP, congestion control, NetEq/jitter buffering, audio mixing и decode.
+Захват экрана использует `DesktopCapturer` и `VideoTrackSource`. Собственных
+Audio/Video Sender/Receiver, codec orchestration и media DataChannels нет.
 
-- `audio` и `control` — всем в комнате, кроме отправителя;
-- `video` и `screen_audio` — только тем, кто прислал `watch_start` и ещё не
-  прислал `watch_stop` (сервер хранит `video_watchers` на комнату). Так экран не
-  занимает канал тех, кто его не смотрит.
+`GoogleWebRtcRuntime` и session-классы нужны из-за владения потоками,
+PeerConnectionFactory/tracks и строгого порядка остановки. Stateless SDP,
+RTCStats и RTP transforms вынесены в функции. `GoogleWebRtcClient` связывает
+две сессии с UI preferences; его private state планируется разделить на voice
+и screen lifecycle-компоненты без появления новых sender/receiver обёрток.
 
-Видеокадр отправляется одним сообщением DataChannel и фрагментируется уже SCTP —
-на уровне приложения кадр не режется. Перед отправкой проверяется
-`bufferedAmount()`: если очередь отправки выше порога
-(`stream_defaults::kVideoSendBufferLimitBytes`), кадр отбрасывается, а не
-копится в буфере — иначе растёт только задержка.
+System loopback audio остаётся узким platform adapter. Сведённый Google WebRTC
+screen audio выводится через bounded PCM queue и miniaudio hardware device.
 
-`GET /media_stats` отдаёт JSON по комнатам со счётчиками пакетов/байт in/out.
+## SFU media routing
 
-## Голосовой канал и signaling
+Сервер принимает encoded RTP на libdatachannel Tracks. `VoiceRouter` и
+`ScreenRouter` назначают publishers subscriber slots и переписывают RTP fields,
+чтобы downstream видел непрерывный поток со стабильным SSRC. RTCP завершается
+на каждом hop: сервер обслуживает NACK из локального packet cache и пересылает
+PLI upstream для screen keyframe.
 
-При выборе канала клиент соединяется с
-`ws://<server>/channels/<channel_id>?u=<username>`. Идентификатор канала является
-ключом комнаты, а `u` — имя пира: сервер хранит его в сессии и рассылает в
-`welcome`/`peer_joined`, так что имена собеседников известны сразу, ещё до
-установления медиасоединения.
-При подключении сервер назначает случайный 16-значный hex ID и отдаёт `welcome`
-со списком уже подключённых пиров (`{id, username}`). Далее сервер обрабатывает:
+Screen video и его system audio назначаются парой. Клиент может показывать
+несколько peers одновременно: отдельные `watch_start/watch_stop` содержат
+target `peerId`, и SFU заполняет slots только выбранными publishers. Число
+одновременных потоков ограничено заранее согласованной slot capacity.
 
-- `offer`, `candidate` от клиента и `answer`, `candidate` от сервера —
-  установление WebRTC между клиентом и сервером; другим клиентам они не
-  пересылаются;
-- `peer_joined`, `peer_left` — состав комнаты;
-- `streaming_start/stop`, `watch_start/stop` — демонстрация экрана;
-  `watch_start/stop` также управляют серверным списком `video_watchers`.
+`GET /media_stats` отдаёт число sessions и streaming peers. Детальная client
+quality telemetry берётся из стандартного `RTCStatsReport`.
 
-Сервер также отвечает на `GET /presence` JSON-списком комнат, peer ID и имён.
-Состояние не сохраняется между перезапусками.
+## Signaling
 
-В текущем коде signaling не сверяет JWT, membership канала или имя пользователя.
-Любой клиент, знающий ID канала, может подключиться, а `/presence` доступен без
-авторизации. Это важно закрыть до публичного production-развёртывания.
+Клиент подключается к
+`ws://<server>/channels/<channel_id>?u=<username>`. Сигналинг переносит roster,
+stream/watch state, SDP и ICE. Для media messages поле `connection` обязательно
+и принимает только `voice` или `screen`; legacy transport не поддерживается.
+
+Сервер отвечает `welcome`, затем рассылает `peer_joined`/`peer_left`,
+`streaming_start/stop` внутри комнаты. `watch_start/stop` являются адресными
+запросами к SFU и другим клиентам не рассылаются. SDP между клиентами не
+пересылается: его потребляет SFU.
+
+В текущем коде signaling не сверяет JWT, membership канала или заявленное имя
+пользователя. `/presence` также открыт. Это необходимо закрыть до публичного
+production-развёртывания.
 
 ## Хранение данных
 
 PostgreSQL содержит пользователей, серверы, membership, каналы и приглашения.
-При старте API выполняет `Base.metadata.create_all()` и точечный `ALTER TABLE`
-для `avatar_url`; полноценный запуск Alembic-миграций пока отсутствует.
-
-Аватары, версии и пакеты обновлений хранятся локально в `DATA_DIR` (по умолчанию
-`backend/api/data`). Для нескольких экземпляров API потребуется общее файловое
-хранилище или перенос этих данных в object storage.
+При старте API выполняет `Base.metadata.create_all()` и точечные изменения
+схемы; полноценный Alembic workflow пока отсутствует. Аватары, версии и пакеты
+обновлений хранятся в `DATA_DIR` и требуют общего object storage при нескольких
+экземплярах API.

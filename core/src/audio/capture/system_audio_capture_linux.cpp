@@ -52,10 +52,10 @@ public:
 
         pa_sample_spec spec { };
         spec.format = PA_SAMPLE_FLOAT32LE;
-        spec.rate = opus::kSampleRate;
+        spec.rate = kSampleRate;
         spec.channels = kChannels;
 
-        constexpr uint32_t kFragFrames = 48; // 20ms @ 48kHz
+        constexpr uint32_t kFragFrames = kFramesPerRead; // 20 ms @ 48 kHz
         constexpr uint32_t kFragBytes = kFragFrames * kChannels * sizeof(float);
 
         pa_buffer_attr attr { };
@@ -96,7 +96,6 @@ public:
 private:
     void capture_loop()
     {
-        constexpr size_t kFramesPerRead = opus::kFrameSize;
         constexpr size_t kBufSize = kFramesPerRead * kChannels;
         float buf[kBufSize];
 
@@ -124,7 +123,7 @@ bool SystemAudioCapture::available()
 {
     pa_sample_spec spec { };
     spec.format = PA_SAMPLE_FLOAT32LE;
-    spec.rate = opus::kSampleRate;
+    spec.rate = kSampleRate;
     spec.channels = 2;
 
     pa_buffer_attr attr { };

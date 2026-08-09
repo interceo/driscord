@@ -1,349 +1,329 @@
 #include "driscord_core.hpp"
+
 #include "audio/capture/system_audio_capture.hpp"
-#include "config.hpp"
-#include "video/capture/screen_capture.hpp"
+#include "webrtc/google_webrtc_client.hpp"
 
 #include <nlohmann/json.hpp>
-#include <span>
 
 using json = nlohmann::json;
 
-DriscordCore::DriscordCore()
-    : audio_transport(transport)
-    , video_transport(transport)
+namespace {
+
+std::string single_default_device_json()
 {
+    return R"([{"id":"","name":"System default"}])";
+}
+
+} // namespace
+
+DriscordCore::DriscordCore()
+{
+    media_ = std::make_unique<GoogleWebRtcClient>(transport,
+        GoogleWebRtcClient::Callbacks {
+            .on_frame = [this](const std::string& peer, const uint8_t* rgba,
+                            int width, int height) { emit_frame(peer, rgba, width, height); },
+            .on_frame_removed = [this](const std::string& peer) { emit_frame_removed(peer); },
+        });
+
     transport.on_peer_joined([this](const std::string& id) {
-        std::scoped_lock lk(cb_mtx_);
+        std::scoped_lock lock(cb_mtx_);
         if (on_peer_joined_cb_) {
             on_peer_joined_cb_(id);
         }
     });
     transport.on_peer_left([this](const std::string& id) {
-        // Media channels are shared with the server, not per-peer, so a peer
-        // going away is only ever visible through signaling — this is what
-        // clears their stream instead of a DataChannel close.
-        video_transport.remove_streaming_peer(id);
-        std::scoped_lock lk(cb_mtx_);
+        media_->remove_peer(id);
+        std::scoped_lock lock(cb_mtx_);
         if (on_peer_left_cb_) {
             on_peer_left_cb_(id);
         }
     });
-    video_transport.on_new_streaming_peer([this](const std::string& id) {
-        std::scoped_lock lk(cb_mtx_);
-        if (on_new_streaming_peer_cb_) {
-            on_new_streaming_peer_cb_(id);
-        }
-    });
-    video_transport.on_streaming_peer_removed([this](const std::string& id) {
-        std::scoped_lock lk(cb_mtx_);
-        if (on_streaming_peer_removed_cb_) {
-            on_streaming_peer_removed_cb_(id);
-        }
-    });
     transport.on_streaming_started([this](const std::string& id) {
-        std::scoped_lock lk(cb_mtx_);
+        std::scoped_lock lock(cb_mtx_);
         if (on_streaming_started_cb_) {
             on_streaming_started_cb_(id);
         }
     });
     transport.on_streaming_stopped([this](const std::string& id) {
-        video_transport.remove_streaming_peer(id);
-        std::scoped_lock lk(cb_mtx_);
+        media_->remove_peer(id);
+        std::scoped_lock lock(cb_mtx_);
         if (on_streaming_stopped_cb_) {
             on_streaming_stopped_cb_(id);
         }
     });
-    // Nothing subscribes locally any more: the server decides who receives a
-    // screen share, driven by the watch_start/stop signals sent below.
-    transport.on_peer_identity([this](const std::string& peer_id, const std::string& username) {
-        std::scoped_lock lk(cb_mtx_);
-        if (on_peer_identity_cb_) {
-            on_peer_identity_cb_(peer_id, username);
-        }
-    });
+    transport.on_peer_identity(
+        [this](const std::string& peer, const std::string& username) {
+            std::scoped_lock lock(cb_mtx_);
+            if (on_peer_identity_cb_) {
+                on_peer_identity_cb_(peer, username);
+            }
+        });
 }
 
 DriscordCore::~DriscordCore()
 {
-    // Tear down peer connections and data channels while audio_transport
-    // and video_transport are still alive. AudioTransport/VideoTransport
-    // registered on_data/on_close lambdas that capture `this`; those lambdas
-    // are stored inside Transport's per-peer data-channel handlers. Letting
-    // the default member-destruction order run would trigger
-    // Transport::disconnect() from ~Transport AFTER ~VideoTransport /
-    // ~AudioTransport, firing those callbacks on freed objects.
-    screen_session.reset();
+    media_.reset();
     transport.disconnect();
 }
 
-// ---------------------------------------------------------------------------
-// Callback setters
-// ---------------------------------------------------------------------------
+void DriscordCore::init_screen_session()
+{
+    media_->init_screen();
+}
+
+void DriscordCore::deinit_screen_session()
+{
+    media_->deinit_screen();
+}
+
+void DriscordCore::join_stream(const std::string& peer_id)
+{
+    media_->join_stream(peer_id);
+}
+
+void DriscordCore::leave_stream()
+{
+    media_->leave_streams();
+}
+
+void DriscordCore::leave_stream(const std::string& peer_id)
+{
+    media_->leave_stream(peer_id);
+}
 
 void DriscordCore::set_on_peer_joined(StringCb cb)
 {
-    std::scoped_lock lk(cb_mtx_);
+    std::scoped_lock lock(cb_mtx_);
     on_peer_joined_cb_ = std::move(cb);
 }
 
 void DriscordCore::set_on_peer_left(StringCb cb)
 {
-    std::scoped_lock lk(cb_mtx_);
+    std::scoped_lock lock(cb_mtx_);
     on_peer_left_cb_ = std::move(cb);
 }
 
 void DriscordCore::set_on_peer_identity(
     std::function<void(const std::string&, const std::string&)> cb)
 {
-    std::scoped_lock lk(cb_mtx_);
+    std::scoped_lock lock(cb_mtx_);
     on_peer_identity_cb_ = std::move(cb);
-}
-
-void DriscordCore::set_on_new_streaming_peer(StringCb cb)
-{
-    std::scoped_lock lk(cb_mtx_);
-    on_new_streaming_peer_cb_ = std::move(cb);
-}
-
-void DriscordCore::set_on_streaming_peer_removed(StringCb cb)
-{
-    std::scoped_lock lk(cb_mtx_);
-    on_streaming_peer_removed_cb_ = std::move(cb);
 }
 
 void DriscordCore::set_on_frame(FrameCb cb)
 {
-    std::scoped_lock lk(cb_mtx_);
+    std::scoped_lock lock(cb_mtx_);
     on_frame_cb_ = std::move(cb);
 }
 
 void DriscordCore::set_on_frame_removed(StringCb cb)
 {
-    std::scoped_lock lk(cb_mtx_);
+    std::scoped_lock lock(cb_mtx_);
     on_frame_removed_cb_ = std::move(cb);
 }
 
 void DriscordCore::set_on_streaming_started(StringCb cb)
 {
-    std::scoped_lock lk(cb_mtx_);
+    std::scoped_lock lock(cb_mtx_);
     on_streaming_started_cb_ = std::move(cb);
 }
 
 void DriscordCore::set_on_streaming_stopped(StringCb cb)
 {
-    std::scoped_lock lk(cb_mtx_);
+    std::scoped_lock lock(cb_mtx_);
     on_streaming_stopped_cb_ = std::move(cb);
 }
 
-// ---------------------------------------------------------------------------
-// ScreenSession lifecycle
-// ---------------------------------------------------------------------------
-
-void DriscordCore::init_screen_session()
+void DriscordCore::emit_frame(const std::string& peer,
+    const uint8_t* rgba,
+    int width,
+    int height)
 {
-    screen_session.emplace(
-        [this](const uint8_t* d, size_t l) { video_transport.send_video(d, l); },
-        [this]() { video_transport.send_keyframe_request(); },
-        [this](const uint8_t* d, size_t l) {
-            audio_transport.send_screen_audio(d, l);
-        });
-    screen_session->set_system_audio_bitrate(stream_defaults::kSystemAudioBitrateKbps);
-    screen_session->set_on_frame(
-        [this](const std::string& pid, const uint8_t* rgba, int w, int h) {
-            std::scoped_lock lk(cb_mtx_);
-            if (on_frame_cb_) {
-                on_frame_cb_(pid, rgba, w, h);
-            }
-        });
-    screen_session->set_on_frame_removed([this](const std::string& pid) {
-        on_video_peer_stream_ended(pid);
-        std::scoped_lock lk(cb_mtx_);
-        if (on_frame_removed_cb_) {
-            on_frame_removed_cb_(pid);
-        }
-    });
-    video_transport.set_video_sink(
-        [this](const std::string& peer_id, const uint8_t* data, size_t len,
-            uint64_t frame_id) {
-            screen_session->push_video_packet(
-                peer_id, std::span<const uint8_t> { data, len }, frame_id);
-        },
-        [this]() {
-            if (screen_session->sharing()) {
-                screen_session->force_keyframe();
-            }
-        });
-}
-
-void DriscordCore::deinit_screen_session()
-{
-    video_transport.clear_video_sink();
-    screen_session.reset();
-}
-
-// ---------------------------------------------------------------------------
-// Stream watching
-// ---------------------------------------------------------------------------
-
-void DriscordCore::join_stream(const std::string& peer_id)
-{
-    watched_peers_.insert(peer_id);
-    screen_session->add_video_peer(peer_id);
-    screen_session->add_audio_peer(peer_id);
-    audio_transport.set_screen_audio_recv(
-        peer_id, screen_session->audio_receiver(peer_id));
-    audio_transport.add_screen_audio_to_mixer(peer_id);
-    video_transport.add_watched_peer(peer_id);
-    transport.send_watch_start();
-    video_transport.send_keyframe_request();
-}
-
-void DriscordCore::leave_stream()
-{
-    transport.send_watch_stop();
-    video_transport.clear_watched_peers();
-    for (const auto& pid : watched_peers_) {
-        audio_transport.remove_screen_audio_from_mixer(pid);
-        audio_transport.unset_screen_audio_recv(pid);
-        screen_session->remove_audio_peer(pid);
-        screen_session->remove_video_peer(pid);
+    std::scoped_lock lock(cb_mtx_);
+    if (on_frame_cb_) {
+        on_frame_cb_(peer, rgba, width, height);
     }
-    screen_session->reset();
-    watched_peers_.clear();
 }
 
-void DriscordCore::on_video_peer_stream_ended(const std::string& peer_id)
+void DriscordCore::emit_frame_removed(const std::string& peer)
 {
-    video_transport.remove_streaming_peer(peer_id);
+    std::scoped_lock lock(cb_mtx_);
+    if (on_frame_removed_cb_) {
+        on_frame_removed_cb_(peer);
+    }
 }
-
-// ---------------------------------------------------------------------------
-// Transport
-// ---------------------------------------------------------------------------
 
 std::string DriscordCore::peers_json() const
 {
-    auto ps = transport.peers();
-    json arr = json::array();
-    for (auto& p : ps) {
-        arr.push_back({
-            { "id", p.id },
-            { "connected", p.primary_open },
-            { "username", transport.peer_username(p.id) },
+    json result = json::array();
+    for (const auto& peer : transport.peers()) {
+        result.push_back({
+            { "id", peer.id },
+            { "connected", peer.primary_open },
+            { "username", transport.peer_username(peer.id) },
         });
     }
-    return arr.dump();
+    return result.dump();
 }
 
-// ---------------------------------------------------------------------------
-// Audio (cross-subsystem)
-// ---------------------------------------------------------------------------
-
-void DriscordCore::audio_set_screen_audio_receiver(const std::string& peer,
-    bool has_screen)
+void DriscordCore::voice_start()
 {
-    std::shared_ptr<AudioReceiver> recv;
-    if (has_screen) {
-        recv = screen_session->audio_receiver(peer);
-    }
-    audio_transport.set_screen_audio_recv(peer, std::move(recv));
+    media_->start_voice();
 }
 
-// ---------------------------------------------------------------------------
-// Video
-// ---------------------------------------------------------------------------
-
-void DriscordCore::video_set_watching(bool w)
+void DriscordCore::voice_stop()
 {
-    if (!w) {
-        video_transport.clear_watched_peers();
-    }
+    media_->stop_voice();
 }
 
-// ---------------------------------------------------------------------------
-// Capture
-// ---------------------------------------------------------------------------
+void DriscordCore::voice_set_muted(bool muted)
+{
+    media_->set_muted(muted);
+}
+
+bool DriscordCore::voice_muted() const
+{
+    return media_->muted();
+}
+
+void DriscordCore::audio_set_deafened(bool deafened)
+{
+    media_->set_deafened(deafened);
+}
+
+bool DriscordCore::audio_deafened() const
+{
+    return media_->deafened();
+}
+
+void DriscordCore::audio_set_master_volume(float volume)
+{
+    media_->set_master_volume(volume);
+}
+
+float DriscordCore::audio_master_volume() const
+{
+    return media_->master_volume();
+}
+
+float DriscordCore::audio_input_level() const
+{
+    return 0.0f;
+}
+
+float DriscordCore::audio_output_level() const
+{
+    return 0.0f;
+}
+
+void DriscordCore::audio_set_noise_gate(float)
+{
+    // Google WebRTC's native audio-processing module owns voice detection,
+    // noise suppression and gain control. A second amplitude gate would cut
+    // already-processed speech and is intentionally not reintroduced.
+}
+
+std::string DriscordCore::audio_input_devices_json() const
+{
+    return single_default_device_json();
+}
+
+std::string DriscordCore::audio_output_devices_json() const
+{
+    return single_default_device_json();
+}
+
+void DriscordCore::audio_set_input_device(const std::string&)
+{
+}
+
+void DriscordCore::audio_set_output_device(const std::string&)
+{
+}
+
+void DriscordCore::audio_set_peer_volume(
+    const std::string& peer, float volume)
+{
+    media_->set_peer_volume(peer, volume);
+}
+
+float DriscordCore::audio_peer_volume(const std::string& peer) const
+{
+    return media_->peer_volume(peer);
+}
+
+void DriscordCore::audio_set_peer_muted(
+    const std::string& peer, bool muted)
+{
+    media_->set_peer_muted(peer, muted);
+}
+
+bool DriscordCore::audio_peer_muted(const std::string& peer) const
+{
+    return media_->peer_muted(peer);
+}
+
+bool DriscordCore::video_watching() const
+{
+    return media_->watching();
+}
 
 std::string DriscordCore::capture_audio_list_targets_json() const
 {
-    const auto targets = SystemAudioCapture::list_sinks();
-    json arr = json::array();
-    for (const auto& it : targets) {
-        arr.push_back({ { "id", it.id }, { "name", it.name } });
+    json result = json::array();
+    for (const auto& target : SystemAudioCapture::list_sinks()) {
+        result.push_back({ { "id", target.id }, { "name", target.name } });
     }
-    return arr.dump(-1, ' ', /*ensure_ascii=*/false,
+    return result.dump(-1, ' ', false,
         nlohmann::json::error_handler_t::replace);
 }
 
 std::string DriscordCore::capture_video_list_targets_json() const
 {
-    const auto targets = ScreenCapture::list_targets();
-    json arr = json::array();
-    for (const auto& it : targets) {
-        arr.push_back({ { "type", it.type == ScreenCaptureTarget::Monitor ? 0 : 1 },
-            { "id", it.id },
-            { "name", it.name },
-            { "width", it.width },
-            { "height", it.height },
-            { "x", it.x },
-            { "y", it.y } });
-    }
-    return arr.dump(-1, ' ', /*ensure_ascii=*/false,
-        nlohmann::json::error_handler_t::replace);
+    return media_->video_targets_json();
 }
 
 DriscordCore::ThumbnailResult DriscordCore::capture_grab_thumbnail(
     const std::string& target_json,
-    int max_w,
-    int max_h)
+    int max_width,
+    int max_height)
 {
-    const auto target = ScreenCaptureTarget::from_json(json::parse(target_json));
-    const auto frame = ScreenCapture::grab_thumbnail(target, max_w, max_h);
-    if (frame.data.empty()) {
-        return { };
-    }
-    return { frame.width, frame.height, frame.to_rgba() };
+    auto result = media_->grab_thumbnail(target_json, max_width, max_height);
+    return { result.width, result.height, std::move(result.rgba) };
 }
 
-// ---------------------------------------------------------------------------
-// Screen
-// ---------------------------------------------------------------------------
-
-utils::Expected<void, VideoError> DriscordCore::screen_start_sharing(
-    const std::string& target_json,
-    int max_w,
-    int max_h,
+bool DriscordCore::screen_start_sharing(const std::string& target_json,
+    int max_width,
+    int max_height,
     int fps,
     bool share_audio)
 {
-    nlohmann::json j;
-    try {
-        j = json::parse(target_json);
-    } catch (const std::exception&) {
-        return utils::Unexpected(VideoError::CaptureStartFailed);
-    }
-    const auto target = ScreenCaptureTarget::from_json(j);
-    auto r = screen_session->start_sharing(target, max_w, max_h, fps, share_audio);
-    if (r) {
-        transport.send_streaming_start();
-    }
-    return r;
+    return media_->start_sharing(
+        target_json, max_width, max_height, fps, share_audio);
 }
 
 void DriscordCore::screen_stop_sharing()
 {
-    screen_session->stop_sharing();
-    video_transport.send_stop_stream();
-    transport.send_streaming_stop();
+    media_->stop_sharing();
 }
 
-void DriscordCore::screen_set_stream_volume(const std::string& peer, float vol)
+bool DriscordCore::screen_sharing() const
 {
-    audio_transport.set_screen_audio_peer_volume(peer, vol);
+    return media_->sharing();
 }
 
-float DriscordCore::screen_stream_volume() const
+std::string DriscordCore::screen_stats_json(const std::string& peer) const
 {
-    return audio_transport.screen_audio_peer_volume(
-        screen_session->active_peer());
+    return media_->screen_stats_json(peer);
+}
+
+void DriscordCore::screen_set_stream_volume(
+    const std::string& peer, float volume)
+{
+    media_->set_stream_volume(peer, volume);
+}
+
+float DriscordCore::screen_stream_volume(const std::string& peer) const
+{
+    return media_->stream_volume(peer);
 }

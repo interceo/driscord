@@ -1,0 +1,68 @@
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <optional>
+#include <span>
+
+namespace driscord::media {
+
+class GoogleWebRtcVoiceSession;
+class GoogleWebRtcScreenSession;
+
+// Replaces the platform audio device with an in-process, clocked PCM source.
+// It is primarily intended for deterministic integration tests and headless
+// deployments. Each submitted buffer must contain exactly 10 ms of
+// interleaved signed 16-bit PCM. Decoded remote tracks are still exposed via
+// VoiceSessionCallbacks::on_remote_audio.
+struct InjectedAudioDeviceConfig {
+    using RenderCallback = std::function<void(
+        std::span<const int16_t> samples, int sample_rate_hz, size_t channels)>;
+
+    int sample_rate_hz = 48'000;
+    size_t channels = 1;
+    size_t max_buffered_frames = 500;
+    // Receives WebRTC's mixed 10-ms playout frames. The span is borrowed and
+    // must be copied before the callback returns. Empty keeps headless tests
+    // allocation-free by using WebRTC's discard renderer.
+    RenderCallback on_rendered_audio;
+};
+
+struct GoogleWebRtcRuntimeConfig {
+    std::optional<InjectedAudioDeviceConfig> injected_audio_device;
+};
+
+// Process-level resources required by all WebRTC PeerConnections.  The class
+// exists to make thread/factory teardown deterministic; track senders,
+// receivers and sinks are intentionally not mirrored by wrapper classes.
+class GoogleWebRtcRuntime final {
+public:
+    GoogleWebRtcRuntime();
+    explicit GoogleWebRtcRuntime(GoogleWebRtcRuntimeConfig config);
+    ~GoogleWebRtcRuntime();
+
+    GoogleWebRtcRuntime(const GoogleWebRtcRuntime&) = delete;
+    GoogleWebRtcRuntime& operator=(const GoogleWebRtcRuntime&) = delete;
+    GoogleWebRtcRuntime(GoogleWebRtcRuntime&&) noexcept;
+    GoogleWebRtcRuntime& operator=(GoogleWebRtcRuntime&&) noexcept;
+
+    [[nodiscard]] bool ready() const noexcept;
+
+    // Queues one 10 ms frame for an injected audio device. Returns false when
+    // the runtime uses a platform device, the shape is invalid, or the bounded
+    // queue is full. One runtime represents one physical/logical microphone;
+    // use separate runtimes for independent test participants.
+    [[nodiscard]] bool submit_recorded_audio_10ms(
+        std::span<const int16_t> interleaved_samples);
+
+private:
+    friend class GoogleWebRtcScreenSession;
+    friend class GoogleWebRtcVoiceSession;
+
+    struct Impl;
+    std::shared_ptr<Impl> impl_;
+};
+
+} // namespace driscord::media

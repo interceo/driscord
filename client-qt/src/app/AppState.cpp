@@ -130,21 +130,14 @@ void AppState::connectBridgeSignals()
         if (!m_streamingPeers.removeAll(id))
             return;
         emit streamingPeersChanged();
-        if (m_watchedPeerId == id) {
-            m_watchedPeerId.clear();
-            emit watchedPeerChanged();
+        if (m_watchedPeerIds.removeAll(id)) {
+            emit watchedStreamsChanged();
         }
     };
-    // streamingStarted/Stopped come from the signaling server (welcome msg +
-    // streaming_start broadcast) — these fire BEFORE we receive any chunks,
-    // which is what makes a remote peer's stream tile appear at all.
+    // Signaling announces streams before the first decoded WebRTC frame, so a
+    // tile can subscribe and display a buffering state immediately.
     connect(m_bridge, &DriscordBridge::streamingStarted, this, addStreamingPeer);
     connect(m_bridge, &DriscordBridge::streamingStopped, this, removeStreamingPeer);
-    // newStreamingPeer/streamingPeerRemoved come from the video transport
-    // (chunk-assembly path) — kept as a fallback in case the signaling
-    // announcement was missed.
-    connect(m_bridge, &DriscordBridge::newStreamingPeer, this, addStreamingPeer);
-    connect(m_bridge, &DriscordBridge::streamingPeerRemoved, this, removeStreamingPeer);
 }
 
 void AppState::loadInitialData()
@@ -293,10 +286,10 @@ void AppState::leaveVoiceChannel()
     m_connectionState = QStringLiteral("disconnected");
     m_peers.clear();
     m_streamingPeers.clear();
-    m_watchedPeerId.clear();
+    m_watchedPeerIds.clear();
     emit peersChanged();
     emit streamingPeersChanged();
-    emit watchedPeerChanged();
+    emit watchedStreamsChanged();
     emit connectionChanged();
 }
 
@@ -324,21 +317,23 @@ void AppState::stopSharing()
 }
 void AppState::joinStream(const QString& id)
 {
-    if (m_watchedPeerId == id)
+    if (m_watchedPeerIds.contains(id))
         return;
-    if (!m_watchedPeerId.isEmpty())
-        m_bridge->leaveStream();
     m_bridge->joinStream(id);
-    m_watchedPeerId = id;
-    emit watchedPeerChanged();
+    m_watchedPeerIds.append(id);
+    emit watchedStreamsChanged();
 }
-void AppState::leaveStream()
+void AppState::leaveStream(const QString& id)
 {
-    m_bridge->leaveStream();
-    if (!m_watchedPeerId.isEmpty()) {
-        m_watchedPeerId.clear();
-        emit watchedPeerChanged();
+    if (m_watchedPeerIds.removeAll(id)) {
+        m_bridge->leaveStream(id);
+        emit watchedStreamsChanged();
     }
+}
+
+bool AppState::isWatchingStream(const QString& id) const
+{
+    return m_watchedPeerIds.contains(id);
 }
 
 void AppState::createServer(const QString& name, const QString& desc)

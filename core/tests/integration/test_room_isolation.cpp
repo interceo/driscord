@@ -132,3 +132,25 @@ TEST_F(RoomIsolationTest, DifferentRooms_DirectMessageNotDelivered)
     // Server should still have exactly 2 sessions total (1 per room).
     EXPECT_EQ(server.active_sessions(), 2u);
 }
+
+// A late callback from the superseded WebSocket must not close or overwrite
+// the replacement connection.
+TEST_F(RoomIsolationTest, RapidReconnect_IgnoresSupersededSocketCallbacks)
+{
+    Transport transport;
+
+    ASSERT_TRUE(transport.connect(server.ws_url(77)));
+    ASSERT_TRUE(test_util::wait_for_local_id(transport));
+    const std::string first_id = transport.local_id();
+
+    ASSERT_TRUE(transport.connect(server.ws_url(77)));
+    ASSERT_TRUE(test_util::wait_for_local_id(transport));
+    const std::string second_id = transport.local_id();
+    ASSERT_FALSE(second_id.empty());
+    EXPECT_NE(second_id, first_id);
+
+    std::this_thread::sleep_for(250ms);
+    EXPECT_TRUE(transport.connected());
+    EXPECT_EQ(transport.local_id(), second_id);
+    EXPECT_EQ(transport.stats().state, TransportConnectionState::Connected);
+}

@@ -1,14 +1,16 @@
 #pragma once
 
-#include "channel_labels.hpp"
 #include "identity.hpp"
+#include "sfu_media_utils.hpp"
 
 #include <atomic>
 #include <boost/asio.hpp>
 #include <boost/beast.hpp>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <rtc/rtc.hpp>
 #include <string>
 #include <unordered_map>
@@ -18,11 +20,14 @@
 namespace driscord {
 
 class Session;
+class ScreenRouter;
+class VoiceRouter;
 
 class WebSocketServer : public std::enable_shared_from_this<WebSocketServer> {
 public:
     explicit WebSocketServer(boost::asio::io_context& io_context,
-        unsigned short port);
+        unsigned short port,
+        sfu::RtpFaultConfig fault_config = { });
 
     void run();
     void stop();
@@ -51,15 +56,21 @@ public:
         const driscord::RoomId& room_id,
         const std::string& msg);
 
-    // Media fan-out (SFU). Called from a client's DataChannel with the label
-    // it arrived on; the server forwards the payload to the other sessions in
-    // the room on their channel of the same label, prefixed with the sender id.
-    // No codec-level decode happens here — the server only routes.
-    void route_media(const driscord::PeerId& from_id,
+    // Registers one voice track with the room router. The callback reports
+    // pre-negotiated output-slot assignments back to the owning session.
+    void register_voice_track(const driscord::PeerId& owner,
         const driscord::RoomId& room_id,
-        channel::MediaChannel label,
-        const uint8_t* data,
-        size_t len);
+        std::shared_ptr<rtc::Track> track,
+        std::function<void(std::string, std::optional<driscord::PeerId>)>
+            send_binding);
+
+    // Registers one audio/video track with the room screen router. Output
+    // tracks are paired by slot and report the same publisher for both mids.
+    void register_screen_track(const driscord::PeerId& owner,
+        const driscord::RoomId& room_id,
+        std::shared_ptr<rtc::Track> track,
+        std::function<void(std::string, std::optional<driscord::PeerId>)>
+            send_binding);
 
     // ICE configuration handed to every per-session PeerConnection.
     const rtc::Configuration& rtc_config() const { return rtc_config_; }
@@ -74,13 +85,14 @@ public:
     void remove_streaming_peer(const driscord::PeerId& id,
         const driscord::RoomId& room_id);
 
-    // Watchers gate relayed screen video/screen-audio: only peers that sent
-    // watch_start (and haven't sent watch_stop since) receive those relay
-    // kinds, matching the P2P-mesh path's unicast-to-subscribers behavior.
+    // A watcher subscribes to explicit screen publishers. Keeping the target
+    // set server-side avoids filling slots/downlink with unselected streams.
     void add_video_watcher(const driscord::PeerId& id,
-        const driscord::RoomId& room_id);
+        const driscord::RoomId& room_id,
+        const driscord::PeerId& publisher_id);
     void remove_video_watcher(const driscord::PeerId& id,
-        const driscord::RoomId& room_id);
+        const driscord::RoomId& room_id,
+        const driscord::PeerId& publisher_id);
 
     // Snapshot of all rooms and their sessions for the /presence HTTP endpoint.
     // Returns a JSON string: { "<room_id>": [ { "id": "...", "username": "..." }, ... ], ... }
@@ -100,12 +112,11 @@ private:
     struct Room {
         std::unordered_map<driscord::PeerId, std::shared_ptr<Session>> sessions;
         std::unordered_set<driscord::PeerId> streaming_peers;
-        std::unordered_set<driscord::PeerId> video_watchers;
-        uint64_t media_packets_in = 0;
-        uint64_t media_packets_out = 0;
-        uint64_t media_bytes_in = 0;
-        uint64_t media_bytes_out = 0;
-        uint64_t media_packets_dropped = 0;
+        std::unordered_map<driscord::PeerId,
+            std::unordered_set<driscord::PeerId>>
+            video_watchers;
+        std::shared_ptr<VoiceRouter> voice_router;
+        std::shared_ptr<ScreenRouter> screen_router;
     };
 
     mutable std::mutex rooms_mutex_;
@@ -115,6 +126,7 @@ private:
     // from DRISCORD_ICE_PORT_MIN/MAX so deployments behind NAT or in Docker
     // can pin and forward a known range.
     rtc::Configuration rtc_config_;
+    sfu::RtpFaultConfig fault_config_;
 };
 
 } // namespace driscord
