@@ -52,6 +52,8 @@ public:
         signaling::ConnectionId connection,
         const std::string& sdp_mid,
         const std::optional<driscord::PeerId>& peer_id)>;
+    using WatchRejectedCb = std::function<void(const std::string& peer_id,
+        signaling::WatchRejectReason reason)>;
 
     Transport() = default;
     ~Transport();
@@ -78,6 +80,8 @@ public:
     void add_media_candidate_listener(MediaCandidateCb cb);
     void on_media_track_binding(MediaTrackBindingCb cb);
     void add_media_track_binding_listener(MediaTrackBindingCb cb);
+    void on_watch_rejected(WatchRejectedCb cb);
+    void add_watch_rejected_listener(WatchRejectedCb cb);
     void on_peer_identity(
         std::function<void(const std::string&, const std::string&)> cb);
 
@@ -134,9 +138,11 @@ private:
     MediaAnswerCb on_media_answer_;
     MediaCandidateCb on_media_candidate_;
     MediaTrackBindingCb on_media_track_binding_;
+    WatchRejectedCb on_watch_rejected_;
     std::vector<MediaAnswerCb> media_answer_listeners_;
     std::vector<MediaCandidateCb> media_candidate_listeners_;
     std::vector<MediaTrackBindingCb> media_track_binding_listeners_;
+    std::vector<WatchRejectedCb> watch_rejected_listeners_;
 
     mutable std::mutex peers_mutex_;
     std::unordered_set<driscord::PeerId> peers_;

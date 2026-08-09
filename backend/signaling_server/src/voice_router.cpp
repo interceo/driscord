@@ -29,6 +29,7 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
     };
 
     struct PeerState {
+        uint64_t order = 0;
         std::weak_ptr<rtc::Track> input;
         std::optional<uint8_t> input_mid_extension_id;
         sfu::RtpFaultState input_fault_state;
@@ -47,11 +48,37 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
     std::mutex mutex;
     std::unordered_map<PeerId, PeerState> peers;
     sfu::RtpFaultConfig fault_config;
+    uint64_t next_peer_order = 0;
     bool closed = false;
 
     explicit Impl(sfu::RtpFaultConfig config)
         : fault_config(config)
     {
+    }
+
+    PeerState& peer_for_locked(const PeerId& peer_id)
+    {
+        auto [peer, inserted] = peers.try_emplace(peer_id);
+        if (inserted) {
+            peer->second.order = next_peer_order++;
+        }
+        return peer->second;
+    }
+
+    std::vector<PeerId> ordered_peers_locked() const
+    {
+        std::vector<PeerId> result;
+        result.reserve(peers.size());
+        for (const auto& [peer_id, _] : peers) {
+            result.push_back(peer_id);
+        }
+        std::sort(result.begin(), result.end(), [this](const PeerId& lhs, const PeerId& rhs) {
+            const auto& left = peers.at(lhs);
+            const auto& right = peers.at(rhs);
+            return left.order != right.order ? left.order < right.order
+                                             : lhs.value < rhs.value;
+        });
+        return result;
     }
 
     void register_track(const PeerId& owner,
@@ -98,7 +125,7 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
             if (closed) {
                 return;
             }
-            auto& peer = peers[owner];
+            auto& peer = peer_for_locked(owner);
             const bool source_changed = peer.input.lock() != track;
             if (source_changed) {
                 peer.input_fault_state = { };
@@ -148,7 +175,7 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
             if (closed) {
                 return;
             }
-            auto& peer = peers[owner];
+            auto& peer = peer_for_locked(owner);
             peer.send_binding = std::move(send_binding);
             auto existing = std::find_if(peer.outputs.begin(), peer.outputs.end(),
                 [&mid](const OutputSlot& slot) { return slot.mid == mid; });
@@ -177,7 +204,9 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
     std::vector<BindingNotice> assign_available_locked()
     {
         std::vector<BindingNotice> notices;
-        for (auto& [subscriber_id, subscriber] : peers) {
+        const auto ordered_peers = ordered_peers_locked();
+        for (const auto& subscriber_id : ordered_peers) {
+            auto& subscriber = peers.at(subscriber_id);
             std::unordered_set<PeerId> assigned;
             for (const auto& output : subscriber.outputs) {
                 if (output.publisher) {
@@ -185,7 +214,8 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
                 }
             }
 
-            for (const auto& [publisher_id, publisher] : peers) {
+            for (const auto& publisher_id : ordered_peers) {
+                const auto& publisher = peers.at(publisher_id);
                 if (publisher_id == subscriber_id || publisher.input.expired()
                     || assigned.contains(publisher_id)) {
                     continue;

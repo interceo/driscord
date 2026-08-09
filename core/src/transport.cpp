@@ -185,6 +185,8 @@ DRISCORD_SET_CALLBACK(on_media_answer, on_media_answer_, MediaAnswerCb)
 DRISCORD_SET_CALLBACK(on_media_candidate, on_media_candidate_, MediaCandidateCb)
 DRISCORD_SET_CALLBACK(on_media_track_binding, on_media_track_binding_,
     MediaTrackBindingCb)
+DRISCORD_SET_CALLBACK(
+    on_watch_rejected, on_watch_rejected_, WatchRejectedCb)
 
 #undef DRISCORD_SET_CALLBACK
 
@@ -211,6 +213,12 @@ void Transport::add_media_track_binding_listener(
 {
     ensure_callbacks_mutable_();
     media_track_binding_listeners_.push_back(std::move(callback));
+}
+
+void Transport::add_watch_rejected_listener(WatchRejectedCb callback)
+{
+    ensure_callbacks_mutable_();
+    watch_rejected_listeners_.push_back(std::move(callback));
 }
 
 void Transport::on_peer_identity(
@@ -300,7 +308,7 @@ void Transport::set_peer_identity_(
 
 void Transport::on_ws_message(const std::string& raw)
 {
-    static_assert(std::variant_size_v<signaling::Message> == 11,
+    static_assert(std::variant_size_v<signaling::Message> == 12,
         "signaling::Message changed; update Transport::on_ws_message");
     auto parsed = signaling::parse(raw);
     if (!parsed) {
@@ -380,6 +388,14 @@ void Transport::on_ws_message(const std::string& raw)
             } }, [this](const signaling::StreamingStop& message) {
             if (message.from && on_streaming_stopped_) {
                 on_streaming_stopped_(message.from->value);
+            } }, [this](const signaling::WatchRejected& message) {
+            if (on_watch_rejected_) {
+                on_watch_rejected_(message.peer_id.value, message.reason);
+            }
+            for (const auto& listener : watch_rejected_listeners_) {
+                if (listener) {
+                    listener(message.peer_id.value, message.reason);
+                }
             } }, [](const signaling::WatchStart&) { }, [](const signaling::WatchStop&) { }, [](const signaling::Offer&) { LOG_WARNING() << "ignoring offer from signaling server"; });
 }
 

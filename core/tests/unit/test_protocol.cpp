@@ -105,6 +105,21 @@ TEST(SignalingProtocol, WatchMessagesRequireTargetPeer)
         R"({"type":"watch_stop","peerId":""})"));
 }
 
+TEST(SignalingProtocol, WatchRejectionRoundtrip)
+{
+    const auto parsed = signaling::parse(signaling::dump(
+        signaling::WatchRejected { driscord::PeerId { "publisher" },
+            signaling::WatchRejectReason::Capacity }));
+    ASSERT_TRUE(parsed);
+    const auto& rejected
+        = std::get<signaling::WatchRejected>(parsed.value());
+    EXPECT_EQ(rejected.peer_id.value, "publisher");
+    EXPECT_EQ(rejected.reason, signaling::WatchRejectReason::Capacity);
+
+    EXPECT_FALSE(signaling::parse(
+        R"({"type":"watch_rejected","peerId":"publisher","reason":"other"})"));
+}
+
 TEST(SignalingProtocol, RejectsUnknownOrIncompleteMessage)
 {
     const auto unknown = signaling::parse(R"({"type":"bogus"})");

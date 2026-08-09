@@ -37,6 +37,7 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
     };
 
     struct PeerState {
+        uint64_t order = 0;
         std::weak_ptr<rtc::Track> input_video;
         std::weak_ptr<rtc::Track> input_audio;
         std::optional<uint8_t> video_mid_extension_id;
@@ -46,7 +47,8 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
         std::vector<OutputPair> outputs;
         BindingSender send_binding;
         bool streaming = false;
-        std::unordered_set<PeerId> watched_publishers;
+        std::unordered_map<PeerId, uint64_t> watched_publishers;
+        uint64_t next_watch_order = 0;
     };
 
     struct BindingNotice {
@@ -63,11 +65,62 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
     std::mutex mutex;
     std::unordered_map<PeerId, PeerState> peers;
     sfu::RtpFaultConfig fault_config;
+    uint64_t next_peer_order = 0;
     bool closed = false;
 
     explicit Impl(sfu::RtpFaultConfig config)
         : fault_config(config)
     {
+    }
+
+    PeerState& peer_for_locked(const PeerId& peer_id)
+    {
+        auto [peer, inserted] = peers.try_emplace(peer_id);
+        if (inserted) {
+            peer->second.order = next_peer_order++;
+        }
+        return peer->second;
+    }
+
+    std::vector<PeerId> ordered_peers_locked() const
+    {
+        std::vector<PeerId> result;
+        result.reserve(peers.size());
+        for (const auto& [peer_id, _] : peers) {
+            result.push_back(peer_id);
+        }
+        std::sort(result.begin(), result.end(), [this](const PeerId& lhs, const PeerId& rhs) {
+            const auto& left = peers.at(lhs);
+            const auto& right = peers.at(rhs);
+            return left.order != right.order ? left.order < right.order
+                                             : lhs.value < rhs.value;
+        });
+        return result;
+    }
+
+    std::vector<PeerId> ordered_watches_locked(
+        const PeerState& subscriber) const
+    {
+        std::vector<PeerId> result;
+        result.reserve(subscriber.watched_publishers.size());
+        for (const auto& [publisher_id, _] : subscriber.watched_publishers) {
+            result.push_back(publisher_id);
+        }
+        std::sort(result.begin(), result.end(), [this, &subscriber](const PeerId& lhs, const PeerId& rhs) {
+            const auto left_watch = subscriber.watched_publishers.at(lhs);
+            const auto right_watch = subscriber.watched_publishers.at(rhs);
+            if (left_watch != right_watch) {
+                return left_watch < right_watch;
+            }
+            const auto left = peers.find(lhs);
+            const auto right = peers.find(rhs);
+            if (left != peers.end() && right != peers.end()
+                && left->second.order != right->second.order) {
+                return left->second.order < right->second.order;
+            }
+            return lhs.value < rhs.value;
+        });
+        return result;
     }
 
     static void request_keyframe(
@@ -139,7 +192,7 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
             if (closed) {
                 return;
             }
-            auto& peer = peers[owner];
+            auto& peer = peer_for_locked(owner);
             peer.send_binding = std::move(send_binding);
             bool source_changed = false;
             if (media_type == "video") {
@@ -279,7 +332,7 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
             if (closed) {
                 return;
             }
-            auto& peer = peers[owner];
+            auto& peer = peer_for_locked(owner);
             peer.send_binding = std::move(send_binding);
             auto& pair = output_pair_for(peer, mid, media_type);
             clear_pair_locked(peer, pair, notices);
@@ -330,7 +383,9 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
     std::vector<BindingNotice> assign_available_locked()
     {
         std::vector<BindingNotice> notices;
-        for (auto& [subscriber_id, subscriber] : peers) {
+        const auto ordered_peers = ordered_peers_locked();
+        for (const auto& subscriber_id : ordered_peers) {
+            auto& subscriber = peers.at(subscriber_id);
             if (subscriber.watched_publishers.empty()) {
                 continue;
             }
@@ -340,10 +395,12 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
                     assigned.insert(*pair.publisher);
                 }
             }
-            for (const auto& [publisher_id, publisher] : peers) {
-                if (publisher_id == subscriber_id || !publisher.streaming
-                    || publisher.input_video.expired()
-                    || !subscriber.watched_publishers.contains(publisher_id)
+            for (const auto& publisher_id :
+                ordered_watches_locked(subscriber)) {
+                const auto publisher = peers.find(publisher_id);
+                if (publisher == peers.end() || publisher_id == subscriber_id
+                    || !publisher->second.streaming
+                    || publisher->second.input_video.expired()
                     || assigned.contains(publisher_id)) {
                     continue;
                 }
@@ -495,7 +552,7 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
             if (closed) {
                 return;
             }
-            auto& peer = peers[peer_id];
+            auto& peer = peer_for_locked(peer_id);
             if (peer.streaming == streaming) {
                 return;
             }
@@ -531,11 +588,13 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
             if (closed) {
                 return;
             }
-            auto& peer = peers[peer_id];
+            auto& peer = peer_for_locked(peer_id);
             if (watching) {
-                if (!peer.watched_publishers.insert(publisher_id).second) {
+                if (peer.watched_publishers.contains(publisher_id)) {
                     return;
                 }
+                peer.watched_publishers.emplace(
+                    publisher_id, peer.next_watch_order++);
             } else {
                 if (peer.watched_publishers.erase(publisher_id) == 0) {
                     return;

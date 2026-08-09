@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <utility>
 
 namespace test_util {
 
@@ -36,6 +37,8 @@ struct PeerNode {
     EventCollector<std::string> left;
     EventCollector<std::string> streaming_started;
     EventCollector<std::string> streaming_stopped;
+    EventCollector<std::pair<std::string, signaling::WatchRejectReason>>
+        watch_rejected;
 
     PeerNode()
     {
@@ -47,6 +50,11 @@ struct PeerNode {
             [this](const std::string& id) { streaming_started.push(id); });
         transport->on_streaming_stopped(
             [this](const std::string& id) { streaming_stopped.push(id); });
+        transport->on_watch_rejected(
+            [this](const std::string& id,
+                signaling::WatchRejectReason reason) {
+                watch_rejected.push({ id, reason });
+            });
     }
 
     ~PeerNode()

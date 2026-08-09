@@ -20,6 +20,12 @@ enum class ConnectionId {
     Screen,
 };
 
+enum class WatchRejectReason {
+    UnknownPeer,
+    NotStreaming,
+    Capacity,
+};
+
 enum class ParseError {
     InvalidJson,
     MissingType,
@@ -88,6 +94,13 @@ struct WatchStop {
     driscord::PeerId peer_id;
 };
 
+// Server response for a watch_start that could not be retained. Successful
+// subscriptions are confirmed by their subsequent TrackBinding messages.
+struct WatchRejected {
+    driscord::PeerId peer_id;
+    WatchRejectReason reason = WatchRejectReason::UnknownPeer;
+};
+
 using Message = std::variant<Welcome,
     PeerJoined,
     PeerLeft,
@@ -98,10 +111,12 @@ using Message = std::variant<Welcome,
     StreamingStart,
     StreamingStop,
     WatchStart,
-    WatchStop>;
+    WatchStop,
+    WatchRejected>;
 
 std::string_view to_string(ParseError error);
 std::string_view to_string(ConnectionId connection);
+std::string_view to_string(WatchRejectReason reason);
 
 nlohmann::json encode(const Welcome& value);
 nlohmann::json encode(const PeerJoined& value);
@@ -114,6 +129,7 @@ nlohmann::json encode(const StreamingStart& value);
 nlohmann::json encode(const StreamingStop& value);
 nlohmann::json encode(const WatchStart& value);
 nlohmann::json encode(const WatchStop& value);
+nlohmann::json encode(const WatchRejected& value);
 nlohmann::json encode(const Message& message);
 
 utils::Expected<Message, ParseError> parse_json(const nlohmann::json& msg);

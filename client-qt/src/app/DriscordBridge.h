@@ -69,6 +69,7 @@ signals:
     void peerIdentityReceived(const QString& peerId, const QString& username);
     void streamingStarted(const QString& peerId);
     void streamingStopped(const QString& peerId);
+    void streamWatchRejected(const QString& peerId, const QString& reason);
     void frameRemoved(const QString& peerId);
     void frameUpdated(const QString& peerId);
 

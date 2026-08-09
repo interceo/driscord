@@ -189,6 +189,7 @@ TEST_F(GoogleWebRtcScreenTransportTest,
     EventCollector<Binding> listener_bindings;
     EventCollector<std::string> first_answers;
     EventCollector<std::string> listener_answers;
+    EventCollector<std::string> streaming_publishers;
     EventCollector<std::string> errors;
     MultiTrackVideoProbe decoded_video;
 
@@ -267,6 +268,10 @@ TEST_F(GoogleWebRtcScreenTransportTest,
     connect_screen(first_transport, first_screen, &first_answers);
     connect_screen(second_transport, second_screen);
     connect_screen(listener_transport, listener_screen, &listener_answers);
+    listener_transport.on_streaming_started(
+        [&streaming_publishers](const std::string& peer_id) {
+            streaming_publishers.push(peer_id);
+        });
     listener_transport.on_media_track_binding(
         [&listener_bindings](signaling::ConnectionId connection,
             const std::string& mid,
@@ -309,6 +314,7 @@ TEST_F(GoogleWebRtcScreenTransportTest,
 
     first_transport.send_streaming_start();
     second_transport.send_streaming_start();
+    ASSERT_TRUE(streaming_publishers.wait_for_count(2));
     listener_transport.send_watch_start(first_transport.local_id());
     ASSERT_TRUE(listener_bindings.wait_for_count(2));
     for (const auto& [_, publisher] : listener_bindings.snapshot()) {
@@ -511,6 +517,7 @@ TEST_F(GoogleWebRtcScreenTransportTest,
     Waiter publisher_connected;
     EventCollector<std::string> decoded_publishers;
     EventCollector<std::string> errors;
+    EventCollector<std::string> streaming_publishers;
 
     ScreenSessionCallbacks publisher_callbacks;
     publisher_callbacks.on_offer = [&publisher_transport](std::string sdp) {
@@ -565,6 +572,10 @@ TEST_F(GoogleWebRtcScreenTransportTest,
             },
             .on_frame_removed = { },
         });
+    viewer_transport.on_streaming_started(
+        [&streaming_publishers](const std::string& peer_id) {
+            streaming_publishers.push(peer_id);
+        });
     viewer.init_screen();
 
     ASSERT_TRUE(publisher_transport.connect(server.ws_url()));
@@ -575,6 +586,7 @@ TEST_F(GoogleWebRtcScreenTransportTest,
     ASSERT_TRUE(publisher.start());
     ASSERT_TRUE(publisher_connected.wait_for());
     publisher_transport.send_streaming_start();
+    ASSERT_TRUE(streaming_publishers.wait_for_count(1));
     viewer.join_stream(publisher_id);
 
     constexpr int kWidth = 320;

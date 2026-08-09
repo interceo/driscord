@@ -91,6 +91,25 @@ namespace {
         return utils::Unexpected(ParseError::InvalidField);
     }
 
+    utils::Expected<WatchRejectReason, ParseError> parse_watch_reject_reason(
+        const nlohmann::json& msg)
+    {
+        std::string value;
+        if (!required_string(msg, "reason", value)) {
+            return utils::Unexpected(ParseError::MissingField);
+        }
+        if (value == "unknown_peer") {
+            return WatchRejectReason::UnknownPeer;
+        }
+        if (value == "not_streaming") {
+            return WatchRejectReason::NotStreaming;
+        }
+        if (value == "capacity") {
+            return WatchRejectReason::Capacity;
+        }
+        return utils::Unexpected(ParseError::InvalidField);
+    }
+
 } // namespace
 
 std::string_view to_string(ParseError error)
@@ -119,6 +138,19 @@ std::string_view to_string(ConnectionId connection)
         return "screen";
     }
     return "voice";
+}
+
+std::string_view to_string(WatchRejectReason reason)
+{
+    switch (reason) {
+    case WatchRejectReason::UnknownPeer:
+        return "unknown_peer";
+    case WatchRejectReason::NotStreaming:
+        return "not_streaming";
+    case WatchRejectReason::Capacity:
+        return "capacity";
+    }
+    return "unknown_peer";
 }
 
 nlohmann::json encode(const Welcome& value)
@@ -217,6 +249,14 @@ nlohmann::json encode(const WatchStop& value)
 {
     auto msg = with_type("watch_stop");
     msg["peerId"] = value.peer_id.value;
+    return msg;
+}
+
+nlohmann::json encode(const WatchRejected& value)
+{
+    auto msg = with_type("watch_rejected");
+    msg["peerId"] = value.peer_id.value;
+    msg["reason"] = to_string(value.reason);
     return msg;
 }
 
@@ -380,6 +420,18 @@ utils::Expected<Message, ParseError> parse_json(const nlohmann::json& msg)
         if (!required_peer_id(msg, "peerId", value.peer_id)) {
             return utils::Unexpected(ParseError::MissingField);
         }
+        return Message { std::move(value) };
+    }
+    if (type == "watch_rejected") {
+        WatchRejected value;
+        if (!required_peer_id(msg, "peerId", value.peer_id)) {
+            return utils::Unexpected(ParseError::MissingField);
+        }
+        auto reason = parse_watch_reject_reason(msg);
+        if (!reason) {
+            return utils::Unexpected(reason.error());
+        }
+        value.reason = reason.value();
         return Message { std::move(value) };
     }
 

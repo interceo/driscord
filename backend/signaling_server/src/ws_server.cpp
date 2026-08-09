@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "bounded_queue.hpp"
+#include "config.hpp"
 #include "log.hpp"
 #include "media_connections.hpp"
 #include "screen_router.hpp"
@@ -847,19 +848,43 @@ void WebSocketServer::add_video_watcher(const driscord::PeerId& id,
     const driscord::PeerId& publisher_id)
 {
     std::shared_ptr<ScreenRouter> router;
+    std::shared_ptr<Session> watcher_session;
+    std::optional<signaling::WatchRejectReason> rejection;
     {
         std::scoped_lock lk(rooms_mutex_);
         // See add_streaming_peer: find, not operator[], so a watch_start can't
         // conjure an empty room that never gets cleaned up.
         auto rit = rooms_.find(room_id);
         if (rit != rooms_.end()) {
-            if (!rit->second.sessions.contains(publisher_id)
-                || id == publisher_id) {
+            const auto watcher = rit->second.sessions.find(id);
+            if (watcher == rit->second.sessions.end()) {
                 return;
             }
-            rit->second.video_watchers[id].insert(publisher_id);
-            router = rit->second.screen_router;
+            watcher_session = watcher->second;
+            auto& room = rit->second;
+            if (!room.sessions.contains(publisher_id) || id == publisher_id) {
+                rejection = signaling::WatchRejectReason::UnknownPeer;
+            } else if (!room.streaming_peers.contains(publisher_id)) {
+                rejection = signaling::WatchRejectReason::NotStreaming;
+            } else {
+                auto& watched = room.video_watchers[id];
+                if (watched.contains(publisher_id)) {
+                    return;
+                }
+                if (watched.size()
+                    >= stream_defaults::kScreenReceiveSlots) {
+                    rejection = signaling::WatchRejectReason::Capacity;
+                } else {
+                    watched.insert(publisher_id);
+                    router = room.screen_router;
+                }
+            }
         }
+    }
+    if (rejection && watcher_session) {
+        watcher_session->send(std::make_shared<std::string>(signaling::dump(
+            signaling::WatchRejected { publisher_id, *rejection })));
+        return;
     }
     if (router) {
         router->set_watching(id, publisher_id, true);

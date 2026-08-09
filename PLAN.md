@@ -86,10 +86,18 @@ PeerConnection/MediaStream, чтобы RTCP sync работал внутри о�
 - [x] Интеграционные тесты теперь проверяют не только наличие PCM/пикселей, но
   и идентичность маршрутизации: независимые 440/880-Hz sources и различимые
   цветовые сигнатуры screen publishers обязаны прийти в правильные mid.
+- [x] Исчерпание восьми screen receive slots больше не молчаливо:
+  `watch_rejected` возвращает типизированную причину (`capacity`,
+  `not_streaming`, `unknown_peer`), клиент откатывает watch intent, а UI
+  показывает понятную ошибку. Screen slots назначаются в порядке выбора
+  трансляций, voice slots — в стабильном порядке первого появления; после
+  disconnect/unwatch освободившийся slot переиспользуется без renegotiation.
 - [ ] Завершить reliability gate длительной soak-проверкой нескольких
-  voice/screen publishers и достижением slot capacity.
-- [ ] Добавить явную реакцию signaling/UI на исчерпание слотов и политику
-  выбора publishers/active speaker вместо порядка `unordered_map`.
+  voice/screen publishers. Граница screen capacity и краткий churn уже покрыты
+  интеграционными тестами, но многочасовой прогон ещё не выполнен.
+- [ ] Добавить production active-speaker policy для комнат больше 16 голосовых
+  publishers; до этого bounded voice pool выбирает первые 16 детерминированно,
+  без зависимости от порядка `unordered_map`.
 - [ ] Выбрать production congestion-control стратегию для SFU и добавить
   simulcast/SVC для screen share; текущий bounded single-rendition режим
   остаётся честным, но не адаптируется к медленному подписчику.
@@ -117,7 +125,10 @@ PeerConnection/MediaStream, чтобы RTCP sync работал внутри о�
 - signaling room isolation и быстрый reconnect проверяются отдельно от media;
   полный актуальный набор 11/11 содержит только тесты реально существующей
   архитектуры, без удалённого legacy quality harness; voice и screen
-  fault/reconnect прогоны стабильны 10/10 каждый.
+  fault/reconnect прогоны стабильны 10/10 каждый;
+- signaling-тесты проверяют typed rejection на девятую screen-подписку,
+  освобождение capacity через `watch_stop` и повторную подписку без reconnect;
+  room/signaling churn стабилен 5/5, voice и screen transport — 10/10.
 
 Оставшиеся ограничения, которые нельзя маскировать совместимостью:
 

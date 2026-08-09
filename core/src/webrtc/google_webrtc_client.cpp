@@ -148,6 +148,13 @@ struct GoogleWebRtcClient::Impl
                     self->apply_binding(connection, mid, peer_id);
                 }
             });
+        transport.add_watch_rejected_listener(
+            [weak](const std::string& peer_id,
+                signaling::WatchRejectReason) {
+                if (auto self = weak.lock()) {
+                    self->handle_watch_rejected(peer_id);
+                }
+            });
     }
 
     void on_signaling_state(bool connected)
@@ -306,6 +313,22 @@ struct GoogleWebRtcClient::Impl
         }
     }
 
+    void handle_watch_rejected(const std::string& peer_id)
+    {
+        bool removed = false;
+        std::vector<ScreenAudioUpdate> updates;
+        {
+            std::scoped_lock lock(mutex);
+            removed = watched_peers.erase(peer_id) > 0;
+            screen_stats.set_watched(peer_id, false);
+            updates = all_screen_updates_locked();
+        }
+        apply(std::move(updates));
+        if (removed && callbacks.on_frame_removed) {
+            callbacks.on_frame_removed(peer_id);
+        }
+    }
+
     void start_voice_if_requested()
     {
         std::scoped_lock lifecycle_lock(voice_lifecycle_mutex);
@@ -364,7 +387,7 @@ struct GoogleWebRtcClient::Impl
         auto next = std::make_shared<driscord::media::GoogleWebRtcVoiceSession>(
             voice_runtime,
             driscord::media::VoiceSessionConfig {
-                .remote_track_slots = 16,
+                .remote_track_slots = stream_defaults::kVoiceReceiveSlots,
                 .microphone_enabled = microphone_enabled,
                 .max_microphone_bitrate_bps
                 = stream_defaults::kVoiceBitrateKbps * 1000,
@@ -465,7 +488,7 @@ struct GoogleWebRtcClient::Impl
         auto next = std::make_shared<driscord::media::GoogleWebRtcScreenSession>(
             screen_runtime,
             driscord::media::ScreenSessionConfig {
-                .remote_stream_slots = 8,
+                .remote_stream_slots = stream_defaults::kScreenReceiveSlots,
                 .sharing_enabled = false,
                 .system_audio_enabled = false,
                 .max_video_bitrate_bps

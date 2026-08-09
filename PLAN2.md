@@ -12,8 +12,10 @@
 > §2.1 (адресные подписки), reconnect replay, per-peer RTCStats и реальные
 > loss/reorder/restart tests также реализованы. Актуальными остаются
 > production congestion control/simulcast, выбор и loopback policy system
-> audio, slot-capacity/active-speaker policy, расширенная observability и
-> длительный soak. Фактический статус и оставшийся порядок работы ведутся в
+> audio, active-speaker policy, расширенная observability и длительный soak.
+> Молчаливое исчерпание screen capacity уже заменено typed signaling/UI
+> rejection, а назначения слотов больше не зависят от порядка
+> `unordered_map`. Фактический статус и оставшийся порядок работы ведутся в
 > `PLAN.md`.
 
 ## Context

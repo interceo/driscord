@@ -16,6 +16,8 @@ class GoogleWebRtcClient;
 class DriscordCore {
 public:
     using StringCb = std::function<void(const std::string&)>;
+    using WatchRejectedCb = std::function<void(
+        const std::string&, signaling::WatchRejectReason)>;
     using FrameCb = std::function<void(const std::string&, const uint8_t*, int, int)>;
 
     Transport transport;
@@ -40,6 +42,7 @@ public:
     void set_on_frame_removed(StringCb cb);
     void set_on_streaming_started(StringCb cb);
     void set_on_streaming_stopped(StringCb cb);
+    void set_on_watch_rejected(WatchRejectedCb cb);
 
     [[nodiscard]] std::string peers_json() const;
 
@@ -107,4 +110,5 @@ private:
     StringCb on_frame_removed_cb_;
     StringCb on_streaming_started_cb_;
     StringCb on_streaming_stopped_cb_;
+    WatchRejectedCb on_watch_rejected_cb_;
 };

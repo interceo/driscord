@@ -51,6 +51,13 @@ DriscordCore::DriscordCore()
             on_streaming_stopped_cb_(id);
         }
     });
+    transport.on_watch_rejected([this](const std::string& id,
+                                    signaling::WatchRejectReason reason) {
+        std::scoped_lock lock(cb_mtx_);
+        if (on_watch_rejected_cb_) {
+            on_watch_rejected_cb_(id, reason);
+        }
+    });
     transport.on_peer_identity(
         [this](const std::string& peer, const std::string& username) {
             std::scoped_lock lock(cb_mtx_);
@@ -132,6 +139,12 @@ void DriscordCore::set_on_streaming_stopped(StringCb cb)
 {
     std::scoped_lock lock(cb_mtx_);
     on_streaming_stopped_cb_ = std::move(cb);
+}
+
+void DriscordCore::set_on_watch_rejected(WatchRejectedCb cb)
+{
+    std::scoped_lock lock(cb_mtx_);
+    on_watch_rejected_cb_ = std::move(cb);
 }
 
 void DriscordCore::emit_frame(const std::string& peer,

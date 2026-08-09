@@ -326,10 +326,27 @@ TEST_F(GoogleWebRtcTransportTest, VoiceSlotsBindThreeParticipantsIndependently)
     EXPECT_FALSE(first_bindings.snapshot().back().second);
     EXPECT_FALSE(second_bindings.snapshot().back().second);
 
+    Transport fourth_transport;
+    Waiter fourth_connected;
+    EventCollector<Binding> fourth_bindings;
+    auto fourth_voice = make_voice(fourth_transport, fourth_connected);
+    connect_voice(fourth_transport, fourth_voice, fourth_bindings);
+    ASSERT_TRUE(fourth_transport.connect(server.ws_url()));
+    ASSERT_TRUE(test_util::wait_for_local_id(fourth_transport));
+    const std::string fourth_id = fourth_transport.local_id();
+    ASSERT_TRUE(fourth_voice->start());
+    ASSERT_TRUE(fourth_connected.wait_for());
+    ASSERT_TRUE(first_bindings.wait_for_count(5));
+    ASSERT_TRUE(second_bindings.wait_for_count(5));
+    EXPECT_EQ(first_bindings.snapshot().back().second, fourth_id);
+    EXPECT_EQ(second_bindings.snapshot().back().second, fourth_id);
+
     first_voice->close();
     second_voice->close();
+    fourth_voice->close();
     first_transport.disconnect();
     second_transport.disconnect();
+    fourth_transport.disconnect();
 }
 
 TEST_F(GoogleWebRtcTransportTest, RoutesAndDecodesTwoConcurrentPcmSources)

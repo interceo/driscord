@@ -152,6 +152,19 @@ void AppState::connectBridgeSignals()
     // tile can subscribe and display a buffering state immediately.
     connect(m_bridge, &DriscordBridge::streamingStarted, this, addStreamingPeer);
     connect(m_bridge, &DriscordBridge::streamingStopped, this, removeStreamingPeer);
+    connect(m_bridge, &DriscordBridge::streamWatchRejected, this,
+        [this](const QString& id, const QString& reason) {
+            if (m_watchedPeerIds.removeAll(id)) {
+                emit watchedStreamsChanged();
+            }
+            if (reason == QStringLiteral("capacity")) {
+                setApiError(tr("No free screen-stream slot. Stop watching another stream and try again."));
+            } else if (reason == QStringLiteral("not_streaming")) {
+                setApiError(tr("This stream has already stopped."));
+            } else {
+                setApiError(tr("This stream is no longer available."));
+            }
+        });
 }
 
 void AppState::loadInitialData()

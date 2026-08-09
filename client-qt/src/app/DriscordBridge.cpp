@@ -46,6 +46,10 @@ DriscordBridge::DriscordBridge(QObject* parent)
     g_core->set_on_streaming_stopped([this](const std::string& id) {
         QMetaObject::invokeMethod(this, [this, id = QString::fromStdString(id)] { emit streamingStopped(id); }, Qt::QueuedConnection);
     });
+    g_core->set_on_watch_rejected(
+        [this](const std::string& id, signaling::WatchRejectReason reason) {
+            QMetaObject::invokeMethod(this, [this, id = QString::fromStdString(id), reason = QString::fromStdString(std::string(signaling::to_string(reason)))] { emit streamWatchRejected(id, reason); }, Qt::QueuedConnection);
+        });
     g_core->set_on_frame([this](const std::string& id, const uint8_t* rgba, int w, int h) {
         QString qid = QString::fromStdString(id);
         if (m_frameProvider)

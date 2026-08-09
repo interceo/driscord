@@ -1,3 +1,4 @@
+#include "config.hpp"
 #include "rtc_cleanup_env.hpp"
 #include "signaling_test_fixture.hpp"
 #include "transport_harness.hpp"
@@ -7,7 +8,9 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <memory>
 #include <string>
+#include <vector>
 
 struct SuppressLogs {
     SuppressLogs() { driscord::set_min_log_level(driscord::LogLevel::None); }
@@ -160,4 +163,50 @@ TEST_F(RoomIsolationTest, RapidReconnect_IgnoresSupersededSocketCallbacks)
     EXPECT_TRUE(transport.connected());
     EXPECT_EQ(transport.local_id(), second_id);
     EXPECT_EQ(transport.stats().state, TransportConnectionState::Connected);
+}
+
+TEST_F(RoomIsolationTest, ScreenWatchCapacityRejectsAndReleasesExplicitly)
+{
+    PeerNode watcher;
+    ASSERT_TRUE(watcher.connect(server.ws_url(88)));
+
+    std::vector<std::unique_ptr<PeerNode>> publishers;
+    publishers.reserve(stream_defaults::kScreenReceiveSlots + 1);
+    for (size_t i = 0; i < stream_defaults::kScreenReceiveSlots + 1; ++i) {
+        auto publisher = std::make_unique<PeerNode>();
+        ASSERT_TRUE(publisher->connect(server.ws_url(88)));
+        publisher->transport->send_streaming_start();
+        ASSERT_TRUE(watcher.streaming_started.wait_for_count(
+            i + 1, kDefaultTimeout));
+        watcher.transport->send_watch_start(publisher->id());
+        publishers.push_back(std::move(publisher));
+    }
+
+    ASSERT_TRUE(watcher.watch_rejected.wait_for_count(1, kDefaultTimeout));
+    const auto rejected = watcher.watch_rejected.snapshot().front();
+    EXPECT_EQ(rejected.first, publishers.back()->id());
+    EXPECT_EQ(rejected.second, signaling::WatchRejectReason::Capacity);
+
+    // Removing one retained intent must release capacity immediately. The
+    // previously rejected publisher can then be selected without reconnect.
+    watcher.transport->send_watch_stop(publishers.front()->id());
+    watcher.transport->send_watch_start(publishers.back()->id());
+    EXPECT_FALSE(watcher.watch_rejected.wait_for_count(2, kNegativeTimeout));
+}
+
+TEST_F(RoomIsolationTest, InvalidScreenWatchReturnsTypedReason)
+{
+    PeerNode watcher, idle_peer;
+    ASSERT_TRUE(watcher.connect(server.ws_url(89)));
+    ASSERT_TRUE(idle_peer.connect(server.ws_url(89)));
+
+    watcher.transport->send_watch_start(idle_peer.id());
+    ASSERT_TRUE(watcher.watch_rejected.wait_for_count(1, kDefaultTimeout));
+    EXPECT_EQ(watcher.watch_rejected.snapshot().back().second,
+        signaling::WatchRejectReason::NotStreaming);
+
+    watcher.transport->send_watch_start(watcher.id());
+    ASSERT_TRUE(watcher.watch_rejected.wait_for_count(2, kDefaultTimeout));
+    EXPECT_EQ(watcher.watch_rejected.snapshot().back().second,
+        signaling::WatchRejectReason::UnknownPeer);
 }
