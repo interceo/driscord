@@ -1,6 +1,8 @@
 #include "webrtc/google_webrtc_runtime.hpp"
+#include "webrtc/google_webrtc_audio_devices.hpp"
 #include "webrtc/google_webrtc_runtime_internal.hpp"
 
+#include "api/audio/create_audio_device_module.h"
 #include "api/create_modular_peer_connection_factory.h"
 #include "api/enable_media_with_defaults.h"
 #include "api/environment/environment_factory.h"
@@ -8,7 +10,6 @@
 #include "rtc_base/buffer.h"
 #include "rtc_base/ssl_adapter.h"
 
-#include <algorithm>
 #include <deque>
 #include <mutex>
 #include <stdexcept>
@@ -73,7 +74,6 @@ private:
 };
 
 namespace {
-
     bool is_supported_sample_rate(int sample_rate_hz)
     {
         switch (sample_rate_hz) {
@@ -200,11 +200,11 @@ GoogleWebRtcRuntime::Impl::Impl(const GoogleWebRtcRuntimeConfig& config)
     dependencies.worker_thread = worker_thread.get();
     dependencies.signaling_thread = signaling_thread.get();
     dependencies.socket_factory = network_thread->socketserver();
+    dependencies.env = webrtc::CreateEnvironment();
 
     if (config.injected_audio_device) {
         validate(*config.injected_audio_device);
         injected_pcm_source = std::make_shared<InjectedPcmSource>(*config.injected_audio_device);
-        dependencies.env = webrtc::CreateEnvironment();
         auto renderer = config.injected_audio_device->on_rendered_audio
             ? std::unique_ptr<webrtc::TestAudioDeviceModule::Renderer>(
                   std::make_unique<CallbackPcmRenderer>(
@@ -220,6 +220,20 @@ GoogleWebRtcRuntime::Impl::Impl(const GoogleWebRtcRuntimeConfig& config)
             throw std::runtime_error(
                 "Google WebRTC injected audio device creation failed");
         }
+        audio_device = dependencies.adm;
+    } else {
+        // Create the platform ADM on WebRTC's worker thread: its Linux backend
+        // is sequence-bound, and the voice engine also controls it there.
+        audio_device = worker_thread->BlockingCall([&dependencies] {
+            return webrtc::CreateAudioDeviceModule(
+                *dependencies.env,
+                webrtc::AudioDeviceModule::kPlatformDefaultAudio);
+        });
+        if (!audio_device) {
+            throw std::runtime_error(
+                "Google WebRTC platform audio device creation failed");
+        }
+        dependencies.adm = audio_device;
     }
     webrtc::EnableMediaWithDefaults(dependencies);
 
@@ -235,10 +249,39 @@ bool GoogleWebRtcRuntime::Impl::submit_recorded_audio_10ms(
     return injected_pcm_source && injected_pcm_source->submit(samples);
 }
 
+std::vector<AudioDeviceInfo> GoogleWebRtcRuntime::Impl::audio_devices(
+    bool recording) const
+{
+    if (!audio_device || injected_pcm_source || !worker_thread) {
+        return { };
+    }
+    return worker_thread->BlockingCall([this, recording] {
+        return detail::list_audio_devices(*audio_device, recording);
+    });
+}
+
+bool GoogleWebRtcRuntime::Impl::set_audio_device(
+    bool recording, std::string_view id)
+{
+    if (!audio_device || injected_pcm_source || !worker_thread || id.empty()) {
+        return false;
+    }
+    const std::string requested_id(id);
+    return worker_thread->BlockingCall([this, recording, &requested_id] {
+        return detail::select_audio_device(
+            *audio_device, recording, requested_id);
+    });
+}
+
 GoogleWebRtcRuntime::Impl::~Impl()
 {
     // Factory must be released while all three threads are still running.
     factory = nullptr;
+    if (worker_thread) {
+        worker_thread->BlockingCall([this] { audio_device = nullptr; });
+    } else {
+        audio_device = nullptr;
+    }
     signaling_thread->Stop();
     worker_thread->Stop();
     network_thread->Stop();
@@ -267,6 +310,28 @@ bool GoogleWebRtcRuntime::submit_recorded_audio_10ms(
     std::span<const int16_t> interleaved_samples)
 {
     return impl_ && impl_->submit_recorded_audio_10ms(interleaved_samples);
+}
+
+std::vector<AudioDeviceInfo> GoogleWebRtcRuntime::recording_devices() const
+{
+    return impl_ ? impl_->audio_devices(true)
+                 : std::vector<AudioDeviceInfo> { };
+}
+
+std::vector<AudioDeviceInfo> GoogleWebRtcRuntime::playout_devices() const
+{
+    return impl_ ? impl_->audio_devices(false)
+                 : std::vector<AudioDeviceInfo> { };
+}
+
+bool GoogleWebRtcRuntime::set_recording_device(std::string_view id)
+{
+    return impl_ && impl_->set_audio_device(true, id);
+}
+
+bool GoogleWebRtcRuntime::set_playout_device(std::string_view id)
+{
+    return impl_ && impl_->set_audio_device(false, id);
 }
 
 } // namespace driscord::media

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "webrtc/google_webrtc_runtime.hpp"
+
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -42,6 +44,12 @@ public:
     [[nodiscard]] bool deafened() const;
     void set_master_volume(float volume);
     [[nodiscard]] float master_volume() const;
+    [[nodiscard]] std::vector<driscord::media::AudioDeviceInfo>
+    input_devices() const;
+    [[nodiscard]] std::vector<driscord::media::AudioDeviceInfo>
+    output_devices() const;
+    [[nodiscard]] bool set_input_device(const std::string& id);
+    [[nodiscard]] bool set_output_device(const std::string& id);
     void set_peer_volume(const std::string& peer_id, float volume);
     [[nodiscard]] float peer_volume(const std::string& peer_id) const;
     void set_peer_muted(const std::string& peer_id, bool muted);

@@ -3,19 +3,29 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMetaObject>
+#include <QSettings>
 #include <QThread>
 #include <QThreadPool>
 #include <QUrl>
 
 #include "driscord_core.hpp"
 
-static QStringList parseDeviceJson(const std::string& json)
+static QVariantList parseDeviceJson(const std::string& json)
 {
-    QStringList out;
-    for (const auto& v : QJsonDocument::fromJson(QByteArray::fromStdString(json)).array())
-        out << v.toObject()["name"].toString();
+    QVariantList out;
+    for (const auto& value : QJsonDocument::fromJson(
+             QByteArray::fromStdString(json)).array()) {
+        const auto object = value.toObject();
+        out.push_back(QVariantMap {
+            { QStringLiteral("id"), object["id"].toString() },
+            { QStringLiteral("name"), object["name"].toString() },
+        });
+    }
     return out;
 }
+
+static constexpr auto kInputDeviceSetting = "audio/inputDevice";
+static constexpr auto kOutputDeviceSetting = "audio/outputDevice";
 
 static DriscordCore* g_core = nullptr;
 
@@ -111,6 +121,19 @@ QString DriscordBridge::transportStatsJson() const { return QString::fromStdStri
 void DriscordBridge::audioStart()
 {
     QThreadPool::globalInstance()->start([] {
+        QSettings settings;
+        const auto input = settings.value(
+            kInputDeviceSetting, QStringLiteral("default")).toString();
+        const auto output = settings.value(
+            kOutputDeviceSetting, QStringLiteral("default")).toString();
+        if (!g_core->audio_set_input_device(input.toStdString())) {
+            (void)g_core->audio_set_input_device("default");
+            settings.setValue(kInputDeviceSetting, QStringLiteral("default"));
+        }
+        if (!g_core->audio_set_output_device(output.toStdString())) {
+            (void)g_core->audio_set_output_device("default");
+            settings.setValue(kOutputDeviceSetting, QStringLiteral("default"));
+        }
         g_core->voice_start();
     });
 }
@@ -127,16 +150,38 @@ float DriscordBridge::inputLevel() const { return g_core->audio_input_level(); }
 float DriscordBridge::outputLevel() const { return g_core->audio_output_level(); }
 void DriscordBridge::setNoiseGate(float t) { g_core->audio_set_noise_gate(t); }
 
-QStringList DriscordBridge::listInputDevices() const
+QVariantList DriscordBridge::listInputDevices() const
 {
     return parseDeviceJson(g_core->audio_input_devices_json());
 }
-QStringList DriscordBridge::listOutputDevices() const
+QVariantList DriscordBridge::listOutputDevices() const
 {
     return parseDeviceJson(g_core->audio_output_devices_json());
 }
-void DriscordBridge::setInputDevice(const QString& id) { g_core->audio_set_input_device(id.toStdString()); }
-void DriscordBridge::setOutputDevice(const QString& id) { g_core->audio_set_output_device(id.toStdString()); }
+bool DriscordBridge::setInputDevice(const QString& id)
+{
+    if (!g_core->audio_set_input_device(id.toStdString()))
+        return false;
+    QSettings().setValue(kInputDeviceSetting, id);
+    return true;
+}
+bool DriscordBridge::setOutputDevice(const QString& id)
+{
+    if (!g_core->audio_set_output_device(id.toStdString()))
+        return false;
+    QSettings().setValue(kOutputDeviceSetting, id);
+    return true;
+}
+QString DriscordBridge::currentInputDevice() const
+{
+    return QSettings().value(
+        kInputDeviceSetting, QStringLiteral("default")).toString();
+}
+QString DriscordBridge::currentOutputDevice() const
+{
+    return QSettings().value(
+        kOutputDeviceSetting, QStringLiteral("default")).toString();
+}
 
 void DriscordBridge::setPeerVolume(const QString& id, float v) { g_core->audio_set_peer_volume(id.toStdString(), v); }
 float DriscordBridge::peerVolume(const QString& id) const { return g_core->audio_peer_volume(id.toStdString()); }

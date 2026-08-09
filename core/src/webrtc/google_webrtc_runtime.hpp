@@ -6,6 +6,9 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace driscord::media {
 
@@ -34,6 +37,11 @@ struct GoogleWebRtcRuntimeConfig {
     std::optional<InjectedAudioDeviceConfig> injected_audio_device;
 };
 
+struct AudioDeviceInfo {
+    std::string id;
+    std::string name;
+};
+
 // Process-level resources required by all WebRTC PeerConnections.  The class
 // exists to make thread/factory teardown deterministic; track senders,
 // receivers and sinks are intentionally not mirrored by wrapper classes.
@@ -56,6 +64,15 @@ public:
     // use separate runtimes for independent test participants.
     [[nodiscard]] bool submit_recorded_audio_10ms(
         std::span<const int16_t> interleaved_samples);
+
+    // These methods address the native ADM used by this runtime. Device IDs
+    // are opaque and stable across re-enumeration whenever the platform
+    // exposes a GUID; Linux/PulseAudio currently falls back to the display
+    // name because upstream leaves the GUID empty.
+    [[nodiscard]] std::vector<AudioDeviceInfo> recording_devices() const;
+    [[nodiscard]] std::vector<AudioDeviceInfo> playout_devices() const;
+    [[nodiscard]] bool set_recording_device(std::string_view id);
+    [[nodiscard]] bool set_playout_device(std::string_view id);
 
 private:
     friend class GoogleWebRtcScreenSession;

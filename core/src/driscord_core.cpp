@@ -7,15 +7,6 @@
 
 using json = nlohmann::json;
 
-namespace {
-
-std::string single_default_device_json()
-{
-    return R"([{"id":"","name":"System default"}])";
-}
-
-} // namespace
-
 DriscordCore::DriscordCore()
 {
     media_ = std::make_unique<GoogleWebRtcClient>(transport,
@@ -237,20 +228,30 @@ void DriscordCore::audio_set_noise_gate(float)
 
 std::string DriscordCore::audio_input_devices_json() const
 {
-    return single_default_device_json();
+    json result = json::array();
+    for (const auto& device : media_->input_devices()) {
+        result.push_back({ { "id", device.id }, { "name", device.name } });
+    }
+    return result.dump();
 }
 
 std::string DriscordCore::audio_output_devices_json() const
 {
-    return single_default_device_json();
+    json result = json::array();
+    for (const auto& device : media_->output_devices()) {
+        result.push_back({ { "id", device.id }, { "name", device.name } });
+    }
+    return result.dump();
 }
 
-void DriscordCore::audio_set_input_device(const std::string&)
+bool DriscordCore::audio_set_input_device(const std::string& id)
 {
+    return media_->set_input_device(id);
 }
 
-void DriscordCore::audio_set_output_device(const std::string&)
+bool DriscordCore::audio_set_output_device(const std::string& id)
 {
+    return media_->set_output_device(id);
 }
 
 void DriscordCore::audio_set_peer_volume(

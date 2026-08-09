@@ -397,6 +397,7 @@ struct GoogleWebRtcClient::Impl
             LOG_ERROR() << "Google WebRTC voice session failed to start";
             return;
         }
+        apply_selected_audio_devices();
         std::vector<VoiceTrackUpdate> updates;
         bool retained = false;
         {
@@ -413,6 +414,38 @@ struct GoogleWebRtcClient::Impl
             return;
         }
         apply(std::move(updates));
+    }
+
+    void apply_selected_audio_devices()
+    {
+        std::string input;
+        std::string output;
+        {
+            std::scoped_lock lock(mutex);
+            input = selected_input_device;
+            output = selected_output_device;
+        }
+
+        if (!voice_runtime.set_recording_device(input)) {
+            LOG_WARNING() << "Selected input audio device '" << input
+                          << "' is unavailable; falling back to system default";
+            if (voice_runtime.set_recording_device("default")) {
+                std::scoped_lock lock(mutex);
+                if (selected_input_device == input) {
+                    selected_input_device = "default";
+                }
+            }
+        }
+        if (!voice_runtime.set_playout_device(output)) {
+            LOG_WARNING() << "Selected output audio device '" << output
+                          << "' is unavailable; falling back to system default";
+            if (voice_runtime.set_playout_device("default")) {
+                std::scoped_lock lock(mutex);
+                if (selected_output_device == output) {
+                    selected_output_device = "default";
+                }
+            }
+        }
     }
 
     void start_screen_if_requested()
@@ -794,6 +827,8 @@ struct GoogleWebRtcClient::Impl
     std::array<int16_t, GoogleWebRtcPcmPlayout::kSampleRate / 100 * GoogleWebRtcPcmPlayout::kChannels>
         system_audio_frame { };
     size_t system_audio_position = 0;
+    std::string selected_input_device = "default";
+    std::string selected_output_device = "default";
     float master_volume_value = 1.0f;
     bool voice_requested = false;
     bool voice_muted = false;
@@ -886,6 +921,40 @@ float GoogleWebRtcClient::master_volume() const
 {
     std::scoped_lock lock(impl_->mutex);
     return impl_->master_volume_value;
+}
+
+std::vector<driscord::media::AudioDeviceInfo>
+GoogleWebRtcClient::input_devices() const
+{
+    return impl_->voice_runtime.recording_devices();
+}
+
+std::vector<driscord::media::AudioDeviceInfo>
+GoogleWebRtcClient::output_devices() const
+{
+    return impl_->voice_runtime.playout_devices();
+}
+
+bool GoogleWebRtcClient::set_input_device(const std::string& id)
+{
+    std::scoped_lock lifecycle_lock(impl_->voice_lifecycle_mutex);
+    if (!impl_->voice_runtime.set_recording_device(id)) {
+        return false;
+    }
+    std::scoped_lock lock(impl_->mutex);
+    impl_->selected_input_device = id;
+    return true;
+}
+
+bool GoogleWebRtcClient::set_output_device(const std::string& id)
+{
+    std::scoped_lock lifecycle_lock(impl_->voice_lifecycle_mutex);
+    if (!impl_->voice_runtime.set_playout_device(id)) {
+        return false;
+    }
+    std::scoped_lock lock(impl_->mutex);
+    impl_->selected_output_device = id;
+    return true;
 }
 
 void GoogleWebRtcClient::set_peer_volume(

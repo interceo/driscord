@@ -5,6 +5,31 @@ import "../components"
 
 Dialog {
     id: root
+    property var inputDeviceModel: []
+    property var outputDeviceModel: []
+    property string audioDeviceStatus: ""
+
+    function deviceIndex(devices, id) {
+        for (let i = 0; i < devices.length; ++i) {
+            if (devices[i].id === id)
+                return i
+        }
+        return devices.length > 0 ? 0 : -1
+    }
+
+    function refreshAudioDevices() {
+        inputDeviceModel = bridge.listInputDevices()
+        outputDeviceModel = bridge.listOutputDevices()
+        inputDevBox.currentIndex = deviceIndex(
+            inputDeviceModel, bridge.currentInputDevice())
+        outputDevBox.currentIndex = deviceIndex(
+            outputDeviceModel, bridge.currentOutputDevice())
+    }
+
+    onOpened: {
+        audioDeviceStatus = ""
+        refreshAudioDevices()
+    }
     title: "Settings"
     modal: true
     anchors.centerIn: Overlay.overlay
@@ -428,11 +453,13 @@ Dialog {
                                     id: inputDevBox
                                     Layout.fillWidth: true
                                     Layout.preferredWidth: 1
-                                    model: bridge.listInputDevices()
+                                    model: root.inputDeviceModel
+                                    textRole: "name"
+                                    valueRole: "id"
                                     background: Rectangle { color: "#1e1f22"; radius: 4; border.color: "#1e1f22" }
                                     contentItem: Text {
                                         leftPadding: 10; rightPadding: 30
-                                        text: parent.displayText; color: "white"
+                                        text: inputDevBox.displayText; color: "white"
                                         verticalAlignment: Text.AlignVCenter
                                         elide: Text.ElideRight
                                     }
@@ -449,13 +476,17 @@ Dialog {
                                         }
                                     }
                                     delegate: ItemDelegate {
+                                        id: inputDeviceDelegate
+                                        required property var modelData
                                         width: inputDevBox.width
                                         contentItem: Text {
-                                            text: modelData; color: "white"
+                                            text: inputDeviceDelegate.modelData.name
+                                            color: "white"
                                             verticalAlignment: Text.AlignVCenter
                                         }
                                         background: Rectangle {
-                                            color: highlighted ? "#35373c" : "transparent"
+                                            color: inputDeviceDelegate.highlighted
+                                                ? "#35373c" : "transparent"
                                         }
                                     }
                                 }
@@ -463,11 +494,13 @@ Dialog {
                                     id: outputDevBox
                                     Layout.fillWidth: true
                                     Layout.preferredWidth: 1
-                                    model: bridge.listOutputDevices()
+                                    model: root.outputDeviceModel
+                                    textRole: "name"
+                                    valueRole: "id"
                                     background: Rectangle { color: "#1e1f22"; radius: 4; border.color: "#1e1f22" }
                                     contentItem: Text {
                                         leftPadding: 10; rightPadding: 30
-                                        text: parent.displayText; color: "white"
+                                        text: outputDevBox.displayText; color: "white"
                                         verticalAlignment: Text.AlignVCenter
                                         elide: Text.ElideRight
                                     }
@@ -484,13 +517,17 @@ Dialog {
                                         }
                                     }
                                     delegate: ItemDelegate {
+                                        id: outputDeviceDelegate
+                                        required property var modelData
                                         width: outputDevBox.width
                                         contentItem: Text {
-                                            text: modelData; color: "white"
+                                            text: outputDeviceDelegate.modelData.name
+                                            color: "white"
                                             verticalAlignment: Text.AlignVCenter
                                         }
                                         background: Rectangle {
-                                            color: highlighted ? "#35373c" : "transparent"
+                                            color: outputDeviceDelegate.highlighted
+                                                ? "#35373c" : "transparent"
                                         }
                                     }
                                 }
@@ -545,7 +582,15 @@ Dialog {
                     // Primary Apply button (Discord blue)
                     RowLayout {
                         Layout.fillWidth: true
-                        Item { Layout.fillWidth: true }
+                        Text {
+                            Layout.fillWidth: true
+                            text: root.audioDeviceStatus
+                            color: root.audioDeviceStatus === qsTr("Audio devices updated")
+                                ? "#23a559" : "#f23f42"
+                            font.pixelSize: 12
+                            visible: text.length > 0
+                            elide: Text.ElideRight
+                        }
                         Rectangle {
                             id: applyBtn
                             Layout.preferredHeight: 36
@@ -564,8 +609,14 @@ Dialog {
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
-                                    bridge.setInputDevice(inputDevBox.currentText)
-                                    bridge.setOutputDevice(outputDevBox.currentText)
+                                    const inputOk = inputDevBox.currentIndex >= 0
+                                        && bridge.setInputDevice(inputDevBox.currentValue)
+                                    const outputOk = outputDevBox.currentIndex >= 0
+                                        && bridge.setOutputDevice(outputDevBox.currentValue)
+                                    root.audioDeviceStatus = inputOk && outputOk
+                                        ? qsTr("Audio devices updated")
+                                        : qsTr("Could not activate one of the devices")
+                                    root.refreshAudioDevices()
                                 }
                             }
                         }

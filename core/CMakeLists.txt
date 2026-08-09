@@ -51,6 +51,7 @@ add_library(driscord_core STATIC
 # The backend remains an ABI/PIMPL boundary: no Google WebRTC type reaches the
 # public DriscordCore or Qt headers.
 add_library(driscord_webrtc_backend STATIC
+    src/webrtc/google_webrtc_audio_devices.cpp
     src/webrtc/google_webrtc_runtime.cpp
     src/webrtc/google_webrtc_peer_adapters.cpp
     src/webrtc/google_webrtc_screen_adapters.cpp

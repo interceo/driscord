@@ -59,8 +59,8 @@ public:
     void audio_set_noise_gate(float threshold);
     [[nodiscard]] std::string audio_input_devices_json() const;
     [[nodiscard]] std::string audio_output_devices_json() const;
-    void audio_set_input_device(const std::string& id);
-    void audio_set_output_device(const std::string& id);
+    [[nodiscard]] bool audio_set_input_device(const std::string& id);
+    [[nodiscard]] bool audio_set_output_device(const std::string& id);
     void audio_set_peer_volume(const std::string& peer, float volume);
     [[nodiscard]] float audio_peer_volume(const std::string& peer) const;
     void audio_set_peer_muted(const std::string& peer, bool muted);

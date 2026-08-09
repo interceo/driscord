@@ -88,6 +88,11 @@ PeerConnection/MediaStream, чтобы RTCP sync работал внутри о�
   job, исправлены зависимости и пути Linux-артефактов.
 - [x] Client-only сборка отключает ненужный RTP/media слой libdatachannel.
   Необходимая WebSocket DSO пакуется рядом с клиентом с `RUNPATH=$ORIGIN`.
+- [x] Настройки Qt перечисляют реальные input/output устройства из native
+  Google WebRTC ADM и передают непрозрачный device ID отдельно от display
+  name. Выбор сохраняется, применяется перед voice start и переключается во
+  время звонка штатной последовательностью `Stop/Set/Init/Start`; исчезнувшее
+  устройство безопасно откатывается на system default.
 - [x] Закрыто усечение больших signaling frames в GnuTLS backend
   `libdatachannel v0.24.5`: положительный partial return
   `gnutls_record_send()` теперь дописывается до конца через воспроизводимый
@@ -146,9 +151,9 @@ PeerConnection/MediaStream, чтобы RTCP sync работал внутри о�
 - pinned Google WebRTC artifact сейчас поддержан только на Linux x86_64 и
   требует Clang/lld; другие архитектуры, Windows и macOS core build
   заблокированы до появления воспроизводимых артефактов для этих платформ;
-- UI пока честно показывает только `System default`: выбор audio device и
-  input/output level нужно подключить к native ADM, не возвращая miniaudio
-  capture pipeline;
+- input/output audio device подключены к native ADM; input/output level всё
+  ещё возвращают `0.0` и требуют отдельного observer поверх штатного ADM, без
+  возврата miniaudio capture pipeline;
 - default Pulse monitor для system audio пока не выбирается из UI и может
   захватывать воспроизводимые голоса обратно; deafen/master volume уже
   применяются к screen playout, но выбор monitor и loopback policy остаются;

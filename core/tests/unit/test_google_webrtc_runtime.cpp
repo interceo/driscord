@@ -10,6 +10,7 @@
 #include <mutex>
 #include <string>
 #include <type_traits>
+#include <unordered_set>
 #include <vector>
 
 namespace {
@@ -75,6 +76,41 @@ TEST(GoogleWebRtcRuntime, PlatformAudioRejectsInjectedFrames)
     driscord::media::GoogleWebRtcRuntime runtime;
     const std::vector<int16_t> frame(480, 1);
     EXPECT_FALSE(runtime.submit_recorded_audio_10ms(frame));
+}
+
+TEST(GoogleWebRtcRuntime, EnumeratesNativeAudioDevicesWithOpaqueUniqueIds)
+{
+    driscord::media::GoogleWebRtcRuntime runtime;
+    const auto inputs = runtime.recording_devices();
+    const auto outputs = runtime.playout_devices();
+    if (inputs.empty() || outputs.empty()) {
+        GTEST_SKIP() << "No native audio service/devices in this environment";
+    }
+
+    const auto verify = [](const auto& devices) {
+        EXPECT_EQ(devices.front().id, "default");
+        std::unordered_set<std::string> ids;
+        for (const auto& device : devices) {
+            EXPECT_FALSE(device.id.empty());
+            EXPECT_FALSE(device.name.empty());
+            EXPECT_TRUE(ids.insert(device.id).second) << device.id;
+        }
+    };
+    verify(inputs);
+    verify(outputs);
+
+    EXPECT_TRUE(runtime.set_recording_device("default"));
+    EXPECT_TRUE(runtime.set_playout_device("default"));
+    if (inputs.size() > 1) {
+        EXPECT_TRUE(runtime.set_recording_device(inputs[1].id));
+        EXPECT_TRUE(runtime.set_recording_device("default"));
+    }
+    if (outputs.size() > 1) {
+        EXPECT_TRUE(runtime.set_playout_device(outputs[1].id));
+        EXPECT_TRUE(runtime.set_playout_device("default"));
+    }
+    EXPECT_FALSE(runtime.set_recording_device("missing-device"));
+    EXPECT_FALSE(runtime.set_playout_device("missing-device"));
 }
 
 TEST(GoogleWebRtcRuntime, RejectsUnsupportedInjectedAudioFormat)

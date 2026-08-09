@@ -3,7 +3,7 @@
 #include "ThumbnailProvider.h"
 #include <QObject>
 #include <QString>
-#include <QStringList>
+#include <QVariantList>
 
 // Wraps DriscordCore — all methods callable from QML via Q_INVOKABLE.
 // Callbacks from the core are forwarded to the main thread via QMetaObject::invokeMethod.
@@ -36,10 +36,12 @@ public:
     Q_INVOKABLE float inputLevel() const;
     Q_INVOKABLE float outputLevel() const;
     Q_INVOKABLE void setNoiseGate(float threshold);
-    Q_INVOKABLE QStringList listInputDevices() const;
-    Q_INVOKABLE QStringList listOutputDevices() const;
-    Q_INVOKABLE void setInputDevice(const QString& id);
-    Q_INVOKABLE void setOutputDevice(const QString& id);
+    Q_INVOKABLE QVariantList listInputDevices() const;
+    Q_INVOKABLE QVariantList listOutputDevices() const;
+    Q_INVOKABLE bool setInputDevice(const QString& id);
+    Q_INVOKABLE bool setOutputDevice(const QString& id);
+    Q_INVOKABLE QString currentInputDevice() const;
+    Q_INVOKABLE QString currentOutputDevice() const;
     Q_INVOKABLE void setPeerVolume(const QString& peerId, float vol);
     Q_INVOKABLE float peerVolume(const QString& peerId) const;
     Q_INVOKABLE void setPeerMuted(const QString& peerId, bool muted);
