@@ -47,6 +47,14 @@ COPY --from=builder /build/backend/signaling_server/driscord_server /usr/local/b
 
 USER driscord
 ENV DRISCORD_PORT=9001
+ENV DRISCORD_ICE_PORT_MIN=49160
+ENV DRISCORD_ICE_PORT_MAX=49200
 EXPOSE 9001
+# Media rides this UDP range, not the signalling port. Publishing it 1:1 is
+# necessary but not sufficient: under bridge networking the gathered host
+# candidate still carries the container address, so DRISCORD_ICE_STUN_URLS has
+# to stay set for the SFU to advertise a reachable server-reflexive candidate.
+# See docs/deployment.md.
+EXPOSE 49160-49200/udp
 
 ENTRYPOINT ["/usr/local/bin/driscord-server"]

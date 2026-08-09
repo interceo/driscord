@@ -84,10 +84,14 @@ struct GoogleWebRtcClient::Impl
         std::optional<double> volume;
     };
 
-    explicit Impl(Transport& transport_value, Callbacks callbacks_value)
+    Impl(Transport& transport_value, Callbacks callbacks_value,
+        std::vector<driscord::media::IceServerConfig> ice_servers)
         : transport(transport_value)
         , callbacks(std::move(callbacks_value))
         , screen_playout(std::make_shared<GoogleWebRtcPcmPlayout>())
+        , voice_runtime(driscord::media::GoogleWebRtcRuntimeConfig {
+              .ice_servers = ice_servers,
+          })
         , screen_runtime(driscord::media::GoogleWebRtcRuntimeConfig {
               .injected_audio_device = driscord::media::InjectedAudioDeviceConfig {
                   .sample_rate_hz = GoogleWebRtcPcmPlayout::kSampleRate,
@@ -107,6 +111,7 @@ struct GoogleWebRtcClient::Impl
                           }
                       },
               },
+              .ice_servers = std::move(ice_servers),
           })
     {
     }
@@ -840,9 +845,11 @@ struct GoogleWebRtcClient::Impl
     driscord::media::ScreenStatsTracker screen_stats;
 };
 
-GoogleWebRtcClient::GoogleWebRtcClient(
-    Transport& transport, Callbacks callbacks)
-    : impl_(std::make_shared<Impl>(transport, std::move(callbacks)))
+GoogleWebRtcClient::GoogleWebRtcClient(Transport& transport,
+    Callbacks callbacks,
+    std::vector<driscord::media::IceServerConfig> ice_servers)
+    : impl_(std::make_shared<Impl>(
+          transport, std::move(callbacks), std::move(ice_servers)))
 {
     impl_->bind_callbacks();
 }

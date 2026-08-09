@@ -1,16 +1,19 @@
 #pragma once
+#include "AppConfig.h"
 #include "FrameProvider.h"
 #include "ThumbnailProvider.h"
 #include <QObject>
 #include <QString>
 #include <QVariantList>
+#include <QVector>
 
 // Wraps DriscordCore — all methods callable from QML via Q_INVOKABLE.
 // Callbacks from the core are forwarded to the main thread via QMetaObject::invokeMethod.
 class DriscordBridge : public QObject {
     Q_OBJECT
 public:
-    explicit DriscordBridge(QObject* parent = nullptr);
+    explicit DriscordBridge(QObject* parent = nullptr,
+        const QVector<IceServerSetting>& iceServers = { });
     ~DriscordBridge();
 
     void setFrameProvider(FrameProvider* fp);

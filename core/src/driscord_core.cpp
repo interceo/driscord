@@ -7,14 +7,25 @@
 
 using json = nlohmann::json;
 
-DriscordCore::DriscordCore()
+DriscordCore::DriscordCore(std::vector<IceServer> ice_servers)
 {
+    std::vector<driscord::media::IceServerConfig> media_ice_servers;
+    media_ice_servers.reserve(ice_servers.size());
+    for (auto& server : ice_servers) {
+        media_ice_servers.push_back(driscord::media::IceServerConfig {
+            .url = std::move(server.url),
+            .username = std::move(server.username),
+            .password = std::move(server.password),
+        });
+    }
+
     media_ = std::make_unique<GoogleWebRtcClient>(transport,
         GoogleWebRtcClient::Callbacks {
             .on_frame = [this](const std::string& peer, const uint8_t* rgba,
                             int width, int height) { emit_frame(peer, rgba, width, height); },
             .on_frame_removed = [this](const std::string& peer) { emit_frame_removed(peer); },
-        });
+        },
+        std::move(media_ice_servers));
 
     transport.on_peer_joined([this](const std::string& id) {
         std::scoped_lock lock(cb_mtx_);

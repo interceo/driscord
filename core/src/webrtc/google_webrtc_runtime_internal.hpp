@@ -24,6 +24,9 @@ struct GoogleWebRtcRuntime::Impl {
     webrtc::scoped_refptr<webrtc::AudioDeviceModule> audio_device;
     webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> factory;
     std::shared_ptr<InjectedPcmSource> injected_pcm_source;
+    // Read by every session when it builds its RTCConfiguration. Immutable
+    // after construction, so sessions need no synchronisation for it.
+    std::vector<IceServerConfig> ice_servers;
 
     explicit Impl(const GoogleWebRtcRuntimeConfig& config);
     ~Impl();

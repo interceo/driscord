@@ -29,10 +29,20 @@ static constexpr auto kOutputDeviceSetting = "audio/outputDevice";
 
 static DriscordCore* g_core = nullptr;
 
-DriscordBridge::DriscordBridge(QObject* parent)
+DriscordBridge::DriscordBridge(
+    QObject* parent, const QVector<IceServerSetting>& iceServers)
     : QObject(parent)
 {
-    g_core = new DriscordCore();
+    std::vector<IceServer> coreIceServers;
+    coreIceServers.reserve(static_cast<size_t>(iceServers.size()));
+    for (const auto& server : iceServers) {
+        coreIceServers.push_back(IceServer {
+            .url = server.url.toStdString(),
+            .username = server.username.toStdString(),
+            .password = server.password.toStdString(),
+        });
+    }
+    g_core = new DriscordCore(std::move(coreIceServers));
 
     g_core->transport.on_connected([this]() {
         QMetaObject::invokeMethod(this, [this] { emit wsConnected(); }, Qt::QueuedConnection);

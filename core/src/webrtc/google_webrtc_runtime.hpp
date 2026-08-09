@@ -33,8 +33,20 @@ struct InjectedAudioDeviceConfig {
     RenderCallback on_rendered_audio;
 };
 
+// One STUN or TURN server, in the form the user configures it. Kept as a plain
+// value type so the setting can travel from the Qt config to both sessions
+// without a WebRTC type appearing outside this layer.
+struct IceServerConfig {
+    std::string url;
+    std::string username;
+    std::string password;
+};
+
 struct GoogleWebRtcRuntimeConfig {
     std::optional<InjectedAudioDeviceConfig> injected_audio_device;
+    // Empty means host candidates only, which reaches an SFU just in the case
+    // where a publicly routable address sits directly on its interface.
+    std::vector<IceServerConfig> ice_servers;
 };
 
 struct AudioDeviceInfo {

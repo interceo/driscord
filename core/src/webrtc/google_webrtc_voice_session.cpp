@@ -90,6 +90,7 @@ struct GoogleWebRtcVoiceSession::Impl final
         rtc_config.sdp_semantics = webrtc::SdpSemantics::kUnifiedPlan;
         rtc_config.bundle_policy = webrtc::PeerConnectionInterface::kBundlePolicyMaxBundle;
         rtc_config.rtcp_mux_policy = webrtc::PeerConnectionInterface::kRtcpMuxPolicyRequire;
+        rtc_config.servers = detail::to_ice_servers(runtime->ice_servers);
 
         webrtc::PeerConnectionDependencies dependencies(this);
         auto pc_result = runtime->factory->CreatePeerConnectionOrError(

@@ -1,7 +1,9 @@
 #pragma once
 
 #include "webrtc/google_webrtc_media_types.hpp"
+#include "webrtc/google_webrtc_runtime.hpp"
 
+#include "api/peer_connection_interface.h"
 #include "api/rtc_error.h"
 #include "api/set_local_description_observer_interface.h"
 #include "api/set_remote_description_observer_interface.h"
@@ -9,6 +11,7 @@
 #include <functional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace driscord::media::detail {
 
@@ -38,5 +41,10 @@ private:
     const webrtc::RTCError& error);
 
 [[nodiscard]] MediaConnectionState to_public_connection_state(int state);
+
+// Voice and screen build their RTCConfiguration independently; both need the
+// configured STUN/TURN servers translated the same way.
+[[nodiscard]] std::vector<webrtc::PeerConnectionInterface::IceServer>
+to_ice_servers(const std::vector<IceServerConfig>& servers);
 
 } // namespace driscord::media::detail

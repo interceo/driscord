@@ -61,4 +61,22 @@ MediaConnectionState to_public_connection_state(int raw_state)
     return MediaConnectionState::Failed;
 }
 
+std::vector<webrtc::PeerConnectionInterface::IceServer> to_ice_servers(
+    const std::vector<IceServerConfig>& servers)
+{
+    std::vector<webrtc::PeerConnectionInterface::IceServer> result;
+    result.reserve(servers.size());
+    for (const auto& server : servers) {
+        if (server.url.empty()) {
+            continue;
+        }
+        webrtc::PeerConnectionInterface::IceServer entry;
+        entry.urls = { server.url };
+        entry.username = server.username;
+        entry.password = server.password;
+        result.push_back(std::move(entry));
+    }
+    return result;
+}
+
 } // namespace driscord::media::detail

@@ -11,6 +11,14 @@
 
 class GoogleWebRtcClient;
 
+// One STUN or TURN server as the user configures it. A plain value type so the
+// media stack's types stay behind GoogleWebRtcClient.
+struct IceServer {
+    std::string url;
+    std::string username;
+    std::string password;
+};
+
 // Business/API boundary used by the Qt client. Media implementation details
 // stay behind GoogleWebRtcClient and native Google WebRTC tracks.
 class DriscordCore {
@@ -22,7 +30,9 @@ public:
 
     Transport transport;
 
-    DriscordCore();
+    // Without ICE servers the client offers host candidates only, which
+    // reaches an SFU just when a routable address sits on its interface.
+    explicit DriscordCore(std::vector<IceServer> ice_servers = { });
     ~DriscordCore();
 
     DriscordCore(const DriscordCore&) = delete;

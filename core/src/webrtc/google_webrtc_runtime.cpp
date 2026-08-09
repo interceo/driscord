@@ -192,6 +192,7 @@ GoogleWebRtcRuntime::Impl::Impl(const GoogleWebRtcRuntimeConfig& config)
     : network_thread(make_thread("driscord-webrtc-network", true))
     , worker_thread(make_thread("driscord-webrtc-worker", false))
     , signaling_thread(make_thread("driscord-webrtc-signaling", false))
+    , ice_servers(config.ice_servers)
 {
     (void)ssl_runtime();
 

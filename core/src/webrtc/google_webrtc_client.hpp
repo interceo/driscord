@@ -30,7 +30,8 @@ public:
         std::vector<uint8_t> rgba;
     };
 
-    explicit GoogleWebRtcClient(Transport& transport, Callbacks callbacks);
+    GoogleWebRtcClient(Transport& transport, Callbacks callbacks,
+        std::vector<driscord::media::IceServerConfig> ice_servers = { });
     ~GoogleWebRtcClient();
 
     GoogleWebRtcClient(const GoogleWebRtcClient&) = delete;

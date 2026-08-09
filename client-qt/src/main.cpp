@@ -43,7 +43,7 @@ int main(int argc, char* argv[])
         auto* authManager = new AuthManager(apiClient, sessionStore, &app);
         auto* serverRepo = new ServerRepository(apiClient, &app);
         auto* userRepo = new UserRepository(apiClient, &app);
-        auto* bridge = new DriscordBridge(&app);
+        auto* bridge = new DriscordBridge(&app, cfg.iceServers);
         auto* frameProvider = new FrameProvider;
         auto* thumbProvider = new ThumbnailProvider;
         auto* avatarTint = new AvatarTintProvider(&app);
