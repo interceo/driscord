@@ -26,6 +26,13 @@ cd backend/api
 обновлений. Перед API стоит поставить reverse proxy, TLS, лимиты тела запроса и
 резервное копирование PostgreSQL плюс `DATA_DIR`.
 
+В Kubernetes `DATA_DIR` обязательно должен указывать на смонтированный PVC, а
+не на writable layer pod. Для одного API replica достаточно RWO volume; для
+нескольких replicas требуется RWX-хранилище либо перенос аватаров в object
+storage. Иначе после пересоздания pod PostgreSQL сохранит `avatar_url`, но сам
+файл исчезнет. API трактует такую устаревшую ссылку как отсутствие аватара, но
+восстановить потерянный файл сможет только повторная загрузка или backup.
+
 ## Signaling
 
 ```bash

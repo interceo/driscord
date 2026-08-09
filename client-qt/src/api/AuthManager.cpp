@@ -24,7 +24,7 @@ void AuthManager::applyTokenResponse(const QJsonObject& json, const QString& use
     m_refreshToken = refresh;
     m_username = username;
     m_userId = uid;
-    m_avatarUrl = json["avatar_url"].toString();
+    m_avatarUrl = json.value("avatar_url").toString().trimmed();
     m_displayName = json["display_name"].toString();
     m_loggedIn = true;
     m_session->save({ refresh, username, uid });
@@ -61,6 +61,8 @@ void AuthManager::logout()
     m_session->clear();
     m_refreshToken.clear();
     m_username.clear();
+    m_avatarUrl.clear();
+    m_displayName.clear();
     m_userId = 0;
     m_loggedIn = false;
     emit authChanged();
@@ -81,6 +83,10 @@ void AuthManager::tryRestoreSession()
     m_api->post("/auth/refresh", body, [this, username = data->username](QNetworkReply::NetworkError err, QJsonObject json) {
         if (err != QNetworkReply::NoError) {
             m_session->clear();
+            m_username.clear();
+            m_avatarUrl.clear();
+            m_displayName.clear();
+            m_userId = 0;
             emit sessionRestoreFailed();
             return;
         }

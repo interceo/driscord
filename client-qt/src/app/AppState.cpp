@@ -15,6 +15,26 @@
 #include <QTimer>
 #include <QUrl>
 
+namespace {
+
+QString avatarUrlFor(const QJsonObject& user, const QString& apiBaseUrl,
+    int userId, bool cacheBust = false)
+{
+    const auto value = user.value(QStringLiteral("avatar_url"));
+    if (!value.isString() || value.toString().trimmed().isEmpty()) {
+        return { };
+    }
+    QString result
+        = QStringLiteral("%1/users/%2/avatar").arg(apiBaseUrl).arg(userId);
+    if (cacheBust) {
+        result += QStringLiteral("?t=%1")
+                      .arg(QDateTime::currentMSecsSinceEpoch());
+    }
+    return result;
+}
+
+} // namespace
+
 AppState::AppState(AuthManager* auth, ServerRepository* servers, UserRepository* users,
     DriscordBridge* bridge, const QString& signalingUrl,
     const QString& apiBaseUrl, QObject* parent)
@@ -36,7 +56,6 @@ AppState::AppState(AuthManager* auth, ServerRepository* servers, UserRepository*
 
     connectBridgeSignals();
 
-    connect(m_auth, &AuthManager::sessionRestored, this, [this] { loadInitialData(); });
     connect(m_auth, &AuthManager::authChanged, this, [this] {
         if (m_auth->loggedIn()) {
             loadInitialData();
@@ -109,10 +128,8 @@ void AppState::connectBridgeSignals()
                         if (!ok)
                             return;
                         int uid = json["id"].toInt();
-                        QString avatarUrl;
-                        if (!json["avatar_url"].isNull())
-                            avatarUrl = m_apiBaseUrl
-                                + QStringLiteral("/users/%1/avatar").arg(uid);
+                        const QString avatarUrl
+                            = avatarUrlFor(json, m_apiBaseUrl, uid);
                         QString displayName = json["display_name"].toString();
                         if (displayName.isEmpty())
                             displayName = json["username"].toString();
@@ -202,12 +219,8 @@ void AppState::fetchCurrentUserProfile()
         p["displayName"] = dn.isEmpty() ? json["username"].toString() : dn;
         p["email"] = json["email"].toString();
         int uid = json["id"].toInt();
-        QString avatarUrl;
-        if (!json["avatar_url"].isNull())
-            avatarUrl = QStringLiteral("%1/users/%2/avatar?t=%3")
-                            .arg(m_apiBaseUrl)
-                            .arg(uid)
-                            .arg(QDateTime::currentMSecsSinceEpoch());
+        const QString avatarUrl
+            = avatarUrlFor(json, m_apiBaseUrl, uid, true);
         p["avatarUrl"] = avatarUrl;
         m_userProfile = p;
         emit userProfileChanged();
@@ -414,9 +427,8 @@ void AppState::loadUsers()
             QString displayName = user["display_name"].toString();
             if (displayName.isEmpty())
                 displayName = user["username"].toString();
-            QString avatarUrl;
-            if (!user["avatar_url"].isNull())
-                avatarUrl = QStringLiteral("%1/users/%2/avatar").arg(m_apiBaseUrl).arg(userId);
+            const QString avatarUrl
+                = avatarUrlFor(user, m_apiBaseUrl, userId);
 
             m_users.append(QVariantMap {
                 { "id", userId },

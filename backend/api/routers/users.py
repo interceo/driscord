@@ -3,6 +3,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from avatar_storage import avatar_path
 from config import settings
 from dependencies import get_current_user, get_db
 from models.user import User
@@ -62,10 +63,10 @@ async def get_avatar(
 ):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
-    if not user or not user.avatar_url:
+    if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Avatar not found")
-    path = settings.data_dir / user.avatar_url
-    if not path.exists():
+    path = avatar_path(user.avatar_url)
+    if not path:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Avatar file not found")
     return FileResponse(str(path))
 

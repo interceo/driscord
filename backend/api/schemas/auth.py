@@ -1,5 +1,7 @@
 from pydantic import BaseModel, EmailStr
 
+from schemas.common import AvatarUrl
+
 
 class RegisterRequest(BaseModel):
     username: str
@@ -17,7 +19,7 @@ class TokenResponse(BaseModel):
     refresh_token: str
     user_id: int
     token_type: str = "bearer"
-    avatar_url: str | None = None
+    avatar_url: AvatarUrl = None
     display_name: str | None = None
 
 
