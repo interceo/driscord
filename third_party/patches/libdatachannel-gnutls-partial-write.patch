@@ -1,0 +1,35 @@
+diff --git a/src/impl/tlstransport.cpp b/src/impl/tlstransport.cpp
+index a99ef17..0028daa 100644
+--- a/src/impl/tlstransport.cpp
++++ b/src/impl/tlstransport.cpp
+@@ -129,13 +129,23 @@ bool TlsTransport::send(message_ptr message) {
+ 
+ 	PLOG_VERBOSE << "Send size=" << message->size();
+ 
+-	ssize_t ret;
+-	do {
+-		ret = gnutls_record_send(mSession, message->data(), message->size());
+-	} while (ret == GNUTLS_E_INTERRUPTED || ret == GNUTLS_E_AGAIN);
+-
+-	if (!gnutls::check(ret))
+-		throw std::runtime_error("TLS send failed");
++	size_t offset = 0;
++	while (offset < message->size()) {
++		const auto remaining = message->size() - offset;
++		ssize_t ret;
++		do {
++			ret = gnutls_record_send(mSession, message->data() + offset, remaining);
++		} while (ret == GNUTLS_E_INTERRUPTED || ret == GNUTLS_E_AGAIN);
++
++		// gnutls_record_send has send(2)-like semantics and may consume less
++		// than the requested buffer (in particular at the negotiated TLS
++		// record-size boundary). Dropping the remainder truncates the enclosing
++		// WebSocket frame and makes subsequent frames part of its payload.
++		if (ret <= 0 || !gnutls::check(ret))
++			throw std::runtime_error("TLS send failed");
++
++		offset += size_t(ret);
++	}
+ 
+ 	return mOutgoingResult;
+ }

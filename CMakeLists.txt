@@ -96,6 +96,11 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/paullouisageneau/libdatachannel.git
     GIT_TAG        v0.24.5
     GIT_SHALLOW    TRUE
+    PATCH_COMMAND
+        "${CMAKE_COMMAND}"
+        "-DSOURCE_DIR=<SOURCE_DIR>"
+        "-DPATCH_FILE=${CMAKE_SOURCE_DIR}/third_party/patches/libdatachannel-gnutls-partial-write.patch"
+        -P "${CMAKE_SOURCE_DIR}/cmake/ApplyGitPatch.cmake"
 )
 # In the client process libdatachannel must be a shared isolation boundary.
 # Both projects embed libSRTP and intentionally expose the same C

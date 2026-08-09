@@ -52,6 +52,24 @@ add_unit_test(test_expected)
 add_unit_test(test_bounded_queue)
 add_unit_test(test_match)
 
+# libdatachannel's GnuTLS backend is patched to retry positive partial writes.
+# A 32 KiB text frame crosses the TLS record boundary and regresses the exact
+# failure that previously truncated SDP and produced WebSocket close code 1007.
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+add_executable(test_libdatachannel_wss_client
+    support/libdatachannel_wss_client.cpp)
+target_compile_options(test_libdatachannel_wss_client PRIVATE
+    ${TEST_WARNING_FLAGS})
+target_link_libraries(test_libdatachannel_wss_client PRIVATE
+    ${DRISCORD_LIBDATACHANNEL_TARGET})
+add_test(NAME test_libdatachannel_wss
+    COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/support/test_libdatachannel_wss.py
+        --client $<TARGET_FILE:test_libdatachannel_wss_client>
+        --cert ${CMAKE_CURRENT_SOURCE_DIR}/support/wss-test-cert.pem
+        --key ${CMAKE_CURRENT_SOURCE_DIR}/support/wss-test-key.pem)
+set_tests_properties(test_libdatachannel_wss PROPERTIES TIMEOUT 30)
+
 add_executable(test_google_webrtc_runtime
     unit/test_google_webrtc_runtime.cpp)
 target_include_directories(test_google_webrtc_runtime PRIVATE
