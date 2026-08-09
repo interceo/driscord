@@ -39,6 +39,7 @@ struct PreviewResult {
     size_t frames = 0;
     int width = 0;
     int height = 0;
+    std::string error;
 };
 
 } // namespace
@@ -309,6 +310,70 @@ TEST(GoogleWebRtcScreenSession, LocalPreviewCanBeDetachedWithoutStoppingShare)
         EXPECT_TRUE(preview->changed.wait_for(
             lock, 2s, [&] { return preview->frames == 2; }));
     }
+    session.close();
+}
+
+TEST(GoogleWebRtcScreenSession, DesktopCaptureProducesPreviewFrame)
+{
+    using namespace std::chrono_literals;
+    using driscord::media::DesktopCaptureKind;
+    using driscord::media::GoogleWebRtcScreenSession;
+
+    const auto sources = GoogleWebRtcScreenSession::list_desktop_sources(
+        DesktopCaptureKind::Screen);
+    if (sources.empty()) {
+        GTEST_SKIP() << "No desktop capture source in this environment";
+    }
+
+    driscord::media::GoogleWebRtcRuntime runtime(
+        driscord::media::GoogleWebRtcRuntimeConfig {
+            .injected_audio_device =
+                driscord::media::InjectedAudioDeviceConfig {
+                    .sample_rate_hz = 48'000,
+                    .channels = 2,
+                    .max_buffered_frames = 500,
+                    .on_rendered_audio = { },
+                },
+        });
+    auto preview = std::make_shared<PreviewResult>();
+    driscord::media::ScreenSessionCallbacks callbacks;
+    callbacks.on_local_video =
+        [preview](driscord::media::DecodedVideoFrameView frame) {
+            {
+                std::scoped_lock lock(preview->mutex);
+                ++preview->frames;
+                preview->width = frame.width;
+                preview->height = frame.height;
+            }
+            preview->changed.notify_all();
+        };
+    callbacks.on_error = [preview](std::string message) {
+        {
+            std::scoped_lock lock(preview->mutex);
+            preview->error = std::move(message);
+        }
+        preview->changed.notify_all();
+    };
+    GoogleWebRtcScreenSession session(runtime,
+        {
+            .remote_stream_slots = 0,
+            .sharing_enabled = false,
+            .local_preview_enabled = true,
+        },
+        std::move(callbacks));
+
+    ASSERT_TRUE(session.start());
+    ASSERT_TRUE(session.start_desktop_capture(DesktopCaptureKind::Screen,
+        sources.front().id, 30, 1920, 1080));
+    {
+        std::unique_lock lock(preview->mutex);
+        ASSERT_TRUE(preview->changed.wait_for(lock, 5s,
+            [&] { return preview->frames > 0 || !preview->error.empty(); }));
+        ASSERT_TRUE(preview->error.empty()) << preview->error;
+        EXPECT_GT(preview->width, 0);
+        EXPECT_GT(preview->height, 0);
+    }
+    session.stop_desktop_capture();
     session.close();
 }
 

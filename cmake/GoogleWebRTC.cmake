@@ -62,7 +62,12 @@ set_target_properties(driscord_google_webrtc PROPERTIES
         "${DRISCORD_WEBRTC_SOURCE_DIR};${DRISCORD_WEBRTC_OUT_DIR}/gen"
     INTERFACE_SYSTEM_INCLUDE_DIRECTORIES
         "${DRISCORD_WEBRTC_SOURCE_DIR};${DRISCORD_WEBRTC_OUT_DIR}/gen"
-    INTERFACE_COMPILE_DEFINITIONS "WEBRTC_LINUX;WEBRTC_POSIX"
+    # These definitions are part of the public header ABI, not merely build
+    # switches. In particular DesktopCaptureOptions conditionally contains an
+    # x_display_ member; omitting WEBRTC_USE_X11 in consumers makes its
+    # by-value CreateDefault() return overwrite the caller's stack object.
+    INTERFACE_COMPILE_DEFINITIONS
+        "WEBRTC_LINUX;WEBRTC_POSIX;WEBRTC_USE_X11"
     # DesktopCapturer is part of the same archive. Its Linux implementation
     # uses these X11 extensions; listing them on the imported target keeps all
     # consumers (including headless tests that only inject frames) linkable.

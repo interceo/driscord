@@ -43,6 +43,11 @@ PeerConnection/MediaStream, чтобы RTCP sync работал внутри о�
   ложного объявления непроксируемых transport-cc/REMB).
 - [x] `screen` vertical slice: DesktopCapturer/VideoTrackSource, несколько video
   sinks и связанный system-audio track.
+- [x] Публичный ABI desktop capture синхронизирован с pinned WebRTC archive:
+  потребители собираются с `WEBRTC_USE_X11`, поэтому возвращаемый по значению
+  `DesktopCaptureOptions` имеет одинаковый размер по обе стороны границы
+  библиотеки. Regression-тест запускает нативный захват экрана и получает
+  preview-кадр; падение `stack smashing detected` закрыто.
 - [x] Локальная screen-трансляция показывается автору обычной stream-плиткой
   напрямую из исходного Google WebRTC track, без self-subscription и петли
   через SFU. Preview sink подключён только пока окно Qt активно; при потере
@@ -126,6 +131,9 @@ PeerConnection/MediaStream, чтобы RTCP sync работал внутри о�
 
 - полный pinned `libwebrtc.a` и Qt-клиент с
   `DRISCORD_USE_GOOGLE_WEBRTC=ON` собираются Clang/lld;
+- нативный `DesktopCapturer` перечисляет X11-источник и доставляет первый
+  preview-кадр; отдельный regression ловит несовпадение compile definitions,
+  влияющих на ABI публичных WebRTC-заголовков;
 - Google WebRTC ↔ libdatachannel handshake, три одновременных voice peer,
   независимые slot bindings и очистка slot при disconnect проходят; focused
   churn-прогон стабилен 10/10;
