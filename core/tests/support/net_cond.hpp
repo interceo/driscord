@@ -82,9 +82,12 @@ public:
         uint64_t duplicated = 0;
     };
 
-    explicit NetworkConditioner(NetProfile profile = { })
+    // The seed is explicit so a failing run can be reproduced; the default is
+    // fixed rather than random for the same reason.
+    explicit NetworkConditioner(NetProfile profile = { }, uint64_t seed = 0x5eed)
         : profile_(std::move(profile))
         , running_(true)
+        , rng_(static_cast<std::mt19937::result_type>(seed))
     {
         delivery_thread_ = std::thread([this] { delivery_loop(); });
     }
@@ -283,7 +286,7 @@ private:
     std::thread delivery_thread_;
 
     // RNG — protected by its own mutex since intercept() may be concurrent.
-    std::mt19937 rng_ { std::random_device { }() };
+    std::mt19937 rng_;
     std::mutex rng_mutex_;
 
     // Atomic counters for stats().

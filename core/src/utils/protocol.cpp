@@ -1,6 +1,6 @@
 #include "protocol.hpp"
 
-#include "byte_utils.hpp"
+#include <boost/endian/conversion.hpp>
 
 #include <cstring>
 
@@ -12,17 +12,17 @@ std::optional<AudioHeader> AudioHeader::deserialize(std::span<const uint8_t> src
         return std::nullopt;
     }
     AudioHeader h;
-    h.seq = utils::read_u32_le(src.data());
-    h.flags = utils::read_u32_le(src.data() + 4);
-    h.sender_ts_us = static_cast<int64_t>(utils::read_u64_le(src.data() + 8));
+    h.seq = boost::endian::load_little_u32(src.data());
+    h.flags = boost::endian::load_little_u32(src.data() + 4);
+    h.sender_ts_us = static_cast<int64_t>(boost::endian::load_little_u64(src.data() + 8));
     return h;
 }
 
 void AudioHeader::serialize(uint8_t* dst) const
 {
-    utils::write_u32_le(dst, seq);
-    utils::write_u32_le(dst + 4, flags);
-    utils::write_u64_le(dst + 8, static_cast<uint64_t>(sender_ts_us));
+    boost::endian::store_little_u32(dst, seq);
+    boost::endian::store_little_u32(dst + 4, flags);
+    boost::endian::store_little_u64(dst + 8, static_cast<uint64_t>(sender_ts_us));
 }
 
 std::optional<VideoHeader> VideoHeader::deserialize(std::span<const uint8_t> src)
@@ -30,31 +30,31 @@ std::optional<VideoHeader> VideoHeader::deserialize(std::span<const uint8_t> src
     if (src.size() < kWireSize) {
         return std::nullopt;
     }
-    const uint32_t codec_raw = utils::read_u32_le(src.data() + 28);
+    const uint32_t codec_raw = boost::endian::load_little_u32(src.data() + 28);
     if (codec_raw != static_cast<uint32_t>(VideoCodec::H264)
         && codec_raw != static_cast<uint32_t>(VideoCodec::HEVC)) {
         return std::nullopt;
     }
     VideoHeader h;
-    h.width = utils::read_u32_le(src.data());
-    h.height = utils::read_u32_le(src.data() + 4);
-    h.sender_ts_us = static_cast<int64_t>(utils::read_u64_le(src.data() + 8));
-    h.bitrate_kbps = utils::read_u32_le(src.data() + 16);
-    h.frame_duration_us = utils::read_u32_le(src.data() + 20);
-    h.flags = utils::read_u32_le(src.data() + 24);
+    h.width = boost::endian::load_little_u32(src.data());
+    h.height = boost::endian::load_little_u32(src.data() + 4);
+    h.sender_ts_us = static_cast<int64_t>(boost::endian::load_little_u64(src.data() + 8));
+    h.bitrate_kbps = boost::endian::load_little_u32(src.data() + 16);
+    h.frame_duration_us = boost::endian::load_little_u32(src.data() + 20);
+    h.flags = boost::endian::load_little_u32(src.data() + 24);
     h.codec = static_cast<VideoCodec>(codec_raw);
     return h;
 }
 
 void VideoHeader::serialize(uint8_t* dst) const
 {
-    utils::write_u32_le(dst, width);
-    utils::write_u32_le(dst + 4, height);
-    utils::write_u64_le(dst + 8, static_cast<uint64_t>(sender_ts_us));
-    utils::write_u32_le(dst + 16, bitrate_kbps);
-    utils::write_u32_le(dst + 20, frame_duration_us);
-    utils::write_u32_le(dst + 24, flags);
-    utils::write_u32_le(dst + 28, static_cast<uint32_t>(codec));
+    boost::endian::store_little_u32(dst, width);
+    boost::endian::store_little_u32(dst + 4, height);
+    boost::endian::store_little_u64(dst + 8, static_cast<uint64_t>(sender_ts_us));
+    boost::endian::store_little_u32(dst + 16, bitrate_kbps);
+    boost::endian::store_little_u32(dst + 20, frame_duration_us);
+    boost::endian::store_little_u32(dst + 24, flags);
+    boost::endian::store_little_u32(dst + 28, static_cast<uint32_t>(codec));
 }
 
 std::optional<FrameHeader> FrameHeader::deserialize(std::span<const uint8_t> src)
@@ -63,13 +63,13 @@ std::optional<FrameHeader> FrameHeader::deserialize(std::span<const uint8_t> src
         return std::nullopt;
     }
     FrameHeader h;
-    h.frame_id = utils::read_u64_le(src.data());
+    h.frame_id = boost::endian::load_little_u64(src.data());
     return h;
 }
 
 void FrameHeader::serialize(uint8_t* dst) const
 {
-    utils::write_u64_le(dst, frame_id);
+    boost::endian::store_little_u64(dst, frame_id);
 }
 
 utils::Expected<std::string, RelayedMediaError> encode_relayed_media(

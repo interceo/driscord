@@ -12,27 +12,10 @@ namespace utils {
 enum class PushResult {
     Stored,
     Duplicate,
-    // Older than the read cursor: the consumer has already moved past it.
     TooLate,
-    // So far ahead that it cannot share the window with the current cursor.
-    // The buffer dropped everything and restarted at this sequence number.
     Resynced,
 };
 
-// Sequence-indexed reordering window.
-//
-// Packets arrive out of order, duplicated, or not at all; this holds them by
-// sequence number until the consumer's cursor reaches them. It is a pure data
-// structure: it knows nothing about time, allocates nothing, and takes no
-// locks — the owner supplies whatever synchronization its threads need.
-//
-// A sequence number `s` is addressable while `base_seq() <= s < base_seq() +
-// Capacity`. Slot reuse is safe because that window is exactly Capacity wide,
-// so two live sequence numbers can never map to the same slot.
-//
-// Occupancy lives in a bitmask rather than in the slots themselves, which is
-// what makes next_present() — "where does the next packet after this gap
-// start?" — a couple of word scans instead of a walk over every slot.
 template <typename T, size_t Capacity = 128>
 class ReorderBuffer {
     static_assert(Capacity >= 64, "Capacity must cover at least one mask word");
@@ -51,10 +34,6 @@ public:
             started_ = true;
             base_ = seq;
         } else if (seq < base_) [[unlikely]] {
-            // Before anything has been read, the cursor is only a guess made
-            // from whichever packet happened to arrive first. An earlier one
-            // showing up means the guess was wrong, and nothing has been
-            // played yet, so move the cursor back instead of dropping it.
             if (consumed_ || base_ - seq >= Capacity) {
                 return PushResult::TooLate;
             }
@@ -74,8 +53,6 @@ public:
         return PushResult::Stored;
     }
 
-    // Sequence number the consumer will read next. Everything below it has
-    // been taken or skipped.
     uint64_t base_seq() const noexcept { return base_; }
 
     bool contains(const uint64_t seq) const noexcept
@@ -83,9 +60,6 @@ public:
         return in_window(seq) && test(seq);
     }
 
-    // Lowest present sequence number >= `from`, or nullopt if the rest of the
-    // window is empty. Used both to detect a gap (result > base_seq()) and to
-    // find the packet just past it, which is what Opus in-band FEC needs.
     std::optional<uint64_t> next_present(uint64_t from) const noexcept
     {
         if (!started_ || count_ == 0) {
@@ -125,13 +99,11 @@ public:
         return next_present(base_);
     }
 
-    // Borrow without consuming. Valid until the next push or advance.
     const T* peek(const uint64_t seq) const noexcept
     {
         return contains(seq) ? &slots_[seq & kIndexMask] : nullptr;
     }
 
-    // Consume. Precondition: contains(seq).
     T take(const uint64_t seq) noexcept
     {
         consumed_ = true;
@@ -141,9 +113,6 @@ public:
         return out;
     }
 
-    // Move the read cursor to `seq`, discarding anything still held below it.
-    // Skipping over an absent sequence number is how the consumer accounts for
-    // a packet it concealed rather than played.
     void advance_base_to(const uint64_t seq) noexcept
     {
         if (!started_ || seq <= base_) {
@@ -204,8 +173,6 @@ private:
         ++count_;
     }
 
-    // Releases whatever the occupied slots hold — for payload types that own
-    // heap memory, leaving them in place would pin a full window of frames.
     void clear_slots() noexcept
     {
         if (count_ != 0) {

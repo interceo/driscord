@@ -1,7 +1,7 @@
 #pragma once
 
-#include "identity.hpp"
 #include "expected.hpp"
+#include "identity.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -13,27 +13,18 @@
 
 namespace protocol {
 
-// Flags shared by the media headers below.
 namespace flags {
-    // Audio: first packet of a talkspurt. The sender stops emitting during DTX and
-    // noise-gated silence, so without this bit a receiver cannot tell deliberate
-    // silence from packet loss and would conceal the pause with PLC noise.
     inline constexpr uint32_t kTalkspurtStart = 1u << 0;
-    // Video: this frame is a keyframe.
     inline constexpr uint32_t kKeyframe = 1u << 0;
 }
 
 struct AudioHeader {
     uint32_t seq = 0;
     uint32_t flags = 0;
-    // utils::SenderClock timeline, shared with VideoHeader::sender_ts_us.
     int64_t sender_ts_us = 0;
 
     static constexpr size_t kWireSize = 16;
 
-    // Returns nullopt when `src` is shorter than the header. The length lives
-    // in the API rather than at every call site, so an untrusted packet cannot
-    // trigger an out-of-bounds read no matter who parses it.
     static std::optional<AudioHeader> deserialize(std::span<const uint8_t> src);
     void serialize(uint8_t* dst) const;
 };
@@ -46,7 +37,6 @@ enum class VideoCodec : uint8_t {
 struct VideoHeader {
     uint32_t width = 0;
     uint32_t height = 0;
-    // utils::SenderClock timeline, shared with AudioHeader::sender_ts_us.
     int64_t sender_ts_us = 0;
     uint32_t bitrate_kbps = 0;
     uint32_t frame_duration_us = 0;
@@ -55,29 +45,19 @@ struct VideoHeader {
 
     static constexpr size_t kWireSize = 32;
 
-    // Returns nullopt when `src` is shorter than the header or carries a codec
-    // value outside the known set — both come straight off the wire and must
-    // not reach the decoder unchecked.
     static std::optional<VideoHeader> deserialize(std::span<const uint8_t> src);
     void serialize(uint8_t* dst) const;
 };
 
-// Prepended to every encoded video frame. Frames are sent as one DataChannel
-// message and fragmented by SCTP, so there is no application-level chunking —
-// this only carries the sequence number the receiver reorders on.
 struct FrameHeader {
     uint64_t frame_id = 0;
 
     static constexpr size_t kWireSize = 8;
 
-    // Returns nullopt when `src` is shorter than the header.
     static std::optional<FrameHeader> deserialize(std::span<const uint8_t> src);
     void serialize(uint8_t* dst) const;
 };
 
-// Server -> client media framing: u8 sender-id length, sender id, payload.
-// The DataChannel label carries the media kind; this wrapper only identifies
-// the peer that originally sent the payload.
 enum class RelayedMediaError {
     MissingSender,
     SenderTooLong,
@@ -93,8 +73,7 @@ struct RelayedMediaPacket {
 };
 
 inline constexpr size_t kRelayedMediaSenderLenSize = 1;
-inline constexpr size_t kMaxRelayedMediaSenderLen =
-    std::numeric_limits<uint8_t>::max();
+inline constexpr size_t kMaxRelayedMediaSenderLen = std::numeric_limits<uint8_t>::max();
 
 utils::Expected<std::string, RelayedMediaError> encode_relayed_media(
     const driscord::PeerId& sender_id,

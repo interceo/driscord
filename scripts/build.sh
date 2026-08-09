@@ -166,25 +166,37 @@ if [ "$TARGET" = "windows" ]; then
         exit 0
     fi
 
-    GCC_VMAJ=$(x86_64-w64-mingw32-g++-posix -dumpversion 2>/dev/null \
-               || x86_64-w64-mingw32-g++ -dumpversion 2>/dev/null \
-               || echo "12")
-    GCC_VMAJ="${GCC_VMAJ%%.*}"
     # Wine requires Windows-style paths (Z:/) separated by semicolons.
     unix_to_wine() { echo "Z:$(echo "$1" | sed 's|/|\\|g')"; }
-    WIN_DLL_PATH="$(unix_to_wine "/usr/lib/gcc/x86_64-w64-mingw32/${GCC_VMAJ}");$(unix_to_wine "/usr/x86_64-w64-mingw32/bin")"
-    [ -d "$ROOT/third_party/windows/ffmpeg/bin"  ] && WIN_DLL_PATH="$WIN_DLL_PATH;$(unix_to_wine "$ROOT/third_party/windows/ffmpeg/bin")"
-    [ -d "$ROOT/third_party/windows/openssl/bin" ] && WIN_DLL_PATH="$WIN_DLL_PATH;$(unix_to_wine "$ROOT/third_party/windows/openssl/bin")"
+    wine_path_append() { [ -d "$1" ] && WIN_DLL_PATH="${WIN_DLL_PATH:+$WIN_DLL_PATH;}$(unix_to_wine "$1")"; }
+
+    WIN_DLL_PATH=""
+    # Distributions disagree on whether this directory is named after the major
+    # version or the full one, so take whatever is actually there.
+    for d in /usr/lib/gcc/x86_64-w64-mingw32/*/; do wine_path_append "${d%/}"; done
+    wine_path_append "/usr/x86_64-w64-mingw32/bin"
+    wine_path_append "$ROOT/third_party/windows/ffmpeg/bin"
+    wine_path_append "$ROOT/third_party/windows/openssl/bin"
+    # GoogleTest, Opus and libdatachannel are fetched and built as DLLs next to
+    # the test executables; without these the binaries cannot even start.
+    while IFS= read -r d; do wine_path_append "$d"; done < <(
+        find "$WIN_TEST_DIR" -name '*.dll' -printf '%h\n' 2>/dev/null | sort -u)
     export WINEPATH="${WIN_DLL_PATH}${WINEPATH:+;$WINEPATH}"
     export WINEDEBUG=-all
 
     echo "==> Initializing Wine prefix..."
     wineboot --init 2>/dev/null || true
 
-    echo "==> Running Windows unit tests under Wine (network integration tests excluded)..."
+    # Wine is a portability smoke check, not a performance environment. The
+    # excluded tests are the ones that cannot mean anything here: the network
+    # integration tests need real sockets, the FFmpeg ones spend minutes in a
+    # software codec, and the rest assert on wall-clock timing.
+    echo "==> Running Windows unit tests under Wine (codec and timing tests excluded)..."
     cd "$WIN_TEST_DIR"
     ctest --output-on-failure \
-        -E "test_sfu_transport|test_room_isolation|test_net_conditions" \
+        -E "test_sfu_transport|test_room_isolation|test_net_conditions\
+|test_video_codec|test_video_receiver|test_audio_receiver\
+|test_media_quality|test_playout_policies" \
         --timeout 120
     exit 0
 fi

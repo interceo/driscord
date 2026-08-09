@@ -90,6 +90,21 @@ else()
 endif()
 
 # ---------------------------------------------------------------------------
+# Boost (third_party/windows/boost/) — header-only use, but the MSYS2 package
+# brings BoostConfig.cmake, which is what find_package(Boost) needs here:
+# CMAKE_FIND_ROOT_PATH_MODE_PACKAGE below is ONLY, so a host BOOST_ROOT is
+# invisible to the cross build.
+# ---------------------------------------------------------------------------
+set(_BOOST "${_TP}/boost")
+if(EXISTS "${_BOOST}/include")
+    list(PREPEND CMAKE_FIND_ROOT_PATH "${_BOOST}")
+    list(PREPEND CMAKE_PREFIX_PATH    "${_BOOST}")
+    message(STATUS "[toolchain] Boost: ${_BOOST}")
+else()
+    message(STATUS "[toolchain] third_party Boost not found — run third_party/fetch_win_deps.sh")
+endif()
+
+# ---------------------------------------------------------------------------
 # Search mode — never look at host system libraries/headers
 # ---------------------------------------------------------------------------
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)

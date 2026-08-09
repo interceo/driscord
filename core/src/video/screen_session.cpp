@@ -6,6 +6,7 @@
 #include <unordered_set>
 
 #include <nlohmann/json.hpp>
+#include <span>
 
 namespace {
 
@@ -51,7 +52,7 @@ void ScreenSession::stop_sharing()
 
 void ScreenSession::push_video_packet(
     const std::string& peer_id,
-    const utils::vector_view<const uint8_t> data,
+    const std::span<const uint8_t> data,
     uint64_t frame_id)
 {
     receiver_.push_video_packet(peer_id, data, frame_id);
@@ -59,7 +60,7 @@ void ScreenSession::push_video_packet(
 
 void ScreenSession::push_audio_packet(
     const std::string& peer_id,
-    const utils::vector_view<const uint8_t> data)
+    const std::span<const uint8_t> data)
 {
     receiver_.push_audio_packet(peer_id,
         data); // peer_id routed inside AudioReceiver

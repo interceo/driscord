@@ -5,8 +5,6 @@
 
 namespace utils {
 
-// Monotonically increasing counter. All ops use relaxed atomics — safe to
-// increment from any thread without additional synchronisation.
 struct Counter {
     void inc(uint64_t n = 1) noexcept
     {
@@ -24,7 +22,6 @@ private:
     std::atomic<uint64_t> val_ { 0 };
 };
 
-// Current-value gauge. All ops use relaxed atomics.
 template <typename T>
 struct Gauge {
     void set(T v) noexcept { val_.store(v, std::memory_order_relaxed); }

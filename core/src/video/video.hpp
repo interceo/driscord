@@ -3,6 +3,7 @@
 #include "capture/screen_capture.hpp"
 #include "sync/media_clock.hpp"
 #include "utils/metrics.hpp"
+#include "utils/mono_clock.hpp"
 #include "utils/reorder_buffer.hpp"
 #include "video_codec.hpp"
 
@@ -12,6 +13,7 @@
 #include <functional>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <string>
 #include <thread>
 #include <vector>
@@ -96,13 +98,15 @@ public:
         int64_t last_shown_ts_us = 0;
     };
 
-    VideoReceiver(std::string peer_id, std::shared_ptr<avsync::MediaClock> clock);
+    VideoReceiver(std::string peer_id,
+        std::shared_ptr<avsync::MediaClock> clock,
+        const utils::TimeSource& time = utils::system_time_source());
     ~VideoReceiver();
 
     VideoReceiver(const VideoReceiver&) = delete;
     VideoReceiver& operator=(const VideoReceiver&) = delete;
 
-    void push_video_packet(utils::vector_view<const uint8_t> data,
+    void push_video_packet(std::span<const uint8_t> data,
         uint64_t frame_id);
 
     // Shows the newest frame that is due, discarding any older ones still
@@ -135,6 +139,7 @@ private:
 
     std::string peer_id_;
     std::shared_ptr<avsync::MediaClock> clock_;
+    const utils::TimeSource* time_;
     std::function<void()> on_keyframe_needed_;
 
     VideoDecoder decoder_;
@@ -145,14 +150,14 @@ private:
     Frame current_frame_;
     std::vector<std::vector<uint8_t>> spare_;
 
-    utils::Timestamp last_packet_ { };
+    int64_t last_packet_us_ = -1; // -1 until the first packet arrives
     int decode_failures_ = 0;
-    utils::Timestamp last_keyframe_req_ { };
+    int64_t last_keyframe_req_us_ = -1;
 
     // Bitrate measurement — producer thread only.
     std::atomic<int> measured_kbps_ { 0 };
     size_t bytes_since_calc_ = 0;
-    utils::Timestamp last_calc_ { };
+    int64_t last_calc_us_ = 0;
 
     utils::Counter packets_received_;
     utils::Counter drop_count_;

@@ -6,10 +6,12 @@
 #   ffmpeg/   headers/.dll.a import libs/FFmpeg runtime DLLs
 #             (BtbN LGPL shared build — minimal dep closure, ~30 MB of DLLs)
 #   openssl/  headers/.a static libs  (MSYS2)
+#   boost/    headers + BoostConfig.cmake  (MSYS2)
 #
 # Update the versions below when newer upstream packages are released:
 #   https://github.com/BtbN/FFmpeg-Builds/releases
 #   https://packages.msys2.org/package/mingw-w64-x86_64-openssl
+#   https://packages.msys2.org/package/mingw-w64-x86_64-boost
 #
 # Usage:
 #   ./third_party/fetch_win_deps.sh           # skip if already present
@@ -21,6 +23,7 @@ CACHE_DIR="$SCRIPT_DIR/.cache"
 
 MSYS2_BASE="https://mirror.msys2.org/mingw/mingw64"
 OPENSSL_PKG="mingw-w64-x86_64-openssl-3.3.2-1-any.pkg.tar.zst"
+BOOST_PKG="mingw-w64-x86_64-boost-1.91.0-3-any.pkg.tar.zst"
 
 # BtbN's rolling "latest" release is updated continuously — pin by tag if
 # reproducibility matters. LGPL shared build has a tiny runtime-dep closure
@@ -136,5 +139,7 @@ fetch_btbn_ffmpeg() {
 fetch_btbn_ffmpeg
 echo ""
 fetch_msys2_pkg "$OPENSSL_PKG" "openssl"
+echo ""
+fetch_msys2_pkg "$BOOST_PKG" "boost"
 echo ""
 echo "==> Done. third_party/windows/ is ready for cmake/toolchain-mingw64.cmake"

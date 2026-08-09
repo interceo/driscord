@@ -9,7 +9,6 @@
 
 namespace driscord {
 
-// None silences all output; ordering Info < Warning < Error < None is intentional.
 enum class LogLevel { Info,
     Warning,
     Error,
@@ -30,9 +29,6 @@ inline const char* level_tag(LogLevel l)
     return "UNKNOWN";
 }
 
-// Minimum level that will actually be printed.  Initialised once from the
-// DRISCORD_LOG_LEVEL environment variable (info / warn / error / none).
-// Can also be changed at runtime via set_min_log_level().
 inline LogLevel& min_log_level()
 {
     static LogLevel level = []() -> LogLevel {

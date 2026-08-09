@@ -4,12 +4,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <vector>
 
 #include "time.hpp"
 #include "utils/expected.hpp"
 #include "utils/protocol.hpp"
-#include "vector_view.hpp"
 
 using protocol::VideoCodec;
 
@@ -29,8 +29,6 @@ struct AVFrame;
 struct AVPacket;
 struct AVBufferRef;
 
-// Custom deleters for FFmpeg opaque types — defined in video_codec.cpp to keep
-// FFmpeg headers out of this header.
 namespace ff {
 struct CodecContextDeleter {
     void operator()(AVCodecContext*) const noexcept;

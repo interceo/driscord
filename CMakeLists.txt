@@ -75,6 +75,12 @@ if(_sml_include_dirs)
         INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_sml_include_dirs}")
 endif()
 
+# --- Boost (header-only, shared by protocol + core + signaling server) ---
+# Endian for the wire format, circular_buffer and accumulators in the audio
+# receive path, ASIO/Beast in the server. For the MinGW cross build this
+# resolves through third_party/windows/boost — see cmake/toolchain-mingw64.cmake.
+find_package(Boost 1.89 REQUIRED)
+
 # Shared wire/signaling protocol code used by both the client core and the
 # signaling server. Keep implementations out of headers so protocol changes
 # compile as normal translation units instead of spreading inline code through
@@ -89,6 +95,7 @@ target_include_directories(driscord_protocol PUBLIC
 )
 target_link_libraries(driscord_protocol PUBLIC
     nlohmann_json::nlohmann_json
+    Boost::boost
 )
 if(MSVC)
     target_compile_options(driscord_protocol PRIVATE /W4)

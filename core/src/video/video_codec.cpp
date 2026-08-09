@@ -11,6 +11,7 @@ extern "C" {
 
 #include <algorithm>
 #include <cstring>
+#include <span>
 #include <string>
 #include <thread>
 
@@ -515,9 +516,9 @@ bool VideoDecoder::init(VideoCodec video_codec)
     shutdown();
 
     const bool use_hevc = (video_codec == VideoCodec::HEVC);
-    const utils::vector_view<const HWDecoderSpec> hw_specs = use_hevc
-        ? utils::vector_view<const HWDecoderSpec>(kHWDecodersHEVC, std::size(kHWDecodersHEVC))
-        : utils::vector_view<const HWDecoderSpec>(kHWDecodersH264, std::size(kHWDecodersH264));
+    const std::span<const HWDecoderSpec> hw_specs = use_hevc
+        ? std::span<const HWDecoderSpec>(kHWDecodersHEVC, std::size(kHWDecodersHEVC))
+        : std::span<const HWDecoderSpec>(kHWDecodersH264, std::size(kHWDecodersH264));
 
     // Try hardware decoders first, in platform-specific priority order.
     for (const auto& spec : hw_specs) {

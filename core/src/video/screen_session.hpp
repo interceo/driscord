@@ -6,6 +6,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <span>
 #include <string>
 #include <unordered_set>
 
@@ -39,10 +40,10 @@ public:
     void set_system_audio_bitrate(int kbps) { sender_.set_system_audio_bitrate(kbps); }
 
     void push_video_packet(const std::string& peer_id,
-        const utils::vector_view<const uint8_t> data,
+        const std::span<const uint8_t> data,
         uint64_t frame_id);
     void push_audio_packet(const std::string& peer_id,
-        const utils::vector_view<const uint8_t> data);
+        const std::span<const uint8_t> data);
 
     void update();
 

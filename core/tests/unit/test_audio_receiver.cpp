@@ -5,12 +5,12 @@
 #include "sync/media_clock.hpp"
 #include "utils/mono_clock.hpp"
 #include "utils/protocol.hpp"
-#include "utils/vector_view.hpp"
 
 #include <cmath>
 #include <cstring>
 #include <memory>
 #include <numbers>
+#include <span>
 #include <thread>
 #include <vector>
 
@@ -59,7 +59,7 @@ std::vector<uint8_t> make_packet(uint32_t seq,
 
 void push(AudioReceiver& recv, const std::vector<uint8_t>& pkt)
 {
-    recv.push_packet(utils::vector_view<const uint8_t>(pkt.data(), pkt.size()));
+    recv.push_packet(std::span<const uint8_t>(pkt.data(), pkt.size()));
 }
 
 // Drives the receiver at true wall-clock pace: one 20 ms packet delivered and

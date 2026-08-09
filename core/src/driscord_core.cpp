@@ -1,10 +1,10 @@
 #include "driscord_core.hpp"
 #include "audio/capture/system_audio_capture.hpp"
 #include "config.hpp"
-#include "utils/vector_view.hpp"
 #include "video/capture/screen_capture.hpp"
 
 #include <nlohmann/json.hpp>
+#include <span>
 
 using json = nlohmann::json;
 
@@ -166,7 +166,7 @@ void DriscordCore::init_screen_session()
         [this](const std::string& peer_id, const uint8_t* data, size_t len,
             uint64_t frame_id) {
             screen_session->push_video_packet(
-                peer_id, utils::vector_view<const uint8_t> { data, len }, frame_id);
+                peer_id, std::span<const uint8_t> { data, len }, frame_id);
         },
         [this]() {
             if (screen_session->sharing()) {

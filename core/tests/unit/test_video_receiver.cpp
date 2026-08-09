@@ -9,6 +9,7 @@
 
 #include <cstring>
 #include <memory>
+#include <span>
 #include <vector>
 
 struct SuppressVideoRecvLogs {
@@ -76,7 +77,7 @@ TEST(VideoReceiver, LazyDecoderInitOnFirstPacket)
     auto pkt = make_video_packet(encoded, W, H, enc.codec());
 
     recv.push_video_packet(
-        utils::vector_view<const uint8_t>(pkt.data(), pkt.size()), 1);
+        std::span<const uint8_t>(pkt.data(), pkt.size()), 1);
 
     auto stats = recv.video_stats();
     EXPECT_GT(stats.packets_received, 0u)
@@ -105,7 +106,7 @@ TEST(VideoReceiver, DecodesFrameAfterLazyInit)
 
         auto pkt = make_video_packet(out, W, H, enc.codec());
         recv.push_video_packet(
-            utils::vector_view<const uint8_t>(pkt.data(), pkt.size()), fid);
+            std::span<const uint8_t>(pkt.data(), pkt.size()), fid);
     }
 
     recv.update([&](const VideoReceiver::Frame& f) {

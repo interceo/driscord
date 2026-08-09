@@ -12,9 +12,6 @@ enum class QueuePushResult {
     Closed,
 };
 
-// A small policy wrapper around deque. It is deliberately not thread-safe:
-// callers keep their existing mutexes and this type only centralizes queue
-// capacity/closed-state behavior.
 template <typename T>
 class BoundedQueue {
 public:

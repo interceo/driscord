@@ -1,50 +1,28 @@
 #pragma once
 
 #include "delay_estimator.hpp"
+#include "playout_policy.hpp"
 #include "utils/spinlock.hpp"
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 
 namespace avsync {
 
-// The single playout timeline for one remote peer.
-//
-// A peer's audio and video are two independent streams with very different
-// packet shapes — a 20 ms Opus frame is one packet, a video frame is hundreds
-// of chunks — so they arrive with different delays and different jitter. Both
-// are stamped from the same monotonic clock on the sending side, which is what
-// makes a shared timeline possible at all.
-//
-// Every unit of media is played at
-//
-//     deadline = sender_ts + offset + target_delay
-//
-// with `offset` and `target_delay` common to both streams. Audio and video
-// therefore stay aligned by construction: there is nothing to drift apart, and
-// no need to fast-forward one stream by discarding media to catch up with the
-// other.
-//
-// `target_delay` covers whichever stream currently needs more headroom, but
-// video only counts while the user is actually watching that peer's screen —
-// otherwise a voice-only call would pay video's much larger buffering cost.
-//
-// Threading: observe() runs on the network threads (one per stream);
-// deadline_us(), target_delay_us() and offset_us() are read from the audio
-// callback and the render tick and touch nothing but atomics.
 class MediaClock {
 public:
     enum class Stream : uint8_t { Audio = 0,
         Video = 1,
         kCount = 2 };
 
-    // Records an arrival. Returns true if the peer's timeline restarted and
-    // every estimate was dropped, which the caller should treat as a
-    // discontinuity (reset decoder state, drop buffered media).
+    explicit MediaClock(std::unique_ptr<PlayoutPolicy> policy = make_default_policy())
+        : policy_(std::move(policy))
+    {
+    }
+
     bool observe(Stream stream, int64_t sender_ts_us, int64_t local_now_us) noexcept;
 
-    // Local monotonic time at which media stamped `sender_ts_us` is due.
-    // Compare against utils::MonoClock::now_us().
     int64_t deadline_us(const int64_t sender_ts_us) const noexcept
     {
         return sender_ts_us + offset_us_.load(std::memory_order_relaxed)
@@ -72,8 +50,6 @@ public:
         return ready_.load(std::memory_order_relaxed);
     }
 
-    // Engaged when the user starts watching this peer's screen. Only shifts the
-    // target; the audio playout walks to the new value rather than jumping.
     void set_video_active(bool active) noexcept;
     bool video_active() const noexcept
     {
@@ -105,10 +81,8 @@ private:
 
     StreamState streams_[kStreams];
 
-    // Producers serialise here only to update the smoothed target; readers on
-    // the real-time path never touch it.
     utils::SpinLock recompute_lock_;
-    int64_t last_decay_us_ = 0;
+    std::unique_ptr<PlayoutPolicy> policy_;
 
     std::atomic<int64_t> offset_us_ { 0 };
     std::atomic<int64_t> target_delay_us_ { 0 };

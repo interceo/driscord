@@ -10,6 +10,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -61,15 +62,13 @@ private:
     uint32_t screen_audio_seq_ = 0;
 };
 
-// Routes one peer's screen share — video plus its system audio — to a
-// per-peer decoder pair.
-//
-// Both halves share that peer's MediaClock, which is what keeps the picture on
-// the sound. The clock is created here because this is the only place that
-// knows both halves belong to the same screen share.
 class ScreenReceiver {
 public:
-    ScreenReceiver() = default;
+    explicit ScreenReceiver(
+        const utils::TimeSource& time = utils::system_time_source())
+        : time_(&time)
+    {
+    }
     ~ScreenReceiver() = default;
 
     ScreenReceiver(const ScreenReceiver&) = delete;
@@ -79,10 +78,10 @@ public:
     void remove_video_peer(const std::string& peer_id);
 
     void push_video_packet(const std::string& peer_id,
-        const utils::vector_view<const uint8_t> data,
+        const std::span<const uint8_t> data,
         uint64_t frame_id);
     void push_audio_packet(const std::string& peer_id,
-        const utils::vector_view<const uint8_t> data);
+        const std::span<const uint8_t> data);
 
     void add_audio_peer(const std::string& peer_id);
     void remove_audio_peer(const std::string& peer_id);
@@ -106,14 +105,11 @@ public:
     void reset_audio();
 
 private:
-    // Returns the VideoReceiver for the current peer; must be called with
-    // video_mutex_ held.
     std::shared_ptr<VideoReceiver> current_video_recv_locked() const;
 
-    // The peer's playout clock, created on first use and shared by both halves
-    // of its screen share.
     std::shared_ptr<avsync::MediaClock> clock_for(const std::string& peer_id);
 
+    const utils::TimeSource* time_;
     std::function<void()> keyframe_cb_;
 
     mutable std::mutex clock_mutex_;

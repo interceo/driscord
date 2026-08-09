@@ -26,6 +26,11 @@ bool MediaClock::observe(const Stream stream,
     s.last_sender_ts_us = sender_ts_us;
 
     s.estimator.observe(local_now_us - sender_ts_us);
+    {
+        std::scoped_lock lk(recompute_lock_);
+        policy_->observe(static_cast<PlayoutPolicy::Stream>(stream),
+            sender_ts_us, local_now_us);
+    }
     s.sample_count.store(static_cast<uint64_t>(s.estimator.sample_count()),
         std::memory_order_relaxed);
     if (s.estimator.ready()) {
@@ -48,12 +53,6 @@ void MediaClock::recompute(const int64_t local_now_us) noexcept
 {
     std::scoped_lock lk(recompute_lock_);
 
-    // The clock offset is a property of the pair of machines, not of a stream,
-    // so the smallest one-way delay seen on any stream is the best estimate.
-    // A stream with a structurally larger delay — video, which cannot leave the
-    // sender until every chunk of the frame is out — then shows up as a
-    // constant excess above this shared baseline, which is exactly the extra
-    // buffering it needs.
     int64_t offset = INT64_MAX;
     for (const StreamState& s : streams_) {
         if (s.ready.load(std::memory_order_acquire)) {
@@ -65,46 +64,25 @@ void MediaClock::recompute(const int64_t local_now_us) noexcept
     }
     offset_us_.store(offset, std::memory_order_relaxed);
 
-    const auto need = [&](const Stream stream) -> int64_t {
+    const auto observation = [&](const Stream stream) {
         const StreamState& s = streams_[static_cast<size_t>(stream)];
-        if (!s.ready.load(std::memory_order_acquire)) {
-            return -1;
-        }
-        const int64_t excess = s.min_owd_us.load(std::memory_order_relaxed) - offset;
-        return excess + s.variation_us.load(std::memory_order_relaxed);
+        return StreamObservation {
+            .ready = s.ready.load(std::memory_order_acquire),
+            .min_owd_us = s.min_owd_us.load(std::memory_order_relaxed),
+            .variation_us = s.variation_us.load(std::memory_order_relaxed),
+        };
     };
 
-    const int64_t audio_need = need(Stream::Audio);
-    const int64_t video_need = video_active_.load(std::memory_order_relaxed)
-        ? need(Stream::Video)
-        : -1;
-
-    int64_t desired = std::max(audio_need, video_need);
-    if (desired < 0) {
+    const int64_t next = policy_->target_delay_us(observation(Stream::Audio),
+        observation(Stream::Video),
+        video_active_.load(std::memory_order_relaxed),
+        offset,
+        target_delay_us_.load(std::memory_order_relaxed),
+        local_now_us);
+    if (next < 0) {
         return;
     }
-    const bool video_active = video_active_.load(std::memory_order_relaxed);
-    const int64_t min_delay_us = video_active
-        ? std::max(sync_defaults::kMinDelayUs,
-            static_cast<int64_t>(stream_defaults::kScreenBufferMs) * 1000)
-        : sync_defaults::kMinDelayUs;
-    desired = std::clamp(desired + sync_defaults::kDelayMarginUs,
-        min_delay_us, sync_defaults::kMaxDelayUs);
-
-    const int64_t current = target_delay_us_.load(std::memory_order_relaxed);
-    if (desired > current) {
-        // Grow at once: being short is an underrun, which is audible now.
-        target_delay_us_.store(desired, std::memory_order_relaxed);
-        last_decay_us_ = local_now_us;
-    } else if (desired < current) {
-        // Shrink in steps. Cutting the target immediately would mean throwing
-        // away audio that is already buffered and due to be played.
-        if (local_now_us - last_decay_us_ >= sync_defaults::kDelayDecayIntervalUs) {
-            const int64_t next = std::max(desired, current - sync_defaults::kDelayDecayStepUs);
-            target_delay_us_.store(next, std::memory_order_relaxed);
-            last_decay_us_ = local_now_us;
-        }
-    }
+    target_delay_us_.store(next, std::memory_order_relaxed);
 
     ready_.store(true, std::memory_order_release);
 }
@@ -182,7 +160,7 @@ void MediaClock::reset() noexcept
     }
     {
         std::scoped_lock lk(recompute_lock_);
-        last_decay_us_ = 0;
+        policy_->reset();
     }
     offset_us_.store(0, std::memory_order_relaxed);
     target_delay_us_.store(0, std::memory_order_relaxed);

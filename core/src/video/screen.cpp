@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <span>
 
 ScreenSender::~ScreenSender()
 {
@@ -158,7 +159,7 @@ void ScreenReceiver::add_video_peer(const std::string& peer_id)
 
     std::scoped_lock lk(video_mutex_);
     if (!video_receivers_.count(peer_id)) {
-        auto recv = std::make_shared<VideoReceiver>(peer_id, clock);
+        auto recv = std::make_shared<VideoReceiver>(peer_id, clock, *time_);
         if (keyframe_cb_) {
             recv->set_keyframe_callback(keyframe_cb_);
         }
@@ -187,7 +188,7 @@ void ScreenReceiver::remove_video_peer(const std::string& peer_id)
 
 void ScreenReceiver::push_video_packet(
     const std::string& peer_id,
-    const utils::vector_view<const uint8_t> data,
+    const std::span<const uint8_t> data,
     uint64_t frame_id)
 {
     std::shared_ptr<VideoReceiver> recv;
@@ -206,7 +207,7 @@ void ScreenReceiver::push_video_packet(
 
 void ScreenReceiver::push_audio_packet(
     const std::string& peer_id,
-    const utils::vector_view<const uint8_t> data)
+    const std::span<const uint8_t> data)
 {
     std::shared_ptr<AudioReceiver> recv;
     {
@@ -227,8 +228,8 @@ void ScreenReceiver::add_audio_peer(const std::string& peer_id)
 
     std::scoped_lock lk(audio_mutex_);
     if (!audio_receivers_.count(peer_id)) {
-        auto recv = std::make_shared<AudioReceiver>(
-            std::move(clock), SystemAudioCapture::kChannels);
+        auto recv = std::make_shared<AudioReceiver>(std::move(clock),
+            SystemAudioCapture::kChannels, opus::kSampleRate, *time_);
         recv->set_wait_for_video(true);
         audio_receivers_[peer_id] = std::move(recv);
     }

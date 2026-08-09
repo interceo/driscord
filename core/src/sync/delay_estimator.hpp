@@ -6,21 +6,6 @@
 
 namespace avsync {
 
-// Estimates how much playout delay a stream needs, from the arrival pattern of
-// its packets.
-//
-// The input is a raw one-way delay: local_arrival_us - sender_ts_us. That value
-// contains the offset between two machines' clocks, which is arbitrary and can
-// be hours. Only its *variation* says anything about the network. So this
-// tracks the running minimum — the closest thing to a delay-free transit we
-// have seen, and therefore the best available estimate of the pure clock
-// offset — and reports the spread above it.
-//
-// This is the part the previous implementation got wrong: it fed the absolute
-// one-way delay into a percentile, so a peer whose clock ran 200 ms ahead got
-// 200 ms of playout delay on a perfect link.
-//
-// Not thread-safe: one instance belongs to one producer thread.
 class DelayEstimator {
 public:
     // Samples retained. At 50 packets/s this is ~10 s of audio history.
@@ -53,16 +38,11 @@ public:
 
     bool ready() const noexcept { return count_ >= kMinSamples; }
 
-    // Best estimate of the constant part of the one-way delay: clock offset
-    // plus whatever fixed transit cost this stream carries. Meaningless in
-    // isolation; only differences between streams and samples matter.
     int64_t min_owd_us() const noexcept
     {
         return current_min_ < previous_min_ ? current_min_ : previous_min_;
     }
 
-    // Spread above min_owd_us() that covers `percent` of recent arrivals.
-    // Returns -1 until ready().
     int64_t variation_us(const int percent) const noexcept
     {
         if (!ready()) {
@@ -101,9 +81,6 @@ private:
     static constexpr size_t kBuckets = 512; // up to ~512 ms of spread
     static constexpr int64_t kUnset = INT64_MAX;
 
-    // Two-block running minimum: the live block accumulates, the previous one
-    // keeps the estimate honest while it fills. The effective window is between
-    // one and two blocks, at O(1) per sample and no history to scan.
     void update_min(const int64_t owd_us) noexcept
     {
         if (owd_us < current_min_) {

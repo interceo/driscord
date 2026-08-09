@@ -4,6 +4,8 @@
 #include "config.hpp"
 #include "log.hpp"
 
+#include <span>
+
 AudioTransport::AudioTransport(Transport& transport)
     : transport_(transport)
 {
@@ -25,7 +27,7 @@ AudioTransport::AudioTransport(Transport& transport)
                 auto it = voice_recv_.find(peer_id);
                 if (it != voice_recv_.end()) {
                     it->second->push_packet(
-                        utils::vector_view<const uint8_t> { data, len });
+                        std::span<const uint8_t> { data, len });
                 }
             },
         .on_open = nullptr,
@@ -42,7 +44,7 @@ AudioTransport::AudioTransport(Transport& transport)
                 auto it = screen_audio_recv_.find(peer_id);
                 if (it != screen_audio_recv_.end()) {
                     it->second->push_packet(
-                        utils::vector_view<const uint8_t> { data, len });
+                        std::span<const uint8_t> { data, len });
                 }
             },
         .on_open = nullptr,

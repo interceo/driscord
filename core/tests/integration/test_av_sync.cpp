@@ -32,6 +32,7 @@
 #include <memory>
 #include <numbers>
 #include <random>
+#include <span>
 #include <string>
 #include <thread>
 #include <vector>
@@ -403,13 +404,13 @@ TEST(AvSync, ReceiversStayAlignedEndToEnd)
         while (next_audio < audio_pkts.size()
             && audio_pkts[next_audio].deliver_at_us <= now) {
             const auto& p = audio_pkts[next_audio++];
-            audio.push_packet(utils::vector_view<const uint8_t>(p.bytes.data(), p.bytes.size()));
+            audio.push_packet(std::span<const uint8_t>(p.bytes.data(), p.bytes.size()));
         }
         while (next_video < video_pkts.size()
             && video_pkts[next_video].deliver_at_us <= now) {
             const auto& p = video_pkts[next_video++];
             video.push_video_packet(
-                utils::vector_view<const uint8_t>(p.bytes.data(), p.bytes.size()), p.id);
+                std::span<const uint8_t>(p.bytes.data(), p.bytes.size()), p.id);
         }
 
         const int64_t frames_due = (now - device_start) * opus::kSampleRate / 1'000'000;

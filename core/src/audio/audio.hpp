@@ -1,14 +1,15 @@
 #pragma once
 
 #include "opus_codec.hpp"
-#include "pcm_ring.hpp"
 #include "sync/media_clock.hpp"
 #include "utils/expected.hpp"
 #include "utils/metrics.hpp"
+#include "utils/mono_clock.hpp"
 #include "utils/reorder_buffer.hpp"
 #include "utils/spinlock.hpp"
-#include "utils/vector_view.hpp"
 #include "wsola.hpp"
+
+#include <boost/circular_buffer.hpp>
 
 #include <algorithm>
 #include <array>
@@ -16,6 +17,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <span>
 #include <vector>
 
 class MaDevice;
@@ -38,7 +40,6 @@ public:
     AudioSender(const AudioSender&) = delete;
     AudioSender& operator=(const AudioSender&) = delete;
 
-    // Returns JSON array of {id, name} for all capture devices.
     static std::string list_input_devices_json();
 
     utils::Expected<void, AudioError> start(PacketCallback on_packet,
@@ -46,8 +47,6 @@ public:
     void stop();
     bool running() const { return running_; }
 
-    // Set the capture device by name (empty = default). If already running,
-    // restarts capture on the new device immediately.
     void set_device_id(std::string id);
 
     void set_muted(bool m) { muted_ = m; }
@@ -78,41 +77,22 @@ private:
 
     std::vector<uint8_t> encode_buf_;
     uint32_t send_seq_ = 0;
-    // Set while the noise gate / mute is suppressing output, so the next packet
-    // emitted can be flagged as the start of a talkspurt.
     bool in_silence_ = true;
 };
 
-// Receives one audio stream from one peer and turns it back into a continuous
-// mono signal for the mixer.
-//
-// Packets are held undecoded and ordered by sequence number, and decoded only
-// when the output device asks for samples. Keeping them encoded until that
-// moment is what makes concealment work: a hole in the sequence can be filled
-// with Opus's own loss concealment, or — when the following packet has already
-// arrived — with the in-band FEC copy it carries, which is real audio rather
-// than an approximation.
-//
-// How long packets wait is decided by the shared MediaClock, so this stream
-// lands on the same playout timeline as everything else from that peer. When
-// the amount buffered drifts away from that target, the difference is taken
-// out by time-stretching rather than by dropping or repeating whole frames.
 class AudioReceiver {
 public:
     AudioReceiver(std::shared_ptr<avsync::MediaClock> clock,
         int channels = 1,
-        int sample_rate = opus::kSampleRate);
+        int sample_rate = opus::kSampleRate,
+        const utils::TimeSource& time = utils::system_time_source());
     ~AudioReceiver();
 
     AudioReceiver(const AudioReceiver&) = delete;
     AudioReceiver& operator=(const AudioReceiver&) = delete;
 
-    // Network thread.
-    void push_packet(utils::vector_view<const uint8_t> data);
+    void push_packet(std::span<const uint8_t> data);
 
-    // Audio callback. Writes exactly `frames` mono samples, padding with
-    // silence if the stream cannot supply them. Returns the number of real
-    // (non-padded) samples, for diagnostics only.
     size_t read(float* out, size_t frames);
 
     void set_volume(float v) { volume_.store(v); }
@@ -141,37 +121,31 @@ public:
         uint64_t decode_errors = 0;
         uint64_t stretch_count = 0; // time-scale corrections applied
         uint64_t resync_count = 0; // playout position re-established
+        // Sample-level totals. Rates taken from these are what NetEq reports as
+        // expand_rate / accelerate_rate / preemptive_rate; the event counts
+        // above cannot distinguish one long stall from many short ones.
+        uint64_t total_samples_out = 0;
+        uint64_t conceal_samples = 0;
+        uint64_t fec_samples = 0;
+        uint64_t silence_samples = 0;
+        uint64_t stretch_in_samples = 0;
+        uint64_t stretch_out_samples = 0;
         int64_t target_delay_ms = 0;
         int64_t actual_delay_ms = 0;
         int64_t p50_delay_ms = -1;
         int64_t p95_delay_ms = -1;
         int64_t p99_delay_ms = -1;
         uint64_t delay_samples = 0;
-        // Sender timestamp of the audio about to be played. Directly
-        // comparable with a video frame's sender_ts_us from the same peer,
-        // which is what makes A/V alignment measurable rather than assumed.
         int64_t playout_ts_us = 0;
     };
     Stats stats() const;
 
 private:
-    // One packet, stored whole so the network thread never allocates. Sized
-    // for stereo Opus at the highest bitrate this app configures; anything
-    // larger is counted and dropped rather than silently truncated.
     static constexpr size_t kMaxStoredPacket = 512;
-    // ~2.5 s of reordering room at 20 ms per packet.
     static constexpr size_t kBufferCapacity = 128;
-    // Room for the two frames a time-scale correction consumes plus the pitch
-    // period it may insert.
     static constexpr size_t kStageCapacity = 4096;
-    // Only has to absorb the mismatch between Opus frames and the device
-    // period; the playout delay itself is held upstream as encoded packets.
     static constexpr size_t kRingCapacity = 16384;
-    // ~0.5 s. Past this the peer has stopped sending rather than lost packets,
-    // and further concealment is invention.
     static constexpr int kMaxConsecutiveConceals = 25;
-    // Ceiling on saved-up time-stretch allowance, so a long quiet stretch
-    // cannot be spent all at once.
     static constexpr int64_t kMaxStretchBudgetUs = 30'000;
 
     struct Packet {
@@ -181,33 +155,22 @@ private:
         std::array<uint8_t, kMaxStoredPacket> data { };
     };
 
-    // Produces one more span of audio into stage_. False if nothing is
-    // available or the stream has not reached its playout deadline yet.
     bool playout_step();
-    // Decodes (or conceals) the packet at the cursor into `dst`, advancing
-    // the read cursor by exactly one frame.
     bool decode_into(std::vector<float>& dst, int64_t* sender_ts_us = nullptr);
-    // True when the packet at the read cursor has actually arrived, as opposed
-    // to being missing and about to be concealed.
     bool next_packet_ready() const;
     bool blocked_by_video(int64_t sender_ts_us) const;
     void refill_stretch_budget(int64_t now);
 
     std::shared_ptr<avsync::MediaClock> clock_;
+    const utils::TimeSource* time_;
 
-    // Guards buffer_ between the network thread and the audio callback. The
-    // critical section is a memcpy of at most kMaxStoredPacket bytes plus a
-    // few bitmask operations, so spinning is cheaper than a futex round trip —
-    // and unlike the previous try-lock, a contended callback no longer
-    // silently emits a hole in the audio.
     mutable utils::SpinLock buffer_lock_;
     utils::ReorderBuffer<Packet, kBufferCapacity> buffer_;
 
     OpusDecode decoder_;
     Wsola wsola_;
-    PcmRing ring_;
+    boost::circular_buffer<float> ring_;
 
-    // Audio-callback state.
     bool primed_ = false;
     bool pending_decoder_reset_ = false;
     int64_t next_ts_us_ = 0; // sender timestamp about to be played
@@ -249,6 +212,12 @@ private:
     utils::Counter decode_error_count_;
     utils::Counter stretch_count_;
     utils::Counter resync_count_;
+    utils::Counter total_samples_out_;
+    utils::Counter conceal_samples_;
+    utils::Counter fec_samples_;
+    utils::Counter silence_samples_;
+    utils::Counter stretch_in_samples_;
+    utils::Counter stretch_out_samples_;
 
     static std::atomic<uint64_t> next_id_;
 };

@@ -6,13 +6,8 @@
 
 namespace {
 
-// Crossfade length. Long enough that a splice is inaudible, short enough that
-// the two halves are still correlated.
 constexpr int kOverlapMs = 5;
 
-// Human pitch, give or take. Searching outside this range finds matches that
-// are technically better correlated but are not periods, and splicing there
-// changes the perceived rhythm.
 constexpr int kMinPitchHz = 60;
 constexpr int kMaxPitchHz = 400;
 
@@ -56,8 +51,6 @@ size_t Wsola::search(const float* in,
         }
 
         const float denom = std::sqrt(ref_energy * cand_energy);
-        // Near-silence has no meaningful period; treat every lag as equally
-        // good rather than letting numerical noise pick one.
         const float score = denom > 1e-12f ? dot / denom : 0.0f;
         if (score > best_score) {
             best_score = score;
@@ -75,12 +68,6 @@ size_t Wsola::best_lag(const float* in, const size_t frames) const
         return min_lag_;
     }
 
-    // Two passes. A full-resolution sweep of every lag against every sample
-    // costs around 160k multiply-adds, which is a real spike to take inside an
-    // audio callback. The coarse pass narrows the answer at a fraction of the
-    // cost, and the fine pass recovers the exact splice point — which is the
-    // part that has to be right, since a lag off by a sample or two is what
-    // turns an inaudible edit into a click.
     const size_t coarse = search(in, min_lag_, last_lag, kCoarseLagStep, kCoarseDecim);
 
     const size_t lo = coarse > min_lag_ + kCoarseLagStep ? coarse - kCoarseLagStep : min_lag_;
@@ -98,8 +85,6 @@ size_t Wsola::compress(const float* in, const size_t frames, float* out) const
     const size_t ov = overlap_;
     const size_t lag = best_lag(in, frames);
 
-    // Fade from the head of the input into the point one period later, then
-    // continue from there. The period in between is what disappears.
     for (size_t i = 0; i < ov; ++i) {
         const float w = static_cast<float>(i) / static_cast<float>(ov);
         for (size_t c = 0; c < ch; ++c) {

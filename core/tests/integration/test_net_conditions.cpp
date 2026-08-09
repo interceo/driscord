@@ -17,6 +17,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <thread>
 #include <vector>
@@ -218,8 +219,7 @@ TEST(NetConditionsStandalone, JitterBufferAdaptation_UnderVariableDelay)
     auto wrapped = cond.wrap([&receiver](const std::string& /*peer*/,
                                  const uint8_t* data,
                                  size_t len) {
-        receiver.push_packet(
-            utils::vector_view<const uint8_t>(const_cast<uint8_t*>(data), len));
+        receiver.push_packet(std::span<const uint8_t>(data, len));
     });
 
     // Build a helper that emits synthetic AudioHeader + zeroed payload.

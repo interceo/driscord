@@ -13,8 +13,30 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <span>
 
 using namespace utils;
+
+namespace {
+
+// The ring holds only the mismatch between an Opus frame and the device
+// period, so both directions are short bulk moves over a boost::circular_buffer.
+size_t ring_write(boost::circular_buffer<float>& ring, const float* src, size_t n)
+{
+    n = std::min(n, ring.reserve());
+    ring.insert(ring.end(), src, src + n);
+    return n;
+}
+
+size_t ring_read(boost::circular_buffer<float>& ring, float* dst, size_t n)
+{
+    n = std::min(n, ring.size());
+    std::copy_n(ring.begin(), n, dst);
+    ring.erase_begin(n);
+    return n;
+}
+
+} // namespace
 
 AudioSender::AudioSender() = default;
 AudioSender::~AudioSender()
@@ -211,8 +233,10 @@ std::atomic<uint64_t> AudioReceiver::next_id_ = 0;
 
 AudioReceiver::AudioReceiver(std::shared_ptr<avsync::MediaClock> clock,
     const int channels,
-    const int sample_rate)
+    const int sample_rate,
+    const utils::TimeSource& time)
     : clock_(std::move(clock))
+    , time_(&time)
     , wsola_(sample_rate, 1)
     , ring_(kRingCapacity)
     , channels_(std::max(1, channels))
@@ -231,7 +255,7 @@ AudioReceiver::~AudioReceiver() = default;
 
 // --- network thread ---
 
-void AudioReceiver::push_packet(const utils::vector_view<const uint8_t> data)
+void AudioReceiver::push_packet(const std::span<const uint8_t> data)
 {
     const auto ah = protocol::AudioHeader::deserialize({ data.data(), data.size() });
     if (!ah) {
@@ -254,7 +278,7 @@ void AudioReceiver::push_packet(const utils::vector_view<const uint8_t> data)
     }
 
     clock_->observe(avsync::MediaClock::Stream::Audio, ah->sender_ts_us,
-        utils::MonoClock::now_us());
+        time_->now_us());
 
     Packet pkt;
     pkt.len = static_cast<uint16_t>(opus_len);
@@ -285,15 +309,17 @@ size_t AudioReceiver::read(float* out, const size_t frames)
 
     // A step can emit two frames plus an inserted pitch period, so stop
     // pulling once there may not be room for another one.
-    while (ring_.size() < frames && ring_.space() >= kStageCapacity) {
+    while (ring_.size() < frames && ring_.reserve() >= kStageCapacity) {
         if (!playout_step()) {
             break;
         }
     }
 
-    const size_t got = ring_.read(out, frames);
+    const size_t got = ring_read(ring_, out, frames);
+    total_samples_out_.inc(frames);
     if (got < frames) {
         std::fill(out + got, out + frames, 0.0f);
+        silence_samples_.inc(frames - got);
         if (primed_) {
             underrun_count_.inc();
         }
@@ -303,7 +329,7 @@ size_t AudioReceiver::read(float* out, const size_t frames)
 
 bool AudioReceiver::playout_step()
 {
-    const int64_t now = utils::MonoClock::now_us();
+    const int64_t now = time_->now_us();
 
     if (!primed_) {
         // Hold the stream back until its first packet is actually due. This is
@@ -430,9 +456,11 @@ bool AudioReceiver::playout_step()
                                           - static_cast<int64_t>(held_.size()))
                     * -1'000'000 / sample_rate_;
                 stretch_count_.inc();
+                stretch_in_samples_.inc(held_.size());
+                stretch_out_samples_.inc(emitted);
                 clock_->set_stream_playout_ts(
                     avsync::MediaClock::Stream::Audio, held_ts_us_);
-                ring_.write(scratch_.data(), emitted);
+                ring_write(ring_, scratch_.data(), emitted);
                 corrected = true;
             }
             held_.swap(pending_); // keep the look-ahead frame for the next step
@@ -443,7 +471,7 @@ bool AudioReceiver::playout_step()
     if (!corrected) {
         clock_->set_stream_playout_ts(
             avsync::MediaClock::Stream::Audio, held_ts_us_);
-        ring_.write(held_.data(), held_.size());
+        ring_write(ring_, held_.data(), held_.size());
         have_held_ = false;
         held_ts_us_ = 0;
     }
@@ -557,6 +585,7 @@ bool AudioReceiver::decode_into(std::vector<float>& dst, int64_t* sender_ts_us)
             decode_buf_.data(), opus::kFrameSize);
         if (samples > 0) {
             fec_count_.inc();
+            fec_samples_.inc(static_cast<uint64_t>(samples));
         }
         [[fallthrough]];
     case Action::Conceal:
@@ -566,6 +595,7 @@ bool AudioReceiver::decode_into(std::vector<float>& dst, int64_t* sender_ts_us)
                 return false;
             }
             conceal_count_.inc();
+            conceal_samples_.inc(static_cast<uint64_t>(samples));
         }
         ++consecutive_conceals_;
         break;
@@ -620,6 +650,12 @@ void AudioReceiver::reset()
     decode_error_count_.reset();
     stretch_count_.reset();
     resync_count_.reset();
+    total_samples_out_.reset();
+    conceal_samples_.reset();
+    fec_samples_.reset();
+    silence_samples_.reset();
+    stretch_in_samples_.reset();
+    stretch_out_samples_.reset();
 }
 
 AudioReceiver::Stats AudioReceiver::stats() const
@@ -645,6 +681,12 @@ AudioReceiver::Stats AudioReceiver::stats() const
         .decode_errors = decode_error_count_.load(),
         .stretch_count = stretch_count_.load(),
         .resync_count = resync_count_.load(),
+        .total_samples_out = total_samples_out_.load(),
+        .conceal_samples = conceal_samples_.load(),
+        .fec_samples = fec_samples_.load(),
+        .silence_samples = silence_samples_.load(),
+        .stretch_in_samples = stretch_in_samples_.load(),
+        .stretch_out_samples = stretch_out_samples_.load(),
         .target_delay_ms = clock_->target_delay_us() / 1000,
         .actual_delay_ms = actual_delay_us_ / 1000,
         .p50_delay_ms = p50 >= 0 ? p50 / 1000 : -1,

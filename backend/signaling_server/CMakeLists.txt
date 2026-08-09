@@ -8,8 +8,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)
 
-find_package(Boost 1.89 REQUIRED)
-
 add_library(driscord_signaling STATIC
     src/ws_server.cpp
 )

@@ -7,6 +7,7 @@
 
 #include <cstring>
 #include <optional>
+#include <span>
 
 namespace {
 
@@ -80,10 +81,6 @@ void VideoSender::push_frame(ScreenCapture::Frame& frame)
     frame.capture_ts_us = utils::MonoClock::now_us();
     {
         std::scoped_lock lk(frame_mutex_);
-        // Swap rather than move: the caller gets whatever buffer was sitting
-        // here and refills it, so a steady capture allocates nothing after the
-        // first few frames. Only the newest frame is kept — the encoder is
-        // slower than the capture, and a stale frame is worth nothing.
         std::swap(pending_frame_, frame);
         frame_ready_ = true;
     }
@@ -145,9 +142,11 @@ void VideoSender::encode_loop()
 }
 
 VideoReceiver::VideoReceiver(std::string peer_id,
-    std::shared_ptr<avsync::MediaClock> clock)
+    std::shared_ptr<avsync::MediaClock> clock,
+    const utils::TimeSource& time)
     : peer_id_(std::move(peer_id))
     , clock_(std::move(clock))
+    , time_(&time)
 {
     // Decoder is lazy-initialised on the first packet so we know the codec.
 }
@@ -160,7 +159,7 @@ void VideoReceiver::set_keyframe_callback(std::function<void()> fn)
 }
 
 void VideoReceiver::push_video_packet(
-    const utils::vector_view<const uint8_t> data,
+    const std::span<const uint8_t> data,
     uint64_t frame_id)
 {
     const auto vh = protocol::VideoHeader::deserialize({ data.data(), data.size() });
@@ -190,25 +189,21 @@ void VideoReceiver::push_video_packet(
 
     packets_received_.inc();
 
-    // The frame is complete only now, after every chunk of it has been
-    // reassembled — which is exactly the delay that makes video lag audio, and
-    // exactly what the shared clock has to measure.
-    clock_->observe(avsync::MediaClock::Stream::Video, vh->sender_ts_us,
-        utils::MonoClock::now_us());
+    const int64_t now = time_->now_us();
+    clock_->observe(avsync::MediaClock::Stream::Video, vh->sender_ts_us, now);
 
-    const auto now = utils::Now();
     {
         std::scoped_lock lk(mutex_);
-        last_packet_ = now;
+        last_packet_us_ = now;
     }
 
     bytes_since_calc_ += data.size();
-    const auto elapsed_ms = utils::ElapsedMs(last_calc_, now);
+    const int64_t elapsed_ms = (now - last_calc_us_) / 1000;
     if (elapsed_ms >= kBitrateWindowMs) {
         measured_kbps_.store(static_cast<int>(bytes_since_calc_ * 8 / elapsed_ms),
             std::memory_order_relaxed);
         bytes_since_calc_ = 0;
-        last_calc_ = now;
+        last_calc_us_ = now;
     }
 
     const uint8_t* encoded = data.data() + protocol::VideoHeader::kWireSize;
@@ -222,13 +217,12 @@ void VideoReceiver::push_video_packet(
         recycle(std::move(rgba));
         ++decode_failures_;
         total_decode_failures_.inc();
-        const auto kf_now = utils::Now();
         if (on_keyframe_needed_
             && (decode_failures_ == 1
-                || utils::ElapsedMs(last_keyframe_req_, kf_now) >= kKeyframeRetryMs)) {
+                || (now - last_keyframe_req_us_) / 1000 >= kKeyframeRetryMs)) {
             keyframe_requests_.inc();
             on_keyframe_needed_();
-            last_keyframe_req_ = kf_now;
+            last_keyframe_req_us_ = now;
         }
         return;
     }
@@ -277,7 +271,7 @@ void VideoReceiver::recycle_locked(std::vector<uint8_t>&& buf)
 
 void VideoReceiver::update(const std::function<void(const Frame&)>& on_frame)
 {
-    const int64_t now = utils::MonoClock::now_us();
+    const int64_t now = time_->now_us();
     const bool clock_ready = clock_->ready();
 
     {
@@ -355,7 +349,8 @@ VideoReceiver::Stats VideoReceiver::video_stats() const
 bool VideoReceiver::active() const
 {
     std::scoped_lock lk(mutex_);
-    return utils::ElapsedMs(last_packet_) / 1000 <= kStaleSeconds;
+    return last_packet_us_ >= 0
+        && (time_->now_us() - last_packet_us_) / 1'000'000 <= kStaleSeconds;
 }
 
 void VideoReceiver::reset()
@@ -364,13 +359,13 @@ void VideoReceiver::reset()
         std::scoped_lock lk(mutex_);
         buffer_.reset();
         current_frame_ = Frame { };
-        last_packet_ = utils::Timestamp { };
+        last_packet_us_ = -1;
         decode_failures_ = 0;
-        last_keyframe_req_ = utils::Timestamp { };
+        last_keyframe_req_us_ = -1;
     }
     measured_kbps_.store(0, std::memory_order_relaxed);
     bytes_since_calc_ = 0;
-    last_calc_ = utils::Now();
+    last_calc_us_ = time_->now_us();
     packets_received_.reset();
     drop_count_.reset();
     late_count_.reset();
