@@ -7,5 +7,9 @@ backend/api/__pycache__
 backend/api/.pytest_cache
 client-qt
 third_party
+!third_party/
+third_party/*
+!third_party/patches/
+!third_party/patches/*.patch
 **/__pycache__
 **/*.pyc
