@@ -24,8 +24,9 @@
 | Docker | 29.6.2, overlayfs, data-root на `/var/lib/docker` (то есть на `/`) |
 | k3s | установлен и работает (там уже крутятся API и signaling) |
 | Qt | системный **6.11.1** (только `qt6-base`), CI использует **6.7.3** |
-| Нет | `gh`, `podman`, `wine`, `aqt`, libvirt/qemu, actions-runner |
-| Репозиторий | `github.com/interceo/driscord`, публичный, ветка `main` |
+| Нет | `podman`, `wine`, `aqt`, libvirt/qemu, forgejo-runner |
+| Форж | Forgejo 9 в k3s, `git.homelab.ceooptimizator.tech`, регистрация закрыта |
+| Репозиторий | сейчас `github.com/interceo/driscord` (публичный); переезжает в Forgejo, GitHub остаётся зеркалом |
 | WebRTC pin | `956083e9…`, depot_tools pin `921e61b3…` |
 
 ---
@@ -96,30 +97,56 @@
 
 ## 4. Автосборка при обновлении `main`
 
-**Self-hosted GitHub Actions runner** — workflow'ы уже написаны под это:
-`runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-24.04' }}`, достаточно завести
-переменную репозитория.
+**Решение: Forgejo — основной git, GitHub — push-зеркало.** В кластере уже
+работает `forgejo:9` на `git.homelab.ceooptimizator.tech`
+(`/homelab/apps/forgejo`), регистрация закрыта
+(`FORGEJO__service__DISABLE_REGISTRATION=true`), есть PVC и ingress. Сборка
+запускается Forgejo Actions на локальном раннере.
 
-Установка:
+Это снимает то, что было главным риском при GitHub + self-hosted runner: код на
+сборочной машине исполняют только доверенные аккаунты вашего форжа, а не
+произвольный автор PR из форка публичного репозитория. Разделение
+hosted/self-hosted больше не нужно.
 
-- отдельный пользователь `driscord-ci` **без sudo**, HOME на
-  `/mnt/raid1/ci/driscord-ci`, work-dir `/mnt/raid1/ci/_work`;
-- `actions/runner`, регистрация с лейблами `self-hosted,linux,x64,driscord-builder`,
-  systemd-юнит через `svc.sh install driscord-ci`;
-- переменная репозитория `RUNNER_LABEL=driscord-builder`.
+**Что нужно сделать:**
 
-**Безопасность (репозиторий публичный — это главное ограничение):**
+- в конфиге Forgejo убедиться, что `[actions] ENABLED` включён (в 9-й версии
+  по умолчанию да), и задать `DEFAULT_ACTIONS_URL` — от него зависит, откуда
+  тянутся `uses:`-действия;
+- `forgejo-runner` (форк `act_runner`) как systemd-юнит на этой машине:
+  отдельный пользователь `driscord-ci` **без sudo**, HOME и work-dir на
+  `/mnt/raid1/ci`, регистрация токеном из настроек репозитория/организации,
+  лейбл `driscord-builder:host`;
+- **host-режим, а не контейнерный**: джобам нужен и сам docker (для
+  Linux-релизного образа), и постоянные кэши на хосте. Проще вызывать
+  `docker run` из host-джобы, чем городить docker-in-docker внутри act_runner;
+- workflow'ы кладём в `.forgejo/workflows/`. Forgejo читает и `.github/workflows`,
+  поэтому чтобы одни и те же файлы не запускались дважды и не расходились,
+  локальный пайплайн живёт только в `.forgejo/`;
+- push-зеркало Forgejo → GitHub (Settings → Repository → Mirror settings, PAT с
+  `contents:write`), на зеркале **выключить Actions**, иначе получим второй
+  прогон и красные крестики от джоб, которые там уже не нужны.
 
-- self-hosted раннер **никогда** не исполняет workflow из форка. Все
-  `pull_request`-джобы остаются на GitHub-hosted; на self-hosted переезжают
-  только `push:main`, `workflow_dispatch` и теги;
-- в настройках репозитория: *Fork pull request workflows → Require approval for
-  all external contributors*;
-- у пользователя раннера нет доступа к `~/.kube`, ключу sops и к рабочему клону
-  `/mnt/raid1/homelab/repos/driscord` (деплой остаётся ручным);
-- секреты (`DRISCORD_UPDATE_TOKEN`) видны только релизной джобе на push в main.
+**Минимум зависимостей от marketplace-действий.** В host-режиме `actions/checkout`
+заменяется обычным `git`, `actions/cache` не нужен вовсе (кэши — постоянные
+каталоги на raid1), Qt приезжает из образа/VM, а не из `install-qt-action`.
+Тогда пайплайн не зависит от того, проксирует ли форж GitHub-действия.
 
-**Кэши на раннере** (переменные окружения уже поддержаны скриптом):
+**Что остаётся верным независимо от форжа:**
+
+- у раннера есть docker-сокет, а это фактически root на машине, где живёт k3s.
+  Пользователь раннера не должен иметь доступа к `~/.kube`, ключу sops и
+  рабочему клону `/mnt/raid1/homelab/repos/driscord`; деплой остаётся ручным
+  `scripts/deploy.sh`;
+- секрет `DRISCORD_UPDATE_TOKEN` — только в релизной джобе;
+- Forgejo становится единственным источником истины: бэкап его БД и PVC теперь
+  обязателен. Зеркало на GitHub спасает код, но не issues/PR/релизы.
+
+**Переезд без окна простоя:** GitHub Actions в текущем виде рабочие. Держим их,
+пока пайплайн в Forgejo не станет зелёным, и только потом выключаем на зеркале.
+
+**Кэши на раннере** (переменные окружения уже поддержаны
+`scripts/build_google_webrtc.sh`):
 
 ```
 DRISCORD_DEPOT_TOOLS_DIR=/mnt/raid1/ci/cache/depot_tools
@@ -128,7 +155,8 @@ DRISCORD_WEBRTC_OUT_DIR=/mnt/raid1/ci/cache/google-webrtc/src/out/driscord-relea
 ```
 
 Чекаут переживает джобы, поэтому пересборка WebRTC случается только при смене
-пина — на hosted-раннере это стоило бы 35 ГиБ кэша и десятков минут.
+пина — на hosted-раннере это стоило бы 35 ГиБ кэша и десятков минут. Это же
+главный выигрыш от переезда на свой форж: кэш перестаёт быть проблемой.
 
 Плюс `ccache` для CMake-части и предварительно распакованный Qt в
 `/mnt/raid1/ci/cache/qt/6.7.3`.
@@ -147,10 +175,13 @@ DRISCORD_WEBRTC_OUT_DIR=/mnt/raid1/ci/cache/google-webrtc/src/out/driscord-relea
   `v0.4.0`, а `v` срезается при публикации.
 - Релизная джоба на push в `main`:
   1. собирает Linux (контейнер) и Windows (VM);
-  2. `gh release` с обоими архивами;
-  3. `POST /updates/upload` c `Authorization: Bearer $DRISCORD_UPDATE_TOKEN` —
+  2. `POST /updates/upload` c `Authorization: Bearer $DRISCORD_UPDATE_TOKEN` —
      это тот самый admin-gated эндпоинт из прошлого этапа; аккаунту публикации
-     нужно один раз выставить `users.is_admin` в БД.
+     нужно один раз выставить `users.is_admin` в БД. **Это основной канал
+     доставки**: он наш, и клиент уже умеет `/updates/check`;
+  3. дополнительно — Forgejo Release через его API (обычный `curl`, без
+     marketplace-действий). GitHub Releases на зеркале не делаем: зеркало
+     синхронизирует только refs, релизы туда всё равно не уедут сами.
 - Клиент сейчас `/updates/check` не дёргает вообще — подключение апдейтера
   остаётся отдельным пунктом после того, как публикация заработает.
 
@@ -158,10 +189,13 @@ DRISCORD_WEBRTC_OUT_DIR=/mnt/raid1/ci/cache/google-webrtc/src/out/driscord-relea
 
 ## 6. Этапы
 
-**E1. Инфраструктура раннера (полдня).** Пользователь, каталоги на raid1,
-docker data-root, runner + systemd, `RUNNER_LABEL`, разделение workflow'ов
-`ci.yml` (hosted, PR) / `release.yml` (self-hosted, main). *Готово, когда*
-push в main запускает существующие джобы здесь, а PR из форка — нет.
+**E1. Форж и раннер (полдня–день).** Перенос основного репозитория в уже
+работающий Forgejo, push-зеркало на GitHub, пользователь `driscord-ci`, каталоги
+и кэши на raid1, перенос docker data-root, `forgejo-runner` как systemd-юнит с
+лейблом `driscord-builder`, `.forgejo/workflows/ci.yml` (сначала — только
+`--server --test` и `--api --test`, они быстрые и уже зелёные). *Готово, когда*
+push в `main` в Forgejo прогоняет серверные и API-тесты здесь, а на GitHub
+уезжает зеркало с выключенными Actions.
 
 **E2. Linux-релиз в контейнере (1–2 дня).** `ci/linux-release.Dockerfile`,
 сборка WebRTC внутри образа, tarball с Qt. *Готово, когда* архив запускается
@@ -202,8 +236,10 @@ E2 полезен сам по себе и разблокирует локаль�
 ## 7. Что поставить
 
 **Хост (Arch):** `libvirt qemu-full virt-install edk2-ovmf dnsmasq iptables-nft`
-(VM), `github-cli`, `ccache`, `python-pipx` + `pipx install aqtinstall`,
-`libicu` (зависимость раннера). Docker уже есть.
+(VM), `ccache`, `python-pipx` + `pipx install aqtinstall`, бинарь
+`forgejo-runner` (релиз с code.forgejo.org, в репозиториях Arch его нет).
+Docker уже есть. `github-cli` больше не нужен — релизы уходят в наш `/updates`
+и в Forgejo через обычный `curl`.
 
 **Контейнер Linux-релиза:** `debian:12` + apt.llvm.org clang-19/lld-19, `cmake`,
 `ninja-build`, `git`, `python3`, `pkg-config`, `libgnutls28-dev`, `libnss3-dev`,
@@ -238,23 +274,32 @@ msvc2019_64, OpenSSH Server.
   допущением.
 - **Диск**: чекаут WebRTC ×2 платформы + образы + VM ≈ 400–500 ГБ на raid1
   (свободно 1.6 ТБ, запас есть, но docker data-root перенести обязательно).
-- **Публичный репозиторий + self-hosted runner** — единственная по-настоящему
-  опасная часть. Если разделение hosted/self-hosted не сделать первым шагом,
-  любой PR получает выполнение кода на этой машине.
+- **Forgejo становится single point of failure**: код, CI и релизы в одном
+  сервисе на этой же машине. Обязательны бэкап БД и PVC форжа и рабочее
+  push-зеркало на GitHub как off-site копия кода.
+- **Раннер с docker-сокетом = root на хосте с k3s.** Форж закрывает вопрос
+  «кто может запустить сборку», но не «что сборка может сделать с машиной».
+  Отдельный пользователь и отсутствие доступа к kubeconfig/sops — минимум;
+  вынос раннера в отдельную VM — вариант, если захочется строже.
+- Теряем бесплатные GitHub-hosted раннеры: любая сборка теперь занимает эту
+  машину. При одновременной сборке WebRTC и работе k3s это заметно, поэтому
+  джобам стоит задать `nice`/лимит параллелизма.
 
 ---
 
 ## 10. Verification
 
-1. `push` в `main` → джоба стартует на `driscord-builder`; PR из форка — на
-   ubuntu-24.04 и без секретов.
+1. `push` в `main` в Forgejo → джоба стартует на `driscord-builder` и проходит
+   серверные и API-тесты; на GitHub приезжает то же дерево, Actions там
+   выключены; секреты видны только релизной джобе.
 2. `docker run --rm -v $PWD/dist:/d ubuntu:22.04 /d/driscord_client --version`
    и то же на `debian:12` — запускается, `ldd` без «not found».
 3. Пересборка на неизменном пине WebRTC не трогает `.cache` и укладывается в
    минуты (проверка, что кэш действительно переиспользуется).
 4. Windows-zip на чистой Windows 11: вход, голос в обе стороны, демонстрация
    экрана со звуком против нашего SFU.
-5. Тег `v0.4.0` → GitHub Release с двумя архивами; `GET /updates/check?version=0.3.0&platform=linux`
-   отдаёт `update_available: true`.
+5. Тег `v0.4.0` → оба архива опубликованы через `/updates/upload`, и
+   `GET /updates/check?version=0.3.0&platform=linux` отдаёт
+   `update_available: true`; та же пара архивов приложена к Forgejo Release.
 6. `./scripts/build.sh --server --test` и `--api --test` продолжают проходить на
    раннере (это уже настроено в CI прошлым этапом).
