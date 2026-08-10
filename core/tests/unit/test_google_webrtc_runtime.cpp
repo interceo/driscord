@@ -327,13 +327,12 @@ TEST(GoogleWebRtcScreenSession, DesktopCaptureProducesPreviewFrame)
 
     driscord::media::GoogleWebRtcRuntime runtime(
         driscord::media::GoogleWebRtcRuntimeConfig {
-            .injected_audio_device =
-                driscord::media::InjectedAudioDeviceConfig {
-                    .sample_rate_hz = 48'000,
-                    .channels = 2,
-                    .max_buffered_frames = 500,
-                    .on_rendered_audio = { },
-                },
+            .injected_audio_device = driscord::media::InjectedAudioDeviceConfig {
+                .sample_rate_hz = 48'000,
+                .channels = 2,
+                .max_buffered_frames = 500,
+                .on_rendered_audio = { },
+            },
         });
     auto preview = std::make_shared<PreviewResult>();
     driscord::media::ScreenSessionCallbacks callbacks;

@@ -34,11 +34,12 @@ public:
     // PA sinks (playback devices) whose monitors can be captured for loopback.
     static std::vector<AudioCaptureTarget> list_sinks();
 
-    // PA sources that are physical inputs (microphones), excluding sink monitors.
-    static std::vector<AudioCaptureTarget> list_sources();
-
     virtual ~SystemAudioCapture() = default;
-    virtual bool start(AudioCallback cb) = 0;
+    // `target_id` selects which playback device's monitor is captured; empty
+    // means the current default sink. Capturing the monitor of the device the
+    // user listens through also captures everyone else in the call, so the
+    // choice belongs to the user.
+    virtual bool start(const std::string& target_id, AudioCallback cb) = 0;
     virtual void stop() = 0;
     virtual bool running() const = 0;
 };

@@ -47,7 +47,9 @@ DriscordCore::DriscordCore(std::vector<IceServer> ice_servers)
         }
     });
     transport.on_streaming_stopped([this](const std::string& id) {
-        media_->remove_peer(id);
+        // Not remove_peer: the peer is still in the room, and their volume and
+        // mute are the local user's settings for that person.
+        media_->peer_stopped_streaming(id);
         std::scoped_lock lock(cb_mtx_);
         if (on_streaming_stopped_cb_) {
             on_streaming_stopped_cb_(id);
@@ -168,18 +170,6 @@ void DriscordCore::emit_frame_removed(const std::string& peer)
     }
 }
 
-std::string DriscordCore::peers_json() const
-{
-    json result = json::array();
-    for (const auto& peer : transport.peers()) {
-        result.push_back({
-            { "id", peer.id },
-            { "username", transport.peer_username(peer.id) },
-        });
-    }
-    return result.dump();
-}
-
 void DriscordCore::voice_start()
 {
     media_->start_voice();
@@ -218,23 +208,6 @@ void DriscordCore::audio_set_master_volume(float volume)
 float DriscordCore::audio_master_volume() const
 {
     return media_->master_volume();
-}
-
-float DriscordCore::audio_input_level() const
-{
-    return 0.0f;
-}
-
-float DriscordCore::audio_output_level() const
-{
-    return 0.0f;
-}
-
-void DriscordCore::audio_set_noise_gate(float)
-{
-    // Google WebRTC's native audio-processing module owns voice detection,
-    // noise suppression and gain control. A second amplitude gate would cut
-    // already-processed speech and is intentionally not reintroduced.
 }
 
 std::string DriscordCore::audio_input_devices_json() const
@@ -287,9 +260,9 @@ bool DriscordCore::audio_peer_muted(const std::string& peer) const
     return media_->peer_muted(peer);
 }
 
-bool DriscordCore::video_watching() const
+std::string DriscordCore::voice_stats_json() const
 {
-    return media_->watching();
+    return media_->voice_stats_json();
 }
 
 std::string DriscordCore::capture_audio_list_targets_json() const
@@ -320,10 +293,11 @@ bool DriscordCore::screen_start_sharing(const std::string& target_json,
     int max_width,
     int max_height,
     int fps,
-    bool share_audio)
+    bool share_audio,
+    const std::string& audio_target)
 {
     return media_->start_sharing(
-        target_json, max_width, max_height, fps, share_audio);
+        target_json, max_width, max_height, fps, share_audio, audio_target);
 }
 
 void DriscordCore::screen_stop_sharing()

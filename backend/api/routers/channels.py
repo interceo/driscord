@@ -6,9 +6,18 @@ from dependencies import get_current_user, get_db
 from models.channel import Channel
 from models.server import Server, ServerMember
 from models.user import User
-from schemas.channel import ChannelCreate, ChannelResponse, ChannelUpdate
+from schemas.channel import (
+    ChannelAccessResponse,
+    ChannelCreate,
+    ChannelResponse,
+    ChannelUpdate,
+)
 
 router = APIRouter(prefix="/servers/{server_id}/channels", tags=["channels"])
+
+# Channels are also addressable without their server: the signaling server only
+# knows the channel id it received in the WebSocket path.
+access_router = APIRouter(prefix="/channels", tags=["channels"])
 
 
 async def _require_server_member(db: AsyncSession, server_id: int, user_id: int) -> Server:
@@ -35,6 +44,33 @@ async def _get_channel_in_server(db: AsyncSession, server_id: int, channel_id: i
     if not channel:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Channel not found")
     return channel
+
+
+@access_router.get("/{channel_id}/access", response_model=ChannelAccessResponse)
+async def check_channel_access(
+    channel_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Authorize a media session for one channel.
+
+    The signaling server terminates media but has no user database, so it asks
+    here whether the bearer of a token may join a channel and under which
+    name. A 401/403/404 is the SFU's signal to refuse the WebSocket.
+    """
+    result = await db.execute(select(Channel).where(Channel.id == channel_id))
+    channel = result.scalar_one_or_none()
+    if not channel:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Channel not found")
+
+    await _require_server_member(db, channel.server_id, current_user.id)
+    return ChannelAccessResponse(
+        channel_id=channel.id,
+        server_id=channel.server_id,
+        user_id=current_user.id,
+        username=current_user.username,
+        display_name=current_user.display_name,
+    )
 
 
 @router.post("/", response_model=ChannelResponse, status_code=status.HTTP_201_CREATED)

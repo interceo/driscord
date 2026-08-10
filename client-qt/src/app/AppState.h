@@ -33,19 +33,19 @@ class AppState : public QObject {
     // Audio
     Q_PROPERTY(bool muted READ muted NOTIFY audioStateChanged)
     Q_PROPERTY(bool deafened READ deafened NOTIFY audioStateChanged)
-    Q_PROPERTY(float inputLevel READ inputLevel NOTIFY audioLevelsChanged)
-    Q_PROPERTY(float outputLevel READ outputLevel NOTIFY audioLevelsChanged)
 
     // Screen sharing
     Q_PROPERTY(bool sharing READ sharing NOTIFY sharingChanged)
     Q_PROPERTY(QVariantList streamingPeers READ streamingPeers NOTIFY streamingPeersChanged)
     Q_PROPERTY(QStringList watchedPeerIds READ watchedPeerIds NOTIFY watchedStreamsChanged)
 
-    // Network / call stats (polled while connected)
+    // Voice/transport stats (polled while connected). RTT is measured to the
+    // SFU: there is no direct peer connection to measure against.
     Q_PROPERTY(int avgRttMs READ avgRttMs NOTIFY connectionStatsChanged)
     Q_PROPERTY(int lastRttMs READ lastRttMs NOTIFY connectionStatsChanged)
     Q_PROPERTY(QVariantList rttHistory READ rttHistory NOTIFY connectionStatsChanged)
-    Q_PROPERTY(QString primaryPeerId READ primaryPeerId NOTIFY connectionStatsChanged)
+    Q_PROPERTY(int packetsLost READ packetsLost NOTIFY connectionStatsChanged)
+    Q_PROPERTY(int remoteVoiceTracks READ remoteVoiceTracks NOTIFY connectionStatsChanged)
 
 public:
     explicit AppState(AuthManager* auth,
@@ -70,14 +70,13 @@ public:
     QString localId() const;
     bool muted() const;
     bool deafened() const;
-    float inputLevel() const;
-    float outputLevel() const;
     bool sharing() const;
     QVariantList streamingPeers() const { return m_streamingPeers; }
     int avgRttMs() const { return m_avgRttMs; }
     int lastRttMs() const { return m_lastRttMs; }
     QVariantList rttHistory() const { return m_rttHistory; }
-    QString primaryPeerId() const { return m_primaryPeerId; }
+    int packetsLost() const { return m_packetsLost; }
+    int remoteVoiceTracks() const { return m_remoteVoiceTracks; }
     QStringList watchedPeerIds() const { return m_watchedPeerIds; }
 
     void setApiError(const QString& e);
@@ -89,7 +88,12 @@ public:
     Q_INVOKABLE void setMuted(bool m);
     Q_INVOKABLE void setDeafened(bool d);
     Q_INVOKABLE void setMasterVolume(float v);
-    Q_INVOKABLE void startSharing(const QString& targetJson, int maxW, int maxH, int fps, bool audio);
+    Q_INVOKABLE void startSharing(const QString& targetJson,
+        int maxW,
+        int maxH,
+        int fps,
+        bool audio,
+        const QString& audioTarget = { });
     Q_INVOKABLE void stopSharing();
     Q_INVOKABLE void joinStream(const QString& peerId);
     Q_INVOKABLE void leaveStream(const QString& peerId);
@@ -118,7 +122,6 @@ signals:
     void peersChanged();
     void connectionChanged();
     void audioStateChanged();
-    void audioLevelsChanged();
     void sharingChanged();
     void streamingPeersChanged();
     void watchedStreamsChanged();
@@ -148,11 +151,11 @@ private:
     QVariantList m_streamingPeers;
 
     QString m_connectionState = QStringLiteral("disconnected"); // disconnected | connecting | connected
-    QTimer* m_levelTimer;
     QTimer* m_statsTimer = nullptr;
     int m_avgRttMs = -1;
     int m_lastRttMs = -1;
-    QString m_primaryPeerId;
+    int m_packetsLost = 0;
+    int m_remoteVoiceTracks = 0;
     QStringList m_watchedPeerIds;
     QVariantList m_rttHistory; // each entry: {"t": ms, "rtt": int}
     QString m_signalingUrl;

@@ -69,6 +69,15 @@ VoiceSessionStats parse_voice_stats(const webrtc::RTCStatsReport& report)
             .jitter_buffer_delay_seconds = inbound->jitter_buffer_delay.value_or(0.0),
         });
     }
+    for (const auto* pair :
+        report.GetStatsOfType<webrtc::RTCIceCandidatePairStats>()) {
+        if (!pair->current_round_trip_time.has_value()
+            || !pair->nominated.value_or(false)) {
+            continue;
+        }
+        result.round_trip_time_seconds = *pair->current_round_trip_time;
+        break;
+    }
     std::sort(result.inbound.begin(), result.inbound.end(),
         [](const VoiceInboundRtpStats& lhs, const VoiceInboundRtpStats& rhs) {
             return lhs.mid < rhs.mid;

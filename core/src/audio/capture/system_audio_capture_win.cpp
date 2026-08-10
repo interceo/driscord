@@ -87,12 +87,15 @@ class SystemAudioCaptureWin : public SystemAudioCapture {
 public:
     ~SystemAudioCaptureWin() override { stop(); }
 
-    bool start(AudioCallback cb) override
+    bool start(const std::string& target_id, AudioCallback cb) override
     {
         if (running_) {
             return true;
         }
 
+        // Loopback source selection is Linux-only so far; this backend
+        // always captures the default render endpoint.
+        (void)target_id;
         callback_ = std::move(cb);
 
         HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -358,11 +361,6 @@ bool SystemAudioCapture::available()
 // WASAPI loopback always captures the default render endpoint — no sink
 // selection is exposed to the caller on Windows.
 std::vector<AudioCaptureTarget> SystemAudioCapture::list_sinks()
-{
-    return { };
-}
-
-std::vector<AudioCaptureTarget> SystemAudioCapture::list_sources()
 {
     return { };
 }

@@ -12,141 +12,141 @@
 namespace driscord::media::detail {
 namespace {
 
-constexpr std::string_view kDefaultAudioDeviceId = "default";
+    constexpr std::string_view kDefaultAudioDeviceId = "default";
 
-struct EnumeratedAudioDevice {
-    AudioDeviceInfo info;
-    uint16_t index = 0;
-};
+    struct EnumeratedAudioDevice {
+        AudioDeviceInfo info;
+        uint16_t index = 0;
+    };
 
-std::string make_audio_device_id(
-    std::string_view guid, std::string_view name, size_t name_ordinal)
-{
-    if (!guid.empty()) {
-        return "guid:" + std::string(guid);
+    std::string make_audio_device_id(
+        std::string_view guid, std::string_view name, size_t name_ordinal)
+    {
+        if (!guid.empty()) {
+            return "guid:" + std::string(guid);
+        }
+        // The separator is deliberately part of the opaque ID. Consumers do not
+        // parse it; the ordinal only disambiguates equal display names.
+        return "name:" + std::string(name) + "#" + std::to_string(name_ordinal);
     }
-    // The separator is deliberately part of the opaque ID. Consumers do not
-    // parse it; the ordinal only disambiguates equal display names.
-    return "name:" + std::string(name) + "#" + std::to_string(name_ordinal);
-}
 
-bool ensure_initialized(webrtc::AudioDeviceModule& adm)
-{
-    return adm.Initialized() || adm.Init() == 0;
-}
+    bool ensure_initialized(webrtc::AudioDeviceModule& adm)
+    {
+        return adm.Initialized() || adm.Init() == 0;
+    }
 
-std::vector<EnumeratedAudioDevice> enumerate_audio_devices(
-    webrtc::AudioDeviceModule& adm, bool recording)
-{
-    std::vector<EnumeratedAudioDevice> result;
-    const int16_t count = recording ? adm.RecordingDevices()
-                                    : adm.PlayoutDevices();
-    if (count <= 0) {
+    std::vector<EnumeratedAudioDevice> enumerate_audio_devices(
+        webrtc::AudioDeviceModule& adm, bool recording)
+    {
+        std::vector<EnumeratedAudioDevice> result;
+        const int16_t count = recording ? adm.RecordingDevices()
+                                        : adm.PlayoutDevices();
+        if (count <= 0) {
+            return result;
+        }
+
+        result.reserve(static_cast<size_t>(count));
+        std::unordered_map<std::string, size_t> name_ordinals;
+        for (int index = 0; index < count; ++index) {
+            std::array<char, webrtc::kAdmMaxDeviceNameSize> name { };
+            std::array<char, webrtc::kAdmMaxGuidSize> guid { };
+            const int error = recording
+                ? adm.RecordingDeviceName(
+                      static_cast<uint16_t>(index), name.data(), guid.data())
+                : adm.PlayoutDeviceName(
+                      static_cast<uint16_t>(index), name.data(), guid.data());
+            if (error != 0) {
+                continue;
+            }
+
+            std::string display_name(name.data());
+            if (display_name.empty()) {
+                display_name = index == 0 ? "System default"
+                                          : "Unnamed audio device";
+            }
+            if (index == 0) {
+                result.push_back({
+                    .info = {
+                        .id = std::string(kDefaultAudioDeviceId),
+                        .name = display_name == "System default"
+                            ? display_name
+                            : "System default (" + display_name + ")",
+                    },
+                    .index = 0,
+                });
+                continue;
+            }
+
+            const size_t ordinal = name_ordinals[display_name]++;
+            result.push_back({
+                .info = {
+                    .id = make_audio_device_id(
+                        guid.data(), display_name, ordinal),
+                    .name = std::move(display_name),
+                },
+                .index = static_cast<uint16_t>(index),
+            });
+        }
         return result;
     }
 
-    result.reserve(static_cast<size_t>(count));
-    std::unordered_map<std::string, size_t> name_ordinals;
-    for (int index = 0; index < count; ++index) {
-        std::array<char, webrtc::kAdmMaxDeviceNameSize> name { };
-        std::array<char, webrtc::kAdmMaxGuidSize> guid { };
-        const int error = recording
-            ? adm.RecordingDeviceName(
-                  static_cast<uint16_t>(index), name.data(), guid.data())
-            : adm.PlayoutDeviceName(
-                  static_cast<uint16_t>(index), name.data(), guid.data());
-        if (error != 0) {
-            continue;
+    bool restart_on_device(webrtc::AudioDeviceModule& adm,
+        bool recording,
+        uint16_t index)
+    {
+        const bool was_active = recording ? adm.Recording() : adm.Playing();
+        const auto initialize_endpoint = [&] {
+            return (recording ? adm.InitMicrophone() : adm.InitSpeaker()) == 0;
+        };
+        const auto start_stream = [&] {
+            const int init_error = recording ? adm.InitRecording()
+                                             : adm.InitPlayout();
+            return init_error == 0
+                && (recording ? adm.StartRecording() : adm.StartPlayout()) == 0;
+        };
+        const auto restore_default = [&] {
+            (void)(recording ? adm.StopRecording() : adm.StopPlayout());
+            const int select_default = recording
+                ? adm.SetRecordingDevice(0)
+                : adm.SetPlayoutDevice(0);
+            return select_default == 0 && initialize_endpoint()
+                && (!was_active || start_stream());
+        };
+        if (was_active) {
+            const int stop_error = recording ? adm.StopRecording()
+                                             : adm.StopPlayout();
+            if (stop_error != 0) {
+                return false;
+            }
         }
 
-        std::string display_name(name.data());
-        if (display_name.empty()) {
-            display_name = index == 0 ? "System default"
-                                      : "Unnamed audio device";
-        }
-        if (index == 0) {
-            result.push_back({
-                .info = {
-                    .id = std::string(kDefaultAudioDeviceId),
-                    .name = display_name == "System default"
-                        ? display_name
-                        : "System default (" + display_name + ")",
-                },
-                .index = 0,
-            });
-            continue;
-        }
-
-        const size_t ordinal = name_ordinals[display_name]++;
-        result.push_back({
-            .info = {
-                .id = make_audio_device_id(
-                    guid.data(), display_name, ordinal),
-                .name = std::move(display_name),
-            },
-            .index = static_cast<uint16_t>(index),
-        });
-    }
-    return result;
-}
-
-bool restart_on_device(webrtc::AudioDeviceModule& adm,
-    bool recording,
-    uint16_t index)
-{
-    const bool was_active = recording ? adm.Recording() : adm.Playing();
-    const auto initialize_endpoint = [&] {
-        return (recording ? adm.InitMicrophone() : adm.InitSpeaker()) == 0;
-    };
-    const auto start_stream = [&] {
-        const int init_error = recording ? adm.InitRecording()
-                                         : adm.InitPlayout();
-        return init_error == 0
-            && (recording ? adm.StartRecording() : adm.StartPlayout()) == 0;
-    };
-    const auto restore_default = [&] {
-        (void)(recording ? adm.StopRecording() : adm.StopPlayout());
-        const int select_default = recording
-            ? adm.SetRecordingDevice(0)
-            : adm.SetPlayoutDevice(0);
-        return select_default == 0 && initialize_endpoint()
-            && (!was_active || start_stream());
-    };
-    if (was_active) {
-        const int stop_error = recording ? adm.StopRecording()
-                                         : adm.StopPlayout();
-        if (stop_error != 0) {
+        const int select_error = recording ? adm.SetRecordingDevice(index)
+                                           : adm.SetPlayoutDevice(index);
+        if (select_error != 0) {
+            // Stop does not clear the previous selection. Restore the active
+            // stream when selection failed so a bad/stale ID does not silence an
+            // otherwise healthy call.
+            if (was_active) {
+                (void)start_stream();
+            }
             return false;
         }
-    }
 
-    const int select_error = recording ? adm.SetRecordingDevice(index)
-                                       : adm.SetPlayoutDevice(index);
-    if (select_error != 0) {
-        // Stop does not clear the previous selection. Restore the active
-        // stream when selection failed so a bad/stale ID does not silence an
-        // otherwise healthy call.
-        if (was_active) {
-            (void)start_stream();
+        // Match WebRTC's own ADM initialization sequence. This refreshes the
+        // platform mixer handle before recreating a stopped stream.
+        if (!initialize_endpoint()) {
+            (void)restore_default();
+            return false;
         }
-        return false;
-    }
-
-    // Match WebRTC's own ADM initialization sequence. This refreshes the
-    // platform mixer handle before recreating a stopped stream.
-    if (!initialize_endpoint()) {
+        if (!was_active) {
+            return true;
+        }
+        if (start_stream()) {
+            return true;
+        }
         (void)restore_default();
         return false;
     }
-    if (!was_active) {
-        return true;
-    }
-    if (start_stream()) {
-        return true;
-    }
-    (void)restore_default();
-    return false;
-}
 
 } // namespace
 

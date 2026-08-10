@@ -39,6 +39,10 @@ struct VoiceInboundRtpStats {
 struct VoiceSessionStats {
     uint64_t packets_sent = 0;
     uint64_t bytes_sent = 0;
+    // Round trip to the SFU, taken from the nominated ICE candidate pair.
+    // Negative until ICE has measured one. There is no per-peer RTT to report:
+    // every client has exactly one transport, and it terminates at the SFU.
+    double round_trip_time_seconds = -1.0;
     std::vector<VoiceInboundRtpStats> inbound;
 };
 

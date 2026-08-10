@@ -46,10 +46,6 @@ AppState::AppState(AuthManager* auth, ServerRepository* servers, UserRepository*
     , m_signalingUrl(signalingUrl)
     , m_apiBaseUrl(apiBaseUrl)
 {
-    m_levelTimer = new QTimer(this);
-    m_levelTimer->setInterval(50);
-    connect(m_levelTimer, &QTimer::timeout, this, [this] { emit audioLevelsChanged(); });
-
     m_statsTimer = new QTimer(this);
     m_statsTimer->setInterval(2000);
     connect(m_statsTimer, &QTimer::timeout, this, [this] { pollConnectionStats(); });
@@ -200,7 +196,6 @@ void AppState::loadInitialData()
 
     fetchCurrentUserProfile();
     reloadServers();
-    m_levelTimer->start();
     emit connectionChanged();
 }
 
@@ -275,8 +270,6 @@ bool AppState::connected() const { return m_bridge->connected(); }
 QString AppState::localId() const { return m_bridge->localId(); }
 bool AppState::muted() const { return m_bridge->muted(); }
 bool AppState::deafened() const { return m_bridge->deafened(); }
-float AppState::inputLevel() const { return m_bridge->inputLevel(); }
-float AppState::outputLevel() const { return m_bridge->outputLevel(); }
 bool AppState::sharing() const { return m_bridge->sharing(); }
 
 bool AppState::canManageSelectedServer() const
@@ -314,7 +307,7 @@ void AppState::joinVoiceChannel(int channelId)
     // (/channels/<id>) and uses it as the room key — peers are only visible
     // to one another within the same room.
     const QString url = m_signalingUrl + QStringLiteral("/channels/%1").arg(channelId);
-    m_bridge->connect(url, m_auth->username());
+    m_bridge->connect(url, m_auth->username(), m_auth->accessToken());
     m_bridge->audioStart();
 }
 
@@ -345,9 +338,10 @@ void AppState::setDeafened(bool d)
 }
 void AppState::setMasterVolume(float v) { m_bridge->setMasterVolume(v); }
 
-void AppState::startSharing(const QString& tj, int w, int h, int fps, bool audio)
+void AppState::startSharing(const QString& tj, int w, int h, int fps, bool audio,
+    const QString& audioTarget)
 {
-    m_bridge->startSharing(tj, w, h, fps, audio);
+    m_bridge->startSharing(tj, w, h, fps, audio, audioTarget);
     emit sharingChanged();
 }
 void AppState::stopSharing()
@@ -524,35 +518,23 @@ void AppState::resetConnectionStats()
 {
     m_avgRttMs = -1;
     m_lastRttMs = -1;
-    m_primaryPeerId.clear();
+    m_packetsLost = 0;
+    m_remoteVoiceTracks = 0;
     m_rttHistory.clear();
     emit connectionStatsChanged();
 }
 
 void AppState::pollConnectionStats()
 {
-    auto arr = QJsonDocument::fromJson(m_bridge->transportStatsJson().toUtf8()).array();
+    // One transport, one round trip: the client talks only to the SFU, so a
+    // per-peer latency would be an invention.
+    const auto stats
+        = QJsonDocument::fromJson(m_bridge->voiceStatsJson().toUtf8()).object();
 
-    int sumRtt = 0;
-    int countRtt = 0;
-    int firstRtt = -1;
-    QString firstId;
-    for (const auto& v : arr) {
-        auto o = v.toObject();
-        int rtt = o.value("rtt_ms").toInt(-1);
-        if (rtt < 0)
-            continue;
-        if (firstId.isEmpty()) {
-            firstId = o.value("id").toString();
-            firstRtt = rtt;
-        }
-        sumRtt += rtt;
-        countRtt++;
-    }
-
-    m_lastRttMs = firstRtt;
-    m_avgRttMs = countRtt > 0 ? (sumRtt / countRtt) : -1;
-    m_primaryPeerId = firstId;
+    m_lastRttMs = stats.value(QStringLiteral("rttMs")).toInt(-1);
+    m_packetsLost = stats.value(QStringLiteral("packetsLost")).toInt(0);
+    m_remoteVoiceTracks
+        = stats.value(QStringLiteral("remoteTracks")).toInt(0);
 
     QVariantMap sample;
     sample["t"] = QDateTime::currentMSecsSinceEpoch();
@@ -561,6 +543,17 @@ void AppState::pollConnectionStats()
     constexpr int kMaxSamples = 60;
     while (m_rttHistory.size() > kMaxSamples)
         m_rttHistory.removeFirst();
+
+    int sum = 0;
+    int measured = 0;
+    for (const auto& value : m_rttHistory) {
+        const int rtt = value.toMap().value("rtt").toInt();
+        if (rtt < 0)
+            continue;
+        sum += rtt;
+        ++measured;
+    }
+    m_avgRttMs = measured > 0 ? sum / measured : -1;
 
     emit connectionStatsChanged();
 }

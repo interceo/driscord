@@ -15,6 +15,8 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <condition_variable>
+#include <deque>
 #include <functional>
 #include <mutex>
 #include <nlohmann/json.hpp>
@@ -46,6 +48,8 @@ struct SharingRequest {
     int max_height = 0;
     int fps = 0;
     bool share_audio = false;
+    // Empty means the default sink monitor.
+    std::string audio_target;
 };
 
 std::optional<CaptureSelection> parse_capture_selection(
@@ -130,6 +134,7 @@ struct GoogleWebRtcClient::Impl
 
     ~Impl()
     {
+        stop_recovery();
         stop_screen_session();
         stop_voice_session();
         screen_playout->stop();
@@ -230,13 +235,58 @@ struct GoogleWebRtcClient::Impl
         }
     }
 
-    static void schedule_recovery(std::function<void()> task) noexcept
+    // Recovery must not run on the WebRTC callback thread that reported the
+    // failure, and it must not spawn a thread per failure either: a flapping
+    // connection would then pile up detached threads nobody can join at exit.
+    // One worker, started on first use, drained and joined by stop_recovery().
+    void schedule_recovery(std::function<void()> task) noexcept
     {
         try {
-            std::thread(std::move(task)).detach();
+            std::scoped_lock lock(recovery_mutex);
+            if (recovery_stopping) {
+                return;
+            }
+            recovery_queue.push_back(std::move(task));
+            if (!recovery_worker.joinable()) {
+                recovery_worker = std::thread([this] { run_recovery(); });
+            }
         } catch (const std::exception& error) {
             LOG_ERROR() << "Unable to schedule WebRTC recovery: "
                         << error.what();
+            return;
+        }
+        recovery_ready.notify_one();
+    }
+
+    void run_recovery()
+    {
+        for (;;) {
+            std::function<void()> task;
+            {
+                std::unique_lock lock(recovery_mutex);
+                recovery_ready.wait(lock, [this] {
+                    return recovery_stopping || !recovery_queue.empty();
+                });
+                if (recovery_queue.empty()) {
+                    return;
+                }
+                task = std::move(recovery_queue.front());
+                recovery_queue.pop_front();
+            }
+            task();
+        }
+    }
+
+    void stop_recovery() noexcept
+    {
+        {
+            std::scoped_lock lock(recovery_mutex);
+            recovery_stopping = true;
+            recovery_queue.clear();
+        }
+        recovery_ready.notify_all();
+        if (recovery_worker.joinable()) {
+            recovery_worker.join();
         }
     }
 
@@ -402,11 +452,13 @@ struct GoogleWebRtcClient::Impl
                     || recovery_scheduled->exchange(true)) {
                     return;
                 }
-                schedule_recovery([weak, session_token] {
-                    if (auto self = weak.lock()) {
-                        self->recover_voice_session(session_token);
-                    }
-                });
+                if (auto self = weak.lock()) {
+                    self->schedule_recovery([weak, session_token] {
+                        if (auto owner = weak.lock()) {
+                            owner->recover_voice_session(session_token);
+                        }
+                    });
+                }
             };
         session_callbacks.on_error = [](std::string message) {
             LOG_ERROR() << "Google WebRTC voice: " << message;
@@ -468,12 +520,14 @@ struct GoogleWebRtcClient::Impl
             capture = SystemAudioCapture::create();
             const std::weak_ptr<Impl> weak = weak_from_this();
             if (!capture
-                || !capture->start([weak](const float* samples, size_t frames,
-                                       int channels) {
-                       if (auto self = weak.lock()) {
-                           self->submit_system_audio(samples, frames, channels);
-                       }
-                   })) {
+                || !capture->start(request.audio_target,
+                    [weak](const float* samples, size_t frames,
+                        int channels) {
+                        if (auto self = weak.lock()) {
+                            self->submit_system_audio(
+                                samples, frames, channels);
+                        }
+                    })) {
                 session->stop_desktop_capture();
                 session->set_sharing_enabled(false);
                 return false;
@@ -607,11 +661,13 @@ struct GoogleWebRtcClient::Impl
                     || recovery_scheduled->exchange(true)) {
                     return;
                 }
-                schedule_recovery([weak, session_token] {
-                    if (auto self = weak.lock()) {
-                        self->recover_screen_session(session_token);
-                    }
-                });
+                if (auto self = weak.lock()) {
+                    self->schedule_recovery([weak, session_token] {
+                        if (auto owner = weak.lock()) {
+                            owner->recover_screen_session(session_token);
+                        }
+                    });
+                }
             };
         session_callbacks.on_error = [](std::string message) {
             LOG_ERROR() << "Google WebRTC screen: " << message;
@@ -669,6 +725,8 @@ struct GoogleWebRtcClient::Impl
             old = std::move(voice_session);
             voice_session_token.reset();
             voice_bindings.clear();
+            // A stale RTT from a dead session would keep being displayed.
+            voice_stats.reset();
         }
         if (old) {
             old->close();
@@ -873,6 +931,38 @@ struct GoogleWebRtcClient::Impl
         return updates;
     }
 
+    // Cached because RTCStats is asynchronous: the UI polls on a timer and
+    // gets the previous answer while the next one is in flight.
+    void request_voice_stats()
+    {
+        std::shared_ptr<driscord::media::GoogleWebRtcVoiceSession> session;
+        {
+            std::scoped_lock lock(mutex);
+            if (voice_stats_in_flight) {
+                return;
+            }
+            session = voice_session;
+            if (!session) {
+                voice_stats.reset();
+                return;
+            }
+            voice_stats_in_flight = true;
+        }
+        const std::weak_ptr<Impl> weak = weak_from_this();
+        const bool started = session->get_stats(
+            [weak](driscord::media::VoiceSessionStats stats) {
+                if (auto self = weak.lock()) {
+                    std::scoped_lock lock(self->mutex);
+                    self->voice_stats = std::move(stats);
+                    self->voice_stats_in_flight = false;
+                }
+            });
+        if (!started) {
+            std::scoped_lock lock(mutex);
+            voice_stats_in_flight = false;
+        }
+    }
+
     void submit_system_audio(
         const float* samples, size_t frames, int channels)
     {
@@ -933,6 +1023,13 @@ struct GoogleWebRtcClient::Impl
     bool local_preview_enabled = false;
     std::string local_preview_peer_id;
     driscord::media::ScreenStatsTracker screen_stats;
+    std::optional<driscord::media::VoiceSessionStats> voice_stats;
+    bool voice_stats_in_flight = false;
+    std::mutex recovery_mutex;
+    std::condition_variable recovery_ready;
+    std::deque<std::function<void()>> recovery_queue;
+    std::thread recovery_worker;
+    bool recovery_stopping = false;
 };
 
 GoogleWebRtcClient::GoogleWebRtcClient(Transport& transport,
@@ -1092,6 +1189,43 @@ bool GoogleWebRtcClient::peer_muted(const std::string& peer_id) const
     return it != impl_->voice_peer_muted.end() && it->second;
 }
 
+std::string GoogleWebRtcClient::voice_stats_json() const
+{
+    impl_->request_voice_stats();
+
+    json result;
+    std::scoped_lock lock(impl_->mutex);
+    result["connected"] = static_cast<bool>(impl_->voice_session);
+    if (!impl_->voice_stats) {
+        result["rttMs"] = -1;
+        return result.dump();
+    }
+    const auto& stats = *impl_->voice_stats;
+    result["rttMs"] = stats.round_trip_time_seconds < 0.0
+        ? -1
+        : static_cast<int>(std::lround(
+              stats.round_trip_time_seconds * 1000.0));
+    result["packetsSent"] = stats.packets_sent;
+    result["bytesSent"] = stats.bytes_sent;
+
+    uint64_t packets_received = 0;
+    uint64_t bytes_received = 0;
+    int64_t packets_lost = 0;
+    uint64_t concealed_samples = 0;
+    for (const auto& inbound : stats.inbound) {
+        packets_received += inbound.packets_received;
+        bytes_received += inbound.bytes_received;
+        packets_lost += inbound.packets_lost;
+        concealed_samples += inbound.concealed_samples;
+    }
+    result["packetsReceived"] = packets_received;
+    result["bytesReceived"] = bytes_received;
+    result["packetsLost"] = packets_lost;
+    result["concealedSamples"] = concealed_samples;
+    result["remoteTracks"] = stats.inbound.size();
+    return result.dump();
+}
+
 void GoogleWebRtcClient::init_screen()
 {
     {
@@ -1182,14 +1316,22 @@ void GoogleWebRtcClient::leave_stream(const std::string& peer_id)
 
 void GoogleWebRtcClient::remove_peer(const std::string& peer_id)
 {
+    {
+        std::scoped_lock lock(impl_->mutex);
+        impl_->voice_peer_volumes.erase(peer_id);
+        impl_->voice_peer_muted.erase(peer_id);
+        impl_->screen_peer_volumes.erase(peer_id);
+    }
+    peer_stopped_streaming(peer_id);
+}
+
+void GoogleWebRtcClient::peer_stopped_streaming(const std::string& peer_id)
+{
     bool removed = false;
     std::vector<Impl::ScreenAudioUpdate> updates;
     {
         std::scoped_lock lock(impl_->mutex);
         removed = impl_->watched_peers.erase(peer_id) > 0;
-        impl_->voice_peer_volumes.erase(peer_id);
-        impl_->voice_peer_muted.erase(peer_id);
-        impl_->screen_peer_volumes.erase(peer_id);
         impl_->screen_stats.remove_peer(peer_id);
         updates = impl_->all_screen_updates_locked();
     }
@@ -1200,12 +1342,6 @@ void GoogleWebRtcClient::remove_peer(const std::string& peer_id)
     if (removed && impl_->callbacks.on_frame_removed) {
         impl_->callbacks.on_frame_removed(peer_id);
     }
-}
-
-bool GoogleWebRtcClient::watching() const
-{
-    std::scoped_lock lock(impl_->mutex);
-    return !impl_->watched_peers.empty();
 }
 
 std::string GoogleWebRtcClient::video_targets_json() const
@@ -1253,7 +1389,8 @@ bool GoogleWebRtcClient::start_sharing(const std::string& target_json,
     int max_width,
     int max_height,
     int fps,
-    bool share_audio)
+    bool share_audio,
+    const std::string& audio_target)
 {
     const auto selection = parse_capture_selection(target_json);
     if (!selection) {
@@ -1265,6 +1402,7 @@ bool GoogleWebRtcClient::start_sharing(const std::string& target_json,
         .max_height = max_height,
         .fps = fps,
         .share_audio = share_audio,
+        .audio_target = audio_target,
     };
     if (!impl_->apply_sharing(request)) {
         return false;

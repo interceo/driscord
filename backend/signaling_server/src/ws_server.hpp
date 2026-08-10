@@ -19,6 +19,7 @@
 
 namespace driscord {
 
+class ApiAuthenticator;
 class Session;
 class ScreenRouter;
 class VoiceRouter;
@@ -27,7 +28,8 @@ class WebSocketServer : public std::enable_shared_from_this<WebSocketServer> {
 public:
     explicit WebSocketServer(boost::asio::io_context& io_context,
         unsigned short port,
-        sfu::RtpFaultConfig fault_config = { });
+        sfu::RtpFaultConfig fault_config = { },
+        std::shared_ptr<ApiAuthenticator> authenticator = nullptr);
 
     void run();
     void stop();
@@ -74,6 +76,13 @@ public:
 
     // ICE configuration handed to every per-session PeerConnection.
     const rtc::Configuration& rtc_config() const { return rtc_config_; }
+
+    // Null in anonymous mode: every upgrade and HTTP read is then unguarded,
+    // which is why the server binary refuses to start that way by default.
+    const std::shared_ptr<ApiAuthenticator>& authenticator() const
+    {
+        return authenticator_;
+    }
 
     // Total connected sessions across all rooms (for tests).
     size_t active_sessions() const;
@@ -127,6 +136,7 @@ private:
     // can pin and forward a known range.
     rtc::Configuration rtc_config_;
     sfu::RtpFaultConfig fault_config_;
+    std::shared_ptr<ApiAuthenticator> authenticator_;
 };
 
 } // namespace driscord

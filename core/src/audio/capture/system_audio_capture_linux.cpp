@@ -42,7 +42,7 @@ class SystemAudioCaptureLinux : public SystemAudioCapture {
 public:
     ~SystemAudioCaptureLinux() override { stop(); }
 
-    bool start(AudioCallback cb) override
+    bool start(const std::string& target_id, AudioCallback cb) override
     {
         if (running_) {
             return true;
@@ -62,9 +62,16 @@ public:
         attr.maxlength = kFragBytes * 4;
         attr.fragsize = kFragBytes;
 
+        // list_sinks() reports playback devices; their monitor source is the
+        // sink name with ".monitor" appended, which is what PulseAudio and
+        // PipeWire's Pulse layer both expose.
+        const std::string source = target_id.empty()
+            ? std::string("@DEFAULT_MONITOR@")
+            : target_id + ".monitor";
+
         int error = 0;
         pa_.reset(pa_simple_new(nullptr, "driscord", PA_STREAM_RECORD,
-            "@DEFAULT_MONITOR@", "screen_audio", &spec, nullptr,
+            source.c_str(), "screen_audio", &spec, nullptr,
             &attr, &error));
 
         if (!pa_) {
@@ -219,34 +226,6 @@ std::vector<AudioCaptureTarget> SystemAudioCapture::list_sinks()
 
     pa_enumerate("driscord_sink_lister", [&](pa_context* ctx) {
         return pa_context_get_sink_info_list(ctx, cb, &targets);
-    });
-
-    return targets;
-}
-
-std::vector<AudioCaptureTarget> SystemAudioCapture::list_sources()
-{
-    std::vector<AudioCaptureTarget> targets;
-
-    static constexpr auto cb = [](pa_context*, const pa_source_info* i,
-                                   int is_last, void* ud) {
-        if (is_last > 0) {
-            return;
-        }
-        if (!i) {
-            LOG_ERROR() << "pa_source_info is NULL (is_last not set)";
-            return;
-        }
-        // Exclude virtual sink-monitor sources; keep only hardware inputs
-        if (i->monitor_of_sink != PA_INVALID_INDEX) {
-            return;
-        }
-        static_cast<std::vector<AudioCaptureTarget>*>(ud)->emplace_back(
-            AudioCaptureTarget { i->name, i->description });
-    };
-
-    pa_enumerate("driscord_source_lister", [&](pa_context* ctx) {
-        return pa_context_get_source_info_list(ctx, cb, &targets);
     });
 
     return targets;

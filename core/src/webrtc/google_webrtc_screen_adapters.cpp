@@ -307,7 +307,12 @@ bool DesktopVideoSource::start_capture(DesktopCaptureKind kind,
                     auto deadline = std::chrono::steady_clock::now();
                     while (!stop.stop_requested() && !capture_failed_) {
                         capturer->CaptureFrame();
-                        deadline += interval;
+                        // A capture slower than the frame interval must not put
+                        // the loop into permanent catch-up: without the clamp
+                        // the deadline stays in the past and every subsequent
+                        // frame is taken back-to-back at 100% of a core.
+                        deadline = std::max(deadline + interval,
+                            std::chrono::steady_clock::now());
                         std::this_thread::sleep_until(deadline);
                     }
                 } catch (const std::exception& exception) {

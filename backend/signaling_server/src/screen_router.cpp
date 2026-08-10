@@ -11,6 +11,7 @@
 #include <rtc/rtppacketizationconfig.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
@@ -62,11 +63,26 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
         std::weak_ptr<rtc::Track> publisher_video;
     };
 
-    std::mutex mutex;
+    // Ordering of outbound notifications. A subscriber must see slot changes
+    // in the order the router decided them: two concurrent mutations touching
+    // the same slot could otherwise deliver "bound to A" before "unbound", and
+    // the tile would then stay black while A's packets keep arriving. Held
+    // around the whole mutate-then-publish sequence; always taken before
+    // `mutex`, and never by the RTP path.
+    std::mutex publish_mutex;
+    mutable std::mutex mutex;
     std::unordered_map<PeerId, PeerState> peers;
     sfu::RtpFaultConfig fault_config;
     uint64_t next_peer_order = 0;
     bool closed = false;
+    // Kept out of `mutex` so the RTP path does not pay for observability.
+    std::atomic<uint64_t> video_packets_in { 0 };
+    std::atomic<uint64_t> video_packets_out { 0 };
+    std::atomic<uint64_t> video_bytes_out { 0 };
+    std::atomic<uint64_t> audio_packets_in { 0 };
+    std::atomic<uint64_t> audio_packets_out { 0 };
+    std::atomic<uint64_t> audio_bytes_out { 0 };
+    std::atomic<uint64_t> keyframe_requests { 0 };
 
     explicit Impl(sfu::RtpFaultConfig config)
         : fault_config(config)
@@ -123,7 +139,7 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
         return result;
     }
 
-    static void request_keyframe(
+    void request_keyframe(
         const std::weak_ptr<rtc::Track>& publisher_video) noexcept
     {
         auto input = publisher_video.lock();
@@ -132,6 +148,7 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
         }
         try {
             input->requestKeyframe();
+            keyframe_requests.fetch_add(1, std::memory_order_relaxed);
         } catch (const std::exception& error) {
             LOG_WARNING() << "screen SFU keyframe request failed: "
                           << error.what();
@@ -183,9 +200,14 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
             },
             nullptr);
         if (media_type == "video") {
-            track->onOpen([weak_track] { request_keyframe(weak_track); });
+            track->onOpen([weak, weak_track] {
+                if (auto self = weak.lock()) {
+                    self->request_keyframe(weak_track);
+                }
+            });
         }
 
+        std::scoped_lock publish_lock(publish_mutex);
         std::vector<BindingNotice> notices;
         {
             std::scoped_lock lock(mutex);
@@ -326,6 +348,7 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
         const std::string mid = track->mid();
         const uint32_t ssrc = sfu::allocate_slot_ssrc();
         std::string cname;
+        std::scoped_lock publish_lock(publish_mutex);
         std::vector<BindingNotice> notices;
         {
             std::scoped_lock lock(mutex);
@@ -442,9 +465,12 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
                         std::make_shared<rtc::RtcpNackResponder>());
                     if (notice.media_type == "video") {
                         const auto publisher_video = notice.publisher_video;
+                        const std::weak_ptr<Impl> weak = weak_from_this();
                         reporter->addToChain(std::make_shared<rtc::PliHandler>(
-                            [publisher_video] {
-                                request_keyframe(publisher_video);
+                            [weak, publisher_video] {
+                                if (auto self = weak.lock()) {
+                                    self->request_keyframe(publisher_video);
+                                }
                             }));
                     }
                     output->setMediaHandler(std::move(reporter));
@@ -495,6 +521,10 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
             mid_id = media_type == "video"
                 ? source->second.video_mid_extension_id
                 : source->second.audio_mid_extension_id;
+            if (!rtc::IsRtcp(packet)) {
+                (media_type == "video" ? video_packets_in : audio_packets_in)
+                    .fetch_add(1, std::memory_order_relaxed);
+            }
             auto& fault_state = media_type == "video"
                 ? source->second.video_fault_state
                 : source->second.audio_fault_state;
@@ -534,8 +564,14 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
                         target.source_generation, target.ssrc, mid_id)) {
                     continue;
                 }
+                const size_t size = rewritten.size();
                 try {
                     output->send(std::move(rewritten));
+                    const bool video = media_type == "video";
+                    (video ? video_packets_out : audio_packets_out)
+                        .fetch_add(1, std::memory_order_relaxed);
+                    (video ? video_bytes_out : audio_bytes_out)
+                        .fetch_add(size, std::memory_order_relaxed);
                 } catch (const std::exception& error) {
                     LOG_WARNING()
                         << "screen SFU send failed: " << error.what();
@@ -546,6 +582,7 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
 
     void set_streaming(const PeerId& peer_id, bool streaming)
     {
+        std::scoped_lock publish_lock(publish_mutex);
         std::vector<BindingNotice> notices;
         {
             std::scoped_lock lock(mutex);
@@ -582,6 +619,7 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
         if (peer_id == publisher_id) {
             return;
         }
+        std::scoped_lock publish_lock(publish_mutex);
         std::vector<BindingNotice> notices;
         {
             std::scoped_lock lock(mutex);
@@ -615,6 +653,7 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
 
     void remove_peer(const PeerId& peer_id)
     {
+        std::scoped_lock publish_lock(publish_mutex);
         std::vector<BindingNotice> notices;
         {
             std::scoped_lock lock(mutex);
@@ -636,6 +675,41 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
                 std::make_move_iterator(assigned.end()));
         }
         publish(std::move(notices));
+    }
+
+    ScreenRouter::Stats stats() const
+    {
+        ScreenRouter::Stats result;
+        {
+            std::scoped_lock lock(mutex);
+            for (const auto& [_, peer] : peers) {
+                if (peer.streaming && !peer.input_video.expired()) {
+                    ++result.streaming_publishers;
+                }
+                for (const auto& pair : peer.outputs) {
+                    if (pair.publisher) {
+                        ++result.bound_slots;
+                    } else {
+                        ++result.free_slots;
+                    }
+                }
+            }
+        }
+        result.video_packets_in
+            = video_packets_in.load(std::memory_order_relaxed);
+        result.video_packets_out
+            = video_packets_out.load(std::memory_order_relaxed);
+        result.video_bytes_out
+            = video_bytes_out.load(std::memory_order_relaxed);
+        result.audio_packets_in
+            = audio_packets_in.load(std::memory_order_relaxed);
+        result.audio_packets_out
+            = audio_packets_out.load(std::memory_order_relaxed);
+        result.audio_bytes_out
+            = audio_bytes_out.load(std::memory_order_relaxed);
+        result.keyframe_requests
+            = keyframe_requests.load(std::memory_order_relaxed);
+        return result;
     }
 
     void close()
@@ -708,6 +782,11 @@ void ScreenRouter::set_watching(const PeerId& peer_id,
 void ScreenRouter::remove_peer(const PeerId& peer_id)
 {
     impl_->remove_peer(peer_id);
+}
+
+ScreenRouter::Stats ScreenRouter::stats() const
+{
+    return impl_ ? impl_->stats() : Stats { };
 }
 
 void ScreenRouter::close()

@@ -12,6 +12,7 @@ ApiClient::ApiClient(QObject* parent)
 
 void ApiClient::setBaseUrl(const QString& url) { m_baseUrl = url; }
 void ApiClient::setAccessToken(const QString& t) { m_accessToken = t; }
+QString ApiClient::accessToken() const { return m_accessToken; }
 void ApiClient::clearAccessToken() { m_accessToken.clear(); }
 
 QNetworkRequest ApiClient::makeRequest(const QString& path) const

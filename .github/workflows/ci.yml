@@ -158,6 +158,11 @@ jobs:
       - name: Build signaling server
         run: ./scripts/build.sh --server
 
+      # Same configuration the deployment runs (no Google WebRTC), so the SFU
+      # and signaling tests gate every push without the pinned artifact.
+      - name: Run signaling tests
+        run: ./scripts/build.sh --server --test
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -250,3 +255,6 @@ jobs:
 
       - name: Install API dependencies
         run: ./scripts/build.sh --api
+
+      - name: Run API tests
+        run: ./scripts/build.sh --api --test

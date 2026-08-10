@@ -1,13 +1,18 @@
 #pragma once
 
+#include "api_authenticator.hpp"
 #include "ws_server.hpp"
 
 #include <boost/asio/executor_work_guard.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/beast/core.hpp>
+#include <boost/beast/http.hpp>
 #include <memory>
 #include <optional>
 #include <string>
 #include <thread>
+#include <utility>
 
 namespace test_util {
 
@@ -18,11 +23,19 @@ namespace test_util {
 // Transport's WS callbacks.
 class SignalingServerFixture {
 public:
+    // `api_base_url` turns on session authorization against a REST API; empty
+    // keeps the server anonymous, which is what the media/room tests want.
     explicit SignalingServerFixture(
-        driscord::sfu::RtpFaultConfig fault_config = { })
+        driscord::sfu::RtpFaultConfig fault_config = { },
+        const std::string& api_base_url = { })
     {
+        std::shared_ptr<driscord::ApiAuthenticator> authenticator;
+        if (!api_base_url.empty()) {
+            authenticator
+                = driscord::ApiAuthenticator::create(io_, api_base_url);
+        }
         server_ = std::make_shared<driscord::WebSocketServer>(
-            io_, /*port=*/0, fault_config);
+            io_, /*port=*/0, fault_config, std::move(authenticator));
         server_->run();
         port_ = server_->bound_port();
         work_.emplace(boost::asio::make_work_guard(io_));
@@ -58,6 +71,37 @@ public:
     }
 
     unsigned short port() const { return port_; }
+
+    // Blocking plain-HTTP GET against the server's own listener, for the
+    // read-only endpoints it serves next to the WebSocket upgrade.
+    std::pair<unsigned, std::string> http_get(const std::string& target,
+        const std::string& token = { }) const
+    {
+        namespace beast = boost::beast;
+        namespace http = beast::http;
+        using tcp = boost::asio::ip::tcp;
+
+        boost::asio::io_context io;
+        tcp::socket socket(io);
+        socket.connect(tcp::endpoint(
+            boost::asio::ip::make_address("127.0.0.1"), port_));
+
+        http::request<http::empty_body> request { http::verb::get, target, 11 };
+        request.set(http::field::host, "127.0.0.1");
+        if (!token.empty()) {
+            request.set(http::field::authorization, "Bearer " + token);
+        }
+        http::write(socket, request);
+
+        beast::flat_buffer buffer;
+        http::response<http::string_body> response;
+        boost::system::error_code ec;
+        http::read(socket, buffer, response, ec);
+        if (ec && ec != http::error::end_of_stream) {
+            return { 0, ec.message() };
+        }
+        return { response.result_int(), response.body() };
+    }
 
     size_t active_sessions() const { return server_->active_sessions(); }
     size_t active_sessions(const std::string& room_id) const

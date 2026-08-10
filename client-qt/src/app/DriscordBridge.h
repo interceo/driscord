@@ -4,6 +4,7 @@
 #include "ThumbnailProvider.h"
 #include <QObject>
 #include <QString>
+#include <QThreadPool>
 #include <QVariantList>
 #include <QVector>
 
@@ -19,13 +20,19 @@ public:
     void setFrameProvider(FrameProvider* fp);
     void setThumbnailProvider(ThumbnailProvider* tp);
 
+    // Stops media and detaches the image providers. The QML engine owns those
+    // providers and is destroyed before this object, so the media threads must
+    // be joined here rather than in the destructor.
+    void shutdown();
+
     // Transport
-    Q_INVOKABLE void connect(const QString& serverUrl, const QString& username);
+    Q_INVOKABLE void connect(const QString& serverUrl,
+        const QString& username,
+        const QString& accessToken);
     Q_INVOKABLE void disconnect();
     Q_INVOKABLE bool connected() const;
     Q_INVOKABLE QString localId() const;
-    Q_INVOKABLE QString peersJson() const;
-    Q_INVOKABLE QString transportStatsJson() const;
+    Q_INVOKABLE QString voiceStatsJson() const;
 
     // Audio
     Q_INVOKABLE void audioStart();
@@ -36,9 +43,6 @@ public:
     Q_INVOKABLE bool deafened() const;
     Q_INVOKABLE void setMasterVolume(float vol);
     Q_INVOKABLE float masterVolume() const;
-    Q_INVOKABLE float inputLevel() const;
-    Q_INVOKABLE float outputLevel() const;
-    Q_INVOKABLE void setNoiseGate(float threshold);
     Q_INVOKABLE QVariantList listInputDevices() const;
     Q_INVOKABLE QVariantList listOutputDevices() const;
     Q_INVOKABLE bool setInputDevice(const QString& id);
@@ -55,17 +59,23 @@ public:
     Q_INVOKABLE void deinitScreenSession();
     Q_INVOKABLE QString captureVideoTargetsJson() const;
     Q_INVOKABLE QString captureAudioTargetsJson() const;
-    Q_INVOKABLE QString grabThumbnail(const QString& targetJson, int maxW, int maxH);
-    Q_INVOKABLE void startSharing(const QString& targetJson, int maxW, int maxH, int fps, bool audio);
+    // Capturing one frame of a source can block for up to two seconds, so the
+    // answer arrives on thumbnailReady instead of blocking the UI thread once
+    // per source.
+    Q_INVOKABLE void requestThumbnail(const QString& targetJson, int maxW, int maxH);
+    Q_INVOKABLE void startSharing(const QString& targetJson,
+        int maxW,
+        int maxH,
+        int fps,
+        bool audio,
+        const QString& audioTarget = { });
     Q_INVOKABLE void stopSharing();
     Q_INVOKABLE bool sharing() const;
     Q_INVOKABLE void setLocalPreviewEnabled(bool enabled);
-    Q_INVOKABLE bool videoWatching() const;
     Q_INVOKABLE void joinStream(const QString& peerId);
     Q_INVOKABLE void leaveStream(const QString& peerId);
     Q_INVOKABLE QString screenStatsJson(const QString& peerId) const;
     Q_INVOKABLE void setStreamVolume(const QString& peerId, float vol);
-    Q_INVOKABLE float streamVolume(const QString& peerId) const;
 
 signals:
     void wsConnected();
@@ -78,8 +88,13 @@ signals:
     void streamWatchRejected(const QString& peerId, const QString& reason);
     void frameRemoved(const QString& peerId);
     void frameUpdated(const QString& peerId);
+    // Empty url means the source could not be captured.
+    void thumbnailReady(const QString& targetJson, const QString& url);
 
 private:
     FrameProvider* m_frameProvider = nullptr;
     ThumbnailProvider* m_thumbnailProvider = nullptr;
+    // One thread: desktop capture is serialised anyway, and a burst of source
+    // previews should not fan out into as many X11 capturers.
+    QThreadPool m_thumbnailPool;
 };

@@ -54,8 +54,6 @@ public:
     void set_on_streaming_stopped(StringCb cb);
     void set_on_watch_rejected(WatchRejectedCb cb);
 
-    [[nodiscard]] std::string peers_json() const;
-
     void voice_start();
     void voice_stop();
     void voice_set_muted(bool muted);
@@ -64,9 +62,6 @@ public:
     [[nodiscard]] bool audio_deafened() const;
     void audio_set_master_volume(float volume);
     [[nodiscard]] float audio_master_volume() const;
-    [[nodiscard]] float audio_input_level() const;
-    [[nodiscard]] float audio_output_level() const;
-    void audio_set_noise_gate(float threshold);
     [[nodiscard]] std::string audio_input_devices_json() const;
     [[nodiscard]] std::string audio_output_devices_json() const;
     [[nodiscard]] bool audio_set_input_device(const std::string& id);
@@ -75,8 +70,8 @@ public:
     [[nodiscard]] float audio_peer_volume(const std::string& peer) const;
     void audio_set_peer_muted(const std::string& peer, bool muted);
     [[nodiscard]] bool audio_peer_muted(const std::string& peer) const;
-
-    [[nodiscard]] bool video_watching() const;
+    // Voice transport counters and the round trip to the SFU, as JSON.
+    [[nodiscard]] std::string voice_stats_json() const;
 
     [[nodiscard]] std::string capture_audio_list_targets_json() const;
     [[nodiscard]] std::string capture_video_list_targets_json() const;
@@ -91,11 +86,14 @@ public:
         int max_width,
         int max_height);
 
+    // `audio_target` is a playback device id from
+    // capture_audio_list_targets_json(); empty means the default sink.
     [[nodiscard]] bool screen_start_sharing(const std::string& target_json,
         int max_width,
         int max_height,
         int fps,
-        bool share_audio);
+        bool share_audio,
+        const std::string& audio_target = { });
     void screen_stop_sharing();
     [[nodiscard]] bool screen_sharing() const;
     void screen_set_local_preview_enabled(bool enabled);

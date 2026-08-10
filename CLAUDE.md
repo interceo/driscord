@@ -9,7 +9,7 @@ Repository guidance for coding agents.
 ./scripts/build.sh --debug         # Qt client, Debug
 ./scripts/build.sh --test          # core + signaling + real WebRTC integration
 ./scripts/build.sh --server        # standalone signaling/SFU server
-./scripts/build.sh --server --test # room/signaling tests
+./scripts/build.sh --server --test # protocol/SFU/auth tests, no Google WebRTC
 ./scripts/build.sh --api           # Python API environment
 
 ./scripts/run.sh
@@ -42,6 +42,12 @@ NACK and forward PLI for screen video. The server never decodes media.
 
 `connection` is mandatory in offer/answer/candidate/track-binding signaling and
 is only `voice` or `screen`. There is no legacy DataChannel media protocol.
+
+Sessions are authorized: `ApiAuthenticator` asks the REST API whether a token
+may join a channel before the WebSocket upgrade is accepted. The server refuses
+to start without `DRISCORD_API_URL` unless `DRISCORD_ALLOW_ANONYMOUS=1`. Do not
+verify JWTs inside the SFU — a second token implementation (and the signing
+secret) in a process holding two TLS stacks is what this design avoids.
 
 ### C++ core (`core/src/`)
 

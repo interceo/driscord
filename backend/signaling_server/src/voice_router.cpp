@@ -10,6 +10,7 @@
 #include <rtc/rtppacketizationconfig.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
@@ -45,11 +46,22 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
         uint32_t ssrc = 0;
     };
 
-    std::mutex mutex;
+    // Ordering of outbound notifications. A subscriber must see slot changes
+    // in the order the router decided them: two concurrent mutations touching
+    // the same slot could otherwise deliver "bound to A" before "unbound", and
+    // the client would then discard A's packets forever. Held around the whole
+    // mutate-then-publish sequence; always taken before `mutex`, and never by
+    // the RTP path.
+    std::mutex publish_mutex;
+    mutable std::mutex mutex;
     std::unordered_map<PeerId, PeerState> peers;
     sfu::RtpFaultConfig fault_config;
     uint64_t next_peer_order = 0;
     bool closed = false;
+    // Kept out of `mutex` so the RTP path does not pay for observability.
+    std::atomic<uint64_t> packets_in { 0 };
+    std::atomic<uint64_t> packets_out { 0 };
+    std::atomic<uint64_t> bytes_out { 0 };
 
     explicit Impl(sfu::RtpFaultConfig config)
         : fault_config(config)
@@ -119,6 +131,7 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
             },
             nullptr);
 
+        std::scoped_lock publish_lock(publish_mutex);
         std::vector<BindingNotice> notices;
         {
             std::scoped_lock lock(mutex);
@@ -169,6 +182,7 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
         track->setDescription(description);
         track->onMessage([](rtc::binary) { }, nullptr);
 
+        std::scoped_lock publish_lock(publish_mutex);
         std::vector<BindingNotice> notices;
         {
             std::scoped_lock lock(mutex);
@@ -196,7 +210,12 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
                     = std::make_shared<sfu::RtpSlotRewriter>(48'000, 960);
                 existing->source_generation = 0;
             }
-            notices = assign_available_locked();
+            // Appended, not assigned: the unbind above still has to reach the
+            // subscriber when the slot is not immediately reassigned.
+            auto assigned = assign_available_locked();
+            notices.insert(notices.end(),
+                std::make_move_iterator(assigned.begin()),
+                std::make_move_iterator(assigned.end()));
         }
         publish(std::move(notices));
     }
@@ -288,6 +307,9 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
                 return;
             }
             mid_id = source->second.input_mid_extension_id;
+            if (!rtc::IsRtcp(packet)) {
+                packets_in.fetch_add(1, std::memory_order_relaxed);
+            }
             packets = sfu::apply_rtp_faults(fault_config,
                 source->second.input_fault_state, std::move(packet));
             if (!packets.first) {
@@ -316,8 +338,11 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
                 if (target.rewriter
                     && target.rewriter->rewrite(rewritten,
                         target.source_generation, target.ssrc, mid_id)) {
+                    const size_t size = rewritten.size();
                     try {
                         output->send(std::move(rewritten));
+                        packets_out.fetch_add(1, std::memory_order_relaxed);
+                        bytes_out.fetch_add(size, std::memory_order_relaxed);
                     } catch (const std::exception& error) {
                         LOG_WARNING()
                             << "voice SFU send failed: " << error.what();
@@ -329,6 +354,7 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
 
     void remove_peer(const PeerId& peer_id)
     {
+        std::scoped_lock publish_lock(publish_mutex);
         std::vector<BindingNotice> notices;
         {
             std::scoped_lock lock(mutex);
@@ -353,6 +379,28 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
                 std::make_move_iterator(reassigned.end()));
         }
         publish(std::move(notices));
+    }
+
+    VoiceRouter::Stats stats() const
+    {
+        VoiceRouter::Stats result;
+        {
+            std::scoped_lock lock(mutex);
+            for (const auto& [_, peer] : peers) {
+                if (!peer.input.expired()) {
+                    ++result.publishers;
+                }
+                for (const auto& output : peer.outputs) {
+                    if (output.publisher) {
+                        ++result.bound_slots;
+                    }
+                }
+            }
+        }
+        result.packets_in = packets_in.load(std::memory_order_relaxed);
+        result.packets_out = packets_out.load(std::memory_order_relaxed);
+        result.bytes_out = bytes_out.load(std::memory_order_relaxed);
+        return result;
     }
 
     void close()
@@ -406,6 +454,11 @@ void VoiceRouter::register_track(const PeerId& owner,
 void VoiceRouter::remove_peer(const PeerId& peer_id)
 {
     impl_->remove_peer(peer_id);
+}
+
+VoiceRouter::Stats VoiceRouter::stats() const
+{
+    return impl_ ? impl_->stats() : Stats { };
 }
 
 void VoiceRouter::close()

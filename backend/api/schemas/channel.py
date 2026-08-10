@@ -16,6 +16,16 @@ class ChannelUpdate(BaseModel):
     position: int | None = None
 
 
+class ChannelAccessResponse(BaseModel):
+    """Answer to "may this token join this channel?", used by the SFU."""
+
+    channel_id: int
+    server_id: int
+    user_id: int
+    username: str
+    display_name: str | None = None
+
+
 class ChannelResponse(BaseModel):
     id: int
     server_id: int

@@ -64,12 +64,15 @@ class SystemAudioCaptureMac : public SystemAudioCapture {
 public:
     ~SystemAudioCaptureMac() override { stop(); }
 
-    bool start(AudioCallback cb) override
+    bool start(const std::string& target_id, AudioCallback cb) override
     {
         if (running_) {
             return true;
         }
 
+        // Loopback source selection is Linux-only so far; this backend
+        // always captures the default render endpoint.
+        (void)target_id;
         callback_ = std::move(cb);
 
         dispatch_semaphore_t sem = dispatch_semaphore_create(0);
@@ -192,10 +195,6 @@ std::vector<AudioCaptureTarget> SystemAudioCapture::list_sinks()
     return {};
 }
 
-std::vector<AudioCaptureTarget> SystemAudioCapture::list_sources()
-{
-    return {};
-}
 
 std::unique_ptr<SystemAudioCapture> SystemAudioCapture::create()
 {

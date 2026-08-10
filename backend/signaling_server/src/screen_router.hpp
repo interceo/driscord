@@ -20,6 +20,22 @@ public:
     using BindingSender = std::function<void(
         std::string mid, std::optional<PeerId> publisher)>;
 
+    // Snapshot for /media_stats. "In" counts what publishers delivered, "out"
+    // what was forwarded after fan-out, so in > 0 with out == 0 localises a
+    // fault to the subscriber side.
+    struct Stats {
+        size_t streaming_publishers = 0;
+        size_t bound_slots = 0;
+        size_t free_slots = 0;
+        uint64_t video_packets_in = 0;
+        uint64_t video_packets_out = 0;
+        uint64_t video_bytes_out = 0;
+        uint64_t audio_packets_in = 0;
+        uint64_t audio_packets_out = 0;
+        uint64_t audio_bytes_out = 0;
+        uint64_t keyframe_requests = 0;
+    };
+
     explicit ScreenRouter(sfu::RtpFaultConfig fault_config = { });
     ~ScreenRouter();
 
@@ -34,6 +50,7 @@ public:
         const PeerId& publisher_id,
         bool watching);
     void remove_peer(const PeerId& peer_id);
+    [[nodiscard]] Stats stats() const;
     void close();
 
 private:

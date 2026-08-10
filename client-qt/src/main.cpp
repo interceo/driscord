@@ -67,6 +67,12 @@ int main(int argc, char* argv[])
         engine.loadFromModule("driscord", "Main");
 
         rc = app.exec();
+
+        // The QML engine owns the image providers and is destroyed at the end
+        // of this scope, before `app` destroys the bridge. Media threads are
+        // still delivering frames into those providers until this call, so the
+        // core has to be torn down first.
+        bridge->shutdown();
     }
 
     // Joins libdatachannel's thread pool while the runtime is still alive;

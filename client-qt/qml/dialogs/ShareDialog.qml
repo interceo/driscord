@@ -12,6 +12,9 @@ Dialog {
 
     property var targets: []
     property int selectedIndex: -1
+    // Playback devices whose monitor can be captured, with the system default
+    // first so the common case needs no decision.
+    property var audioTargets: []
 
     readonly property var qualityPresets: [
         { label: "1080p", w: 1920, h: 1080 },
@@ -21,14 +24,39 @@ Dialog {
     ]
     readonly property var fpsPresets: [30, 60]
 
+    // Previews arrive asynchronously: capturing one frame per source can take
+    // up to two seconds each, which would freeze the dialog while it opens.
     onOpened: {
-        var json = appState.captureVideoTargetsJson()
-        var parsed = JSON.parse(json)
-        for (var i = 0; i < parsed.length; i++) {
-            parsed[i].thumbUrl = bridge.grabThumbnail(JSON.stringify(parsed[i]), 240, 150)
-        }
+        var parsed = JSON.parse(appState.captureVideoTargetsJson())
+        for (var i = 0; i < parsed.length; i++)
+            parsed[i].thumbUrl = ""
         targets = parsed
         selectedIndex = -1
+        for (var k = 0; k < parsed.length; k++)
+            bridge.requestThumbnail(JSON.stringify(parsed[k]), 240, 150)
+
+        var sinks = JSON.parse(bridge.captureAudioTargetsJson())
+        var choices = [{ id: "", label: qsTr("System default output") }]
+        for (var s = 0; s < sinks.length; s++)
+            choices.push({ id: sinks[s].id, label: sinks[s].name })
+        audioTargets = choices
+    }
+
+    Connections {
+        target: bridge
+        function onThumbnailReady(targetJson, url) {
+            if (url === "") return
+            var requested = JSON.parse(targetJson)
+            var next = root.targets.slice()
+            for (var i = 0; i < next.length; i++) {
+                if (next[i].id === requested.id
+                        && next[i].type === requested.type) {
+                    next[i].thumbUrl = url
+                    root.targets = next
+                    return
+                }
+            }
+        }
     }
 
     background: Rectangle {
@@ -285,6 +313,21 @@ Dialog {
                 }
             }
 
+            // Which output device is recorded. Capturing the one you listen
+            // through also captures the other participants, so this is a
+            // choice rather than a fixed default.
+            DarkCombo {
+                id: audioTargetCombo
+                label: qsTr("Audio source")
+                boxWidth: 150
+                visible: audioCheck.visible && audioCheck.checked
+                options: root.audioTargets
+                currentIndex: 0
+                readonly property string currentId:
+                    root.audioTargets.length > 0
+                        ? (root.audioTargets[currentIndex].id ?? "") : ""
+            }
+
             Item { Layout.fillWidth: true }
 
             // Cancel
@@ -342,7 +385,8 @@ Dialog {
         var target = root.targets[root.selectedIndex]
         var q = root.qualityPresets[qualityCombo.currentIndex]
         var fps = root.fpsPresets[fpsCombo.currentIndex]
-        appState.startSharing(JSON.stringify(target), q.w, q.h, fps, audioCheck.checked)
+        appState.startSharing(JSON.stringify(target), q.w, q.h, fps,
+                              audioCheck.checked, audioTargetCombo.currentId)
         root.close()
     }
 }

@@ -56,23 +56,34 @@ public:
     void set_peer_muted(const std::string& peer_id, bool muted);
     [[nodiscard]] bool peer_muted(const std::string& peer_id) const;
 
+    // Voice/transport counters for the connection panel, including the round
+    // trip to the SFU. Polled; the report is one snapshot behind.
+    [[nodiscard]] std::string voice_stats_json() const;
+
     void init_screen();
     void deinit_screen();
     void join_stream(const std::string& peer_id);
     void leave_stream(const std::string& peer_id);
     void leave_streams();
+    // The peer is gone: drop everything held for it, preferences included.
     void remove_peer(const std::string& peer_id);
-    [[nodiscard]] bool watching() const;
+    // The peer is still here but stopped publishing. Per-peer volume and mute
+    // are the user's settings for that person, not properties of the stream,
+    // so they survive.
+    void peer_stopped_streaming(const std::string& peer_id);
 
     [[nodiscard]] std::string video_targets_json() const;
     [[nodiscard]] Thumbnail grab_thumbnail(const std::string& target_json,
         int max_width,
         int max_height) const;
+    // `audio_target` names the playback device whose monitor is captured for
+    // system audio; empty selects the current default sink.
     [[nodiscard]] bool start_sharing(const std::string& target_json,
         int max_width,
         int max_height,
         int fps,
-        bool share_audio);
+        bool share_audio,
+        const std::string& audio_target = { });
     void stop_sharing();
     [[nodiscard]] bool sharing() const;
     void set_local_preview_enabled(bool enabled);

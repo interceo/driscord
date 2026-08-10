@@ -6,17 +6,19 @@ import shutil
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 
 from config import settings
 from dependencies import get_current_user
 from models.user import User
+from storage_paths import contained_path
 
 router = APIRouter(prefix="/updates", tags=["updates"])
 
 VERSIONS_FILE = settings.data_dir / "versions.json"
 RELEASES_DIR = settings.data_dir / "releases"
+PLATFORMS = ("linux", "windows")
 
 
 def _load_versions() -> dict:
@@ -34,7 +36,28 @@ def _parse_version(v: str) -> tuple[int, ...]:
     try:
         return tuple(int(x) for x in v.strip().split("."))
     except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid version format: {v!r}")
+        raise HTTPException(status_code=400, detail=f"Invalid version format: {v!r}") from None
+
+
+def _require_platform(platform: str) -> str:
+    if platform not in PLATFORMS:
+        raise HTTPException(status_code=400, detail="platform must be 'linux' or 'windows'")
+    return platform
+
+
+def _release_path(platform: str, version: str, filename: str) -> Path:
+    """Locate a release file below RELEASES_DIR.
+
+    Every component is attacker-controlled: `filename` comes straight from a
+    URL path segment (and percent-escaped separators survive routing), so the
+    join is validated for containment instead of trusted.
+    """
+    _require_platform(platform)
+    _parse_version(version)
+    path = contained_path(RELEASES_DIR, platform, version, filename)
+    if path is None:
+        raise HTTPException(status_code=400, detail="Invalid release path")
+    return path
 
 
 @router.get("/check")
@@ -60,21 +83,27 @@ async def upload_update(
     platform: Annotated[str, Form()],
     notes: Annotated[str, Form()] = "",
     file: Annotated[UploadFile | None, File()] = None,
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ) -> dict:
-    if platform not in ("linux", "windows"):
-        raise HTTPException(status_code=400, detail="platform must be 'linux' or 'windows'")
+    # Whatever lands here is what every client downloads and executes, so it is
+    # not something an ordinary account may replace.
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only an administrator can publish updates",
+        )
 
+    _require_platform(platform)
     _parse_version(version)
 
     filename: str | None = None
     if file is not None:
-        release_path = RELEASES_DIR / platform / version
-        release_path.mkdir(parents=True, exist_ok=True)
-        dest = release_path / file.filename  # type: ignore[arg-type]
+        # UploadFile.filename is client-supplied and may carry separators.
+        filename = Path(file.filename or "").name
+        dest = _release_path(platform, version, filename)
+        dest.parent.mkdir(parents=True, exist_ok=True)
         with open(dest, "wb") as fp:
             shutil.copyfileobj(file.file, fp)
-        filename = file.filename
 
     versions = _load_versions()
     versions[platform] = {"version": version, "notes": notes, "file": filename}
@@ -85,7 +114,7 @@ async def upload_update(
 
 @router.get("/download/{platform}/{version}/{filename}")
 def download_release(platform: str, version: str, filename: str) -> FileResponse:
-    path: Path = RELEASES_DIR / platform / version / filename
-    if not path.exists():
+    path = _release_path(platform, version, filename)
+    if not path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(path, filename=filename)
+    return FileResponse(path, filename=path.name)

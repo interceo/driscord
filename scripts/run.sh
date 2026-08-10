@@ -39,6 +39,13 @@ if [ "$TARGET" = "server" ]; then
         [ "$BUILD_TYPE" = "debug" ] && TYPE_FLAG="--debug"
         bash "$(dirname "$0")/build.sh" --server $TYPE_FLAG
     fi
+    # The server refuses to run without an API to authorize sessions against.
+    # Locally that API is the one ./scripts/run.sh --api starts.
+    if [ -z "${DRISCORD_API_URL:-}" ] \
+        && [ "${DRISCORD_ALLOW_ANONYMOUS:-}" != "1" ]; then
+        export DRISCORD_API_URL="http://127.0.0.1:${DRISCORD_API_PORT:-8000}"
+        echo "==> DRISCORD_API_URL not set, using $DRISCORD_API_URL"
+    fi
     echo "==> Launching server ($BUILD_TYPE)..."
     exec "$SERVER_BIN"
 fi

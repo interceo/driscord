@@ -24,6 +24,12 @@ async def lifespan(app: FastAPI):
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(512)"
             )
         )
+        await conn.execute(
+            sqlalchemy.text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN "
+                "NOT NULL DEFAULT FALSE"
+            )
+        )
     yield
 
 
@@ -34,6 +40,7 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(servers.router)
 app.include_router(channels.router)
+app.include_router(channels.access_router)
 app.include_router(invites.server_invites_router)
 app.include_router(invites.invites_router)
 app.include_router(updates.router)

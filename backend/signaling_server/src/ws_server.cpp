@@ -17,6 +17,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "api_authenticator.hpp"
 #include "bounded_queue.hpp"
 #include "config.hpp"
 #include "log.hpp"
@@ -262,10 +263,56 @@ private:
         }
 
         room_id_ = parse_room_id(req->target());
-        username_ = driscord::Username { parse_query_param(req->target(), "u") };
+
+        const auto authenticator = server_->authenticator();
+        if (!authenticator) {
+            username_
+                = driscord::Username { parse_query_param(req->target(), "u") };
+            accept_websocket(std::move(req));
+            return;
+        }
+
+        // Media for a private channel must not be reachable by anyone who can
+        // guess its id, so the upgrade is answered only after the API confirms
+        // the token and the membership behind it.
+        const auto self = shared_from_this();
+        authenticator->authorize_channel(bearer_token(*req), room_id_.value,
+            [self, req](std::optional<ApiAuthenticator::Identity> identity) {
+                boost::asio::dispatch(self->ws_.get_executor(),
+                    [self, req, identity = std::move(identity)]() mutable {
+                        if (!identity) {
+                            self->send_http_error(req,
+                                http::status::unauthorized, "unauthorized");
+                            return;
+                        }
+                        self->username_ = driscord::Username {
+                            std::move(identity->username)
+                        };
+                        self->accept_websocket(req);
+                    });
+            });
+    }
+
+    // Bearer token from the Authorization header, falling back to the `t`
+    // query parameter because a WebSocket handshake from QML cannot set
+    // headers.
+    static std::string bearer_token(
+        const http::request<http::string_body>& req)
+    {
+        constexpr std::string_view kPrefix = "Bearer ";
+        const auto header = req[http::field::authorization];
+        if (header.size() > kPrefix.size()
+            && std::string_view(header.data(), kPrefix.size()) == kPrefix) {
+            return std::string(header.substr(kPrefix.size()));
+        }
+        return parse_query_param(req.target(), "t");
+    }
+
+    void accept_websocket(
+        const std::shared_ptr<http::request<http::string_body>>& req)
+    {
         LOG_INFO() << "session " << id_.value << " joining room "
                    << room_id_.value << " as '" << username_.value << "'";
-
         ws_.async_accept(*req,
             beast::bind_front_handler(&Session::on_accept, shared_from_this()));
     }
@@ -273,33 +320,90 @@ private:
     void handle_http_request(
         std::shared_ptr<http::request<http::string_body>> req)
     {
-        auto res = std::make_shared<http::response<http::string_body>>();
-        res->version(req->version());
-        res->keep_alive(false);
-        res->set(http::field::server, "driscord/ws");
-        res->set("Access-Control-Allow-Origin", "*");
-
         std::string_view target = req->target();
         auto path_end = target.find('?');
-        std::string_view path = (path_end == std::string_view::npos)
-            ? target
-            : target.substr(0, path_end);
+        const std::string path { (path_end == std::string_view::npos)
+                ? target
+                : target.substr(0, path_end) };
 
-        if (req->method() == http::verb::get && path == "/presence") {
-            res->result(http::status::ok);
-            res->set(http::field::content_type, "application/json");
-            res->body() = server_->presence_json();
-        } else if (req->method() == http::verb::get && path == "/media_stats") {
-            res->result(http::status::ok);
-            res->set(http::field::content_type, "application/json");
-            res->body() = server_->media_stats_json();
-        } else {
-            res->result(http::status::not_found);
-            res->set(http::field::content_type, "text/plain");
-            res->body() = "not found";
+        // Liveness/readiness probes have no credentials and must not be able
+        // to enumerate anything, so they get their own contentless endpoint.
+        if (req->method() == http::verb::get && path == "/health") {
+            send_http_json(req, R"({"status":"ok"})");
+            return;
         }
-        res->prepare_payload();
 
+        if (req->method() != http::verb::get
+            || (path != "/presence" && path != "/media_stats")) {
+            send_http_error(req, http::status::not_found, "not found");
+            return;
+        }
+
+        const auto authenticator = server_->authenticator();
+        if (!authenticator) {
+            send_http_json(req, snapshot_json(path));
+            return;
+        }
+        // These endpoints enumerate who is in which room, so they answer to the
+        // same tokens as the WebSocket does.
+        const auto self = shared_from_this();
+        authenticator->authorize_user(bearer_token(*req),
+            [self, req, path](std::optional<ApiAuthenticator::Identity> identity) {
+                boost::asio::dispatch(self->ws_.get_executor(),
+                    [self, req, path, authorized = identity.has_value()] {
+                        if (!authorized) {
+                            self->send_http_error(req,
+                                http::status::unauthorized, "unauthorized");
+                            return;
+                        }
+                        self->send_http_json(req, self->snapshot_json(path));
+                    });
+            });
+    }
+
+    std::string snapshot_json(const std::string& path) const
+    {
+        return path == "/presence" ? server_->presence_json()
+                                   : server_->media_stats_json();
+    }
+
+    void send_http_json(
+        const std::shared_ptr<http::request<http::string_body>>& req,
+        std::string body)
+    {
+        auto res = make_response(*req, http::status::ok);
+        res->set(http::field::content_type, "application/json");
+        res->body() = std::move(body);
+        write_response(std::move(res));
+    }
+
+    void send_http_error(
+        const std::shared_ptr<http::request<http::string_body>>& req,
+        http::status status,
+        std::string body)
+    {
+        auto res = make_response(*req, status);
+        res->set(http::field::content_type, "text/plain");
+        res->body() = std::move(body);
+        write_response(std::move(res));
+    }
+
+    static std::shared_ptr<http::response<http::string_body>> make_response(
+        const http::request<http::string_body>& req, http::status status)
+    {
+        auto res = std::make_shared<http::response<http::string_body>>();
+        res->version(req.version());
+        res->keep_alive(false);
+        res->result(status);
+        res->set(http::field::server, "driscord/ws");
+        res->set("Access-Control-Allow-Origin", "*");
+        return res;
+    }
+
+    void write_response(
+        std::shared_ptr<http::response<http::string_body>> res)
+    {
+        res->prepare_payload();
         http::async_write(ws_.next_layer(), *res,
             [self = shared_from_this(), res](beast::error_code wec, std::size_t) {
                 if (wec) {
@@ -334,8 +438,10 @@ private:
         if (ec) {
             LOG_ERROR() << "write error [" << id_.value << "]: "
                         << ec.message();
-            std::scoped_lock lk(write_mutex_);
-            write_queue_.close();
+            // The peer is gone even if the read half has not noticed yet;
+            // without this the room and both routers keep the session (and its
+            // slots) until a read error eventually arrives.
+            on_close();
             return;
         }
         bool have_more = false;
@@ -477,10 +583,12 @@ private:
 
 WebSocketServer::WebSocketServer(boost::asio::io_context& io_context,
     unsigned short port,
-    sfu::RtpFaultConfig fault_config)
+    sfu::RtpFaultConfig fault_config,
+    std::shared_ptr<ApiAuthenticator> authenticator)
     : io_context_(io_context)
     , acceptor_(io_context_, tcp::endpoint(tcp::v4(), port))
     , fault_config_(fault_config)
+    , authenticator_(std::move(authenticator))
 {
     // Pinning the UDP range keeps firewall/Docker port-forwarding tractable.
     auto env_port = [](const char* name, uint16_t fallback) -> uint16_t {
@@ -533,6 +641,14 @@ WebSocketServer::WebSocketServer(boost::asio::io_context& io_context,
         }
         return servers;
     }();
+
+    if (authenticator_) {
+        LOG_INFO() << "session authorization via API at "
+                   << authenticator_->host() << ":" << authenticator_->port();
+    } else {
+        LOG_WARNING() << "session authorization is disabled; any client can "
+                         "join any channel";
+    }
 
     if (rtc_config_.iceServers.empty()) {
         LOG_WARNING() << "No ICE servers configured; clients can only reach "
@@ -675,13 +791,58 @@ std::string WebSocketServer::presence_json() const
 
 std::string WebSocketServer::media_stats_json() const
 {
+    // Routers are reference-counted and snapshot themselves, so the room map
+    // is released before asking them anything.
+    struct RoomRouters {
+        size_t sessions = 0;
+        size_t streaming_peers = 0;
+        std::shared_ptr<VoiceRouter> voice;
+        std::shared_ptr<ScreenRouter> screen;
+    };
+    std::unordered_map<std::string, RoomRouters> rooms;
+    {
+        std::scoped_lock lk(rooms_mutex_);
+        rooms.reserve(rooms_.size());
+        for (const auto& [room_id, room] : rooms_) {
+            rooms.emplace(room_id.value,
+                RoomRouters { room.sessions.size(),
+                    room.streaming_peers.size(), room.voice_router,
+                    room.screen_router });
+        }
+    }
+
     json out = json::object();
-    std::scoped_lock lk(rooms_mutex_);
-    for (const auto& [room_id, room] : rooms_) {
-        out[room_id.value] = {
-            { "sessions", room.sessions.size() },
-            { "streamingPeers", room.streaming_peers.size() },
+    for (const auto& [room_id, room] : rooms) {
+        json entry = {
+            { "sessions", room.sessions },
+            { "streamingPeers", room.streaming_peers },
         };
+        if (room.voice) {
+            const auto voice = room.voice->stats();
+            entry["voice"] = {
+                { "publishers", voice.publishers },
+                { "boundSlots", voice.bound_slots },
+                { "packetsIn", voice.packets_in },
+                { "packetsOut", voice.packets_out },
+                { "bytesOut", voice.bytes_out },
+            };
+        }
+        if (room.screen) {
+            const auto screen = room.screen->stats();
+            entry["screen"] = {
+                { "publishers", screen.streaming_publishers },
+                { "boundSlots", screen.bound_slots },
+                { "freeSlots", screen.free_slots },
+                { "videoPacketsIn", screen.video_packets_in },
+                { "videoPacketsOut", screen.video_packets_out },
+                { "videoBytesOut", screen.video_bytes_out },
+                { "audioPacketsIn", screen.audio_packets_in },
+                { "audioPacketsOut", screen.audio_packets_out },
+                { "audioBytesOut", screen.audio_bytes_out },
+                { "keyframeRequests", screen.keyframe_requests },
+            };
+        }
+        out[room_id] = std::move(entry);
     }
     return out.dump();
 }

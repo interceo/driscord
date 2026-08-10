@@ -113,6 +113,35 @@ PeerConnection/MediaStream, чтобы RTCP sync работал внутри о�
   показывает понятную ошибку. Screen slots назначаются в порядке выбора
   трансляций, voice slots — в стабильном порядке первого появления; после
   disconnect/unwatch освободившийся slot переиспользуется без renegotiation.
+- [x] Сессия signaling авторизуется: WebSocket-хендшейк несёт access-token, а
+  сервер спрашивает у REST API `GET /channels/{id}/access` — подтверждаются и
+  токен, и членство в сервере канала. Имя пользователя берётся из ответа API, а
+  не из query. `/presence` и `/media_stats` требуют токена, `/health` остаётся
+  открытым для probe. Без `DRISCORD_API_URL` сервер не стартует; открытый режим
+  включается явным `DRISCORD_ALLOW_ANONYMOUS=1`.
+- [x] Серверная половина тестов больше не требует pinned Google WebRTC:
+  `--server --test` конфигурируется с `BUILD_CORE=OFF` и гоняет протокол, RTP
+  rewriter, `sfu_media_utils` и авторизацию signaling. CI гоняет её на каждый
+  push, как и pytest бэкенда.
+- [x] `/media_stats` снова отдаёт медиасчётчики: per-room publishers, занятые и
+  свободные слоты, packets/bytes in/out по voice и screen, keyframe requests.
+- [x] Порядок `track_binding` больше не зависит от гонки: мутация слота и её
+  публикация в обоих роутерах идут под одним `publish_mutex`, поэтому unbind не
+  может обогнать bind. `VoiceRouter` перестал терять unbind-уведомление при
+  пересоздании voice-сессии.
+- [x] `streaming_stop` больше не стирает пользовательские настройки пира:
+  громкость и mute остаются, снимается только подписка.
+- [x] RTT снова измеряется — берётся из `RTCIceCandidatePairStats` голосовой
+  сессии (round trip до SFU, а не до пира) вместе с packets/bytes и потерями;
+  панель звонка перестала быть заглушкой, `VoiceSessionStats` получил
+  потребителя. Ложное «end-to-end encryption» в UI заменено на честное
+  «encrypted in transit».
+- [x] Выбор monitor для system audio доведён до конца: `SystemAudioCapture::start`
+  принимает target, `ShareDialog` показывает список sink'ов. Захват монитора
+  того же устройства, через которое идёт воспроизведение, по-прежнему вернёт в
+  эфир чужие голоса — теперь это выбор пользователя, а не молчаливый дефолт.
+- [x] Превью источников считаются в отдельном потоке (до 2 с на источник
+  блокировали QML-поток при открытии диалога).
 - [ ] Завершить reliability gate длительной soak-проверкой нескольких
   voice/screen publishers. Граница screen capacity и краткий churn уже покрыты
   интеграционными тестами, но многочасовой прогон ещё не выполнен.
@@ -152,19 +181,29 @@ PeerConnection/MediaStream, чтобы RTCP sync работал внутри о�
   fault/reconnect прогоны стабильны 10/10 каждый;
 - signaling-тесты проверяют typed rejection на девятую screen-подписку,
   освобождение capacity через `watch_stop` и повторную подписку без reconnect;
-  room/signaling churn стабилен 5/5, voice и screen transport — 10/10.
+  room/signaling churn стабилен 5/5, voice и screen transport — 10/10;
+- серверный набор (`./scripts/build.sh --server --test`, 7/7) собирается без
+  Google WebRTC и проверяет протокол, RTP rewriter, `sfu_media_utils` и
+  авторизацию сессий против поддельного REST API; `./scripts/build.sh --api
+  --test` — 48/48.
 
 Оставшиеся ограничения, которые нельзя маскировать совместимостью:
 
 - pinned Google WebRTC artifact сейчас поддержан только на Linux x86_64 и
   требует Clang/lld; другие архитектуры, Windows и macOS core build
   заблокированы до появления воспроизводимых артефактов для этих платформ;
-- input/output audio device подключены к native ADM; input/output level всё
-  ещё возвращают `0.0` и требуют отдельного observer поверх штатного ADM, без
-  возврата miniaudio capture pipeline;
-- default Pulse monitor для system audio пока не выбирается из UI и может
-  захватывать воспроизводимые голоса обратно; deafen/master volume уже
-  применяются к screen playout, но выбор monitor и loopback policy остаются;
+- input/output audio device подключены к native ADM; индикаторы уровня входа и
+  выхода удалены из API и UI, потому что возвращали фиксированный `0.0`;
+  вернуть их можно только отдельным observer поверх штатного ADM, без возврата
+  miniaudio capture pipeline;
+- monitor для system audio теперь выбирается в UI, но loopback policy остаётся:
+  захват монитора устройства, через которое идёт воспроизведение, вернёт в эфир
+  голоса собеседников. Полноценное решение — per-application capture
+  (PipeWire), а не выбор sink'а;
+- screen playout всё ещё идёт мимо выбранного output-устройства: это второе
+  miniaudio-устройство с собственным клоком, а его id несопоставим с
+  непрозрачными id native ADM. Честное решение — вернуть screen-аудио в тот же
+  ADM, а не сопоставлять устройства по имени;
 - после ICE failure screen-viewer автоматически восстанавливает session и
   targeted subscriptions, но активный desktop sharing останавливается честным
   `streaming_stop` и требует повторного выбора source пользователем;

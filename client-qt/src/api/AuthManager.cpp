@@ -11,6 +11,7 @@ AuthManager::AuthManager(ApiClient* api, SessionStore* session, QObject* parent)
 
 bool AuthManager::loggedIn() const { return m_loggedIn; }
 QString AuthManager::username() const { return m_username; }
+QString AuthManager::accessToken() const { return m_api->accessToken(); }
 int AuthManager::userId() const { return m_userId; }
 QString AuthManager::avatarUrl() const { return m_avatarUrl; }
 QString AuthManager::displayName() const { return m_displayName.isEmpty() ? m_username : m_displayName; }

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from config import settings
+from storage_paths import contained_path
 
 
 def avatar_path(value: object) -> Path | None:
@@ -8,13 +9,8 @@ def avatar_path(value: object) -> Path | None:
     if not isinstance(value, str) or not value.strip():
         return None
 
-    root = settings.data_dir.resolve()
-    candidate = (root / value).resolve()
-    try:
-        candidate.relative_to(root)
-    except ValueError:
-        return None
-    return candidate if candidate.is_file() else None
+    candidate = contained_path(settings.data_dir, value)
+    return candidate if candidate and candidate.is_file() else None
 
 
 def available_avatar_url(value: object) -> str | None:

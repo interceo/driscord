@@ -101,7 +101,7 @@ DiscordDialog {
             Layout.fillWidth: true
             spacing: 4
             Text {
-                text: appState.primaryPeerId !== "" ? appState.primaryPeerId : qsTr("(no peers)")
+                text: qsTr("Voice server (SFU)")
                 color: "white"; font { pixelSize: 12; bold: true }
                 elide: Text.ElideRight; Layout.fillWidth: true
             }
@@ -121,6 +121,23 @@ DiscordDialog {
                     color: "white"; font { pixelSize: 12; bold: true }
                 }
             }
+            RowLayout {
+                Layout.fillWidth: true
+                Text { text: qsTr("Incoming voices:"); color: "#b9bbbe"; font.pixelSize: 12 }
+                Text {
+                    text: appState.remoteVoiceTracks
+                    color: "white"; font { pixelSize: 12; bold: true }
+                }
+            }
+            RowLayout {
+                Layout.fillWidth: true
+                Text { text: qsTr("Packets lost:"); color: "#b9bbbe"; font.pixelSize: 12 }
+                Text {
+                    text: appState.packetsLost
+                    color: appState.packetsLost > 0 ? "#faa61a" : "white"
+                    font { pixelSize: 12; bold: true }
+                }
+            }
         }
 
         Text {
@@ -130,9 +147,12 @@ DiscordDialog {
             color: "#72767d"; font.pixelSize: 11
         }
 
+        // Media is decrypted and re-encrypted by the SFU on its way through, so
+        // claiming end-to-end encryption here would be untrue.
         Text {
             Layout.fillWidth: true
-            text: qsTr("Protected with end-to-end encryption")
+            wrapMode: Text.WordWrap
+            text: qsTr("Encrypted in transit (DTLS-SRTP) between you and the server")
             color: "#3ba55d"; font.pixelSize: 11
         }
     }

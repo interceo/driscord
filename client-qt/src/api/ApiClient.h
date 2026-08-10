@@ -13,6 +13,7 @@ public:
 
     void setBaseUrl(const QString& url);
     void setAccessToken(const QString& token);
+    QString accessToken() const;
     void clearAccessToken();
 
     using JsonCb = std::function<void(QNetworkReply::NetworkError, QJsonObject)>;

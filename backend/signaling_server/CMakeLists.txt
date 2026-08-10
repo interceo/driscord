@@ -9,6 +9,7 @@ find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)
 
 add_library(driscord_signaling STATIC
+    src/api_authenticator.cpp
     src/media_connections.cpp
     src/rtp_slot_rewriter.cpp
     src/screen_router.cpp

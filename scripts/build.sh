@@ -94,14 +94,15 @@ if [ "$TARGET" = "server" ] && [ "$ACTION" = "build" ]; then
     exit 0
 fi
 
+# Server tests deliberately stay on the deployable configuration: no Google
+# WebRTC, so this half of the suite runs without the pinned artifact.
 if [ "$TARGET" = "server" ]; then
-    BUILD_DIR="$BUILDS_DIR/cmake/server-webrtc-test-$TYPE_LOWER"
+    BUILD_DIR="$BUILDS_DIR/cmake/server-test-$TYPE_LOWER"
     cmake_configure "$BUILD_DIR" \
-        -DBUILD_CORE=ON -DBUILD_SERVER=ON \
+        -DBUILD_CORE=OFF -DBUILD_SERVER=ON \
         -DBUILD_TESTS=ON -DBUILD_QT_CLIENT=OFF
-    cmake --build "$BUILD_DIR" --target test_room_isolation -j"$JOBS"
-    ctest --test-dir "$BUILD_DIR" -R '^test_room_isolation$' \
-        --output-on-failure
+    cmake --build "$BUILD_DIR" -j"$JOBS"
+    ctest --test-dir "$BUILD_DIR" --output-on-failure
     exit 0
 fi
 

@@ -21,6 +21,17 @@ public:
     using BindingSender = std::function<void(
         std::string mid, std::optional<PeerId> publisher)>;
 
+    // Snapshot for /media_stats. "In" counts what publishers delivered, "out"
+    // what was forwarded after fan-out, so in > 0 with out == 0 localises a
+    // fault to the subscriber side.
+    struct Stats {
+        size_t publishers = 0;
+        size_t bound_slots = 0;
+        uint64_t packets_in = 0;
+        uint64_t packets_out = 0;
+        uint64_t bytes_out = 0;
+    };
+
     explicit VoiceRouter(sfu::RtpFaultConfig fault_config = { });
     ~VoiceRouter();
 
@@ -31,6 +42,7 @@ public:
         std::shared_ptr<rtc::Track> track,
         BindingSender send_binding);
     void remove_peer(const PeerId& peer_id);
+    [[nodiscard]] Stats stats() const;
     void close();
 
 private:
