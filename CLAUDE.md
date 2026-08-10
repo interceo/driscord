@@ -119,6 +119,11 @@ public Qt/DriscordCore headers.
   screen lifecycle components without recreating sender/receiver abstraction
   layers; stateful screen stats are already isolated in `ScreenStatsTracker`;
 - add a long-running multi-publisher soak/capacity gate;
+- move the decoded-video path off `QQuickImageProvider` onto per-peer
+  `QVideoSink`/`VideoOutput` (three copies per frame today); blocked on a local
+  client build, see `PLAN3.md`;
 - add screen simulcast/SVC and SFU layer selection if multi-tile bandwidth
   becomes part of the MVP target;
 - produce pinned Windows/macOS WebRTC artifacts before enabling those clients.
+  The Windows route (build VM, artifact cache, self-hosted release pipeline) is
+  planned in `PLAN3.md`; MinGW stays off the table.
