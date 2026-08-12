@@ -1,3 +1,4 @@
+#include "headless_audio.hpp"
 #include "rtc_cleanup_env.hpp"
 #include "signaling_test_fixture.hpp"
 #include "transport.hpp"
@@ -135,7 +136,7 @@ std::vector<int16_t> make_tone_frame(double frequency_hz,
 
 TEST_F(GoogleWebRtcTransportTest, VoiceConnectsToLibdatachannelSfu)
 {
-    driscord::media::GoogleWebRtcRuntime runtime;
+    driscord::media::GoogleWebRtcRuntime runtime(test_util::headless_audio_runtime());
     Transport transport;
     Waiter connected;
     std::mutex error_mutex;
@@ -193,7 +194,7 @@ TEST_F(GoogleWebRtcTransportTest, VoiceConnectsToLibdatachannelSfu)
 TEST_F(GoogleWebRtcTransportTest, VoiceSlotsBindThreeParticipantsIndependently)
 {
     using Binding = std::pair<std::string, std::optional<std::string>>;
-    driscord::media::GoogleWebRtcRuntime runtime;
+    driscord::media::GoogleWebRtcRuntime runtime(test_util::headless_audio_runtime());
     Transport first_transport;
     Transport second_transport;
     Transport third_transport;

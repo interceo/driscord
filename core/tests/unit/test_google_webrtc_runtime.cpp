@@ -1,3 +1,4 @@
+#include "headless_audio.hpp"
 #include "webrtc/google_webrtc_runtime.hpp"
 #include "webrtc/google_webrtc_screen_session.hpp"
 #include "webrtc/google_webrtc_voice_session.hpp"
@@ -134,7 +135,7 @@ TEST(GoogleWebRtcVoiceSession, CreatesOneMicrophoneAndMultipleReceiveSlots)
     using namespace std::chrono_literals;
     using driscord::media::GoogleWebRtcVoiceSession;
 
-    driscord::media::GoogleWebRtcRuntime runtime;
+    driscord::media::GoogleWebRtcRuntime runtime(test_util::headless_audio_runtime());
     auto result = std::make_shared<OfferResult>();
     driscord::media::VoiceSessionCallbacks callbacks;
     callbacks.on_offer = [result](std::string sdp) {
@@ -212,7 +213,7 @@ TEST(GoogleWebRtcScreenSession, CreatesPairedSendAndReceiveTracks)
     using namespace std::chrono_literals;
     using driscord::media::GoogleWebRtcScreenSession;
 
-    driscord::media::GoogleWebRtcRuntime runtime;
+    driscord::media::GoogleWebRtcRuntime runtime(test_util::headless_audio_runtime());
     auto result = std::make_shared<OfferResult>();
     driscord::media::ScreenSessionCallbacks callbacks;
     callbacks.on_offer = [result](std::string sdp) {
@@ -257,7 +258,7 @@ TEST(GoogleWebRtcScreenSession, LocalPreviewCanBeDetachedWithoutStoppingShare)
     using namespace std::chrono_literals;
     using driscord::media::GoogleWebRtcScreenSession;
 
-    driscord::media::GoogleWebRtcRuntime runtime;
+    driscord::media::GoogleWebRtcRuntime runtime(test_util::headless_audio_runtime());
     auto preview = std::make_shared<PreviewResult>();
     driscord::media::ScreenSessionCallbacks callbacks;
     callbacks.on_local_video =
