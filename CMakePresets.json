@@ -65,6 +65,13 @@
       "cacheVariables": { "BUILD_TESTS": "ON" }
     },
     {
+      "name": "linux-release",
+      "inherits": "client",
+      "displayName": "Portable Linux client package",
+      "description": "Builds and packages the client with Qt Deploy and CPack inside the pinned Debian 12 image.",
+      "cacheVariables": { "DRISCORD_ENABLE_PACKAGING": "ON" }
+    },
+    {
       "name": "server-debug",
       "inherits": "server",
       "displayName": "Signaling server (debug)",
@@ -92,6 +99,11 @@
     },
     { "name": "client-tests", "configurePreset": "client-tests" },
     {
+      "name": "linux-release",
+      "configurePreset": "linux-release",
+      "targets": ["driscord_client"]
+    },
+    {
       "name": "server-debug",
       "configurePreset": "server-debug",
       "targets": ["driscord_server"]
@@ -100,6 +112,13 @@
       "name": "client-debug",
       "configurePreset": "client-debug",
       "targets": ["driscord_client"]
+    }
+  ],
+  "packagePresets": [
+    {
+      "name": "linux-release",
+      "configurePreset": "linux-release",
+      "generators": ["TGZ"]
     }
   ],
   "testPresets": [
@@ -158,6 +177,14 @@
         { "type": "configure", "name": "client-tests" },
         { "type": "build", "name": "client-tests" },
         { "type": "test", "name": "client-tests" }
+      ]
+    },
+    {
+      "name": "linux-release",
+      "steps": [
+        { "type": "configure", "name": "linux-release" },
+        { "type": "build", "name": "linux-release" },
+        { "type": "package", "name": "linux-release" }
       ]
     }
   ]

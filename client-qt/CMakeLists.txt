@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
+include(GNUInstallDirs)
 find_package(Qt6 REQUIRED COMPONENTS Quick Network Widgets QuickDialogs2 Core5Compat)
 qt_standard_project_setup(REQUIRES 6.5)
 
@@ -80,7 +81,9 @@ qt_add_resources(driscord_client "icons"
         resources/icons/plus.svg
 )
 
-target_include_directories(driscord_client PRIVATE src)
+target_include_directories(driscord_client PRIVATE
+    src
+    "${CMAKE_BINARY_DIR}/generated")
 
 # The core library has been built with these all along; the client was the one
 # place in the tree compiling with no warnings at all.
@@ -105,7 +108,7 @@ if(UNIX AND NOT APPLE AND TARGET datachannel)
     # embedding an absolute path to FetchContent's temporary build directory.
     set_target_properties(driscord_client PROPERTIES
         BUILD_WITH_INSTALL_RPATH TRUE
-        INSTALL_RPATH "$ORIGIN")
+        INSTALL_RPATH "$ORIGIN;$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
     add_custom_command(TARGET driscord_client POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:datachannel>
@@ -114,6 +117,18 @@ if(UNIX AND NOT APPLE AND TARGET datachannel)
             $<TARGET_FILE:datachannel>
             $<TARGET_FILE_DIR:driscord_client>/$<TARGET_SONAME_FILE_NAME:datachannel>
         VERBATIM)
+endif()
+
+if(UNIX AND NOT APPLE AND DRISCORD_ENABLE_PACKAGING)
+    install(TARGETS driscord_client
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+    # Generates qt.conf and deploys Qt libraries, plugins, QML imports and
+    # non-system runtime dependencies into the CPack install tree.
+    qt_generate_deploy_qml_app_script(
+        TARGET driscord_client
+        OUTPUT_SCRIPT driscord_deploy_script)
+    install(SCRIPT ${driscord_deploy_script})
 endif()
 
 if(WIN32)

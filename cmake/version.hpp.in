@@ -1,0 +1,8 @@
+#pragma once
+
+#cmakedefine01 DRISCORD_VERSION_IS_RELEASE
+
+namespace driscord {
+inline constexpr char kVersion[] = "@DRISCORD_VERSION_DISPLAY@";
+inline constexpr bool kReleaseVersion = DRISCORD_VERSION_IS_RELEASE;
+} // namespace driscord

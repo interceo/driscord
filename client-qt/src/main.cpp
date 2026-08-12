@@ -2,8 +2,10 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QTimer>
 #include <rtc/rtc.hpp>
 
+#include "driscord/version.hpp"
 #include "api/ApiClient.h"
 #include "api/AuthManager.h"
 #include "api/ServerRepository.h"
@@ -31,8 +33,9 @@ int main(int argc, char* argv[])
     {
         QGuiApplication app(argc, argv);
         app.setApplicationName("Driscord");
-        app.setApplicationVersion("0.3.0");
+        app.setApplicationVersion(QString::fromLatin1(driscord::kVersion));
         app.setOrganizationName("driscord");
+        const bool smokeTest = app.arguments().contains("--smoke-test");
 
         AppConfig cfg = AppConfig::load();
 
@@ -65,6 +68,12 @@ int main(int argc, char* argv[])
 
         QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app, []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);
         engine.loadFromModule("driscord", "Main");
+
+        // Release smoke jobs exercise the real installed binary, Qt platform
+        // plugin and QML module graph without requiring credentials or a
+        // display. A failed root object still wins through the queued -1 exit.
+        if (smokeTest && !engine.rootObjects().isEmpty())
+            QTimer::singleShot(0, &app, &QCoreApplication::quit);
 
         rc = app.exec();
 

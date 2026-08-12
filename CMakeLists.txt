@@ -2,7 +2,12 @@ cmake_minimum_required(VERSION 3.20)
 cmake_policy(SET CMP0167 NEW)
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "")
 
-project(driscord VERSION 0.3.0 LANGUAGES C CXX)
+include(cmake/Version.cmake)
+project(driscord VERSION ${DRISCORD_VERSION_CORE} LANGUAGES C CXX)
+
+configure_file(cmake/version.hpp.in
+    "${CMAKE_BINARY_DIR}/generated/driscord/version.hpp" @ONLY)
+message(STATUS "Driscord version: ${DRISCORD_VERSION_DISPLAY}")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -176,4 +181,37 @@ endif()
 option(BUILD_QT_CLIENT "Build the Qt/QML client" OFF)
 if(BUILD_QT_CLIENT)
     add_subdirectory(client-qt)
+endif()
+
+option(DRISCORD_ENABLE_PACKAGING "Create a portable client package" OFF)
+if(DRISCORD_ENABLE_PACKAGING)
+    if(NOT BUILD_QT_CLIENT)
+        message(FATAL_ERROR
+            "DRISCORD_ENABLE_PACKAGING requires BUILD_QT_CLIENT=ON")
+    endif()
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux"
+        OR NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64)$")
+        message(FATAL_ERROR
+            "The release package currently supports Linux x86_64 only")
+    endif()
+
+    set(_driscord_default_package_dir "${CMAKE_BINARY_DIR}/packages")
+    if(DEFINED ENV{DRISCORD_RELEASE_STAGING}
+        AND NOT "$ENV{DRISCORD_RELEASE_STAGING}" STREQUAL "")
+        set(_driscord_default_package_dir "$ENV{DRISCORD_RELEASE_STAGING}")
+    endif()
+    set(DRISCORD_RELEASE_STAGING "${_driscord_default_package_dir}"
+        CACHE PATH "Directory for generated release artifacts")
+
+    set(CPACK_GENERATOR "TGZ")
+    set(CPACK_PACKAGE_NAME "driscord-client")
+    set(CPACK_PACKAGE_VENDOR "Driscord")
+    set(CPACK_PACKAGE_VERSION "${DRISCORD_VERSION_DISPLAY}")
+    set(CPACK_PACKAGE_FILE_NAME
+        "driscord-client-${DRISCORD_VERSION_DISPLAY}-linux-x86_64")
+    set(CPACK_PACKAGE_DIRECTORY "${DRISCORD_RELEASE_STAGING}")
+    set(CPACK_PACKAGE_CHECKSUM "SHA256")
+    set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY ON)
+    include(CPack)
+    unset(_driscord_default_package_dir)
 endif()
