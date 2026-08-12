@@ -44,3 +44,6 @@ jobs:
 
       - name: Run API tests
         run: ./scripts/build.sh --api --test
+      
+      - name: Run client tests
+        run: ./scripts/build.sh --qt --test
