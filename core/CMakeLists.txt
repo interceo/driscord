@@ -77,9 +77,14 @@ target_include_directories(driscord_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src/utils
 )
 
+# PRIVATE: webrtc/google_webrtc_pcm_playout.hpp needs boost/lockfree, and that
+# header is internal — no public header of driscord_core exposes Boost. A
+# distribution that keeps Boost in /usr/include hides the missing link; a build
+# image that keeps it in /opt does not.
 target_link_libraries(driscord_core PRIVATE
     miniaudio_lib
     driscord_webrtc_backend
+    Boost::boost
 )
 # PUBLIC: these headers are included by driscord_core's public .hpp files,
 # so consumers need their include paths too.
