@@ -20,6 +20,7 @@ pkgs.mkShell {
     pkg-config
     postgresql
     python
+    python.pkgs.tox
     qt6.qtbase
     qt6.qt5compat
     qt6.qtdeclarative
@@ -46,6 +47,9 @@ pkgs.mkShell {
   env = {
     CMAKE_GENERATOR = "Ninja";
     DRISCORD_NIXOS_ENV = "1";
+    # Prefixes the build directory of every CMake preset. Without it a nix build
+    # and a host build would share one CMake cache and fight over the toolchain.
+    DRISCORD_BUILD_TAG = "nixos-";
   };
 
   shellHook = ''

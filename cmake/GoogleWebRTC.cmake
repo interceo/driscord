@@ -28,6 +28,15 @@ if(EXISTS
     set(_driscord_webrtc_default_source
         "${CMAKE_SOURCE_DIR}/.cache/google-webrtc-sdk/src")
 endif()
+# The SDK does not have to live next to the checkout. The CI image bakes it in
+# and points DRISCORD_WEBRTC_SDK_ROOT at it — a CI workspace is a fresh clone
+# with no .cache/ — and a developer can share one SDK between worktrees the same
+# way. An explicit -DDRISCORD_WEBRTC_SOURCE_DIR still wins: the cache entry
+# below is only initialised when it is not already set.
+if(DEFINED ENV{DRISCORD_WEBRTC_SDK_ROOT} AND EXISTS
+    "$ENV{DRISCORD_WEBRTC_SDK_ROOT}/src/api/peer_connection_interface.h")
+    set(_driscord_webrtc_default_source "$ENV{DRISCORD_WEBRTC_SDK_ROOT}/src")
+endif()
 set(DRISCORD_WEBRTC_SOURCE_DIR
     "${_driscord_webrtc_default_source}"
     CACHE PATH "Path to the pinned Google WebRTC source checkout")

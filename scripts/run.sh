@@ -32,12 +32,12 @@ done
 
 # ===== SERVER =====
 if [ "$TARGET" = "server" ]; then
-    SERVER_BIN="$ROOT/.builds/server/$BUILD_TYPE/driscord_server"
+    PRESET="server"
+    [ "$BUILD_TYPE" = "debug" ] && PRESET="server-debug"
+    SERVER_BIN="$ROOT/.builds/${DRISCORD_BUILD_TAG:-}$PRESET/backend/signaling_server/driscord_server"
     if [ ! -f "$SERVER_BIN" ]; then
         echo "==> Server binary not found — building..."
-        TYPE_FLAG="--release"
-        [ "$BUILD_TYPE" = "debug" ] && TYPE_FLAG="--debug"
-        bash "$(dirname "$0")/build.sh" --server $TYPE_FLAG
+        cmake --workflow --preset "$PRESET"
     fi
     # The server refuses to run without an API to authorize sessions against.
     # Locally that API is the one ./scripts/run.sh --api starts.
@@ -54,9 +54,12 @@ fi
 if [ "$TARGET" = "api" ]; then
     API_DIR="$ROOT/backend/api"
     VENV_DIR="$API_DIR/.venv"
+    # Runtime dependencies only. The test environment is tox's business
+    # (backend/api/tox.ini) and lives in .tox/, not here.
     if [ ! -d "$VENV_DIR" ]; then
-        echo "==> Venv not found — building API first..."
-        bash "$(dirname "$0")/build.sh" --api
+        echo "==> Venv not found — creating it..."
+        python3 -m venv "$VENV_DIR"
+        "$VENV_DIR/bin/pip" install -q -r "$API_DIR/requirements.txt"
     fi
     echo "==> Launching API server..."
     cd "$API_DIR"
@@ -64,12 +67,12 @@ if [ "$TARGET" = "api" ]; then
 fi
 
 # ===== QT CLIENT =====
-QT_BIN="$ROOT/.builds/cmake/qt-webrtc-$BUILD_TYPE/client-qt/driscord_client"
+PRESET="client"
+[ "$BUILD_TYPE" = "debug" ] && PRESET="client-debug"
+QT_BIN="$ROOT/.builds/${DRISCORD_BUILD_TAG:-}$PRESET/client-qt/driscord_client"
 if [ ! -f "$QT_BIN" ]; then
     echo "==> Qt client binary not found — building..."
-    TYPE_FLAG="--release"
-    [ "$BUILD_TYPE" = "debug" ] && TYPE_FLAG="--debug"
-    bash "$(dirname "$0")/build.sh" --qt $TYPE_FLAG
+    cmake --workflow --preset "$PRESET"
 fi
 
 if [ "$GDB_MODE" -eq 1 ]; then

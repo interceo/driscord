@@ -58,28 +58,32 @@ screen tracks без отдельного PeerConnection на каждого у�
 
 ## Сборка
 
-Все сборочные сценарии делаются через `./scripts/build.sh` (таргет × действие — независимые оси):
+Конфигурации описаны в `CMakePresets.json`. Одна команда делает configure, build
+и (где есть тесты) прогон:
 
 ```bash
-# --- Клиент ---
-./scripts/build.sh                    # Qt6/QML, release
-./scripts/build.sh --debug            # Qt6/QML, debug
+cmake --workflow --preset client         # Qt6/QML-клиент
+cmake --workflow --preset client-tests   # клиент + его тесты
+cmake --workflow --preset client-debug   # то же в Debug
 
-# --- Сервер ---
-./scripts/build.sh --server           # сигналинг-сервер, release
-./scripts/build.sh --server --debug
-./scripts/build.sh --server --test    # тесты сервера
+cmake --workflow --preset server         # сигналинг-сервер
+cmake --workflow --preset server-tests   # + тесты сервера (без Google WebRTC)
+cmake --workflow --preset core-tests     # core + SFU media path на реальном WebRTC
 
-# --- API ---
-./scripts/build.sh --api              # создаёт venv, ставит зависимости
-
-# --- Тесты core и реального client ↔ SFU media path ---
-./scripts/build.sh --test
+cd backend/api && tox                    # тесты API
 ```
 
-Артефакты складываются в `.builds/`:
-- `.builds/cmake/qt-webrtc-{release,debug}/client-qt/driscord_client` — Qt-бинарь
-- `.builds/server/{release,debug}/driscord_server` — сигналинг
+Список всегда можно спросить у самого CMake: `cmake --list-presets`,
+`cmake --list-presets=test`. Отдельные шаги — `cmake --preset <name>`,
+`cmake --build --preset <name>`, `ctest --preset <name>`.
+
+Артефакты складываются в `.builds/<preset>/`:
+- `.builds/client/client-qt/driscord_client` — Qt-бинарь
+- `.builds/server/backend/signaling_server/driscord_server` — сигналинг
+
+Qt, Boost и артефакт Google WebRTC ищутся через окружение (`CMAKE_PREFIX_PATH`,
+`BOOST_ROOT`, `DRISCORD_WEBRTC_SDK_ROOT`), поэтому одни и те же пресеты работают
+на рабочей машине, в nix-шелле и в CI-образе.
 
 ## Запуск
 
@@ -132,18 +136,19 @@ revision в `third_party/google_webrtc_revision.txt`. Текущий pinned arti
 
 ## NixOS
 
-Для NixOS есть отдельный dev shell и отдельные скрипты, чтобы обе тестовые
-машины собирали проект в одинаковом окружении:
+Для NixOS есть dev shell из `flake.nix`; отдельных сборочных скриптов больше нет —
+пресеты те же:
 
 ```bash
-./scripts/nixos-build.sh --qt
-./scripts/nixos-build.sh --server
-./scripts/nixos-build.sh --test
-
-./scripts/nixos-run.sh --server 9001
-./scripts/nixos-run.sh --api
-./scripts/nixos-run.sh --qt
+nix develop -c cmake --workflow --preset client
+nix develop -c cmake --workflow --preset server-tests
+nix develop -c ./scripts/run.sh --qt
 ```
 
-Если скрипты запущены вне `nix develop`, они сами зайдут в dev shell из
-`flake.nix`. Артефакты NixOS-сборки лежат отдельно в `.builds/nixos/`.
+Dev shell выставляет `DRISCORD_BUILD_TAG=nixos-`, поэтому артефакты NixOS-сборки
+лежат отдельно (`.builds/nixos-client/` и т.д.) и не конфликтуют с хостовой
+сборкой за один и тот же CMake-кэш.
+
+Исключение — `scripts/nixos-webrtc.sh`: он не обёртка над CMake, а инъекция путей
+nixpkgs cc-wrapper в чистый Chromium clang, без которой WebRTC на NixOS не
+собирается.

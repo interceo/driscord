@@ -39,11 +39,17 @@ jobs:
           git checkout -q --detach FETCH_HEAD
           git --no-pager log -1 --format='checked out %H'
 
-      - name: Run signaling and SFU tests
-        run: ./scripts/build.sh --server --test
+      # One command per configuration: configure, build and test all come from
+      # CMakePresets.json, so this file stays orchestration only.
+      - name: Signaling and SFU tests
+        run: cmake --workflow --preset server-tests
 
-      - name: Run API tests
-        run: ./scripts/build.sh --api --test
-      
-      - name: Run client tests
-        run: ./scripts/build.sh --qt --test
+      - name: Core tests (real Google WebRTC)
+        run: cmake --workflow --preset core-tests
+
+      - name: Qt client and its tests
+        run: cmake --workflow --preset client-tests
+
+      - name: API tests
+        working-directory: backend/api
+        run: tox

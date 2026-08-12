@@ -1,0 +1,164 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/.builds/$env{DRISCORD_BUILD_TAG}${presetName}",
+      "warnings": { "dev": false },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      },
+      "description": "Clang and lld are not a preference: the pinned Google WebRTC archive is produced by Chromium's clang, and GNU ld does not understand every section it emits. Qt, Boost and the WebRTC SDK are found through the environment (CMAKE_PREFIX_PATH, BOOST_ROOT, DRISCORD_WEBRTC_SDK_ROOT), so these presets stay identical on a developer box, in the CI image and in the nix dev shell. DRISCORD_BUILD_TAG prefixes the build directory: the nix dev shell sets it to nixos-, which is what keeps two toolchains from fighting over one CMake cache."
+    },
+    {
+      "name": "server",
+      "inherits": "base",
+      "displayName": "Signaling server",
+      "description": "The deployable configuration: no Google WebRTC, so it builds anywhere.",
+      "cacheVariables": {
+        "BUILD_CORE": "OFF",
+        "BUILD_SERVER": "ON",
+        "BUILD_TESTS": "OFF",
+        "BUILD_QT_CLIENT": "OFF"
+      }
+    },
+    {
+      "name": "server-tests",
+      "inherits": "server",
+      "displayName": "Signaling server + tests",
+      "description": "Server-side tests deliberately stay on the deployable configuration, so this half of the suite runs without the pinned WebRTC artifact.",
+      "cacheVariables": { "BUILD_TESTS": "ON" }
+    },
+    {
+      "name": "core-tests",
+      "inherits": "base",
+      "displayName": "Core + server + tests (real Google WebRTC)",
+      "description": "Needs the pinned WebRTC SDK: scripts/build_google_webrtc.sh, or DRISCORD_WEBRTC_SDK_ROOT pointing at one (the CI image sets it).",
+      "cacheVariables": {
+        "BUILD_CORE": "ON",
+        "BUILD_SERVER": "ON",
+        "BUILD_TESTS": "ON",
+        "BUILD_QT_CLIENT": "OFF"
+      }
+    },
+    {
+      "name": "client",
+      "inherits": "base",
+      "displayName": "Qt/QML client",
+      "cacheVariables": {
+        "BUILD_CORE": "ON",
+        "BUILD_SERVER": "OFF",
+        "BUILD_TESTS": "OFF",
+        "BUILD_QT_CLIENT": "ON"
+      }
+    },
+    {
+      "name": "client-tests",
+      "inherits": "client",
+      "displayName": "Qt/QML client + tests",
+      "cacheVariables": { "BUILD_TESTS": "ON" }
+    },
+    {
+      "name": "server-debug",
+      "inherits": "server",
+      "displayName": "Signaling server (debug)",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "client-debug",
+      "inherits": "client",
+      "displayName": "Qt/QML client (debug)",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "server",
+      "configurePreset": "server",
+      "targets": ["driscord_server"]
+    },
+    { "name": "server-tests", "configurePreset": "server-tests" },
+    { "name": "core-tests", "configurePreset": "core-tests" },
+    {
+      "name": "client",
+      "configurePreset": "client",
+      "targets": ["driscord_client"]
+    },
+    { "name": "client-tests", "configurePreset": "client-tests" },
+    {
+      "name": "server-debug",
+      "configurePreset": "server-debug",
+      "targets": ["driscord_server"]
+    },
+    {
+      "name": "client-debug",
+      "configurePreset": "client-debug",
+      "targets": ["driscord_client"]
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "server-tests",
+      "configurePreset": "server-tests",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "core-tests",
+      "configurePreset": "core-tests",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "client-tests",
+      "configurePreset": "client-tests",
+      "output": { "outputOnFailure": true },
+      "environment": { "QT_QPA_PLATFORM": "offscreen" },
+      "description": "The offscreen platform plugin keeps the QML tests runnable without an X server, which is what a CI container is."
+    }
+  ],
+  "workflowPresets": [
+    {
+      "name": "server",
+      "steps": [
+        { "type": "configure", "name": "server" },
+        { "type": "build", "name": "server" }
+      ]
+    },
+    {
+      "name": "server-tests",
+      "steps": [
+        { "type": "configure", "name": "server-tests" },
+        { "type": "build", "name": "server-tests" },
+        { "type": "test", "name": "server-tests" }
+      ]
+    },
+    {
+      "name": "core-tests",
+      "steps": [
+        { "type": "configure", "name": "core-tests" },
+        { "type": "build", "name": "core-tests" },
+        { "type": "test", "name": "core-tests" }
+      ]
+    },
+    {
+      "name": "client",
+      "steps": [
+        { "type": "configure", "name": "client" },
+        { "type": "build", "name": "client" }
+      ]
+    },
+    {
+      "name": "client-tests",
+      "steps": [
+        { "type": "configure", "name": "client-tests" },
+        { "type": "build", "name": "client-tests" },
+        { "type": "test", "name": "client-tests" }
+      ]
+    }
+  ]
+}

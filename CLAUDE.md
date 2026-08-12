@@ -4,13 +4,19 @@ Repository guidance for coding agents.
 
 ## Build and run
 
+Every configuration lives in `CMakePresets.json`; there is no build script to
+wrap it. `cmake --list-presets` is authoritative, `cmake --workflow` runs
+configure, build and tests in one step.
+
 ```bash
-./scripts/build.sh                 # Qt client, Release
-./scripts/build.sh --debug         # Qt client, Debug
-./scripts/build.sh --test          # core + signaling + real WebRTC integration
-./scripts/build.sh --server        # standalone signaling/SFU server
-./scripts/build.sh --server --test # protocol/SFU/auth tests, no Google WebRTC
-./scripts/build.sh --api           # Python API environment
+cmake --workflow --preset client        # Qt client, Release
+cmake --workflow --preset client-debug  # Qt client, Debug
+cmake --workflow --preset client-tests  # client + its tests (offscreen QPA)
+cmake --workflow --preset core-tests    # core + signaling + real WebRTC integration
+cmake --workflow --preset server        # standalone signaling/SFU server
+cmake --workflow --preset server-tests  # protocol/SFU/auth tests, no Google WebRTC
+
+cd backend/api && tox                   # Python API tests
 
 ./scripts/run.sh
 ./scripts/run.sh --server
@@ -24,8 +30,11 @@ compatibility.
 
 Outputs:
 
-- `.builds/cmake/qt-webrtc-{release,debug}/client-qt/driscord_client`
-- `.builds/server/{release,debug}/driscord_server`
+- `.builds/{client,client-debug}/client-qt/driscord_client`
+- `.builds/{server,server-debug}/backend/signaling_server/driscord_server`
+
+The nix dev shell sets `DRISCORD_BUILD_TAG=nixos-`, which prefixes those
+directories so two toolchains never share one CMake cache.
 
 ## Architecture
 

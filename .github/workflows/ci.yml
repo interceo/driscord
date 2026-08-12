@@ -112,7 +112,7 @@ jobs:
       - name: Cache CMake dependencies
         uses: actions/cache@v4
         with:
-          path: .builds/cmake/google-webrtc-test-release/_deps
+          path: .builds/core-tests/_deps
           key: cmake-test-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/CMakeLists.txt') }}
           restore-keys: cmake-test-${{ runner.os }}-${{ runner.arch }}-
 
@@ -120,7 +120,7 @@ jobs:
         run: ./scripts/format.sh --check
 
       - name: Build and run tests
-        run: ./scripts/build.sh --test
+        run: cmake --workflow --preset core-tests
 
   build-server:
     name: Build signaling server (OpenSSL)
@@ -156,18 +156,18 @@ jobs:
         run: echo "BOOST_ROOT=$HOME/boost-cache" >> "$GITHUB_ENV"
 
       - name: Build signaling server
-        run: ./scripts/build.sh --server
+        run: cmake --workflow --preset server
 
       # Same configuration the deployment runs (no Google WebRTC), so the SFU
       # and signaling tests gate every push without the pinned artifact.
       - name: Run signaling tests
-        run: ./scripts/build.sh --server --test
+        run: cmake --workflow --preset server-tests
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: driscord-server-linux
-          path: .builds/server/release/driscord_server
+          path: .builds/server/backend/signaling_server/driscord_server
 
   build-client:
     name: Build Qt client (Linux)
@@ -226,20 +226,20 @@ jobs:
       - name: Cache CMake dependencies
         uses: actions/cache@v4
         with:
-          path: .builds/cmake/qt-webrtc-release/_deps
+          path: .builds/client/_deps
           key: cmake-qt-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/CMakeLists.txt') }}
           restore-keys: cmake-qt-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build Qt client
-        run: ./scripts/build.sh --qt
+        run: cmake --workflow --preset client
 
       - name: Upload runnable client directory
         uses: actions/upload-artifact@v4
         with:
           name: driscord-client-linux
           path: |
-            .builds/cmake/qt-webrtc-release/client-qt/driscord_client
-            .builds/cmake/qt-webrtc-release/client-qt/libdatachannel.so*
+            .builds/client/client-qt/driscord_client
+            .builds/client/client-qt/libdatachannel.so*
 
   build-api:
     name: Build API
@@ -253,8 +253,9 @@ jobs:
           cache: pip
           cache-dependency-path: backend/api/requirements.txt
 
-      - name: Install API dependencies
-        run: ./scripts/build.sh --api
+      - name: Install tox
+        run: pip install tox
 
       - name: Run API tests
-        run: ./scripts/build.sh --api --test
+        working-directory: backend/api
+        run: tox

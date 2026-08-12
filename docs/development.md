@@ -37,8 +37,7 @@ REFRESH_TOKEN_EXPIRE_DAYS=7
 Для локальной разработки `DATA_DIR` можно не задавать. Затем:
 
 ```bash
-./scripts/build.sh --api
-./scripts/run.sh --api
+./scripts/run.sh --api      # создаст venv по requirements.txt при первом запуске
 curl http://127.0.0.1:9002/health
 ```
 
@@ -48,8 +47,8 @@ Swagger UI доступен на `http://127.0.0.1:9002/docs`, OpenAPI JSON — 
 ## Signaling
 
 ```bash
-./scripts/build.sh --server
-DRISCORD_PORT=9001 ./.builds/server/release/driscord_server
+cmake --workflow --preset server
+DRISCORD_PORT=9001 ./.builds/server/backend/signaling_server/driscord_server
 curl http://127.0.0.1:9001/presence
 ```
 
@@ -75,7 +74,7 @@ launcher не пересылает собственные флаги в серв
 Затем:
 
 ```bash
-./scripts/build.sh --qt
+cmake --workflow --preset client
 ./scripts/run.sh --qt
 ```
 
@@ -90,39 +89,33 @@ Google WebRTC session policy.
 ## Тесты
 
 ```bash
-./scripts/build.sh --test
-./scripts/build.sh --server --test
-./scripts/build.sh --api --test
+cmake --workflow --preset core-tests     # core + client ↔ SFU media path, реальный WebRTC
+cmake --workflow --preset server-tests   # сервер и SFU, без WebRTC-артефакта
+cmake --workflow --preset client-tests   # клиент и его тесты (QT_QPA_PLATFORM=offscreen)
+cd backend/api && tox                    # API
 ```
+
+Список конфигураций — `cmake --list-presets`; они же используются в CI, отдельных
+сборочных команд у пайплайна нет.
 
 API-тесты используют SQLite в памяти, а не production PostgreSQL. Это ускоряет
 тесты, но не проверяет специфическое поведение PostgreSQL.
 
 ## NixOS
 
-На NixOS используйте отдельные скрипты:
+На NixOS те же пресеты, только через dev shell из `flake.nix`:
 
 ```bash
-./scripts/nixos-build.sh --qt
-./scripts/nixos-build.sh --server
-./scripts/nixos-build.sh --api
-./scripts/nixos-build.sh --test
+nix develop -c cmake --workflow --preset client
+nix develop -c cmake --workflow --preset core-tests
+nix develop -c ./scripts/run.sh --qt
 ```
 
-Они автоматически выполняют команду через `nix develop`, если текущая shell ещё
-не является dev shell проекта. Для ручного входа:
+Для ручного входа — `nix develop`, дальше команды как обычно.
 
-```bash
-nix develop
-```
+Dev shell выставляет `DRISCORD_BUILD_TAG=nixos-`, поэтому NixOS-артефакты лежат в
+`.builds/nixos-<preset>/` и не смешиваются с хостовой сборкой: у двух тулчейнов
+не должно быть одного CMake-кэша.
 
-Запуск:
-
-```bash
-./scripts/nixos-run.sh --server 9001
-./scripts/nixos-run.sh --api
-./scripts/nixos-run.sh --qt
-```
-
-NixOS-артефакты не смешиваются с обычной Linux-сборкой и кладутся в
-`.builds/nixos/`.
+Отдельно стоит `scripts/nixos-webrtc.sh` — он не обёртка над CMake, а инъекция
+путей nixpkgs cc-wrapper в чистый Chromium clang.

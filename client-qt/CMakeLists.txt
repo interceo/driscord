@@ -119,3 +119,7 @@ endif()
 if(WIN32)
     set_target_properties(driscord_client PROPERTIES WIN32_EXECUTABLE TRUE)
 endif()
+
+if(BUILD_TESTS)
+    add_subdirectory(tests)
+endif()
