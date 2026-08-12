@@ -1,3 +1,27 @@
+diff --git a/call/payload_type_picker.cc b/call/payload_type_picker.cc
+index 46cb5dc259..7e5693a466 100644
+--- a/call/payload_type_picker.cc
++++ b/call/payload_type_picker.cc
+@@ -368,7 +368,8 @@ void PayloadTypeRecorder::Rollback() {
+ RTCError RtpHeaderExtensionRecorder::AddMapping(RtpHeaderExtensionId id,
+                                                 absl::string_view uri,
+                                                 bool encrypt) {
+-  auto it = uri_to_id_.find(std::pair{uri, encrypt});
++  auto it =
++      uri_to_id_.find(std::pair<std::string, bool>(std::string(uri), encrypt));
+   if (it != uri_to_id_.end()) {
+     if (it->second != id) {
+       RTC_HISTOGRAM_BOOLEAN(
+@@ -391,7 +392,8 @@ RTCError RtpHeaderExtensionRecorder::AddMapping(RtpHeaderExtensionId id,
+ RTCErrorOr<RtpHeaderExtensionId> RtpHeaderExtensionRecorder::LookupId(
+     absl::string_view uri,
+     bool encrypt) const {
+-  auto it = uri_to_id_.find(std::pair{uri, encrypt});
++  auto it =
++      uri_to_id_.find(std::pair<std::string, bool>(std::string(uri), encrypt));
+   if (it == uri_to_id_.end()) {
+     return RTCError(RTCErrorType::INVALID_PARAMETER,
+                     "No ID found for extension");
 diff --git a/call/rtp_config.cc b/call/rtp_config.cc
 index 560ec099d6..207c5e392a 100644
 --- a/call/rtp_config.cc

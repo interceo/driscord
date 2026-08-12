@@ -111,15 +111,17 @@ hosted/self-hosted больше не нужно.
 **Что нужно сделать:**
 
 - в конфиге Forgejo убедиться, что `[actions] ENABLED` включён (в 9-й версии
-  по умолчанию да), и задать `DEFAULT_ACTIONS_URL` — от него зависит, откуда
-  тянутся `uses:`-действия;
+  по умолчанию да). `DEFAULT_ACTIONS_URL` роли не играет: `uses:`-действий в
+  пайплайне нет вообще;
 - `forgejo-runner` (форк `act_runner`) как systemd-юнит на этой машине:
   отдельный пользователь `driscord-ci` **без sudo**, HOME и work-dir на
-  `/mnt/raid1/ci`, регистрация токеном из настроек репозитория/организации,
-  лейбл `driscord-builder:host`;
-- **host-режим, а не контейнерный**: джобам нужен и сам docker (для
-  Linux-релизного образа), и постоянные кэши на хосте. Проще вызывать
-  `docker run` из host-джобы, чем городить docker-in-docker внутри act_runner;
+  `/mnt/nvme/homelab/ci`, регистрация токеном из настроек репозитория/организации,
+  лейбл `driscord-builder:docker://…/driscord-ci:bookworm`;
+- **контейнерный режим, а не host** (решено при реализации): джоба исполняется в
+  непривилегированном контейнере, docker-сокет в неё не монтируется
+  (`docker_host: "-"`), host-путей нет, наружу открыт только Forgejo. Всё, ради
+  чего задумывался host-режим — тулчейн, Qt, зеркала зависимостей, WebRTC SDK —
+  запечено в CI-образ, а ccache живёт в именованном docker-volume;
 - workflow'ы кладём в `.forgejo/workflows/`. Forgejo читает и `.github/workflows`,
   поэтому чтобы одни и те же файлы не запускались дважды и не расходились,
   локальный пайплайн живёт только в `.forgejo/`;
@@ -127,17 +129,17 @@ hosted/self-hosted больше не нужно.
   `contents:write`), на зеркале **выключить Actions**, иначе получим второй
   прогон и красные крестики от джоб, которые там уже не нужны.
 
-**Минимум зависимостей от marketplace-действий.** В host-режиме `actions/checkout`
-заменяется обычным `git`, `actions/cache` не нужен вовсе (кэши — постоянные
-каталоги на raid1), Qt приезжает из образа/VM, а не из `install-qt-action`.
-Тогда пайплайн не зависит от того, проксирует ли форж GitHub-действия.
+**Ноль зависимостей от marketplace-действий.** `actions/checkout` заменён обычным
+`git` в run-шаге, `actions/cache` не нужен вовсе (ccache — docker-volume), Qt
+приезжает из образа, а не из `install-qt-action`. Пайплайн не зависит от того,
+проксирует ли форж GitHub-действия, и в образе не нужен Node.js.
 
 **Что остаётся верным независимо от форжа:**
 
-- у раннера есть docker-сокет, а это фактически root на машине, где живёт k3s.
-  Пользователь раннера не должен иметь доступа к `~/.kube`, ключу sops и
-  рабочему клону `/mnt/raid1/homelab/repos/driscord`; деплой остаётся ручным
-  `scripts/deploy.sh`;
+- у демона раннера есть доступ к docker, а это фактически root на машине, где
+  живёт k3s. Сама джоба сокета не видит, но пользователь раннера не должен иметь
+  доступа к `~/.kube`, ключу sops и рабочему клону
+  `/mnt/raid1/homelab/repos/driscord`; деплой остаётся ручным `scripts/deploy.sh`;
 - секрет `DRISCORD_UPDATE_TOKEN` — только в релизной джобе;
 - Forgejo становится единственным источником истины: бэкап его БД и PVC теперь
   обязателен. Зеркало на GitHub спасает код, но не issues/PR/релизы.
@@ -149,20 +151,20 @@ hosted/self-hosted больше не нужно.
 `scripts/build_google_webrtc.sh`):
 
 ```
-DRISCORD_DEPOT_TOOLS_DIR=/mnt/raid1/ci/cache/depot_tools
-DRISCORD_WEBRTC_CHECKOUT_ROOT=/mnt/raid1/ci/cache/google-webrtc
-DRISCORD_WEBRTC_OUT_DIR=/mnt/raid1/ci/cache/google-webrtc/src/out/driscord-release
+DRISCORD_DEPOT_TOOLS_DIR=/mnt/nvme/homelab/ci/cache/depot_tools
+DRISCORD_WEBRTC_CHECKOUT_ROOT=/mnt/nvme/homelab/ci/cache/google-webrtc
+DRISCORD_WEBRTC_OUT_DIR=/mnt/nvme/homelab/ci/cache/google-webrtc/src/out/driscord-release
 ```
 
 Чекаут переживает джобы, поэтому пересборка WebRTC случается только при смене
 пина — на hosted-раннере это стоило бы 35 ГиБ кэша и десятков минут. Это же
 главный выигрыш от переезда на свой форж: кэш перестаёт быть проблемой.
 
-Плюс `ccache` для CMake-части и предварительно распакованный Qt в
-`/mnt/raid1/ci/cache/qt/6.7.3`.
+Пересборка SDK — вне CI-сети, отдельной командой; сама джоба получает готовый
+SDK из образа. Плюс `ccache` для CMake-части и Qt, распакованный в образе.
 
-Перед этим: перенести docker data-root на raid1
-(`/etc/docker/daemon.json → {"data-root": "/mnt/raid1/docker"}`).
+Перед этим: перенести docker data-root на nvme
+(`/etc/docker/daemon.json → {"data-root": "/mnt/nvme/homelab/docker"}`).
 
 ---
 

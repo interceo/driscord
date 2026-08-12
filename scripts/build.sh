@@ -10,7 +10,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BUILDS_DIR="$ROOT/.builds"
+# CI runs in a container whose workspace is a fresh clone, so the build tree has
+# to be able to live somewhere that outlives the job.
+BUILDS_DIR="${DRISCORD_BUILDS_DIR:-$ROOT/.builds}"
 BUILD_TYPE="Release"
 TARGET="qt"
 ACTION="build"
@@ -56,11 +58,24 @@ cmake_configure() {
         local generator=()
         command -v ninja >/dev/null && generator=(-G Ninja) \
             || generator=(-G "Unix Makefiles")
+        # The cacheable SDK that build_google_webrtc.sh exports (headers plus the
+        # complete static archive) may live outside the source tree; in CI it is
+        # baked into the build image. GoogleWebRTC.cmake otherwise only looks
+        # under .cache/ inside the checkout, which a fresh clone does not have.
+        local webrtc_sdk=()
+        if [ -n "${DRISCORD_WEBRTC_SDK_ROOT:-}" ] \
+            && [ -f "$DRISCORD_WEBRTC_SDK_ROOT/src/api/peer_connection_interface.h" ] \
+            && [[ " $* " == *" -DBUILD_CORE=ON "* ]]; then
+            webrtc_sdk=(
+                -DDRISCORD_WEBRTC_SOURCE_DIR="$DRISCORD_WEBRTC_SDK_ROOT/src"
+            )
+        fi
         cmake -S "$ROOT" -B "$build_dir" "${generator[@]}" \
             -DCMAKE_C_COMPILER=clang \
             -DCMAKE_CXX_COMPILER=clang++ \
             -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
             -Wno-dev \
+            "${webrtc_sdk[@]}" \
             "$@"
     fi
 }

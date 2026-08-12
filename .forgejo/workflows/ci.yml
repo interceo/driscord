@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  server-and-api-tests:
+    name: Server and API tests
+    runs-on: driscord-builder
+    timeout-minutes: 45
+    steps:
+      # Plain git rather than actions/checkout: the runner would have to fetch
+      # that action from an external forge, and this pipeline deliberately has
+      # no route to one. The token travels in a header, not in the remote URL,
+      # so it is not written into .git/config.
+      - name: Checkout
+        env:
+          GIT_TOKEN: ${{ github.token }}
+        run: |
+          auth="Authorization: basic $(
+            printf 'x-access-token:%s' "$GIT_TOKEN" | base64 -w0)"
+          git init -q .
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" \
+            2>/dev/null \
+            || git remote set-url origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          # Fetching a bare SHA needs uploadpack.allowAnySHA1InWant on the
+          # server; the branch ref always works, so it is the fallback.
+          git -c http.extraheader="$auth" fetch -q --depth 1 origin "${GITHUB_SHA}" \
+            || git -c http.extraheader="$auth" fetch -q --depth 1 origin "${GITHUB_REF}"
+          git checkout -q --detach FETCH_HEAD
+          git --no-pager log -1 --format='checked out %H'
+
+      - name: Run signaling and SFU tests
+        run: ./scripts/build.sh --server --test
+
+      - name: Run API tests
+        run: ./scripts/build.sh --api --test
