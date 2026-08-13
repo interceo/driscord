@@ -69,7 +69,10 @@
       "inherits": "client",
       "displayName": "Portable Linux client package",
       "description": "Builds and packages the client with Qt Deploy and CPack inside the pinned Debian 12 image.",
-      "cacheVariables": { "DRISCORD_ENABLE_PACKAGING": "ON" }
+      "cacheVariables": {
+        "DRISCORD_ENABLE_PACKAGING": "ON",
+        "QT_ENABLE_VERBOSE_DEPLOYMENT": "ON"
+      }
     },
     {
       "name": "server-debug",

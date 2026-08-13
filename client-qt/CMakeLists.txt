@@ -106,8 +106,14 @@ if(UNIX AND NOT APPLE AND TARGET datachannel)
     # libdatachannel is deliberately a DSO isolation boundary next to Google
     # WebRTC. Make a build-tree client directory self-contained instead of
     # embedding an absolute path to FetchContent's temporary build directory.
+    #
+    # Keep the Qt directory in BUILD_RPATH. Qt's deployment script scans this
+    # build-tree executable with file(GET_RUNTIME_DEPENDENCIES); using the final
+    # install RPATH while building makes direct dependencies such as Widgets
+    # and Core5Compat unresolvable and silently omits them from the package.
+    # The installed executable still contains only relocatable $ORIGIN paths.
     set_target_properties(driscord_client PROPERTIES
-        BUILD_WITH_INSTALL_RPATH TRUE
+        BUILD_RPATH "$ORIGIN;$<TARGET_FILE_DIR:Qt6::Core>"
         INSTALL_RPATH "$ORIGIN;$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
     add_custom_command(TARGET driscord_client POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -123,6 +129,33 @@ if(UNIX AND NOT APPLE AND DRISCORD_ENABLE_PACKAGING)
     install(TARGETS driscord_client
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
         COMPONENT Runtime)
+
+    # Upstream libdatachannel installs its DSO, headers and CMake metadata into
+    # the implicit Unspecified component. The release archive intentionally
+    # contains only Runtime, so give the shared library its own explicit rule.
+    # NAMELINK_COMPONENT keeps the complete SONAME symlink chain together.
+    install(TARGETS datachannel
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        COMPONENT Runtime
+        NAMELINK_COMPONENT Runtime)
+
+    # Platform plugins are selected from the build host by Qt Deploy. A normal
+    # desktop build therefore gets xcb but not the headless plugins needed to
+    # verify the archive in a clean container. Install both explicitly; their
+    # original RUNPATH already resolves Qt libraries via ../../lib.
+    foreach(_driscord_headless_plugin IN ITEMS
+            Qt6::QOffscreenIntegrationPlugin
+            Qt6::QMinimalIntegrationPlugin)
+        if(NOT TARGET ${_driscord_headless_plugin})
+            message(FATAL_ERROR
+                "Required Qt platform plugin target is unavailable: "
+                "${_driscord_headless_plugin}")
+        endif()
+        install(IMPORTED_RUNTIME_ARTIFACTS ${_driscord_headless_plugin}
+            LIBRARY DESTINATION plugins/platforms
+            COMPONENT Runtime)
+    endforeach()
+    unset(_driscord_headless_plugin)
 
     # Generates qt.conf and deploys Qt libraries, plugins, QML imports and
     # non-system runtime dependencies into the CPack install tree.

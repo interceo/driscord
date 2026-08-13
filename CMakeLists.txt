@@ -211,8 +211,20 @@ if(DRISCORD_ENABLE_PACKAGING)
         "driscord-client-${DRISCORD_VERSION_DISPLAY}-linux-x86_64")
     set(CPACK_PACKAGE_DIRECTORY "${DRISCORD_RELEASE_STAGING}")
     set(CPACK_PACKAGE_CHECKSUM "SHA256")
+    # CPack otherwise switches back to a monolithic install when only one
+    # component is selected. That pulls libdatachannel's headers and CMake
+    # package metadata from its implicit Unspecified component into the TGZ.
+    set(CPACK_MONOLITHIC_INSTALL OFF)
     set(CPACK_COMPONENTS_ALL Runtime)
+    set(CPACK_ARCHIVE_COMPONENT_INSTALL ON)
+    set(CPACK_COMPONENTS_GROUPING ALL_COMPONENTS_IN_ONE)
+    set(CPACK_ARCHIVE_FILE_NAME
+        "driscord-client-${DRISCORD_VERSION_DISPLAY}-linux-x86_64")
     set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY ON)
+    set(CPACK_PRE_BUILD_SCRIPTS
+        "${CMAKE_SOURCE_DIR}/cmake/VerifyPackage.cmake")
+    set(CPACK_POST_BUILD_SCRIPTS
+        "${CMAKE_SOURCE_DIR}/cmake/VerifyArchive.cmake")
     include(CPack)
     unset(_driscord_default_package_dir)
 endif()
