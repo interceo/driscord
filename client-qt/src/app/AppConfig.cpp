@@ -8,22 +8,6 @@
 #include <QStringList>
 #include <algorithm>
 
-// Used when config.json lists no ICE servers, so a client with no config at
-// all still reaches an SFU from behind NAT. config.json overrides this
-// entirely.
-//
-// These credentials ship inside the binary and are therefore public: treat the
-// relay as open to anyone holding a client build. Long-lived shared secrets
-// here are a bandwidth liability, and the durable fix is for the signalling
-// server to hand out short-lived TURN credentials per session.
-static QVector<IceServerSetting> builtinIceServers()
-{
-    return {
-        IceServerSetting { "turn:interceo.sknt.ru:3478", "driscord",
-            "driscordpass" },
-    };
-}
-
 static QString findConfigFile()
 {
     // 1. CWD — user-editable, survives app updates (mirrors Kotlin configCandidates)
@@ -84,9 +68,6 @@ QString AppConfig::apiBaseUrl() const
 AppConfig AppConfig::load()
 {
     AppConfig cfg;
-    // Applied here rather than after parsing so that a missing or unreadable
-    // config file still leaves the client able to traverse NAT.
-    cfg.iceServers = builtinIceServers();
 
     QString path = findConfigFile();
     if (path.isEmpty())
@@ -131,9 +112,8 @@ AppConfig AppConfig::load()
             configured.append(server);
         }
     }
-    // A configured list replaces the built-in one rather than adding to it, so
-    // pointing the client at a private coturn also stops it contacting the
-    // default.
+    // ICE infrastructure is explicit configuration. Without this list the
+    // client uses host candidates only and contacts no third-party relay.
     if (!configured.isEmpty()) {
         cfg.iceServers = configured;
     }

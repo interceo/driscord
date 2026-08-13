@@ -121,14 +121,17 @@ endif()
 
 if(UNIX AND NOT APPLE AND DRISCORD_ENABLE_PACKAGING)
     install(TARGETS driscord_client
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        COMPONENT Runtime)
 
     # Generates qt.conf and deploys Qt libraries, plugins, QML imports and
     # non-system runtime dependencies into the CPack install tree.
     qt_generate_deploy_qml_app_script(
         TARGET driscord_client
+        NO_TRANSLATIONS
         OUTPUT_SCRIPT driscord_deploy_script)
-    install(SCRIPT ${driscord_deploy_script})
+    install(SCRIPT ${driscord_deploy_script}
+        COMPONENT Runtime)
 endif()
 
 if(WIN32)
