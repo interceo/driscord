@@ -59,12 +59,11 @@ API `GET /channels/{id}/access` с токеном клиента: ответ 200
 комнаты могут попасть на разные процессы. Нужен один экземпляр либо sticky
 маршрутизация и общий room/pub-sub слой, которого сейчас нет.
 
-Текущий сервер слушает обычный TCP WebSocket и сам TLS не поддерживает. Более
-того, `AppConfig` всегда строит адрес с `ws://` и `http://`; указать `wss://` или
-`https://` через JSON нельзя. Следовательно, текущий клиент пригоден для LAN или
-тестового HTTP-развёртывания. Для безопасного публичного развёртывания сначала
-нужно изменить конфигурацию клиента так, чтобы она принимала полные URL, затем
-терминировать TLS на reverse proxy.
+Текущий сервер слушает обычный TCP WebSocket и сам TLS не поддерживает. Для
+публичного развёртывания TLS завершается на reverse proxy, а release-клиент
+собирается с `DRISCORD_CLIENT_SIGNALING_URL=wss://...` и
+`DRISCORD_CLIENT_API_URL=https://...`. Эти адреса являются свойством сборки и
+не меняются пользовательским JSON.
 
 ## Медиа (SFU)
 
@@ -111,17 +110,19 @@ DRISCORD_ICE_STUN_URLS=stun:stun.l.google.com:19302 \
 DTLS-сертификат провижнить не нужно: libdatachannel генерирует самоподписанный
 при установлении соединения, его отпечаток передаётся в SDP.
 
-Клиентская конфигурация:
+Endpoint'ы клиента задаются при configure:
 
-```json
-{
-  "server": "signal.example.org:9001",
-  "api": "api.example.org:9002",
-  "screen_fps": 60
-}
+```bash
+cmake --preset linux-release \
+  -DDRISCORD_CLIENT_SIGNALING_URL=wss://signal.example.org \
+  -DDRISCORD_CLIENT_API_URL=https://api.example.org
+cmake --build --preset linux-release
+cpack --preset linux-release
 ```
 
-Секции `turn_servers` больше нет — при SFU она не нужна, и клиент её не читает.
+Пользовательский `config.json` хранит настройки приложения (`screen_fps`) и при
+необходимости клиентские `stun_servers`/`turn_servers`; адреса API и signaling
+в нём игнорируются.
 
 ## Проверка
 
@@ -145,7 +146,7 @@ curl http://signal.example.org:9001/media_stats
 - заменить `SECRET_KEY` и пароль PostgreSQL;
 - не выставлять PostgreSQL наружу;
 - закрыть прямое вступление в сервер, если membership должен быть invite-only;
-- добавить HTTPS/WSS в клиент и reverse proxy;
+- передать HTTPS/WSS endpoint'ы в release-сборку и терминировать TLS на reverse proxy;
 - настроить firewall, журналирование, health checks и резервные копии;
 - проверить UDP-диапазон SFU из внешней сети и заложить канал: через сервер
   идёт весь медиатрафик, а не только доля неудачных P2P.

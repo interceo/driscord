@@ -104,7 +104,7 @@
     {
       "name": "linux-release",
       "configurePreset": "linux-release",
-      "targets": ["driscord_client"]
+      "targets": ["driscord_client", "driscord_launcher"]
     },
     {
       "name": "server-debug",

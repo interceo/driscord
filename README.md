@@ -98,19 +98,13 @@ Qt, Boost и артефакт Google WebRTC ищутся через окруже
 
 ## Конфигурация
 
-- `config.json` в корне (или рядом с бинарём клиента) — адрес сигналинга, API и FPS захвата:
-  ```json
-  {
-      "server": "wss://driscord.homelab.ceooptimizator.tech",
-      "api": "https://driscord.homelab.ceooptimizator.tech",
-      "screen_fps": 60
-  }
-  ```
-  Полные `wss://`/`https://` URL рекомендуются для production. Значения вида
-  `host:port` остаются совместимыми и используют `ws://`/`http://`.
-  TURN сейчас не настроен: клиенты используют публичный host candidate SFU и
-  исходящий UDP. Для сетей, блокирующих UDP, перед production-релизом нужен
-  TURN/TCP/TLS или эквивалентный fallback.
+- Адреса signaling и API встраиваются в клиент при configure:
+  `DRISCORD_CLIENT_SIGNALING_URL` и `DRISCORD_CLIENT_API_URL`. Dev-defaults —
+  `ws://localhost:9001` и `http://localhost:9002`; release-сборка должна явно
+  передавать production `wss://`/`https://` URL.
+- Пользовательский `config.json` хранит только настройки приложения. Основной
+  путь на Linux — `~/.config/driscord/config.json`; поддержаны `screen_fps`,
+  `stun_servers` и `turn_servers`. Адреса сервисов из JSON не читаются.
 - Сигналинг-сервер: `DRISCORD_PORT` (по умолчанию 9001) и UDP-диапазон для ICE —
   `DRISCORD_ICE_PORT_MIN` / `DRISCORD_ICE_PORT_MAX` (по умолчанию 49160–49200).
   Этот диапазон надо пробросить на файрволе/в Docker.

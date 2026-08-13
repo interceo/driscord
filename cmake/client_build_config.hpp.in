@@ -1,0 +1,6 @@
+#pragma once
+
+namespace driscord {
+inline constexpr char kSignalingUrl[] = "@DRISCORD_CLIENT_SIGNALING_URL_VALUE@";
+inline constexpr char kApiBaseUrl[] = "@DRISCORD_CLIENT_API_URL_VALUE@";
+} // namespace driscord

@@ -1,39 +1,51 @@
 #include "app/AppConfig.h"
 
+#include <QDir>
+#include <QFile>
 #include <QTest>
+#include <QTemporaryDir>
 
-// AppConfig::load() reads the working directory and the platform config dir, so
-// it is deliberately not exercised here. The URL normalisation around it is
-// pure, and it is what decides whether the client talks to the right endpoint
-// when config.json spells a host without a scheme.
 class TestAppConfig : public QObject {
     Q_OBJECT
 
 private slots:
-    void signalingUrlAddsDefaultScheme()
+    void defaultsAreApplicationSettingsOnly()
     {
         AppConfig cfg;
-        QCOMPARE(cfg.signalingUrl(), QStringLiteral("ws://localhost:9001"));
+        QCOMPARE(cfg.screenFps, 60);
+        QVERIFY(cfg.iceServers.isEmpty());
     }
 
-    void signalingUrlKeepsExplicitSchemeAndDropsTrailingSlashes()
+    void loadReadsUserSettingsFromPlatformDirectory()
     {
-        AppConfig cfg;
-        cfg.server = "WSS://voice.example.com//";
-        QCOMPARE(cfg.signalingUrl(), QStringLiteral("WSS://voice.example.com"));
-    }
+        QTemporaryDir configHome;
+        QVERIFY(configHome.isValid());
+        const QString configDirectory = configHome.filePath("driscord");
+        QVERIFY(QDir().mkpath(configDirectory));
 
-    void apiBaseUrlAddsDefaultScheme()
-    {
-        AppConfig cfg;
-        QCOMPARE(cfg.apiBaseUrl(), QStringLiteral("http://localhost:9002"));
-    }
+        QFile config(configDirectory + "/config.json");
+        QVERIFY(config.open(QFile::WriteOnly));
+        config.write("{\n"
+                     "  \"server\": \"wss:\\/\\/ignored.example\",\n"
+                     "  \"api\": \"https:\\/\\/ignored.example\",\n"
+                     "  \"screen_fps\": 30,\n"
+                     "  \"stun_servers\": [\"stun:stun.example:3478\"]\n"
+                     "}\n");
+        config.close();
 
-    void apiBaseUrlKeepsHttps()
-    {
-        AppConfig cfg;
-        cfg.api = "https://api.example.com/";
-        QCOMPARE(cfg.apiBaseUrl(), QStringLiteral("https://api.example.com"));
+        const bool hadConfigHome = qEnvironmentVariableIsSet("XDG_CONFIG_HOME");
+        const QByteArray oldConfigHome = qgetenv("XDG_CONFIG_HOME");
+        qputenv("XDG_CONFIG_HOME", configHome.path().toUtf8());
+        const AppConfig cfg = AppConfig::load();
+        if (hadConfigHome)
+            qputenv("XDG_CONFIG_HOME", oldConfigHome);
+        else
+            qunsetenv("XDG_CONFIG_HOME");
+
+        QCOMPARE(cfg.screenFps, 30);
+        QCOMPARE(cfg.iceServers.size(), 1);
+        QCOMPARE(cfg.iceServers.front().url,
+            QStringLiteral("stun:stun.example:3478"));
     }
 };
 

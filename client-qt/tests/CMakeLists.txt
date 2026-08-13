@@ -26,6 +26,16 @@ target_compile_options(test_app_config PRIVATE ${CLIENT_TEST_WARNING_FLAGS})
 target_link_libraries(test_app_config PRIVATE Qt6::Test)
 add_test(NAME test_app_config COMMAND test_app_config)
 
+add_test(NAME client_version COMMAND driscord_client --version)
+set_tests_properties(client_version PROPERTIES
+    PASS_REGULAR_EXPRESSION "^Driscord [0-9]+\\.[0-9]+\\.[0-9]+"
+)
+
+add_test(NAME client_help COMMAND driscord_client --help)
+set_tests_properties(client_help PROPERTIES
+    PASS_REGULAR_EXPRESSION "Usage: driscord \\[options\\]"
+)
+
 # QUICK_TEST_SOURCE_DIR is the directory quick_test_main scans for tst_*.qml.
 add_executable(tst_qml_components tst_qml_components.cpp)
 target_compile_options(tst_qml_components PRIVATE ${CLIENT_TEST_WARNING_FLAGS})

@@ -5,20 +5,11 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QStringList>
-#include <algorithm>
 
 static QString findConfigFile()
 {
-    // 1. CWD — user-editable, survives app updates (mirrors Kotlin configCandidates)
-    for (const auto* name : { "config.json", "driscord.json" }) {
-        QString p = QDir::currentPath() + "/" + QLatin1String(name);
-        if (QFile::exists(p)) {
-            qDebug().noquote() << "[config] loaded from" << p;
-            return p;
-        }
-    }
-    // 2. Platform config dir (~/.config/driscord/ on Linux, %LOCALAPPDATA%\driscord\ on Windows)
+    // User settings belong to the platform config directory so they survive
+    // replacing an unpacked application release.
 #ifdef Q_OS_WIN
     QString appData = qEnvironmentVariable("LOCALAPPDATA");
     if (!appData.isEmpty()) {
@@ -37,32 +28,19 @@ static QString findConfigFile()
         return p;
     }
 #endif
+
+    // A working-directory file remains useful for local development and
+    // portable, explicitly user-managed installations.
+    for (const auto* name : { "config.json", "driscord.json" }) {
+        QString p = QDir::currentPath() + "/" + QLatin1String(name);
+        if (QFile::exists(p)) {
+            qDebug().noquote() << "[config] loaded from" << p;
+            return p;
+        }
+    }
+
     qDebug().noquote() << "[config] no config file found, using defaults";
     return { };
-}
-
-static QString normalizedUrl(QString value, const QString& defaultScheme,
-    const QStringList& acceptedSchemes)
-{
-    const bool hasAcceptedScheme = std::any_of(acceptedSchemes.cbegin(),
-        acceptedSchemes.cend(), [&value](const QString& scheme) {
-            return value.startsWith(scheme + "://", Qt::CaseInsensitive);
-        });
-    if (!hasAcceptedScheme)
-        value.prepend(defaultScheme + "://");
-    while (value.endsWith('/'))
-        value.chop(1);
-    return value;
-}
-
-QString AppConfig::signalingUrl() const
-{
-    return normalizedUrl(server, "ws", { "ws", "wss" });
-}
-
-QString AppConfig::apiBaseUrl() const
-{
-    return normalizedUrl(api, "http", { "http", "https" });
 }
 
 AppConfig AppConfig::load()
@@ -80,10 +58,6 @@ AppConfig AppConfig::load()
     auto doc = QJsonDocument::fromJson(f.readAll());
     auto obj = doc.object();
 
-    if (obj.contains("server"))
-        cfg.server = obj["server"].toString();
-    if (obj.contains("api"))
-        cfg.api = obj["api"].toString();
     if (obj.contains("screen_fps")) {
         const int configuredFps = obj["screen_fps"].toInt(60);
         cfg.screenFps = configuredFps == 30 || configuredFps == 60

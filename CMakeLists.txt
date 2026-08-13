@@ -180,6 +180,38 @@ endif()
 
 option(BUILD_QT_CLIENT "Build the Qt/QML client" OFF)
 if(BUILD_QT_CLIENT)
+    set(DRISCORD_CLIENT_SIGNALING_URL "ws://localhost:9001" CACHE STRING
+        "WebSocket base URL compiled into the Driscord client")
+    set(DRISCORD_CLIENT_API_URL "http://localhost:9002" CACHE STRING
+        "HTTP base URL compiled into the Driscord client")
+
+    if(NOT DRISCORD_CLIENT_SIGNALING_URL MATCHES "^wss?://[^/]+")
+        message(FATAL_ERROR
+            "DRISCORD_CLIENT_SIGNALING_URL must be an absolute ws:// or wss:// URL")
+    endif()
+    if(NOT DRISCORD_CLIENT_API_URL MATCHES "^https?://[^/]+")
+        message(FATAL_ERROR
+            "DRISCORD_CLIENT_API_URL must be an absolute http:// or https:// URL")
+    endif()
+    foreach(_driscord_client_url IN ITEMS
+            DRISCORD_CLIENT_SIGNALING_URL DRISCORD_CLIENT_API_URL)
+        if(${_driscord_client_url} MATCHES "[\\\"]")
+            message(FATAL_ERROR
+                "${_driscord_client_url} contains a character that is invalid in a URL")
+        endif()
+    endforeach()
+    unset(_driscord_client_url)
+
+    string(REGEX REPLACE "/+$" "" DRISCORD_CLIENT_SIGNALING_URL_VALUE
+        "${DRISCORD_CLIENT_SIGNALING_URL}")
+    string(REGEX REPLACE "/+$" "" DRISCORD_CLIENT_API_URL_VALUE
+        "${DRISCORD_CLIENT_API_URL}")
+    configure_file(cmake/client_build_config.hpp.in
+        "${CMAKE_BINARY_DIR}/generated/driscord/client_build_config.hpp" @ONLY)
+    message(STATUS
+        "Driscord client endpoints: ${DRISCORD_CLIENT_SIGNALING_URL_VALUE}, "
+        "${DRISCORD_CLIENT_API_URL_VALUE}")
+
     add_subdirectory(client-qt)
 endif()
 
@@ -223,8 +255,6 @@ if(DRISCORD_ENABLE_PACKAGING)
     set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY ON)
     set(CPACK_PRE_BUILD_SCRIPTS
         "${CMAKE_SOURCE_DIR}/cmake/VerifyPackage.cmake")
-    set(CPACK_POST_BUILD_SCRIPTS
-        "${CMAKE_SOURCE_DIR}/cmake/VerifyArchive.cmake")
     include(CPack)
     unset(_driscord_default_package_dir)
 endif()

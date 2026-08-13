@@ -126,8 +126,28 @@ if(UNIX AND NOT APPLE AND TARGET datachannel)
 endif()
 
 if(UNIX AND NOT APPLE AND DRISCORD_ENABLE_PACKAGING)
+    add_executable(driscord_launcher packaging/launcher.c)
+    set_target_properties(driscord_launcher PROPERTIES
+        AUTOMOC OFF
+        AUTOUIC OFF
+        LINKER_LANGUAGE C
+        OUTPUT_NAME driscord
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/launcher"
+        SKIP_BUILD_RPATH TRUE
+        INSTALL_RPATH "")
+    target_compile_options(driscord_launcher PRIVATE -Wall -Wextra -Wpedantic)
+
     install(TARGETS driscord_client
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        COMPONENT Runtime)
+
+    install(TARGETS driscord_launcher
+        RUNTIME
+        DESTINATION .
+        COMPONENT Runtime)
+
+    install(FILES packaging/README.txt
+        DESTINATION .
         COMPONENT Runtime)
 
     # Upstream libdatachannel installs its DSO, headers and CMake metadata into

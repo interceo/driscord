@@ -61,30 +61,30 @@ launcher не пересылает собственные флаги в серв
 
 ## Клиент
 
-Создайте `config.json` в корне проекта:
-
-```json
-{
-  "server": "127.0.0.1:9001",
-  "api": "127.0.0.1:9002",
-  "screen_fps": 60
-}
-```
-
-Затем:
+Dev-defaults клиента — `ws://localhost:9001` и `http://localhost:9002`, поэтому
+для стандартного локального окружения достаточно:
 
 ```bash
 cmake --workflow --preset client
 ./scripts/run.sh --qt
 ```
 
-Клиент ищет `config.json`, затем `driscord.json` в текущем каталоге, после чего
-ищет платформенный файл: `~/.config/driscord/config.json` на Linux или
-`%LOCALAPPDATA%/driscord/config.json` на Windows. Если ничего не найдено,
-используются `localhost:9001`, `localhost:9002` и 60 FPS.
+Другие endpoint'ы задаются на configure и становятся частью бинаря:
 
-Настраиваемый media-ключ сейчас только `screen_fps`; bitrate ограничивается
-Google WebRTC session policy.
+```bash
+cmake --preset client \
+  -DDRISCORD_CLIENT_SIGNALING_URL=wss://signal.example.org \
+  -DDRISCORD_CLIENT_API_URL=https://api.example.org
+cmake --build --preset client
+```
+
+Пользовательские настройки клиент сначала ищет в
+`~/.config/driscord/config.json` на Linux или
+`%LOCALAPPDATA%/driscord/config.json` на Windows, затем — в `config.json` или
+`driscord.json` текущего каталога. JSON не может менять адреса сервисов; сейчас
+он поддерживает `screen_fps`, `stun_servers` и `turn_servers`.
+
+Bitrate ограничивается Google WebRTC session policy.
 
 ## Тесты
 

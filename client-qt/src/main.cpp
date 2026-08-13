@@ -5,6 +5,10 @@
 #include <QTimer>
 #include <rtc/rtc.hpp>
 
+#include <iostream>
+#include <string_view>
+
+#include "driscord/client_build_config.hpp"
 #include "driscord/version.hpp"
 #include "api/ApiClient.h"
 #include "api/AuthManager.h"
@@ -18,8 +22,38 @@
 #include "app/FrameProvider.h"
 #include "app/ThumbnailProvider.h"
 
+namespace {
+
+int handleEarlyArguments(int argc, char* argv[])
+{
+    for (int index = 1; index < argc; ++index) {
+        const std::string_view argument(argv[index]);
+
+        if (argument == "--version" || argument == "-V") {
+            std::cout << "Driscord " << driscord::kVersion << '\n';
+            return 0;
+        }
+
+        if (argument == "--help" || argument == "-h") {
+            std::cout << "Usage: driscord [options]\n\n"
+                         "Options:\n"
+                         "  -h, --help       Show this help and exit\n"
+                         "  -V, --version    Show the application version and exit\n"
+                         "      --smoke-test Load the UI, then exit automatically\n";
+            return 0;
+        }
+    }
+
+    return -1;
+}
+
+} // namespace
+
 int main(int argc, char* argv[])
 {
+    if (const int earlyExitCode = handleEarlyArguments(argc, argv); earlyExitCode >= 0)
+        return earlyExitCode;
+
     // Honor exact OS scale factors (incl. fractional like 1.25/1.5/1.75) so the
     // UI is the same physical size on FullHD@100% as on 4K@200%. Must be set
     // before QGuiApplication is constructed.
@@ -38,9 +72,11 @@ int main(int argc, char* argv[])
         const bool smokeTest = app.arguments().contains("--smoke-test");
 
         AppConfig cfg = AppConfig::load();
+        const QString signalingUrl = QString::fromUtf8(driscord::kSignalingUrl);
+        const QString apiBaseUrl = QString::fromUtf8(driscord::kApiBaseUrl);
 
         auto* apiClient = new ApiClient(&app);
-        apiClient->setBaseUrl(cfg.apiBaseUrl());
+        apiClient->setBaseUrl(apiBaseUrl);
 
         auto* sessionStore = new SessionStore(&app);
         auto* authManager = new AuthManager(apiClient, sessionStore, &app);
@@ -51,7 +87,7 @@ int main(int argc, char* argv[])
         auto* thumbProvider = new ThumbnailProvider;
         auto* avatarTint = new AvatarTintProvider(&app);
         auto* appState = new AppState(authManager, serverRepo, userRepo, bridge,
-            cfg.signalingUrl(), cfg.apiBaseUrl(), &app);
+            signalingUrl, apiBaseUrl, &app);
 
         bridge->setFrameProvider(frameProvider);
         bridge->setThumbnailProvider(thumbProvider);
