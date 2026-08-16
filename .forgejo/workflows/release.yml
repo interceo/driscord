@@ -1,0 +1,58 @@
+name: Production release signal
+
+on:
+  release:
+    types: [published]
+
+# Forgejo injects the request URL and one-use request token only for this
+# workflow. The resulting signed ID token is accepted solely by the
+# infrastructure-owned release gate.
+enable-openid-connect: true
+
+concurrency:
+  group: driscord-production-release
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Validate and deploy published release
+    runs-on: driscord-builder
+    timeout-minutes: 10
+    steps:
+      # Deliberately no checkout: a release signal must not execute code from
+      # the repository. Build and deployment policy live in /homelab.
+      - name: Signal the release gate
+        env:
+          RELEASE_ID: ${{ forgejo.event.release.id }}
+          REPOSITORY_TOKEN: ${{ forgejo.token }}
+        run: |
+          set -eu
+
+          case "$RELEASE_ID" in
+            ''|*[!0-9]*) echo 'Forgejo supplied an invalid release id' >&2; exit 1 ;;
+          esac
+
+          oidc_response="$(
+            curl -fsS --connect-timeout 10 --max-time 30 \
+              -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+              "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=driscord-production"
+          )"
+          oidc_token="$(
+            printf '%s' "$oidc_response" | python3 -c '
+          import json
+          import sys
+
+          response = json.load(sys.stdin)
+          token = response.get("value") if isinstance(response, dict) else response
+          if not isinstance(token, str) or token.count(".") != 2:
+              raise SystemExit("Forgejo returned no OIDC ID token")
+          print(token)
+          '
+          )"
+
+          curl -fsS --connect-timeout 10 --max-time 600 \
+            -H "Authorization: Bearer $oidc_token" \
+            -H "X-Forgejo-Token: $REPOSITORY_TOKEN" \
+            -H 'Content-Type: application/json' \
+            --data "{\"release_id\":$RELEASE_ID}" \
+            https://git.homelab.ceooptimizator.tech/_driscord/releases/deploy
