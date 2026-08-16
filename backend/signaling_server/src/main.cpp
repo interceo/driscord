@@ -1,7 +1,10 @@
 #include <boost/asio.hpp>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <rtc/rtc.hpp>
+#include <stdexcept>
+#include <string>
 
 #include "api_authenticator.hpp"
 #include "log.hpp"
@@ -14,6 +17,17 @@ bool env_flag(const char* name)
     const char* value = std::getenv(name);
     return value
         && (std::strcmp(value, "1") == 0 || std::strcmp(value, "true") == 0);
+}
+
+unsigned short parse_port(const char* value)
+{
+    size_t consumed = 0;
+    const auto parsed = std::stoul(value, &consumed);
+    if (consumed != std::strlen(value) || parsed == 0
+        || parsed > std::numeric_limits<unsigned short>::max()) {
+        throw std::out_of_range("port must be between 1 and 65535");
+    }
+    return static_cast<unsigned short>(parsed);
 }
 
 // Anonymous mode has to be asked for. Without it a deployment that forgets
@@ -46,10 +60,10 @@ int main(int argc, char** argv)
     try {
         unsigned short port = 9001;
         if (const char* env = std::getenv("DRISCORD_PORT")) {
-            port = static_cast<unsigned short>(std::stoi(env));
+            port = parse_port(env);
         }
         if (argc > 1) {
-            port = static_cast<unsigned short>(std::stoi(argv[1]));
+            port = parse_port(argv[1]);
         }
 
         boost::asio::io_context io;

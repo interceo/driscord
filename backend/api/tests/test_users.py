@@ -46,3 +46,13 @@ async def test_missing_avatar_file_is_not_advertised(
 
     avatar = await client.get("/users/1/avatar")
     assert avatar.status_code == 404
+
+
+async def test_empty_avatar_is_rejected(client, auth_headers):
+    headers = await auth_headers("alice")
+    uploaded = await client.put(
+        "/users/1/avatar",
+        headers=headers,
+        files={"file": ("avatar.png", b"", "image/png")},
+    )
+    assert uploaded.status_code == 400

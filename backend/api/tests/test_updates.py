@@ -71,6 +71,39 @@ async def test_upload_filename_cannot_escape_the_release_directory(
     assert not (tmp_path / "pwned").exists()
 
 
+async def test_upload_rejects_oversized_release_without_partial_file(
+    client, admin_headers, releases_dir, monkeypatch
+):
+    import routers.updates as updates
+
+    monkeypatch.setattr(updates, "MAX_RELEASE_BYTES", 4)
+    headers = await admin_headers("root")
+    response = await client.post(
+        "/updates/upload",
+        headers=headers,
+        data={"version": "1.0.0", "platform": "linux"},
+        files={"file": ("driscord", b"12345")},
+    )
+
+    assert response.status_code == 413
+    assert not (releases_dir / "linux" / "1.0.0" / "driscord").exists()
+
+
+@pytest.mark.parametrize("version", ["1", "1.2", "1.2.3.4", "1.-2.3", "v1.2.3"])
+async def test_upload_rejects_non_release_version(
+    client, admin_headers, releases_dir, version
+):
+    headers = await admin_headers("root")
+    response = await client.post(
+        "/updates/upload",
+        headers=headers,
+        data={"version": version, "platform": "linux"},
+    )
+
+    assert response.status_code == 400
+    assert not releases_dir.exists()
+
+
 async def _raw_get(path: str) -> tuple[int, bytes]:
     """Send an un-normalised path straight into the ASGI app.
 

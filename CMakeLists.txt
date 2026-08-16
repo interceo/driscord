@@ -1,5 +1,10 @@
-cmake_minimum_required(VERSION 3.20)
-cmake_policy(SET CMP0167 NEW)
+cmake_minimum_required(VERSION 3.25)
+# CMake 3.30+ prefers Boost's config package. Hosted Ubuntu 24.04 runners ship
+# 3.28, where this policy does not exist and setting it unconditionally makes
+# configuration fail before the first target is seen.
+if(POLICY CMP0167)
+    cmake_policy(SET CMP0167 NEW)
+endif()
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "")
 
 include(cmake/Version.cmake)

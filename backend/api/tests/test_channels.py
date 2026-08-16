@@ -4,9 +4,15 @@ async def _create_server(client, headers, name="S"):
     return r.json()
 
 
-async def _join(client, headers, server_id):
-    r = await client.post(f"/servers/{server_id}/members", headers=headers)
-    assert r.status_code == 201
+async def _join(client, owner_headers, member_headers, server_id):
+    invite = await client.post(
+        f"/servers/{server_id}/invites/", headers=owner_headers
+    )
+    assert invite.status_code == 201, invite.text
+    accepted = await client.post(
+        f"/invites/{invite.json()['code']}", headers=member_headers
+    )
+    assert accepted.status_code == 200, accepted.text
 
 
 async def test_owner_creates_channel(client, auth_headers):
@@ -32,6 +38,17 @@ async def test_default_kind_is_voice(client, auth_headers):
     assert r.json()["kind"] == "voice"
 
 
+async def test_channel_position_cannot_be_negative(client, auth_headers):
+    h = await auth_headers("alice")
+    s = await _create_server(client, h)
+    r = await client.post(
+        f"/servers/{s['id']}/channels/",
+        headers=h,
+        json={"name": "g", "position": -1},
+    )
+    assert r.status_code == 422
+
+
 async def test_non_member_cannot_list_channels(client, auth_headers):
     ha = await auth_headers("alice")
     hb = await auth_headers("bob")
@@ -45,7 +62,7 @@ async def test_member_can_list_channels(client, auth_headers):
     hb = await auth_headers("bob")
     s = await _create_server(client, ha)
     await client.post(f"/servers/{s['id']}/channels/", headers=ha, json={"name": "g"})
-    await _join(client, hb, s["id"])
+    await _join(client, ha, hb, s["id"])
     r = await client.get(f"/servers/{s['id']}/channels/", headers=hb)
     assert r.status_code == 200
     assert [c["name"] for c in r.json()] == ["g"]
@@ -68,7 +85,7 @@ async def test_member_cannot_create_channel(client, auth_headers):
     ha = await auth_headers("alice")
     hb = await auth_headers("bob")
     s = await _create_server(client, ha)
-    await _join(client, hb, s["id"])
+    await _join(client, ha, hb, s["id"])
 
     r = await client.post(
         f"/servers/{s['id']}/channels/", headers=hb, json={"name": "x", "kind": "voice"}
@@ -101,7 +118,7 @@ async def test_patch_channel_owner_only(client, auth_headers):
     c = (await client.post(
         f"/servers/{s['id']}/channels/", headers=ha, json={"name": "g"}
     )).json()
-    await _join(client, hb, s["id"])
+    await _join(client, ha, hb, s["id"])
 
     r = await client.patch(
         f"/servers/{s['id']}/channels/{c['id']}", headers=hb, json={"name": "hack"}
@@ -122,7 +139,7 @@ async def test_delete_channel_owner_only(client, auth_headers):
     c = (await client.post(
         f"/servers/{s['id']}/channels/", headers=ha, json={"name": "g"}
     )).json()
-    await _join(client, hb, s["id"])
+    await _join(client, ha, hb, s["id"])
 
     r = await client.delete(f"/servers/{s['id']}/channels/{c['id']}", headers=hb)
     assert r.status_code == 403

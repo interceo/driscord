@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 
-from schemas.common import AvatarUrl
+from schemas.common import AvatarUrl, DisplayName
 
 
 class UserResponse(BaseModel):
@@ -25,4 +25,4 @@ class MeResponse(BaseModel):
 
 
 class UserUpdateRequest(BaseModel):
-    display_name: str | None = None
+    display_name: DisplayName | None = None

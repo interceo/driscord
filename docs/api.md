@@ -28,9 +28,11 @@ Access token по умолчанию живёт 30 минут, refresh token —
 | `PUT /users/{id}/avatar` | владелец | Загрузить JPEG/PNG/GIF/WebP до 5 MiB |
 | `PATCH /users/{id}` | владелец | Изменить display name |
 | `POST/GET /servers/` | да | Создать сервер / получить свои серверы |
-| `GET/PATCH/DELETE /servers/{id}` | да | Получить / изменить / удалить сервер |
-| `GET /servers/{id}/members` | да | Участники |
-| `POST/DELETE /servers/{id}/members` | да | Вступить / выйти напрямую |
+| `GET /servers/{id}` | участник | Получить сервер |
+| `PATCH/DELETE /servers/{id}` | владелец | Изменить / удалить сервер |
+| `GET /servers/{id}/members` | участник | Участники |
+| `POST /servers/{id}/members` | да | Всегда 403; старый прямой join закрыт |
+| `DELETE /servers/{id}/members` | участник | Выйти из сервера |
 | `POST /servers/{id}/members/{user_id}` | владелец | Добавить пользователя в сервер |
 | `POST/GET /servers/{id}/channels/` | да | Создать / перечислить каналы |
 | `GET/PATCH/DELETE /servers/{id}/channels/{channel_id}` | да | Операции с каналом |
@@ -42,9 +44,9 @@ Access token по умолчанию живёт 30 минут, refresh token —
 | `GET /updates/download/{platform}/{version}/{filename}` | нет | Скачать релиз |
 
 Изменять сервер и его каналы может только владелец. Создать инвайт может любой
-участник, перечислить все инвайты — только владелец. Сейчас любой
-аутентифицированный пользователь может напрямую вступить в сервер через
-`POST /servers/{id}/members`, то есть инвайт не является обязательным барьером.
+участник, перечислить все инвайты — только владелец. Вступление возможно только
+через `POST /invites/{code}` либо при явном добавлении пользователя владельцем;
+знание числового id сервера не даёт доступ к его данным или voice-каналам.
 
 `POST /updates/upload` публикует файл, который скачивают и запускают все
 клиенты, поэтому требует флага `users.is_admin`. Self-service способа его

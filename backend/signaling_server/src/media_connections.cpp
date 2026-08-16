@@ -270,9 +270,9 @@ struct MediaConnections::Impl : std::enable_shared_from_this<Impl> {
             connections.clear();
         }
         for (auto& [_, connection] : owned) {
-            for (auto& [__, track] : connection.tracks) {
-                if (track) {
-                    track->close();
+            for (auto& entry : connection.tracks) {
+                if (entry.second) {
+                    entry.second->close();
                 }
             }
             if (connection.pc) {

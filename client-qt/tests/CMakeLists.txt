@@ -43,3 +43,7 @@ target_compile_definitions(tst_qml_components PRIVATE
     QUICK_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml")
 target_link_libraries(tst_qml_components PRIVATE Qt6::QuickTest Qt6::Quick)
 add_test(NAME tst_qml_components COMMAND tst_qml_components)
+set_tests_properties(tst_qml_components PROPERTIES
+    LABELS "client;ui"
+    TIMEOUT 30
+)

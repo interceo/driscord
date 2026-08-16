@@ -125,7 +125,6 @@ private:
     std::shared_ptr<rtc::WebSocket> ws_;
     std::atomic<bool> ws_connected_ { false };
     driscord::PeerId local_id_;
-    std::string ws_url_;
     bool callbacks_frozen_ = false;
 
     std::function<void()> on_connected_;

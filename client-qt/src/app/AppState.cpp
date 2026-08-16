@@ -14,6 +14,7 @@
 #include <QPainter>
 #include <QTimer>
 #include <QUrl>
+#include <algorithm>
 
 namespace {
 
@@ -56,14 +57,28 @@ AppState::AppState(AuthManager* auth, ServerRepository* servers, UserRepository*
         if (m_auth->loggedIn()) {
             loadInitialData();
         } else {
+            // Logging out must also tear down media. Merely swapping the QML
+            // screen would otherwise leave the microphone and WebSocket alive
+            // behind the login form.
+            leaveVoiceChannel();
             m_userProfile = { };
             m_servers = { };
             m_channels = { };
             m_users = { };
             m_peers = { };
+            m_streamingPeers = { };
+            m_watchedPeerIds = { };
+            m_selectedServerId = -1;
+            m_selectedChannelId = -1;
             emit userProfileChanged();
             emit serversChanged();
+            emit channelsChanged();
             emit usersChanged();
+            emit peersChanged();
+            emit streamingPeersChanged();
+            emit watchedStreamsChanged();
+            emit selectedServerChanged();
+            emit selectedChannelChanged();
         }
     });
     connect(m_auth, &AuthManager::loginError, this, [this](const QString& msg) {
@@ -74,13 +89,27 @@ AppState::AppState(AuthManager* auth, ServerRepository* servers, UserRepository*
 void AppState::connectBridgeSignals()
 {
     connect(m_bridge, &DriscordBridge::wsConnected, this, [this] {
+        if (!m_auth->loggedIn() || m_selectedChannelId < 0) {
+            m_bridge->disconnect();
+            return;
+        }
         m_connectionState = QStringLiteral("connected");
         m_statsTimer->start();
         emit connectionChanged();
     });
     connect(m_bridge, &DriscordBridge::wsDisconnected, this, [this] {
+        const bool sessionWasActive
+            = m_connectionState != QStringLiteral("disconnected");
         m_connectionState = QStringLiteral("disconnected");
         m_statsTimer->stop();
+        // A remote/network disconnect does not pass through
+        // leaveVoiceChannel(). Stop local capture here as well. During an
+        // intentional leave the state is already disconnected by the time
+        // this queued signal arrives, so the teardown is not duplicated.
+        if (sessionWasActive) {
+            m_bridge->audioStop();
+            m_bridge->deinitScreenSession();
+        }
         resetConnectionStats();
         if (!m_peers.isEmpty()) {
             m_peers.clear();
@@ -90,6 +119,11 @@ void AppState::connectBridgeSignals()
             m_streamingPeers.clear();
             emit streamingPeersChanged();
         }
+        if (!m_watchedPeerIds.isEmpty()) {
+            m_watchedPeerIds.clear();
+            emit watchedStreamsChanged();
+        }
+        emit sharingChanged();
         emit connectionChanged();
     });
 
@@ -114,14 +148,16 @@ void AppState::connectBridgeSignals()
     });
     connect(m_bridge, &DriscordBridge::peerIdentityReceived, this,
         [this](const QString& id, const QString& username) {
+            const int requestedUserId = m_auth->userId();
             for (auto& v : m_peers) {
                 auto m = v.toMap();
                 if (m.value("id") == id) {
                     m["username"] = username;
                     v = m;
                     // Fetch avatar + display name
-                    m_userRepo->getUserByUsername(username, [this, id](bool ok, QJsonObject json) {
-                        if (!ok)
+                    m_userRepo->getUserByUsername(username, [this, id, requestedUserId](bool ok, QJsonObject json) {
+                        if (!ok || !m_auth->loggedIn()
+                            || m_auth->userId() != requestedUserId)
                             return;
                         int uid = json["id"].toInt();
                         const QString avatarUrl
@@ -201,11 +237,14 @@ void AppState::loadInitialData()
 
 void AppState::fetchCurrentUserProfile()
 {
-    if (m_auth->userId() <= 0)
+    const int requestedUserId = m_auth->userId();
+    if (requestedUserId <= 0)
         return;
     // Use /users/me so we get private fields (email) — /users/{id} omits them.
-    m_userRepo->getMe([this](bool ok, QJsonObject json) {
-        if (!ok)
+    m_userRepo->getMe([this, requestedUserId](bool ok, QJsonObject json) {
+        // A reply from the previous session must never repopulate the profile
+        // after logout or a different user has logged in.
+        if (!ok || !m_auth->loggedIn() || m_auth->userId() != requestedUserId)
             return;
         QVariantMap p;
         p["id"] = json["id"].toInt();
@@ -224,8 +263,10 @@ void AppState::fetchCurrentUserProfile()
 
 void AppState::reloadServers()
 {
-    m_serverRepo->listServers([this](bool ok, QJsonArray arr) {
-        if (!ok)
+    const int requestedUserId = m_auth->userId();
+    m_serverRepo->listServers([this, requestedUserId](bool ok, QJsonArray arr) {
+        if (!ok || !m_auth->loggedIn()
+            || m_auth->userId() != requestedUserId)
             return;
         m_servers.clear();
         for (const auto& v : arr) {
@@ -244,20 +285,28 @@ void AppState::reloadChannels()
 {
     if (m_selectedServerId < 0)
         return;
-    m_serverRepo->listChannels(m_selectedServerId, [this](bool ok, QJsonArray arr) {
-        if (!ok)
-            return;
-        m_channels.clear();
-        for (const auto& v : arr) {
-            auto o = v.toObject();
-            m_channels.append(QVariantMap {
-                { "id", o["id"].toInt() },
-                { "name", o["name"].toString() },
-                { "kind", o["kind"].toString() },
-            });
-        }
-        emit channelsChanged();
-    });
+    const int requestedUserId = m_auth->userId();
+    const int requestedServerId = m_selectedServerId;
+    m_serverRepo->listChannels(requestedServerId,
+        [this, requestedUserId, requestedServerId](bool ok, QJsonArray arr) {
+            // Server A may finish after the user has already selected server
+            // B. Discard that response instead of rendering A's channels
+            // under B's title.
+            if (!ok || !m_auth->loggedIn()
+                || m_auth->userId() != requestedUserId
+                || m_selectedServerId != requestedServerId)
+                return;
+            m_channels.clear();
+            for (const auto& v : arr) {
+                auto o = v.toObject();
+                m_channels.append(QVariantMap {
+                    { "id", o["id"].toInt() },
+                    { "name", o["name"].toString() },
+                    { "kind", o["kind"].toString() },
+                });
+            }
+            emit channelsChanged();
+        });
 }
 
 void AppState::setApiError(const QString& e)
@@ -284,9 +333,19 @@ bool AppState::canManageSelectedServer() const
 
 void AppState::selectServer(int id)
 {
+    // This state model has one selected channel and uses it for the active
+    // voice connection. Keeping a connection to the old server after replacing
+    // that id makes the voice banner and peer list internally inconsistent.
+    if (id != m_selectedServerId
+        && m_connectionState != QStringLiteral("disconnected")) {
+        leaveVoiceChannel();
+    }
     m_selectedServerId = id;
     m_selectedChannelId = -1;
+    m_channels.clear();
     emit selectedServerChanged();
+    emit selectedChannelChanged();
+    emit channelsChanged();
     reloadChannels();
 }
 
@@ -298,6 +357,19 @@ void AppState::selectChannel(int id)
 
 void AppState::joinVoiceChannel(int channelId)
 {
+    const auto channel = std::find_if(m_channels.cbegin(), m_channels.cend(),
+        [channelId](const QVariant& value) {
+            const auto item = value.toMap();
+            return item.value("id").toInt() == channelId
+                && item.value("kind").toString() == QStringLiteral("voice");
+        });
+    if (channel == m_channels.cend()) {
+        setApiError(tr("The selected voice channel is no longer available."));
+        return;
+    }
+    if (m_connectionState != QStringLiteral("disconnected")) {
+        leaveVoiceChannel();
+    }
     m_selectedChannelId = channelId;
     emit selectedChannelChanged();
     m_connectionState = QStringLiteral("connecting");
@@ -313,6 +385,7 @@ void AppState::joinVoiceChannel(int channelId)
 
 void AppState::leaveVoiceChannel()
 {
+    m_statsTimer->stop();
     m_bridge->audioStop();
     m_bridge->deinitScreenSession();
     m_bridge->disconnect();
@@ -320,9 +393,11 @@ void AppState::leaveVoiceChannel()
     m_peers.clear();
     m_streamingPeers.clear();
     m_watchedPeerIds.clear();
+    resetConnectionStats();
     emit peersChanged();
     emit streamingPeersChanged();
     emit watchedStreamsChanged();
+    emit sharingChanged();
     emit connectionChanged();
 }
 
@@ -338,11 +413,16 @@ void AppState::setDeafened(bool d)
 }
 void AppState::setMasterVolume(float v) { m_bridge->setMasterVolume(v); }
 
-void AppState::startSharing(const QString& tj, int w, int h, int fps, bool audio,
+bool AppState::startSharing(const QString& tj, int w, int h, int fps, bool audio,
     const QString& audioTarget)
 {
-    m_bridge->startSharing(tj, w, h, fps, audio, audioTarget);
+    const bool started
+        = m_bridge->startSharing(tj, w, h, fps, audio, audioTarget);
     emit sharingChanged();
+    if (!started) {
+        setApiError(tr("Failed to start screen sharing. The selected source may no longer be available."));
+    }
+    return started;
 }
 void AppState::stopSharing()
 {
@@ -372,7 +452,10 @@ bool AppState::isWatchingStream(const QString& id) const
 
 void AppState::createServer(const QString& name, const QString& desc)
 {
-    m_serverRepo->createServer(name, desc, [this](bool ok, QJsonObject) {
+    const int requestedUserId = m_auth->userId();
+    m_serverRepo->createServer(name, desc, [this, requestedUserId](bool ok, QJsonObject) {
+        if (!m_auth->loggedIn() || m_auth->userId() != requestedUserId)
+            return;
         if (ok)
             reloadServers();
         else
@@ -384,17 +467,27 @@ void AppState::createChannel(const QString& name, const QString& kind)
 {
     if (m_selectedServerId < 0)
         return;
-    m_serverRepo->createChannel(m_selectedServerId, name, kind, [this](bool ok, QJsonObject) {
-        if (ok)
-            reloadChannels();
-        else
-            setApiError("Failed to create channel");
-    });
+    const int requestedUserId = m_auth->userId();
+    const int requestedServerId = m_selectedServerId;
+    m_serverRepo->createChannel(requestedServerId, name, kind,
+        [this, requestedUserId, requestedServerId](bool ok, QJsonObject) {
+            if (!m_auth->loggedIn() || m_auth->userId() != requestedUserId)
+                return;
+            if (ok) {
+                if (m_selectedServerId == requestedServerId)
+                    reloadChannels();
+            } else {
+                setApiError("Failed to create channel");
+            }
+        });
 }
 
 void AppState::acceptInvite(const QString& code)
 {
-    m_serverRepo->acceptInvite(code, [this](bool ok, QJsonObject json) {
+    const int requestedUserId = m_auth->userId();
+    m_serverRepo->acceptInvite(code, [this, requestedUserId](bool ok, QJsonObject json) {
+        if (!m_auth->loggedIn() || m_auth->userId() != requestedUserId)
+            return;
         if (ok) {
             reloadServers();
             selectServer(json["server_id"].toInt());
@@ -405,7 +498,10 @@ void AppState::acceptInvite(const QString& code)
 
 void AppState::loadUsers()
 {
-    m_userRepo->listUsers([this](bool ok, QJsonArray users) {
+    const int requestedUserId = m_auth->userId();
+    m_userRepo->listUsers([this, requestedUserId](bool ok, QJsonArray users) {
+        if (!m_auth->loggedIn() || m_auth->userId() != requestedUserId)
+            return;
         if (!ok) {
             setApiError("Failed to load users");
             return;
@@ -441,16 +537,22 @@ void AppState::inviteUser(int userId)
         setApiError("Only the server owner can invite users");
         return;
     }
-    m_serverRepo->addMember(m_selectedServerId, userId, [this, userId](bool ok, QJsonObject) {
-        if (!ok) {
-            setApiError("Failed to add user; they may already be a member");
-            return;
-        }
-        m_users.removeIf([userId](const QVariant& value) {
-            return value.toMap().value("id").toInt() == userId;
+    const int requestedUserId = m_auth->userId();
+    const int requestedServerId = m_selectedServerId;
+    m_serverRepo->addMember(requestedServerId, userId,
+        [this, userId, requestedUserId, requestedServerId](bool ok, QJsonObject) {
+            if (!m_auth->loggedIn() || m_auth->userId() != requestedUserId
+                || m_selectedServerId != requestedServerId)
+                return;
+            if (!ok) {
+                setApiError("Failed to add user; they may already be a member");
+                return;
+            }
+            m_users.removeIf([userId](const QVariant& value) {
+                return value.toMap().value("id").toInt() == userId;
+            });
+            emit usersChanged();
         });
-        emit usersChanged();
-    });
 }
 
 void AppState::updateDisplayName(const QString& name)

@@ -1,17 +1,21 @@
-from pydantic import BaseModel, EmailStr
+from typing import Annotated
 
-from schemas.common import AvatarUrl
+from pydantic import BaseModel, EmailStr, StringConstraints
+
+from schemas.common import AvatarUrl, NewPassword, Password, Token, Username
+
+Email = Annotated[EmailStr, StringConstraints(max_length=255)]
 
 
 class RegisterRequest(BaseModel):
-    username: str
-    email: EmailStr
-    password: str
+    username: Username
+    email: Email
+    password: NewPassword
 
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: Username
+    password: Password
 
 
 class TokenResponse(BaseModel):
@@ -24,4 +28,4 @@ class TokenResponse(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    refresh_token: Token

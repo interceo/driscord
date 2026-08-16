@@ -2,8 +2,8 @@
 
 #include <QDir>
 #include <QFile>
-#include <QTest>
 #include <QTemporaryDir>
+#include <QTest>
 
 class TestAppConfig : public QObject {
     Q_OBJECT

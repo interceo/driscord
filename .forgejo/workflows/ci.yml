@@ -3,6 +3,8 @@ name: CI
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -13,8 +15,8 @@ permissions:
   contents: read
 
 jobs:
-  server-and-api-tests:
-    name: Server and API tests
+  quality-gate:
+    name: Build and test
     runs-on: driscord-builder
     timeout-minutes: 45
     steps:
@@ -37,10 +39,20 @@ jobs:
           git -c http.extraheader="$auth" fetch -q --depth 1 origin "${GITHUB_SHA}" \
             || git -c http.extraheader="$auth" fetch -q --depth 1 origin "${GITHUB_REF}"
           git checkout -q --detach FETCH_HEAD
+          # A persistent self-hosted workspace may contain source/test files
+          # deleted by a newer commit. Keep only expensive build caches; stale
+          # files can otherwise be rediscovered by pytest or QML QuickTest.
+          git clean -ffdx \
+            -e .builds/ \
+            -e .cache/ \
+            -e backend/api/.tox/
           git --no-pager log -1 --format='checked out %H'
 
       # One command per configuration: configure, build and test all come from
       # CMakePresets.json, so this file stays orchestration only.
+      - name: Formatting
+        run: ./scripts/format.sh --check
+
       - name: Signaling and SFU tests
         run: cmake --workflow --preset server-tests
 

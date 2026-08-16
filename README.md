@@ -146,3 +146,12 @@ Dev shell выставляет `DRISCORD_BUILD_TAG=nixos-`, поэтому ар�
 Исключение — `scripts/nixos-webrtc.sh`: он не обёртка над CMake, а инъекция путей
 nixpkgs cc-wrapper в чистый Chromium clang, без которой WebRTC на NixOS не
 собирается.
+
+
+  - Нужен настоящий Alembic/PostgreSQL migration pipeline вместо create_all и ручных ALTER.
+  - Refresh token хранится открыто в QSettings, не ротируется и не отзывается.
+  - JWT в query string WebSocket может попадать в proxy-логи; лучше короткоживущий media-ticket.
+  - Обновления всё ещё не подписаны криптографически.
+  - /presence и /media_stats недостаточно ограничены по ролям/комнатам.
+  - Зависимости и контейнерные образы требуют lock-файлов, hash/commit/digest pinning.
+  - Крупные монолиты вроде google_webrtc_client.cpp, ws_server.cpp и больших QML-панелей заметно мешают изолированному тестированию.

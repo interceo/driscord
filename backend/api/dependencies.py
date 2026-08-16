@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import async_session
 from models.user import User
-from security import decode_token
+from security import decode_token, token_user_id
 
 bearer_scheme = HTTPBearer()
 
@@ -22,13 +22,13 @@ async def get_current_user(
     db: AsyncSession = Depends(get_db),
 ) -> User:
     payload = decode_token(credentials.credentials)
-    user_id = payload.get("sub")
+    user_id = token_user_id(payload)
     token_type = payload.get("type")
 
     if not user_id or token_type != "access":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
-    result = await db.execute(select(User).where(User.id == int(user_id)))
+    result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")

@@ -4,6 +4,7 @@ import QtQuick.Layouts
 
 ApplicationWindow {
     id: root
+    objectName: "mainWindow"
     visible: true
     width: 1100
     height: 700
@@ -40,6 +41,7 @@ ApplicationWindow {
 
     Loader {
         id: loader
+        objectName: "screenLoader"
         anchors.fill: parent
         state: "restoring"
 
@@ -52,6 +54,7 @@ ApplicationWindow {
 
     // Restoring spinner
     BusyIndicator {
+        objectName: "sessionRestoreIndicator"
         anchors.centerIn: parent
         visible: loader.state === "restoring"
         running: visible
@@ -60,6 +63,7 @@ ApplicationWindow {
     // Global error banner
     Rectangle {
         id: errorBanner
+        objectName: "errorBanner"
         anchors { left: parent.left; right: parent.right; top: parent.top }
         height: visible ? 36 : 0
         color: "#ed4245"
@@ -67,12 +71,14 @@ ApplicationWindow {
         z: 100
 
         Text {
+            objectName: "errorBannerText"
             anchors.centerIn: parent
             text: appState.apiError !== "" ? appState.apiError : root.authError
             color: "white"
             font.pixelSize: 13
         }
         MouseArea {
+            objectName: "errorBannerDismissArea"
             anchors.fill: parent
             onClicked: { appState.apiError = ""; root.authError = "" }
         }

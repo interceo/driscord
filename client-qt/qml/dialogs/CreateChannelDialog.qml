@@ -4,6 +4,8 @@ import QtQuick.Layouts
 import "../components"
 
 DiscordDialog {
+    id: root
+    objectName: "createChannelDialog"
     title: "Create Channel"
     width: 360
 
@@ -12,11 +14,14 @@ DiscordDialog {
         spacing: 12
         DiscordTextField {
             id: nameField
+            objectName: "channelNameField"
             Layout.fillWidth: true
             placeholderText: "Channel name"
+            maximumLength: 64
         }
         DiscordComboBox {
             id: kindBox
+            objectName: "channelKindBox"
             Layout.fillWidth: true
             model: ["voice", "text"]
         }
@@ -31,6 +36,7 @@ DiscordDialog {
             DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
         }
         DiscordButton {
+            objectName: "createChannelButton"
             text: "Create"
             DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
             enabled: nameField.text.trim() !== ""
@@ -41,4 +47,5 @@ DiscordDialog {
         appState.createChannel(nameField.text.trim(), kindBox.currentText)
         nameField.text = ""
     }
+    onRejected: nameField.text = ""
 }

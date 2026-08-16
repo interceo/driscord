@@ -4,6 +4,7 @@ import QtQuick.Layouts
 
 Dialog {
     id: root
+    objectName: "shareDialog"
     title: qsTr("Share Screen")
     modal: true
     anchors.centerIn: Overlay.overlay
@@ -385,8 +386,8 @@ Dialog {
         var target = root.targets[root.selectedIndex]
         var q = root.qualityPresets[qualityCombo.currentIndex]
         var fps = root.fpsPresets[fpsCombo.currentIndex]
-        appState.startSharing(JSON.stringify(target), q.w, q.h, fps,
-                              audioCheck.checked, audioTargetCombo.currentId)
-        root.close()
+        if (appState.startSharing(JSON.stringify(target), q.w, q.h, fps,
+                                  audioCheck.checked, audioTargetCombo.currentId))
+            root.close()
     }
 }

@@ -2,9 +2,12 @@
 
 #include "log.hpp"
 
+#include <algorithm>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
+#include <cctype>
+#include <charconv>
 #include <chrono>
 #include <nlohmann/json.hpp>
 #include <utility>
@@ -56,7 +59,8 @@ namespace {
             request_.version(11);
             request_.method(http::verb::get);
             request_.target(target);
-            request_.set(http::field::host, host_);
+            request_.set(http::field::host,
+                port_ == "80" ? host_ : host_ + ":" + port_);
             request_.set(http::field::user_agent, "driscord-sfu");
             if (!token.empty()) {
                 request_.set(http::field::authorization, "Bearer " + token);
@@ -83,7 +87,8 @@ namespace {
                 callback(std::move(identity));
             }
             beast::error_code ignored;
-            stream_.socket().shutdown(tcp::socket::shutdown_both, ignored);
+            (void)stream_.socket().shutdown(
+                tcp::socket::shutdown_both, ignored);
         }
 
         void on_resolve(beast::error_code ec, tcp::resolver::results_type results)
@@ -165,28 +170,54 @@ std::shared_ptr<ApiAuthenticator> ApiAuthenticator::create(
     boost::asio::io_context& io_context, const std::string& base_url)
 {
     std::string_view rest = base_url;
-    if (rest.starts_with("https://")) {
-        LOG_ERROR() << "DRISCORD_API_URL must be plain http; the API is "
-                       "expected on an internal network";
+    constexpr std::string_view kScheme = "http://";
+    if (!rest.starts_with(kScheme)) {
+        LOG_ERROR() << "DRISCORD_API_URL must start with http://; the API is "
+                       "expected on a trusted internal network";
         return nullptr;
     }
-    if (rest.starts_with("http://")) {
-        rest.remove_prefix(std::string_view("http://").size());
+    rest.remove_prefix(kScheme.size());
+
+    const auto suffixStart = rest.find_first_of("/?#");
+    const auto authority = rest.substr(0, suffixStart);
+    if (suffixStart != std::string_view::npos
+        && rest.substr(suffixStart).find_first_not_of('/')
+            != std::string_view::npos) {
+        LOG_ERROR() << "DRISCORD_API_URL must not contain a path, query, or "
+                       "fragment: "
+                    << base_url;
+        return nullptr;
     }
-    rest = rest.substr(0, rest.find('/'));
-    if (rest.empty()) {
+    if (authority.empty()) {
         LOG_ERROR() << "DRISCORD_API_URL has no host";
         return nullptr;
     }
 
-    std::string host(rest);
+    std::string host(authority);
     std::string port = "80";
     const auto colon = host.rfind(':');
-    if (colon != std::string::npos && host.find(']') == std::string::npos) {
+    if (colon != std::string::npos) {
+        // Bracketed IPv6 needs a separate Host header and resolver value. Do
+        // not half-parse it as a hostname and an arbitrary service string.
+        if (host.find(':') != colon) {
+            LOG_ERROR() << "DRISCORD_API_URL does not support IPv6 literals: "
+                        << base_url;
+            return nullptr;
+        }
         port = host.substr(colon + 1);
         host = host.substr(0, colon);
     }
-    if (host.empty() || port.empty()) {
+    const auto invalidHost = std::find_if(host.cbegin(), host.cend(), [](char c) {
+        const auto byte = static_cast<unsigned char>(c);
+        return std::isspace(byte) != 0 || std::iscntrl(byte) != 0 || c == '@'
+            || c == '\\' || c == '[' || c == ']';
+    });
+    unsigned int numericPort = 0;
+    const auto [portEnd, portError]
+        = std::from_chars(port.data(), port.data() + port.size(), numericPort);
+    if (host.empty() || invalidHost != host.cend() || port.empty()
+        || portError != std::errc { } || portEnd != port.data() + port.size()
+        || numericPort == 0 || numericPort > 65535) {
         LOG_ERROR() << "DRISCORD_API_URL is malformed: " << base_url;
         return nullptr;
     }

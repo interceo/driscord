@@ -3,11 +3,14 @@ import QtQuick.Controls
 import "../components"
 
 DiscordDialog {
+    id: root
+    objectName: "joinByInviteDialog"
     title: "Join by Invite"
     width: 360
 
     DiscordTextField {
         id: codeField
+        objectName: "inviteCodeField"
         width: parent.width
         placeholderText: "Invite code"
     }
@@ -21,6 +24,7 @@ DiscordDialog {
             DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
         }
         DiscordButton {
+            objectName: "joinByInviteButton"
             text: "Join"
             DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
             enabled: codeField.text.trim() !== ""
@@ -31,4 +35,5 @@ DiscordDialog {
         appState.acceptInvite(codeField.text.trim())
         codeField.text = ""
     }
+    onRejected: codeField.text = ""
 }

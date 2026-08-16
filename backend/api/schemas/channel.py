@@ -1,19 +1,20 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from models.channel import ChannelKind
+from schemas.common import ChannelName
 
 
 class ChannelCreate(BaseModel):
-    name: str
+    name: ChannelName
     kind: ChannelKind = ChannelKind.voice
-    position: int = 0
+    position: int = Field(default=0, ge=0, le=1_000_000)
 
 
 class ChannelUpdate(BaseModel):
-    name: str | None = None
-    position: int | None = None
+    name: ChannelName | None = None
+    position: int | None = Field(default=None, ge=0, le=1_000_000)
 
 
 class ChannelAccessResponse(BaseModel):

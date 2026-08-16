@@ -1,7 +1,9 @@
 { pkgs }:
 
 let
-  python = pkgs.python3;
+  # Match backend/api/Dockerfile, tox.ini and the infrastructure CI job. Following
+  # nixpkgs' moving `python3` alias made the local test runtime drift silently.
+  python = pkgs.python312;
 in
 pkgs.mkShell {
   packages = with pkgs; [

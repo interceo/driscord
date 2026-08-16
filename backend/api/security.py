@@ -11,8 +11,12 @@ BCRYPT_MAX_BYTES = 72
 
 def _encode(password: str) -> bytes:
     # bcrypt has a hard 72-byte limit on the password input.
-    # Truncate defensively so long passwords don't raise.
-    return password.encode("utf-8")[:BCRYPT_MAX_BYTES]
+    # Reject instead of truncating: otherwise two distinct passwords with the
+    # same 72-byte prefix authenticate as the same secret.
+    encoded = password.encode("utf-8")
+    if len(encoded) > BCRYPT_MAX_BYTES:
+        raise ValueError("password exceeds bcrypt's 72-byte limit")
+    return encoded
 
 
 def hash_password(password: str) -> str:
@@ -41,3 +45,11 @@ def decode_token(token: str) -> dict:
         return jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
     except JWTError:
         return {}
+
+
+def token_user_id(payload: dict) -> int | None:
+    subject = payload.get("sub")
+    if not isinstance(subject, str) or not subject.isascii() or not subject.isdecimal():
+        return None
+    user_id = int(subject)
+    return user_id if user_id > 0 else None

@@ -5,7 +5,25 @@ import "../components"
 
 Item {
     id: root
+    objectName: "loginScreen"
     property bool isLogin: true
+
+    function utf8Length(value) {
+        // encodeURIComponent represents every non-ASCII UTF-8 byte as %XX.
+        // Counting those triplets as one keeps the client-side limit aligned
+        // with bcrypt's 72-byte input limit enforced by the API.
+        return encodeURIComponent(value).replace(/%[0-9A-F]{2}/gi, "x").length
+    }
+
+    readonly property string normalizedUsername: usernameField.text.trim()
+    readonly property string normalizedEmail: emailField.text.trim()
+    readonly property bool validUsername: normalizedUsername.length > 0
+                                                 && normalizedUsername.length <= 32
+    readonly property bool validPassword: passwordField.text.length >= (isLogin ? 1 : 6)
+                                                 && utf8Length(passwordField.text) <= 72
+    readonly property bool validEmail: /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(normalizedEmail)
+    readonly property bool canSubmit: validUsername && validPassword
+                                          && (isLogin || validEmail)
 
     Rectangle {
         anchors.centerIn: parent
@@ -29,6 +47,7 @@ Item {
 
             TabBar {
                 id: tabBar
+                objectName: "authModeTabs"
                 Layout.fillWidth: true
                 background: Rectangle { color: "transparent" }
                 TabButton { text: "Log In";   font.pixelSize: 14 }
@@ -38,38 +57,52 @@ Item {
 
             DiscordTextField {
                 id: usernameField
+                objectName: "usernameField"
                 Layout.fillWidth: true
                 placeholderText: "Username"
                 font.pixelSize: 14
+                maximumLength: 32
             }
 
             DiscordTextField {
                 id: emailField
+                objectName: "emailField"
                 Layout.fillWidth: true
                 placeholderText: "Email"
                 font.pixelSize: 14
                 visible: !root.isLogin
+                maximumLength: 255
             }
 
             DiscordTextField {
                 id: passwordField
+                objectName: "passwordField"
                 Layout.fillWidth: true
                 placeholderText: "Password"
                 echoMode: TextInput.Password
                 font.pixelSize: 14
-                Keys.onReturnPressed: submitBtn.clicked()
+                maximumLength: 72
+                Keys.onReturnPressed: {
+                    if (submitBtn.enabled)
+                        submitBtn.clicked()
+                }
             }
 
             DiscordButton {
                 id: submitBtn
+                objectName: "authSubmitButton"
                 Layout.fillWidth: true
-                text: root.isLogin ? "Log In" : "Register"
+                text: authManager.authPending ? "Please wait…"
+                                              : (root.isLogin ? "Log In" : "Register")
                 font.pixelSize: 15
+                enabled: root.canSubmit && !authManager.authPending
                 onClicked: {
                     if (root.isLogin)
-                        authManager.login(usernameField.text, passwordField.text)
+                        authManager.login(root.normalizedUsername, passwordField.text)
                     else
-                        authManager.registerUser(usernameField.text, emailField.text, passwordField.text)
+                        authManager.registerUser(root.normalizedUsername,
+                                                 root.normalizedEmail,
+                                                 passwordField.text)
                 }
             }
         }

@@ -1,12 +1,14 @@
 import logging
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger("driscord.config")
 
 ENV_FILE = Path(__file__).parent / ".env"
 DEFAULT_SECRET_KEY = "change-me"
+MIN_SECRET_KEY_BYTES = 32
 
 
 class Settings(BaseSettings):
@@ -28,6 +30,18 @@ class Settings(BaseSettings):
     # JWT
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
+
+    @model_validator(mode="after")
+    def validate_secret_key(self) -> "Settings":
+        if self.allow_insecure_secret:
+            return self
+        if self.secret_key == DEFAULT_SECRET_KEY:
+            raise ValueError("SECRET_KEY is still the built-in default")
+        if len(self.secret_key.encode("utf-8")) < MIN_SECRET_KEY_BYTES:
+            raise ValueError(
+                f"SECRET_KEY must contain at least {MIN_SECRET_KEY_BYTES} UTF-8 bytes"
+            )
+        return self
 
 
 def _redact(url: str) -> str:
@@ -60,10 +74,3 @@ def _log_settings(s: "Settings") -> None:
 
 settings = Settings()
 _log_settings(settings)
-
-if settings.secret_key == DEFAULT_SECRET_KEY and not settings.allow_insecure_secret:
-    raise RuntimeError(
-        f"SECRET_KEY is still the built-in default. Set it in {ENV_FILE} (or the "
-        "environment) to a random value, or set ALLOW_INSECURE_SECRET=true for a "
-        "throwaway environment."
-    )

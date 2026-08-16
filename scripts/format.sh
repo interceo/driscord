@@ -8,23 +8,35 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-MODE="format"
-if [[ "${1:-}" == "--check" ]]; then
-    MODE="check"
+case "${1:-}" in
+    "") MODE="format" ;;
+    --check) MODE="check" ;;
+    *)
+        echo "Usage: $0 [--check]" >&2
+        exit 2
+        ;;
+esac
+if (( $# > 1 )); then
+    echo "Usage: $0 [--check]" >&2
+    exit 2
 fi
 
-FILES=$(find "$ROOT/core" "$ROOT/backend/signaling_server" "$ROOT/client-qt" \
-    \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' \) \
-    ! -path '*/.builds/*' ! -path '*/_deps/*' ! -path '*/build/*')
+mapfile -d '' -t FILES < <(
+    find "$ROOT/core" "$ROOT/backend/signaling_server" "$ROOT/client-qt" \
+        \( -name '*.cpp' -o -name '*.hpp' -o -name '*.h' \) \
+        ! -path '*/.builds/*' ! -path '*/_deps/*' ! -path '*/build/*' \
+        -print0 \
+        | sort -z
+)
 
-if [[ -z "$FILES" ]]; then
+if (( ${#FILES[@]} == 0 )); then
     echo "No files to format."
     exit 0
 fi
 
 if [[ "$MODE" == "check" ]]; then
-    echo "$FILES" | xargs clang-format --dry-run --Werror
+    clang-format --dry-run --Werror "${FILES[@]}"
 else
-    echo "$FILES" | xargs clang-format -i
-    echo "Formatted $(echo "$FILES" | wc -l) files."
+    clang-format -i "${FILES[@]}"
+    echo "Formatted ${#FILES[@]} files."
 fi

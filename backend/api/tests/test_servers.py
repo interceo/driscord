@@ -7,6 +7,17 @@ async def _create_server(client, headers, name="My Server", description=None):
     return r.json()
 
 
+async def _invite(client, owner_headers, member_headers, server_id):
+    created = await client.post(
+        f"/servers/{server_id}/invites/", headers=owner_headers
+    )
+    assert created.status_code == 201, created.text
+    accepted = await client.post(
+        f"/invites/{created.json()['code']}", headers=member_headers
+    )
+    assert accepted.status_code == 200, accepted.text
+
+
 async def test_create_server(client, auth_headers):
     h = await auth_headers("alice")
     r = await client.post(
@@ -47,6 +58,19 @@ async def test_get_unknown_server_404(client, auth_headers):
     assert r.status_code == 404
 
 
+async def test_non_member_cannot_read_server_or_member_list(client, auth_headers):
+    owner = await auth_headers("alice")
+    outsider = await auth_headers("bob")
+    server = await _create_server(client, owner)
+
+    details = await client.get(f"/servers/{server['id']}", headers=outsider)
+    members = await client.get(
+        f"/servers/{server['id']}/members", headers=outsider
+    )
+    assert details.status_code == 403
+    assert members.status_code == 403
+
+
 async def test_patch_server_owner_only(client, auth_headers):
     ha = await auth_headers("alice")
     hb = await auth_headers("bob")
@@ -59,6 +83,17 @@ async def test_patch_server_owner_only(client, auth_headers):
     # bob is not even a member, still 403 (ownership check happens regardless of membership)
     r = await client.patch(f"/servers/{s['id']}", headers=hb, json={"name": "Hack"})
     assert r.status_code == 403
+
+
+async def test_patch_server_can_clear_description(client, auth_headers):
+    headers = await auth_headers("alice")
+    server = await _create_server(client, headers, description="temporary")
+
+    r = await client.patch(
+        f"/servers/{server['id']}", headers=headers, json={"description": None}
+    )
+    assert r.status_code == 200
+    assert r.json()["description"] is None
 
 
 async def test_delete_server_owner_only(client, auth_headers):
@@ -76,24 +111,26 @@ async def test_delete_server_owner_only(client, auth_headers):
     assert r.status_code == 404
 
 
-async def test_join_server(client, auth_headers):
+async def test_direct_join_requires_invite(client, auth_headers):
     ha = await auth_headers("alice")
     hb = await auth_headers("bob")
     s = await _create_server(client, ha)
 
     r = await client.post(f"/servers/{s['id']}/members", headers=hb)
-    assert r.status_code == 201
-    assert r.json() == {"status": "joined"}
+    assert r.status_code == 403
 
 
-async def test_join_duplicate_conflict(client, auth_headers):
+async def test_accept_invite_twice_is_idempotent(client, auth_headers):
     ha = await auth_headers("alice")
     hb = await auth_headers("bob")
     s = await _create_server(client, ha)
 
-    await client.post(f"/servers/{s['id']}/members", headers=hb)
-    r = await client.post(f"/servers/{s['id']}/members", headers=hb)
-    assert r.status_code == 409
+    invite = await client.post(f"/servers/{s['id']}/invites/", headers=ha)
+    code = invite.json()["code"]
+    first = await client.post(f"/invites/{code}", headers=hb)
+    second = await client.post(f"/invites/{code}", headers=hb)
+    assert first.json()["status"] == "joined"
+    assert second.json()["status"] == "already_member"
 
 
 async def test_leave_server(client, auth_headers):
@@ -101,7 +138,7 @@ async def test_leave_server(client, auth_headers):
     hb = await auth_headers("bob")
     s = await _create_server(client, ha)
 
-    await client.post(f"/servers/{s['id']}/members", headers=hb)
+    await _invite(client, ha, hb, s["id"])
     r = await client.delete(f"/servers/{s['id']}/members", headers=hb)
     assert r.status_code == 204
 
@@ -121,7 +158,7 @@ async def test_list_members(client, auth_headers):
     ha = await auth_headers("alice")
     hb = await auth_headers("bob")
     s = await _create_server(client, ha)
-    await client.post(f"/servers/{s['id']}/members", headers=hb)
+    await _invite(client, ha, hb, s["id"])
 
     r = await client.get(f"/servers/{s['id']}/members", headers=ha)
     assert r.status_code == 200

@@ -16,6 +16,14 @@ int AuthManager::userId() const { return m_userId; }
 QString AuthManager::avatarUrl() const { return m_avatarUrl; }
 QString AuthManager::displayName() const { return m_displayName.isEmpty() ? m_username : m_displayName; }
 
+void AuthManager::setAuthPending(bool pending)
+{
+    if (m_authPending == pending)
+        return;
+    m_authPending = pending;
+    emit authPendingChanged();
+}
+
 void AuthManager::applyTokenResponse(const QJsonObject& json, const QString& username)
 {
     auto access = json["access_token"].toString();
@@ -34,8 +42,15 @@ void AuthManager::applyTokenResponse(const QJsonObject& json, const QString& use
 
 void AuthManager::login(const QString& username, const QString& password)
 {
+    if (m_authPending)
+        return;
+    const auto generation = ++m_requestGeneration;
+    setAuthPending(true);
     QJsonObject body { { "username", username }, { "password", password } };
-    m_api->post("/auth/login", body, [this, username](QNetworkReply::NetworkError err, QJsonObject json) {
+    m_api->post("/auth/login", body, [this, username, generation](QNetworkReply::NetworkError err, QJsonObject json) {
+        if (generation != m_requestGeneration)
+            return;
+        setAuthPending(false);
         if (err != QNetworkReply::NoError) {
             emit loginError(json.value("detail").toString("Login failed"));
             return;
@@ -46,8 +61,15 @@ void AuthManager::login(const QString& username, const QString& password)
 
 void AuthManager::registerUser(const QString& username, const QString& email, const QString& password)
 {
+    if (m_authPending)
+        return;
+    const auto generation = ++m_requestGeneration;
+    setAuthPending(true);
     QJsonObject body { { "username", username }, { "email", email }, { "password", password } };
-    m_api->post("/auth/register", body, [this, username](QNetworkReply::NetworkError err, QJsonObject json) {
+    m_api->post("/auth/register", body, [this, username, generation](QNetworkReply::NetworkError err, QJsonObject json) {
+        if (generation != m_requestGeneration)
+            return;
+        setAuthPending(false);
         if (err != QNetworkReply::NoError) {
             emit loginError(json.value("detail").toString("Registration failed"));
             return;
@@ -58,6 +80,8 @@ void AuthManager::registerUser(const QString& username, const QString& email, co
 
 void AuthManager::logout()
 {
+    ++m_requestGeneration;
+    setAuthPending(false);
     m_api->clearAccessToken();
     m_session->clear();
     m_refreshToken.clear();
@@ -71,17 +95,24 @@ void AuthManager::logout()
 
 void AuthManager::tryRestoreSession()
 {
+    if (m_authPending)
+        return;
     auto data = m_session->load();
     if (!data) {
         emit sessionRestoreFailed();
         return;
     }
 
+    const auto generation = ++m_requestGeneration;
+    setAuthPending(true);
     m_username = data->username;
     m_userId = data->userId;
 
     QJsonObject body { { "refresh_token", data->refreshToken } };
-    m_api->post("/auth/refresh", body, [this, username = data->username](QNetworkReply::NetworkError err, QJsonObject json) {
+    m_api->post("/auth/refresh", body, [this, username = data->username, generation](QNetworkReply::NetworkError err, QJsonObject json) {
+        if (generation != m_requestGeneration)
+            return;
+        setAuthPending(false);
         if (err != QNetworkReply::NoError) {
             m_session->clear();
             m_username.clear();

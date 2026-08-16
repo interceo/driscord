@@ -41,7 +41,6 @@ utils::Expected<void, TransportError> Transport::connect(
     const std::string& ws_url)
 {
     disconnect();
-    ws_url_ = ws_url;
     callbacks_frozen_ = true;
     update_state(TransportConnectionState::Connecting);
 
@@ -59,12 +58,27 @@ utils::Expected<void, TransportError> Transport::connect(
     }
 
     const std::weak_ptr<rtc::WebSocket> weak_ws = ws;
-    ws->onOpen([this, weak_ws] {
+    const auto disconnect_notified = std::make_shared<std::atomic<bool>>(false);
+    const auto notify_disconnected = [this, disconnect_notified] {
+        if (disconnect_notified->exchange(true)) {
+            return;
+        }
+        clear_peers();
+        for (const auto& listener : connection_listeners_) {
+            if (listener) {
+                listener(false);
+            }
+        }
+        if (on_disconnected_) {
+            on_disconnected_();
+        }
+    };
+    ws->onOpen([this, weak_ws, ws_url] {
         const auto socket = weak_ws.lock();
         if (!socket || !is_current_socket(socket)) {
             return;
         }
-        LOG_INFO() << "ws connected to " << ws_url_;
+        LOG_INFO() << "ws connected to " << ws_url;
         ws_connected_ = true;
         update_state(TransportConnectionState::Connected);
         for (const auto& listener : connection_listeners_) {
@@ -76,7 +90,7 @@ utils::Expected<void, TransportError> Transport::connect(
             on_connected_();
         }
     });
-    ws->onClosed([this, weak_ws] {
+    ws->onClosed([this, weak_ws, notify_disconnected] {
         const auto socket = weak_ws.lock();
         if (!socket || !is_current_socket(socket)) {
             return;
@@ -90,27 +104,25 @@ utils::Expected<void, TransportError> Transport::connect(
             }
         }
         update_state(TransportConnectionState::Disconnected);
-        if (!was_connected) {
-            return;
-        }
-        LOG_INFO() << "ws disconnected";
-        clear_peers();
-        for (const auto& listener : connection_listeners_) {
-            if (listener) {
-                listener(false);
-            }
-        }
-        if (on_disconnected_) {
-            on_disconnected_();
-        }
+        LOG_INFO() << (was_connected ? "ws disconnected"
+                                     : "ws connection closed before opening");
+        notify_disconnected();
     });
-    ws->onError([this, weak_ws](std::string error) {
+    ws->onError([this, weak_ws, notify_disconnected](std::string error) {
         const auto socket = weak_ws.lock();
         if (!socket || !is_current_socket(socket)) {
             return;
         }
         LOG_ERROR() << "ws error: " << error;
+        ws_connected_ = false;
+        {
+            std::scoped_lock lock(ws_mutex_);
+            if (ws_ == socket) {
+                local_id_.value.clear();
+            }
+        }
         update_state(TransportConnectionState::Failed);
+        notify_disconnected();
     });
     ws->onMessage([this, weak_ws](auto message) {
         const auto socket = weak_ws.lock();

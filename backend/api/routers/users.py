@@ -37,7 +37,7 @@ async def update_me(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if body.display_name is not None:
+    if "display_name" in body.model_fields_set:
         current_user.display_name = body.display_name
     await db.commit()
     await db.refresh(current_user)
@@ -83,6 +83,10 @@ async def upload_avatar(
     if file.content_type not in _ALLOWED_IMAGE_TYPES:
         raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="Unsupported image type")
     content = await file.read()
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="File is empty"
+        )
     if len(content) > _MAX_AVATAR_BYTES:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File too large (max 5 MB)")
     ext = _EXT_MAP[file.content_type]
@@ -105,7 +109,7 @@ async def update_user(
 ):
     if current_user.id != user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot modify another user's profile")
-    if body.display_name is not None:
+    if "display_name" in body.model_fields_set:
         current_user.display_name = body.display_name
     await db.commit()
     await db.refresh(current_user)

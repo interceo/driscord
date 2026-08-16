@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
-import shutil
+import os
+import re
+import tempfile
 from pathlib import Path
 from typing import Annotated
 
@@ -19,6 +21,10 @@ router = APIRouter(prefix="/updates", tags=["updates"])
 VERSIONS_FILE = settings.data_dir / "versions.json"
 RELEASES_DIR = settings.data_dir / "releases"
 PLATFORMS = ("linux", "windows")
+MAX_RELEASE_BYTES = 512 * 1024 * 1024
+_COPY_CHUNK_BYTES = 1024 * 1024
+_VERSION_PART = r"(0|[1-9][0-9]{0,8})"
+_VERSION_PATTERN = re.compile(rf"^{_VERSION_PART}\.{_VERSION_PART}\.{_VERSION_PART}$")
 
 
 def _load_versions() -> dict:
@@ -29,14 +35,59 @@ def _load_versions() -> dict:
 
 def _save_versions(data: dict) -> None:
     VERSIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    VERSIONS_FILE.write_text(json.dumps(data, indent=2))
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=VERSIONS_FILE.parent,
+            prefix=f".{VERSIONS_FILE.name}.",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            json.dump(data, temporary, indent=2)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, VERSIONS_FILE)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def _parse_version(v: str) -> tuple[int, ...]:
+    value = v.strip()
+    match = _VERSION_PATTERN.fullmatch(value)
+    if match is None:
+        raise HTTPException(status_code=400, detail=f"Invalid version format: {v!r}")
+    return tuple(int(component) for component in match.groups())
+
+
+async def _store_release(file: UploadFile, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    written = 0
     try:
-        return tuple(int(x) for x in v.strip().split("."))
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid version format: {v!r}") from None
+        with tempfile.NamedTemporaryFile(
+            "wb",
+            dir=destination.parent,
+            prefix=f".{destination.name}.",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            while chunk := await file.read(_COPY_CHUNK_BYTES):
+                written += len(chunk)
+                if written > MAX_RELEASE_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Release file too large (max {MAX_RELEASE_BYTES} bytes)",
+                    )
+                temporary.write(chunk)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, destination)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def _require_platform(platform: str) -> str:
@@ -100,10 +151,10 @@ async def upload_update(
     if file is not None:
         # UploadFile.filename is client-supplied and may carry separators.
         filename = Path(file.filename or "").name
+        if not filename or filename in {".", ".."}:
+            raise HTTPException(status_code=400, detail="Release filename is empty")
         dest = _release_path(platform, version, filename)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        with open(dest, "wb") as fp:
-            shutil.copyfileobj(file.file, fp)
+        await _store_release(file, dest)
 
     versions = _load_versions()
     versions[platform] = {"version": version, "notes": notes, "file": filename}

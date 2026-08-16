@@ -145,7 +145,7 @@ curl http://signal.example.org:9001/media_stats
 
 - заменить `SECRET_KEY` и пароль PostgreSQL;
 - не выставлять PostgreSQL наружу;
-- закрыть прямое вступление в сервер, если membership должен быть invite-only;
+- убедиться, что клиенты используют invite-flow: прямой join по id сервером запрещён;
 - передать HTTPS/WSS endpoint'ы в release-сборку и терминировать TLS на reverse proxy;
 - настроить firewall, журналирование, health checks и резервные копии;
 - проверить UDP-диапазон SFU из внешней сети и заложить канал: через сервер

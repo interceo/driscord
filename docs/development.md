@@ -2,7 +2,7 @@
 
 ## Зависимости
 
-Для client/core нужны Linux, CMake 3.20+, Clang/lld, Boost 1.89+, Qt 6,
+Для client/core нужны Linux, CMake 3.25+, Clang/lld, Boost 1.89+, Qt 6,
 GnuTLS/NSS, X11 extensions и PulseAudio. Для standalone SFU нужен OpenSSL. Для
 API нужны Python 3 и PostgreSQL. Часть C++-зависимостей CMake загружает через
 `FetchContent`.
@@ -27,7 +27,8 @@ cp backend/api/.env.example backend/api/.env
 
 ```dotenv
 DATABASE_URL=postgresql+asyncpg://driscord:strong-password@127.0.0.1:5432/driscord
-SECRET_KEY=replace-with-a-long-random-secret
+# Generate with: openssl rand -hex 32
+SECRET_KEY=replace-with-at-least-32-random-bytes
 API_PORT=9002
 DATA_DIR=/var/lib/driscord
 ACCESS_TOKEN_EXPIRE_MINUTES=30
@@ -94,6 +95,9 @@ cmake --workflow --preset server-tests   # сервер и SFU, без WebRTC-а
 cmake --workflow --preset client-tests   # клиент и его тесты (QT_QPA_PLATFORM=offscreen)
 cd backend/api && tox                    # API
 ```
+
+`client-tests` включает headless Qt QuickTest-сценарии для переходов login,
+валидации форм, диалогов создания сущностей, ошибок и отказа screen capture.
 
 Список конфигураций — `cmake --list-presets`; они же используются в CI, отдельных
 сборочных команд у пайплайна нет.

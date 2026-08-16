@@ -1,11 +1,19 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dependencies import get_db
 from models.user import User
 from schemas.auth import LoginRequest, RefreshRequest, RegisterRequest, TokenResponse
-from security import create_access_token, create_refresh_token, decode_token, hash_password, verify_password
+from security import (
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    hash_password,
+    token_user_id,
+    verify_password,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -28,7 +36,16 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
         hashed_password=hash_password(body.password),
     )
     db.add(user)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # The SELECT checks above make the common error specific and friendly;
+        # this closes the concurrent-registration race at the unique indexes.
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Username or email already registered",
+        ) from None
     await db.refresh(user)
 
     return TokenResponse(
@@ -60,13 +77,13 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     payload = decode_token(body.refresh_token)
-    user_id = payload.get("sub")
+    user_id = token_user_id(payload)
     token_type = payload.get("type")
 
     if not user_id or token_type != "refresh":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
 
-    result = await db.execute(select(User).where(User.id == int(user_id)))
+    result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")

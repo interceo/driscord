@@ -8,8 +8,6 @@
 #include <iostream>
 #include <string_view>
 
-#include "driscord/client_build_config.hpp"
-#include "driscord/version.hpp"
 #include "api/ApiClient.h"
 #include "api/AuthManager.h"
 #include "api/ServerRepository.h"
@@ -21,6 +19,8 @@
 #include "app/DriscordBridge.h"
 #include "app/FrameProvider.h"
 #include "app/ThumbnailProvider.h"
+#include "driscord/client_build_config.hpp"
+#include "driscord/version.hpp"
 
 namespace {
 

@@ -88,7 +88,7 @@ public:
     Q_INVOKABLE void setMuted(bool m);
     Q_INVOKABLE void setDeafened(bool d);
     Q_INVOKABLE void setMasterVolume(float v);
-    Q_INVOKABLE void startSharing(const QString& targetJson,
+    Q_INVOKABLE bool startSharing(const QString& targetJson,
         int maxW,
         int maxH,
         int fps,

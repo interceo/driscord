@@ -1,3 +1,4 @@
+#include "api_authenticator.hpp"
 #include "fake_api_server.hpp"
 #include "rtc_cleanup_env.hpp"
 #include "signaling_test_fixture.hpp"
@@ -80,6 +81,39 @@ private:
 };
 
 } // namespace
+
+TEST(ApiAuthenticatorConfiguration, RejectsAmbiguousOrInvalidUrls)
+{
+    boost::asio::io_context io;
+    EXPECT_EQ(driscord::ApiAuthenticator::create(io, "api.internal:8000"),
+        nullptr);
+    EXPECT_EQ(driscord::ApiAuthenticator::create(io, "https://api.internal"),
+        nullptr);
+    EXPECT_EQ(driscord::ApiAuthenticator::create(io, "http://api.internal:bad"),
+        nullptr);
+    EXPECT_EQ(driscord::ApiAuthenticator::create(io, "http://api.internal:70000"),
+        nullptr);
+    EXPECT_EQ(driscord::ApiAuthenticator::create(io, "http://user@api.internal"),
+        nullptr);
+    EXPECT_EQ(driscord::ApiAuthenticator::create(io, "http://api.internal/v1"),
+        nullptr);
+}
+
+TEST(ApiAuthenticatorConfiguration, ParsesAPlainHttpAuthority)
+{
+    boost::asio::io_context io;
+    const auto defaultPort
+        = driscord::ApiAuthenticator::create(io, "http://api.internal/");
+    ASSERT_NE(defaultPort, nullptr);
+    EXPECT_EQ(defaultPort->host(), "api.internal");
+    EXPECT_EQ(defaultPort->port(), "80");
+
+    const auto customPort
+        = driscord::ApiAuthenticator::create(io, "http://127.0.0.1:9002");
+    ASSERT_NE(customPort, nullptr);
+    EXPECT_EQ(customPort->host(), "127.0.0.1");
+    EXPECT_EQ(customPort->port(), "9002");
+}
 
 class SignalingAuthTest : public ::testing::Test {
 protected:

@@ -28,12 +28,11 @@ static QVariantList parseDeviceJson(const std::string& json)
 static constexpr auto kInputDeviceSetting = "audio/inputDevice";
 static constexpr auto kOutputDeviceSetting = "audio/outputDevice";
 
-static DriscordCore* g_core = nullptr;
-
 DriscordBridge::DriscordBridge(
     QObject* parent, const QVector<IceServerSetting>& iceServers)
     : QObject(parent)
 {
+    m_audioPool.setMaxThreadCount(1);
     m_thumbnailPool.setMaxThreadCount(1);
 
     std::vector<IceServer> coreIceServers;
@@ -45,41 +44,41 @@ DriscordBridge::DriscordBridge(
             .password = server.password.toStdString(),
         });
     }
-    g_core = new DriscordCore(std::move(coreIceServers));
+    m_core = std::make_unique<DriscordCore>(std::move(coreIceServers));
 
-    g_core->transport.on_connected([this]() {
+    m_core->transport.on_connected([this]() {
         QMetaObject::invokeMethod(this, [this] { emit wsConnected(); }, Qt::QueuedConnection);
     });
-    g_core->transport.on_disconnected([this]() {
+    m_core->transport.on_disconnected([this]() {
         QMetaObject::invokeMethod(this, [this] { emit wsDisconnected(); }, Qt::QueuedConnection);
     });
 
-    g_core->set_on_peer_joined([this](const std::string& id) {
+    m_core->set_on_peer_joined([this](const std::string& id) {
         QMetaObject::invokeMethod(this, [this, id = QString::fromStdString(id)] { emit peerJoined(id); }, Qt::QueuedConnection);
     });
-    g_core->set_on_peer_left([this](const std::string& id) {
+    m_core->set_on_peer_left([this](const std::string& id) {
         QMetaObject::invokeMethod(this, [this, id = QString::fromStdString(id)] { emit peerLeft(id); }, Qt::QueuedConnection);
     });
-    g_core->set_on_peer_identity([this](const std::string& id, const std::string& name) {
+    m_core->set_on_peer_identity([this](const std::string& id, const std::string& name) {
         QMetaObject::invokeMethod(this, [this, id = QString::fromStdString(id), name = QString::fromStdString(name)] { emit peerIdentityReceived(id, name); }, Qt::QueuedConnection);
     });
-    g_core->set_on_streaming_started([this](const std::string& id) {
+    m_core->set_on_streaming_started([this](const std::string& id) {
         QMetaObject::invokeMethod(this, [this, id = QString::fromStdString(id)] { emit streamingStarted(id); }, Qt::QueuedConnection);
     });
-    g_core->set_on_streaming_stopped([this](const std::string& id) {
+    m_core->set_on_streaming_stopped([this](const std::string& id) {
         QMetaObject::invokeMethod(this, [this, id = QString::fromStdString(id)] { emit streamingStopped(id); }, Qt::QueuedConnection);
     });
-    g_core->set_on_watch_rejected(
+    m_core->set_on_watch_rejected(
         [this](const std::string& id, signaling::WatchRejectReason reason) {
             QMetaObject::invokeMethod(this, [this, id = QString::fromStdString(id), reason = QString::fromStdString(std::string(signaling::to_string(reason)))] { emit streamWatchRejected(id, reason); }, Qt::QueuedConnection);
         });
-    g_core->set_on_frame([this](const std::string& id, const uint8_t* rgba, int w, int h) {
+    m_core->set_on_frame([this](const std::string& id, const uint8_t* rgba, int w, int h) {
         QString qid = QString::fromStdString(id);
         if (m_frameProvider)
             m_frameProvider->updateFrame(qid, rgba, w, h);
         QMetaObject::invokeMethod(this, [this, qid] { emit frameUpdated(qid); }, Qt::QueuedConnection);
     });
-    g_core->set_on_frame_removed([this](const std::string& id) {
+    m_core->set_on_frame_removed([this](const std::string& id) {
         QString qid = QString::fromStdString(id);
         if (m_frameProvider)
             m_frameProvider->removeFrame(qid);
@@ -94,18 +93,19 @@ DriscordBridge::~DriscordBridge()
 
 void DriscordBridge::shutdown()
 {
-    if (!g_core)
+    if (!m_core)
         return;
     // Order matters: the media threads must stop delivering frames before the
     // providers they write into can go away.
-    g_core->deinit_screen_session();
-    g_core->voice_stop();
-    g_core->transport.disconnect();
+    ++m_audioGeneration;
+    m_audioPool.waitForDone();
     m_thumbnailPool.waitForDone();
+    m_core->deinit_screen_session();
+    m_core->voice_stop();
+    m_core->transport.disconnect();
     m_frameProvider = nullptr;
     m_thumbnailProvider = nullptr;
-    delete g_core;
-    g_core = nullptr;
+    m_core.reset();
 }
 
 void DriscordBridge::setFrameProvider(FrameProvider* fp) { m_frameProvider = fp; }
@@ -119,8 +119,8 @@ void DriscordBridge::requestThumbnail(const QString& targetJson, int maxW, int m
     }
     m_thumbnailPool.start([this, targetJson, maxW, maxH] {
         QString url;
-        if (g_core) {
-            auto result = g_core->capture_grab_thumbnail(
+        if (m_core) {
+            auto result = m_core->capture_grab_thumbnail(
                 targetJson.toStdString(), maxW, maxH);
             if (!result.rgba.empty() && result.width > 0 && result.height > 0) {
                 QImage img(result.rgba.data(), result.width, result.height,
@@ -156,15 +156,15 @@ void DriscordBridge::connect(const QString& serverUrl,
     if (!accessToken.isEmpty()) {
         url += "&t=" + QString::fromUtf8(QUrl::toPercentEncoding(accessToken));
     }
-    g_core->transport.connect(url.toStdString());
+    m_core->transport.connect(url.toStdString());
 }
 
-void DriscordBridge::disconnect() { g_core->transport.disconnect(); }
-bool DriscordBridge::connected() const { return g_core->transport.connected(); }
-QString DriscordBridge::localId() const { return QString::fromStdString(g_core->transport.local_id()); }
+void DriscordBridge::disconnect() { m_core->transport.disconnect(); }
+bool DriscordBridge::connected() const { return m_core->transport.connected(); }
+QString DriscordBridge::localId() const { return QString::fromStdString(m_core->transport.local_id()); }
 QString DriscordBridge::voiceStatsJson() const
 {
-    return QString::fromStdString(g_core->voice_stats_json());
+    return QString::fromStdString(m_core->voice_stats_json());
 }
 
 // -- Audio --
@@ -173,7 +173,8 @@ QString DriscordBridge::voiceStatsJson() const
 // off the Qt event loop.
 void DriscordBridge::audioStart()
 {
-    QThreadPool::globalInstance()->start([] {
+    const auto generation = ++m_audioGeneration;
+    m_audioPool.start([this, generation] {
         QSettings settings;
         const auto input = settings.value(
                                        kInputDeviceSetting, QStringLiteral("default"))
@@ -181,45 +182,51 @@ void DriscordBridge::audioStart()
         const auto output = settings.value(
                                         kOutputDeviceSetting, QStringLiteral("default"))
                                 .toString();
-        if (!g_core->audio_set_input_device(input.toStdString())) {
-            (void)g_core->audio_set_input_device("default");
+        if (!m_core->audio_set_input_device(input.toStdString())) {
+            (void)m_core->audio_set_input_device("default");
             settings.setValue(kInputDeviceSetting, QStringLiteral("default"));
         }
-        if (!g_core->audio_set_output_device(output.toStdString())) {
-            (void)g_core->audio_set_output_device("default");
+        if (!m_core->audio_set_output_device(output.toStdString())) {
+            (void)m_core->audio_set_output_device("default");
             settings.setValue(kOutputDeviceSetting, QStringLiteral("default"));
         }
-        g_core->voice_start();
+        if (m_audioGeneration.load() == generation) {
+            m_core->voice_start();
+        }
     });
 }
-void DriscordBridge::audioStop() { g_core->voice_stop(); }
+void DriscordBridge::audioStop()
+{
+    ++m_audioGeneration;
+    m_audioPool.start([this] { m_core->voice_stop(); });
+}
 
-void DriscordBridge::setMuted(bool m) { g_core->voice_set_muted(m); }
-bool DriscordBridge::muted() const { return g_core->voice_muted(); }
-void DriscordBridge::setDeafened(bool d) { g_core->audio_set_deafened(d); }
-bool DriscordBridge::deafened() const { return g_core->audio_deafened(); }
+void DriscordBridge::setMuted(bool m) { m_core->voice_set_muted(m); }
+bool DriscordBridge::muted() const { return m_core->voice_muted(); }
+void DriscordBridge::setDeafened(bool d) { m_core->audio_set_deafened(d); }
+bool DriscordBridge::deafened() const { return m_core->audio_deafened(); }
 
-void DriscordBridge::setMasterVolume(float v) { g_core->audio_set_master_volume(v); }
-float DriscordBridge::masterVolume() const { return g_core->audio_master_volume(); }
+void DriscordBridge::setMasterVolume(float v) { m_core->audio_set_master_volume(v); }
+float DriscordBridge::masterVolume() const { return m_core->audio_master_volume(); }
 
 QVariantList DriscordBridge::listInputDevices() const
 {
-    return parseDeviceJson(g_core->audio_input_devices_json());
+    return parseDeviceJson(m_core->audio_input_devices_json());
 }
 QVariantList DriscordBridge::listOutputDevices() const
 {
-    return parseDeviceJson(g_core->audio_output_devices_json());
+    return parseDeviceJson(m_core->audio_output_devices_json());
 }
 bool DriscordBridge::setInputDevice(const QString& id)
 {
-    if (!g_core->audio_set_input_device(id.toStdString()))
+    if (!m_core->audio_set_input_device(id.toStdString()))
         return false;
     QSettings().setValue(kInputDeviceSetting, id);
     return true;
 }
 bool DriscordBridge::setOutputDevice(const QString& id)
 {
-    if (!g_core->audio_set_output_device(id.toStdString()))
+    if (!m_core->audio_set_output_device(id.toStdString()))
         return false;
     QSettings().setValue(kOutputDeviceSetting, id);
     return true;
@@ -237,64 +244,64 @@ QString DriscordBridge::currentOutputDevice() const
         .toString();
 }
 
-void DriscordBridge::setPeerVolume(const QString& id, float v) { g_core->audio_set_peer_volume(id.toStdString(), v); }
-float DriscordBridge::peerVolume(const QString& id) const { return g_core->audio_peer_volume(id.toStdString()); }
-void DriscordBridge::setPeerMuted(const QString& id, bool m) { g_core->audio_set_peer_muted(id.toStdString(), m); }
-bool DriscordBridge::peerMuted(const QString& id) const { return g_core->audio_peer_muted(id.toStdString()); }
+void DriscordBridge::setPeerVolume(const QString& id, float v) { m_core->audio_set_peer_volume(id.toStdString(), v); }
+float DriscordBridge::peerVolume(const QString& id) const { return m_core->audio_peer_volume(id.toStdString()); }
+void DriscordBridge::setPeerMuted(const QString& id, bool m) { m_core->audio_set_peer_muted(id.toStdString(), m); }
+bool DriscordBridge::peerMuted(const QString& id) const { return m_core->audio_peer_muted(id.toStdString()); }
 
 // -- Screen / Video --
 
 void DriscordBridge::initScreenSession()
 {
-    g_core->init_screen_session();
+    m_core->init_screen_session();
 }
 void DriscordBridge::deinitScreenSession()
 {
-    g_core->deinit_screen_session();
+    m_core->deinit_screen_session();
 }
 
 QString DriscordBridge::captureVideoTargetsJson() const
 {
-    return QString::fromStdString(g_core->capture_video_list_targets_json());
+    return QString::fromStdString(m_core->capture_video_list_targets_json());
 }
 QString DriscordBridge::captureAudioTargetsJson() const
 {
-    return QString::fromStdString(g_core->capture_audio_list_targets_json());
+    return QString::fromStdString(m_core->capture_audio_list_targets_json());
 }
 
-void DriscordBridge::startSharing(const QString& targetJson,
+bool DriscordBridge::startSharing(const QString& targetJson,
     int maxW,
     int maxH,
     int fps,
     bool audio,
     const QString& audioTarget)
 {
-    (void)g_core->screen_start_sharing(targetJson.toStdString(), maxW, maxH,
+    return m_core->screen_start_sharing(targetJson.toStdString(), maxW, maxH,
         fps, audio, audioTarget.toStdString());
 }
-void DriscordBridge::stopSharing() { g_core->screen_stop_sharing(); }
+void DriscordBridge::stopSharing() { m_core->screen_stop_sharing(); }
 bool DriscordBridge::sharing() const
 {
-    return g_core->screen_sharing();
+    return m_core->screen_sharing();
 }
 void DriscordBridge::setLocalPreviewEnabled(bool enabled)
 {
-    g_core->screen_set_local_preview_enabled(enabled);
+    m_core->screen_set_local_preview_enabled(enabled);
 }
 
-void DriscordBridge::joinStream(const QString& id) { g_core->join_stream(id.toStdString()); }
+void DriscordBridge::joinStream(const QString& id) { m_core->join_stream(id.toStdString()); }
 void DriscordBridge::leaveStream(const QString& id)
 {
-    g_core->leave_stream(id.toStdString());
+    m_core->leave_stream(id.toStdString());
 }
 
 QString DriscordBridge::screenStatsJson(const QString& peerId) const
 {
     return QString::fromStdString(
-        g_core->screen_stats_json(peerId.toStdString()));
+        m_core->screen_stats_json(peerId.toStdString()));
 }
 
 void DriscordBridge::setStreamVolume(const QString& id, float v)
 {
-    g_core->screen_set_stream_volume(id.toStdString(), v);
+    m_core->screen_set_stream_volume(id.toStdString(), v);
 }

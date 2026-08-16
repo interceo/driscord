@@ -4,17 +4,32 @@ set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
 
-# Collect staged C/C++ files (src, tests, benchmarks, server)
-STAGED=$(git diff --cached --name-only --diff-filter=ACM \
-    | grep -E '\.(cpp|hpp|h|mm)$' \
-    | grep -E '^(core/|backend/signaling_server/)' || true)
+# Collect staged project C/C++ files without losing whitespace in paths.
+STAGED=()
+while IFS= read -r -d '' path; do
+    case "$path" in
+        core/*|backend/signaling_server/*|client-qt/*)
+            case "$path" in
+                *.cpp|*.hpp|*.h) STAGED+=("$path") ;;
+            esac
+            ;;
+    esac
+done < <(git diff --cached --name-only --diff-filter=ACM -z)
 
-if [[ -z "$STAGED" ]]; then
+if (( ${#STAGED[@]} == 0 )); then
     exit 0
 fi
 
-# Format and re-stage
-for f in $STAGED; do
+# Re-staging a partially staged file would silently include the user's
+# unrelated working-tree edits. Refuse that case before touching anything.
+for f in "${STAGED[@]}"; do
+    if ! git diff --quiet -- "$f"; then
+        echo "ERROR: $f has staged and unstaged changes; stage or stash it before formatting." >&2
+        exit 1
+    fi
+done
+
+for f in "${STAGED[@]}"; do
     clang-format -i "$ROOT/$f"
-    git add "$ROOT/$f"
+    git add -- "$ROOT/$f"
 done

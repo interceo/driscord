@@ -8,10 +8,12 @@
 #include <cstdint>
 #include <cstdlib>
 #include <iomanip>
+#include <limits>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <random>
 #include <sstream>
+#include <stdexcept>
 #include <string_view>
 #include <type_traits>
 #include <unordered_map>
@@ -124,7 +126,7 @@ std::string parse_query_param(std::string_view target, std::string_view key)
     return { };
 }
 
-constexpr size_t kMaxMessageSize = 256 * 1024;
+constexpr size_t kMaxMessageSize = 256U * 1024U;
 constexpr size_t kMaxWriteQueueSize = 128;
 
 } // namespace
@@ -268,7 +270,7 @@ private:
         if (!authenticator) {
             username_
                 = driscord::Username { parse_query_param(req->target(), "u") };
-            accept_websocket(std::move(req));
+            accept_websocket(req);
             return;
         }
 
@@ -411,7 +413,8 @@ private:
                                 << "]: " << wec.message();
                 }
                 beast::error_code shut;
-                self->ws_.next_layer().socket().shutdown(tcp::socket::shutdown_send, shut);
+                (void)self->ws_.next_layer().socket().shutdown(
+                    tcp::socket::shutdown_send, shut);
             });
     }
 
@@ -554,6 +557,9 @@ private:
 
     void on_close()
     {
+        if (closed_.exchange(true)) {
+            return;
+        }
         close_media_connections();
         {
             std::scoped_lock lk(write_mutex_);
@@ -570,6 +576,7 @@ private:
     driscord::RoomId room_id_;
     driscord::Username username_;
     std::shared_ptr<WebSocketServer> server_;
+    std::atomic<bool> closed_ { false };
     std::mutex write_mutex_;
     utils::BoundedQueue<OutboundMessage> write_queue_ { kMaxWriteQueueSize };
 
@@ -594,7 +601,13 @@ WebSocketServer::WebSocketServer(boost::asio::io_context& io_context,
     auto env_port = [](const char* name, uint16_t fallback) -> uint16_t {
         if (const char* v = std::getenv(name)) {
             try {
-                return static_cast<uint16_t>(std::stoi(v));
+                size_t consumed = 0;
+                const auto parsed = std::stoul(v, &consumed);
+                if (consumed != std::string_view(v).size() || parsed == 0
+                    || parsed > std::numeric_limits<uint16_t>::max()) {
+                    throw std::out_of_range("port");
+                }
+                return static_cast<uint16_t>(parsed);
             } catch (const std::exception&) {
                 LOG_WARNING() << name << " is not a valid port, using "
                               << fallback;
@@ -604,6 +617,12 @@ WebSocketServer::WebSocketServer(boost::asio::io_context& io_context,
     };
     rtc_config_.portRangeBegin = env_port("DRISCORD_ICE_PORT_MIN", 49160);
     rtc_config_.portRangeEnd = env_port("DRISCORD_ICE_PORT_MAX", 49200);
+    if (rtc_config_.portRangeBegin > rtc_config_.portRangeEnd) {
+        LOG_WARNING() << "DRISCORD_ICE_PORT_MIN is greater than "
+                         "DRISCORD_ICE_PORT_MAX; using 49160-49200";
+        rtc_config_.portRangeBegin = 49160;
+        rtc_config_.portRangeEnd = 49200;
+    }
     LOG_INFO() << "ICE UDP port range: " << rtc_config_.portRangeBegin << "-"
                << rtc_config_.portRangeEnd;
 
@@ -676,7 +695,7 @@ void WebSocketServer::stop()
     stopping_ = true;
     boost::asio::post(acceptor_.get_executor(), [this] {
         boost::system::error_code ec;
-        acceptor_.close(ec);
+        (void)acceptor_.close(ec);
     });
 
     // Take the sessions out first, then tear their PeerConnections down before
@@ -694,8 +713,8 @@ void WebSocketServer::stop()
             if (room.screen_router) {
                 screen_routers.push_back(room.screen_router);
             }
-            for (auto& [__, session] : room.sessions) {
-                sessions.push_back(session);
+            for (auto& entry : room.sessions) {
+                sessions.push_back(entry.second);
             }
         }
         rooms_.clear();
@@ -863,7 +882,9 @@ void WebSocketServer::unregister_session(const driscord::PeerId& id,
         auto& room = rit->second;
         voice_router = room.voice_router;
         screen_router = room.screen_router;
-        room.sessions.erase(id);
+        if (room.sessions.erase(id) == 0) {
+            return;
+        }
         was_streaming = room.streaming_peers.erase(id) > 0;
         room.video_watchers.erase(id);
         for (auto watcher = room.video_watchers.begin();

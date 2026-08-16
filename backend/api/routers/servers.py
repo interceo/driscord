@@ -18,6 +18,23 @@ async def _get_server_or_404(db: AsyncSession, server_id: int) -> Server:
     return server
 
 
+async def _require_server_member(
+    db: AsyncSession, server_id: int, user_id: int
+) -> Server:
+    server = await _get_server_or_404(db, server_id)
+    membership = await db.execute(
+        select(ServerMember).where(
+            ServerMember.server_id == server_id,
+            ServerMember.user_id == user_id,
+        )
+    )
+    if not membership.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Not a server member"
+        )
+    return server
+
+
 @router.post("/", response_model=ServerResponse, status_code=status.HTTP_201_CREATED)
 async def create_server(
     body: ServerCreate,
@@ -52,10 +69,10 @@ async def list_my_servers(
 @router.get("/{server_id}", response_model=ServerResponse)
 async def get_server(
     server_id: int,
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await _get_server_or_404(db, server_id)
+    return await _require_server_member(db, server_id, current_user.id)
 
 
 @router.patch("/{server_id}", response_model=ServerResponse)
@@ -71,7 +88,7 @@ async def update_server(
 
     if body.name is not None:
         server.name = body.name
-    if body.description is not None:
+    if "description" in body.model_fields_set:
         server.description = body.description
     await db.commit()
     await db.refresh(server)
@@ -95,10 +112,10 @@ async def delete_server(
 @router.get("/{server_id}/members", response_model=list[ServerMemberResponse])
 async def list_members(
     server_id: int,
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _get_server_or_404(db, server_id)
+    await _require_server_member(db, server_id, current_user.id)
     result = await db.execute(
         select(ServerMember, User)
         .join(User, ServerMember.user_id == User.id)
@@ -113,23 +130,15 @@ async def list_members(
 @router.post("/{server_id}/members", status_code=status.HTTP_201_CREATED)
 async def join_server(
     server_id: int,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
 ):
-    await _get_server_or_404(db, server_id)
-
-    existing = await db.execute(
-        select(ServerMember).where(
-            ServerMember.server_id == server_id, ServerMember.user_id == current_user.id
-        )
+    # Keep an explicit response for old clients instead of silently turning the
+    # route into 405. Membership is granted only by accepting an invite or by an
+    # owner adding a known user; knowing an incremental server id is not access.
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="An invite is required to join this server",
     )
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Already a member")
-
-    member = ServerMember(server_id=server_id, user_id=current_user.id)
-    db.add(member)
-    await db.commit()
-    return {"status": "joined"}
 
 
 @router.post("/{server_id}/members/{user_id}", status_code=status.HTTP_201_CREATED)

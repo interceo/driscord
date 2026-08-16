@@ -7,6 +7,7 @@
 #include "webrtc/google_webrtc_runtime.hpp"
 #include "webrtc/google_webrtc_voice_session.hpp"
 
+#include <boost/asio.hpp>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -133,6 +134,24 @@ std::vector<int16_t> make_tone_frame(double frequency_hz,
 }
 
 } // namespace
+
+TEST(GoogleWebRtcTransport, ReportsAnInitialConnectionFailure)
+{
+    boost::asio::io_context io;
+    boost::asio::ip::tcp::acceptor reservation(io,
+        { boost::asio::ip::tcp::v4(), 0 });
+    const auto unused_port = reservation.local_endpoint().port();
+    reservation.close();
+
+    Transport transport;
+    Waiter disconnected;
+    transport.on_disconnected([&disconnected] { disconnected.signal(); });
+
+    ASSERT_TRUE(transport.connect(
+        "ws://127.0.0.1:" + std::to_string(unused_port)));
+    EXPECT_TRUE(disconnected.wait_for(std::chrono::seconds(5)));
+    EXPECT_FALSE(transport.connected());
+}
 
 TEST_F(GoogleWebRtcTransportTest, VoiceConnectsToLibdatachannelSfu)
 {

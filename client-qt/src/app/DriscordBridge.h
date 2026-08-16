@@ -7,6 +7,11 @@
 #include <QThreadPool>
 #include <QVariantList>
 #include <QVector>
+#include <atomic>
+#include <cstdint>
+#include <memory>
+
+class DriscordCore;
 
 // Wraps DriscordCore — all methods callable from QML via Q_INVOKABLE.
 // Callbacks from the core are forwarded to the main thread via QMetaObject::invokeMethod.
@@ -63,7 +68,7 @@ public:
     // answer arrives on thumbnailReady instead of blocking the UI thread once
     // per source.
     Q_INVOKABLE void requestThumbnail(const QString& targetJson, int maxW, int maxH);
-    Q_INVOKABLE void startSharing(const QString& targetJson,
+    Q_INVOKABLE bool startSharing(const QString& targetJson,
         int maxW,
         int maxH,
         int fps,
@@ -92,8 +97,13 @@ signals:
     void thumbnailReady(const QString& targetJson, const QString& url);
 
 private:
+    std::unique_ptr<DriscordCore> m_core;
     FrameProvider* m_frameProvider = nullptr;
     ThumbnailProvider* m_thumbnailProvider = nullptr;
+    // Audio-device discovery can block. Keeping it in an owned, serial pool
+    // lets shutdown join it and prevents a late voice_start() after leave().
+    QThreadPool m_audioPool;
+    std::atomic<std::uint64_t> m_audioGeneration { 0 };
     // One thread: desktop capture is serialised anyway, and a burst of source
     // previews should not fan out into as many X11 capturers.
     QThreadPool m_thumbnailPool;

@@ -2,15 +2,17 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+from schemas.common import ServerDescription, ServerName
+
 
 class ServerCreate(BaseModel):
-    name: str
-    description: str | None = None
+    name: ServerName
+    description: ServerDescription | None = None
 
 
 class ServerUpdate(BaseModel):
-    name: str | None = None
-    description: str | None = None
+    name: ServerName | None = None
+    description: ServerDescription | None = None
 
 
 class ServerResponse(BaseModel):

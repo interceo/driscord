@@ -18,6 +18,7 @@ void ApiClient::clearAccessToken() { m_accessToken.clear(); }
 QNetworkRequest ApiClient::makeRequest(const QString& path) const
 {
     QNetworkRequest req(QUrl(m_baseUrl + path));
+    req.setTransferTimeout(15000);
     req.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     if (!m_accessToken.isEmpty())
         req.setRawHeader("Authorization", ("Bearer " + m_accessToken).toUtf8());
