@@ -19,10 +19,10 @@ jobs:
     name: Build and test
     runs-on: driscord-builder
     timeout-minutes: 45
+    env:
+      FORGEJO_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout exact event commit
-        env:
-          FORGEJO_TOKEN: ${{ github.token }}
         run: forgejo-checkout
 
       # One command per configuration: configure, build and test all come from
