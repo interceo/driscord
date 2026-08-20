@@ -55,4 +55,4 @@ jobs:
             -H "X-Forgejo-Token: $REPOSITORY_TOKEN" \
             -H 'Content-Type: application/json' \
             --data "{\"release_id\":$RELEASE_ID}" \
-            https://git.homelab.ceooptimizator.tech/_driscord/releases/deploy
+            https://git.homelab.ceooptimizator.tech/_ci/v1/releases/promote
