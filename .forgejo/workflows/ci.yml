@@ -22,7 +22,7 @@ jobs:
     steps:
       - name: Checkout exact event commit
         env:
-          FORGEJO_TOKEN: ${{ forgejo.token }}
+          FORGEJO_TOKEN: ${{ github.token }}
         run: forgejo-checkout
 
       # One command per configuration: configure, build and test all come from

@@ -24,7 +24,7 @@ jobs:
       - name: Signal the release gate
         env:
           RELEASE_ID: ${{ forgejo.event.release.id }}
-          REPOSITORY_TOKEN: ${{ forgejo.token }}
+          REPOSITORY_TOKEN: ${{ github.token }}
         run: |
           set -eu
 
