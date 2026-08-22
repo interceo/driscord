@@ -34,6 +34,10 @@ env:
 jobs:
   release:
     name: Ensure candidate and promote
+    # Forgejo fires release.published for every pushed tag (a tag is a release
+    # entry). Only vX.Y.Z tags are releases for the gates; anything else is
+    # skipped here instead of being rejected with 403 by the build cell.
+    if: ${{ startsWith(forgejo.event.release.tag_name, 'v') }}
     runs-on: linux-bookworm
     timeout-minutes: 150
     env:
