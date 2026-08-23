@@ -4,23 +4,22 @@
 #
 #   BUILDER_IMAGE  the pinned CI toolchain (clang, ninja, CMake, Boost with its
 #                  config package, and a git config that resolves the project's
-#                  FetchContent dependencies through Forgejo mirrors);
+#                  FetchContent dependencies through the internal supply store);
 #   RUNTIME_IMAGE  the pinned runtime base (ca-certificates, libssl3, the
 #                  unprivileged driscord user, ports and entrypoint).
 #
 # Both default to the homelab registry and are overridden by digest from the
 # infrastructure build policy, which is what keeps a toolchain bump visible as
 # a source change instead of silently altering an image.
-ARG BUILDER_IMAGE=registry.registry.svc.cluster.local:5000/driscord-ci@sha256:a014d413eb52d530645ef47d39f66bea4d2b2476c873618b41aa4b3d313b49e3
+ARG BUILDER_IMAGE=registry.registry.svc.cluster.local:5000/driscord-ci@sha256:675de6fc915f6462b192d4e69528ebb1db06344291d12750f0c7a300644b1c43
 ARG RUNTIME_IMAGE=registry.registry.svc.cluster.local:5000/driscord-signaling-runtime-base@sha256:16e979f564e55402f66834606a5cb7531ea9b3a67fafe0ef551a3c39648ad15e
 
 FROM ${BUILDER_IMAGE} AS builder
 
-# The toolchain image rewrites the project's FetchContent dependencies to
-# Forgejo mirrors, which this instance serves only to signed-in clients — and
-# a build must not carry a credential. Until those sources are baked into the
-# toolchain image, they are cloned from upstream by their pinned URLs.
-ENV GIT_CONFIG_SYSTEM=/dev/null
+# The toolchain image rewrites the project's FetchContent dependencies to the
+# anonymous, read-only supply store of the build cluster (/etc/gitconfig), so
+# this stage needs neither a credential nor internet access; the pinned
+# GIT_TAGs in CMakeLists.txt are what guarantees the sources.
 
 WORKDIR /src
 COPY . .
