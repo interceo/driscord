@@ -469,7 +469,14 @@ private:
 
         auto welcome = server_->register_and_build_welcome(id_, room_id_,
             shared_from_this());
-        send(std::make_shared<std::string>(std::move(welcome)));
+        if (!welcome) {
+            // The server is shutting down; dropping the last reference closes
+            // the socket without joining the room.
+            LOG_INFO() << "session " << id_.value
+                       << " refused: server stopping";
+            return;
+        }
+        send(std::make_shared<std::string>(std::move(*welcome)));
 
         LOG_INFO() << "session " << id_.value << " connected (room="
                    << room_id_.value << ")";
@@ -740,7 +747,7 @@ unsigned short WebSocketServer::bound_port() const
     return endpoint.port();
 }
 
-std::string WebSocketServer::register_and_build_welcome(
+std::optional<std::string> WebSocketServer::register_and_build_welcome(
     const driscord::PeerId& id,
     const driscord::RoomId& room_id,
     std::shared_ptr<Session> s)
@@ -750,6 +757,13 @@ std::string WebSocketServer::register_and_build_welcome(
     driscord::Username new_username;
     {
         std::scoped_lock lk(rooms_mutex_);
+
+        // stop() sets stopping_ before emptying rooms_ under this mutex, so a
+        // session whose accept completes concurrently with shutdown must not
+        // re-create its room here: nothing would ever clear that entry again.
+        if (stopping_) {
+            return std::nullopt;
+        }
 
         auto& room = rooms_[room_id];
         if (!room.voice_router) {

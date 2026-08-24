@@ -8,6 +8,7 @@
 #include "webrtc/google_webrtc_screen_session.hpp"
 
 #include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -490,6 +491,26 @@ TEST_F(GoogleWebRtcScreenTransportTest,
     EXPECT_EQ(cleared_tracks, 2u);
     EXPECT_EQ(second_publisher_tracks, 2u);
     EXPECT_TRUE(errors.snapshot().empty());
+
+    // Replacing a publisher (first_screen->close() + fresh session above) makes
+    // the SFU request a keyframe from the new upstream so the listener's stable
+    // slot recovers with an IDR — the ScreenRouter PLI path. Assert it actually
+    // fired: the media_stats counter must be non-zero, not merely present.
+    // (The server runs anonymously here, so the read-only endpoint is open.)
+    const auto [stats_status, stats_body] = server.http_get("/media_stats");
+    ASSERT_EQ(stats_status, 200u);
+    const auto stats = nlohmann::json::parse(stats_body, nullptr, false);
+    ASSERT_FALSE(stats.is_discarded()) << stats_body;
+    uint64_t total_keyframe_requests = 0;
+    for (const auto& [room_id, entry] : stats.items()) {
+        if (entry.contains("screen")) {
+            total_keyframe_requests
+                += entry["screen"].value("keyframeRequests", 0);
+        }
+    }
+    EXPECT_GT(total_keyframe_requests, 0u)
+        << "publisher restart never triggered a keyframe request; NACK/PLI "
+           "recovery is not exercised";
 
     first_screen->close();
     second_screen->close();

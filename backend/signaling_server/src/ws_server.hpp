@@ -40,8 +40,11 @@ public:
     // peers in that room (for the welcome message), and broadcasts peer_joined
     // to every pre-existing session in the same room. Returns the JSON-encoded
     // welcome payload. The welcome send itself happens OUTSIDE the critical
-    // section.
-    std::string register_and_build_welcome(const driscord::PeerId& id,
+    // section. Returns nullopt once stop() has run: inserting then would
+    // recreate the room behind stop()'s back and pin the session <-> server
+    // shared_ptr cycle for the life of the process.
+    std::optional<std::string> register_and_build_welcome(
+        const driscord::PeerId& id,
         const driscord::RoomId& room_id,
         std::shared_ptr<Session> s);
 

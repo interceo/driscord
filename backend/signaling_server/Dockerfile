@@ -11,7 +11,7 @@
 # Both default to the homelab registry and are overridden by digest from the
 # infrastructure build policy, which is what keeps a toolchain bump visible as
 # a source change instead of silently altering an image.
-ARG BUILDER_IMAGE=registry.registry.svc.cluster.local:5000/driscord-ci@sha256:675de6fc915f6462b192d4e69528ebb1db06344291d12750f0c7a300644b1c43
+ARG BUILDER_IMAGE=registry.registry.svc.cluster.local:5000/driscord-ci@sha256:d2b45f2a8e6584b38e507518d97f77c53fd6a04c926d120031adc52ca779c011
 ARG RUNTIME_IMAGE=registry.registry.svc.cluster.local:5000/driscord-signaling-runtime-base@sha256:16e979f564e55402f66834606a5cb7531ea9b3a67fafe0ef551a3c39648ad15e
 
 FROM ${BUILDER_IMAGE} AS builder
