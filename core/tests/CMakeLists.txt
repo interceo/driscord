@@ -139,21 +139,6 @@ if(BUILD_CORE)
     target_compile_definitions(driscord_webrtc_test_support PUBLIC
         $<TARGET_PROPERTY:driscord_google_webrtc,INTERFACE_COMPILE_DEFINITIONS>)
 
-    # Replays the committed real-traffic fixtures through the slot rewriter.
-    add_executable(test_rtpdump_replay unit/test_rtpdump_replay.cpp)
-    target_include_directories(test_rtpdump_replay PRIVATE
-        ${TEST_INCLUDE_DIRS}
-        ${CMAKE_SOURCE_DIR}/backend/signaling_server/src)
-    target_compile_definitions(test_rtpdump_replay PRIVATE
-        DRISCORD_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
-    target_compile_options(test_rtpdump_replay PRIVATE ${TEST_WARNING_FLAGS})
-    target_link_libraries(test_rtpdump_replay PRIVATE
-        GTest::gtest_main driscord_signaling driscord_webrtc_test_support
-        driscord::google_webrtc)
-    add_test(NAME test_rtpdump_replay COMMAND test_rtpdump_replay)
-    set_tests_properties(test_rtpdump_replay PROPERTIES TIMEOUT 30
-        LABELS "unit;media")
-
     add_executable(test_rtpdump_roundtrip unit/test_rtpdump_roundtrip.cpp)
     target_compile_options(test_rtpdump_roundtrip PRIVATE ${TEST_WARNING_FLAGS})
     target_link_libraries(test_rtpdump_roundtrip PRIVATE
@@ -242,4 +227,23 @@ if(BUILD_SERVER AND BUILD_CORE)
     add_integration_test(test_rtpdump_capture)
     target_link_libraries(test_rtpdump_capture PRIVATE
         driscord_webrtc_backend driscord_webrtc_test_support)
+
+    # Replays the committed real-traffic fixtures through the slot rewriter.
+    # Lives in this section, not plain BUILD_CORE: it links
+    # driscord_signaling, which only exists when the server tree is built —
+    # in the client-tests configuration the name would degrade to a bare -l
+    # with no usage requirements at all.
+    add_executable(test_rtpdump_replay unit/test_rtpdump_replay.cpp)
+    target_include_directories(test_rtpdump_replay PRIVATE
+        ${TEST_INCLUDE_DIRS}
+        ${CMAKE_SOURCE_DIR}/backend/signaling_server/src)
+    target_compile_definitions(test_rtpdump_replay PRIVATE
+        DRISCORD_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+    target_compile_options(test_rtpdump_replay PRIVATE ${TEST_WARNING_FLAGS})
+    target_link_libraries(test_rtpdump_replay PRIVATE
+        GTest::gtest_main driscord_signaling driscord_webrtc_test_support
+        driscord::google_webrtc)
+    add_test(NAME test_rtpdump_replay COMMAND test_rtpdump_replay)
+    set_tests_properties(test_rtpdump_replay PROPERTIES TIMEOUT 30
+        LABELS "unit;media")
 endif()
