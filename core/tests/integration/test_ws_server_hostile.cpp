@@ -304,4 +304,22 @@ TEST(WsServerLifecycle, StartStopStormWithLiveSessionsDoesNotCrash)
     SUCCEED();
 }
 
+// The storm above only hits the accept-vs-stop race probabilistically; this
+// drives it deterministically through the same seam. A registration arriving
+// after stop() emptied the rooms must be refused — inserting would re-create
+// the room and pin the Session <-> server shared_ptr cycle until process exit
+// (caught as an LSan indirect-leak cluster in CI).
+TEST(WsServerLifecycle, RegistrationAfterStopIsRefused)
+{
+    boost::asio::io_context io;
+    auto server = std::make_shared<driscord::WebSocketServer>(io, /*port=*/0);
+    server->stop();
+
+    const auto welcome = server->register_and_build_welcome(
+        driscord::PeerId { "late-peer" }, driscord::RoomId { "1" }, nullptr);
+
+    EXPECT_FALSE(welcome.has_value());
+    EXPECT_EQ(server->active_sessions(), 0u);
+}
+
 } // namespace
