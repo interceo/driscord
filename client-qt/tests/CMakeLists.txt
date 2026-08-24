@@ -35,6 +35,28 @@ target_compile_options(test_session_store PRIVATE ${CLIENT_TEST_WARNING_FLAGS})
 target_link_libraries(test_session_store PRIVATE Qt6::Test)
 add_test(NAME test_session_store COMMAND test_session_store)
 
+# The HTTP-facing tests talk to an in-process QTcpServer fixture
+# (support/http_fixture.h) instead of mocking QNetworkReply.
+add_executable(test_api_client
+    test_api_client.cpp
+    ../src/api/ApiClient.cpp
+)
+target_include_directories(test_api_client PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+target_compile_options(test_api_client PRIVATE ${CLIENT_TEST_WARNING_FLAGS})
+target_link_libraries(test_api_client PRIVATE Qt6::Test Qt6::Network)
+add_test(NAME test_api_client COMMAND test_api_client)
+
+add_executable(test_auth_manager
+    test_auth_manager.cpp
+    ../src/api/ApiClient.cpp
+    ../src/api/AuthManager.cpp
+    ../src/api/SessionStore.cpp
+)
+target_include_directories(test_auth_manager PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+target_compile_options(test_auth_manager PRIVATE ${CLIENT_TEST_WARNING_FLAGS})
+target_link_libraries(test_auth_manager PRIVATE Qt6::Test Qt6::Network)
+add_test(NAME test_auth_manager COMMAND test_auth_manager)
+
 add_test(NAME client_version COMMAND driscord_client --version)
 set_tests_properties(client_version PROPERTIES
     PASS_REGULAR_EXPRESSION "^Driscord [0-9]+\\.[0-9]+\\.[0-9]+"
