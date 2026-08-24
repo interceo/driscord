@@ -113,6 +113,29 @@ endif()
 if(BUILD_CORE)
     add_core_test(test_google_webrtc_screen_stats)
 
+    # Vendored WebRTC test helpers (third_party/webrtc_test/README.md): the
+    # pinned archive is built with rtc_include_tests=false, so upstream test/
+    # sources come from git while everything they call is production code
+    # already inside libwebrtc.a. SYSTEM include and no warning flags: the
+    # copies stay byte-identical to upstream.
+    add_library(driscord_webrtc_test_support STATIC
+        ${CMAKE_SOURCE_DIR}/third_party/webrtc_test/test/rtcp_packet_parser.cc
+        ${CMAKE_SOURCE_DIR}/third_party/webrtc_test/test/rtp_file_reader.cc
+        ${CMAKE_SOURCE_DIR}/third_party/webrtc_test/test/rtp_file_writer.cc)
+    target_include_directories(driscord_webrtc_test_support SYSTEM PUBLIC
+        ${CMAKE_SOURCE_DIR}/third_party/webrtc_test)
+    target_compile_options(driscord_webrtc_test_support PRIVATE -fno-rtti)
+    target_link_libraries(driscord_webrtc_test_support PUBLIC
+        driscord::google_webrtc)
+
+    add_executable(test_rtpdump_roundtrip unit/test_rtpdump_roundtrip.cpp)
+    target_compile_options(test_rtpdump_roundtrip PRIVATE ${TEST_WARNING_FLAGS})
+    target_link_libraries(test_rtpdump_roundtrip PRIVATE
+        GTest::gtest_main driscord_webrtc_test_support)
+    add_test(NAME test_rtpdump_roundtrip COMMAND test_rtpdump_roundtrip)
+    set_tests_properties(test_rtpdump_roundtrip PROPERTIES TIMEOUT 30
+        LABELS "unit;media")
+
     # The PCM playout is a small self-contained hardware boundary (miniaudio +
     # boost lockfree, no Google WebRTC), so its test compiles the production
     # sources straight in rather than linking driscord_core.
