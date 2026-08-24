@@ -3,6 +3,7 @@
 #include <rtc/rtc.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string_view>
 
@@ -41,6 +42,12 @@ struct RtpFaultConfig {
     uint32_t drop_every_nth = 0;
     uint32_t reorder_every_nth = 0;
     BurstLossConfig burst;
+    // Test-only observation of every packet entering the forwarding fault
+    // stage, before any fault is applied — the hook the rtpdump fixture
+    // recorder uses to capture real publisher traffic off the production
+    // path. Runs on media receive threads, so the callback must be
+    // thread-safe. Empty (and free) in production.
+    std::function<void(const rtc::binary&)> packet_tap;
 };
 
 struct RtpFaultState {

@@ -125,13 +125,38 @@ if(BUILD_CORE)
     target_include_directories(driscord_webrtc_test_support SYSTEM PUBLIC
         ${CMAKE_SOURCE_DIR}/third_party/webrtc_test)
     target_compile_options(driscord_webrtc_test_support PRIVATE -fno-rtti)
-    target_link_libraries(driscord_webrtc_test_support PUBLIC
+    # Headers/defines only — deliberately NOT target_link_libraries: pulling
+    # libwebrtc.a in through this helper reorders it after the OpenSSL DSOs
+    # in binaries that also link driscord_signaling, and the archive's
+    # BoringSSL then resolves against system libcrypto and crashes (the ABI
+    # hazard CLAUDE.md documents). Consumers must link the archive themselves
+    # via driscord_webrtc_backend or driscord::google_webrtc, which keeps it
+    # ahead of the OpenSSL DSOs.
+    target_include_directories(driscord_webrtc_test_support SYSTEM PRIVATE
+        $<TARGET_PROPERTY:driscord_google_webrtc,INTERFACE_INCLUDE_DIRECTORIES>)
+    target_compile_definitions(driscord_webrtc_test_support PRIVATE
+        $<TARGET_PROPERTY:driscord_google_webrtc,INTERFACE_COMPILE_DEFINITIONS>)
+
+    # Replays the committed real-traffic fixtures through the slot rewriter.
+    add_executable(test_rtpdump_replay unit/test_rtpdump_replay.cpp)
+    target_include_directories(test_rtpdump_replay PRIVATE
+        ${TEST_INCLUDE_DIRS}
+        ${CMAKE_SOURCE_DIR}/backend/signaling_server/src)
+    target_compile_definitions(test_rtpdump_replay PRIVATE
+        DRISCORD_TEST_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+    target_compile_options(test_rtpdump_replay PRIVATE ${TEST_WARNING_FLAGS})
+    target_link_libraries(test_rtpdump_replay PRIVATE
+        GTest::gtest_main driscord_signaling driscord_webrtc_test_support
         driscord::google_webrtc)
+    add_test(NAME test_rtpdump_replay COMMAND test_rtpdump_replay)
+    set_tests_properties(test_rtpdump_replay PROPERTIES TIMEOUT 30
+        LABELS "unit;media")
 
     add_executable(test_rtpdump_roundtrip unit/test_rtpdump_roundtrip.cpp)
     target_compile_options(test_rtpdump_roundtrip PRIVATE ${TEST_WARNING_FLAGS})
     target_link_libraries(test_rtpdump_roundtrip PRIVATE
-        GTest::gtest_main driscord_webrtc_test_support)
+        GTest::gtest_main driscord_webrtc_test_support
+        driscord::google_webrtc)
     add_test(NAME test_rtpdump_roundtrip COMMAND test_rtpdump_roundtrip)
     set_tests_properties(test_rtpdump_roundtrip PROPERTIES TIMEOUT 30
         LABELS "unit;media")
@@ -210,4 +235,9 @@ if(BUILD_SERVER AND BUILD_CORE)
     add_integration_test(test_google_webrtc_screen_transport)
     target_link_libraries(test_google_webrtc_screen_transport PRIVATE
         driscord_webrtc_backend)
+    # Captures real publisher RTP off the fault-stage tap into rtpdump; with
+    # DRISCORD_RECORD_FIXTURES_DIR set it refreshes core/tests/fixtures/.
+    add_integration_test(test_rtpdump_capture)
+    target_link_libraries(test_rtpdump_capture PRIVATE
+        driscord_webrtc_backend driscord_webrtc_test_support)
 endif()

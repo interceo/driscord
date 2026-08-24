@@ -94,6 +94,9 @@ RtpFaultResult apply_rtp_faults(const RtpFaultConfig& config,
     RtpFaultState& state,
     rtc::binary packet)
 {
+    if (config.packet_tap) {
+        config.packet_tap(packet);
+    }
     if (rtc::IsRtcp(packet)
         || (config.drop_every_nth == 0 && config.reorder_every_nth == 0
             && !config.burst.enabled())) {
