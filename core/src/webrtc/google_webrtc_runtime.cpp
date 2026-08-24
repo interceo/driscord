@@ -10,6 +10,8 @@
 #include "rtc_base/buffer.h"
 #include "rtc_base/ssl_adapter.h"
 
+#include "utils/log.hpp"
+
 #include <deque>
 #include <mutex>
 #include <stdexcept>
@@ -234,6 +236,29 @@ GoogleWebRtcRuntime::Impl::Impl(const GoogleWebRtcRuntimeConfig& config)
             throw std::runtime_error(
                 "Google WebRTC platform audio device creation failed");
         }
+        // Probe Init() here, on the same worker thread, before the ADM
+        // reaches the voice engine: adm_helpers.cc wraps this very call in a
+        // fatal RTC_CHECK, so on a machine without a working audio server the
+        // first session start would abort the whole process. Init() is
+        // idempotent — the engine's later call just returns 0 again.
+        const auto init_result = worker_thread->BlockingCall(
+            [this] { return audio_device->Init(); });
+        if (init_result != 0) {
+            LOG_WARNING() << "Platform audio device failed to initialise (rc="
+                          << init_result
+                          << "); falling back to the silent dummy device — "
+                             "sessions still connect, but nothing is captured "
+                             "or played out";
+            audio_device = worker_thread->BlockingCall([&dependencies] {
+                return webrtc::CreateAudioDeviceModule(*dependencies.env,
+                    webrtc::AudioDeviceModule::kDummyAudio);
+            });
+            if (!audio_device) {
+                throw std::runtime_error(
+                    "Google WebRTC dummy audio device creation failed");
+            }
+            audio_device_degraded = true;
+        }
         dependencies.adm = audio_device;
     }
     webrtc::EnableMediaWithDefaults(dependencies);
@@ -305,6 +330,11 @@ GoogleWebRtcRuntime& GoogleWebRtcRuntime::operator=(GoogleWebRtcRuntime&&) noexc
 bool GoogleWebRtcRuntime::ready() const noexcept
 {
     return impl_ && impl_->factory;
+}
+
+bool GoogleWebRtcRuntime::audio_device_degraded() const noexcept
+{
+    return impl_ && impl_->audio_device_degraded;
 }
 
 bool GoogleWebRtcRuntime::submit_recorded_audio_10ms(

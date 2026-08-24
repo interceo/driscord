@@ -24,6 +24,10 @@ struct GoogleWebRtcRuntime::Impl {
     webrtc::scoped_refptr<webrtc::AudioDeviceModule> audio_device;
     webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> factory;
     std::shared_ptr<InjectedPcmSource> injected_pcm_source;
+    // True when the platform audio device failed to initialise and the
+    // runtime fell back to WebRTC's silent dummy device. Immutable after
+    // construction.
+    bool audio_device_degraded = false;
     // Read by every session when it builds its RTCConfiguration. Immutable
     // after construction, so sessions need no synchronisation for it.
     std::vector<IceServerConfig> ice_servers;

@@ -13,12 +13,18 @@
 // (peer_stopped_streaming) but are cleared when the peer leaves entirely
 // (remove_peer).
 
+#include "signaling_test_fixture.hpp"
 #include "transport.hpp"
+#include "transport_harness.hpp"
+#include "wait_helpers.hpp"
 #include "webrtc/google_webrtc_client.hpp"
 
 #include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
 
+#include <chrono>
 #include <string>
+#include <thread>
 
 namespace {
 
@@ -105,6 +111,48 @@ TEST_F(ClientLifecycleTest, RemovingAnUnknownPeerIsHarmless)
     client_.remove_peer("nobody");
     client_.peer_stopped_streaming("nobody");
     SUCCEED();
+}
+
+// The voice path end to end on the coordinator's own platform-ADM runtime —
+// the case DRISCORD-9 unblocked. Before the dummy-device fallback this was
+// untestable headless: start_voice on a machine without an audio server
+// tripped a fatal RTC_CHECK inside the voice engine and killed the process.
+// Meaningful in both environments: with a real audio device it exercises the
+// production path, without one it exercises the fallback.
+TEST(ClientVoiceSession, StartsVoiceHeadlessWithoutAborting)
+{
+    test_util::SignalingServerFixture server;
+    Transport transport;
+    GoogleWebRtcClient client { transport,
+        GoogleWebRtcClient::Callbacks { } };
+
+    ASSERT_TRUE(transport.connect(server.ws_url()));
+    ASSERT_TRUE(test_util::wait_for_local_id(transport));
+
+    client.start_voice();
+    const auto deadline
+        = std::chrono::steady_clock::now() + test_util::kDefaultTimeout;
+    bool connected = false;
+    while (!connected && std::chrono::steady_clock::now() < deadline) {
+        const auto parsed = nlohmann::json::parse(
+            client.voice_stats_json(), nullptr, false);
+        ASSERT_FALSE(parsed.is_discarded());
+        connected = parsed.value("connected", false);
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    EXPECT_TRUE(connected)
+        << "voice session never came up on the platform-ADM runtime";
+
+    // Whichever way this environment resolved, the availability signal must
+    // be queryable so the UI can explain a silent microphone.
+    const bool available = client.audio_device_available();
+    if (!available) {
+        EXPECT_TRUE(client.input_devices().empty());
+        EXPECT_TRUE(client.output_devices().empty());
+    }
+
+    client.stop_voice();
+    transport.disconnect();
 }
 
 } // namespace

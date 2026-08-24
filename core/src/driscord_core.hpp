@@ -66,6 +66,10 @@ public:
     [[nodiscard]] std::string audio_output_devices_json() const;
     [[nodiscard]] bool audio_set_input_device(const std::string& id);
     [[nodiscard]] bool audio_set_output_device(const std::string& id);
+    // False when no working audio device was available and the media stack
+    // fell back to a silent dummy: sessions connect and negotiate audio, but
+    // the user is neither heard nor hears anyone. Surface this in the UI.
+    [[nodiscard]] bool audio_device_available() const;
     void audio_set_peer_volume(const std::string& peer, float volume);
     [[nodiscard]] float audio_peer_volume(const std::string& peer) const;
     void audio_set_peer_muted(const std::string& peer, bool muted);

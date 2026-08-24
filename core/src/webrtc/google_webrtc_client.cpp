@@ -1129,6 +1129,11 @@ GoogleWebRtcClient::output_devices() const
     return impl_->voice_runtime.playout_devices();
 }
 
+bool GoogleWebRtcClient::audio_device_available() const
+{
+    return !impl_->voice_runtime.audio_device_degraded();
+}
+
 bool GoogleWebRtcClient::set_input_device(const std::string& id)
 {
     std::scoped_lock lifecycle_lock(impl_->voice_lifecycle_mutex);

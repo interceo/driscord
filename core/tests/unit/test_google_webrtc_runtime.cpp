@@ -80,6 +80,30 @@ TEST(GoogleWebRtcRuntime, PlatformAudioRejectsInjectedFrames)
     EXPECT_FALSE(runtime.submit_recorded_audio_10ms(frame));
 }
 
+TEST(GoogleWebRtcRuntime, PlatformAudioFallsBackToDummyInsteadOfAborting)
+{
+    // On a machine without a working audio server the ADM Init() probe fails
+    // and construction must degrade to the silent dummy device instead of
+    // leaving a live grenade for the voice engine's fatal RTC_CHECK
+    // (DRISCORD-9). On a healthy machine the platform device stays and the
+    // flag stays false — this test is meaningful in both environments and
+    // never skips.
+    driscord::media::GoogleWebRtcRuntime runtime;
+    ASSERT_TRUE(runtime.ready());
+    if (runtime.audio_device_degraded()) {
+        EXPECT_TRUE(runtime.recording_devices().empty());
+        EXPECT_TRUE(runtime.playout_devices().empty());
+    }
+
+    // The injected-audio path never degrades: it does not touch the platform.
+    driscord::media::GoogleWebRtcRuntime injected(
+        driscord::media::GoogleWebRtcRuntimeConfig {
+            .injected_audio_device
+            = driscord::media::InjectedAudioDeviceConfig { },
+        });
+    EXPECT_FALSE(injected.audio_device_degraded());
+}
+
 TEST(GoogleWebRtcRuntime, EnumeratesNativeAudioDevicesWithOpaqueUniqueIds)
 {
     driscord::media::GoogleWebRtcRuntime runtime;

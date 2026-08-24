@@ -158,7 +158,11 @@ TEST(GoogleWebRtcTransport, ReportsAnInitialConnectionFailure)
 
 TEST_F(GoogleWebRtcTransportTest, VoiceConnectsToLibdatachannelSfu)
 {
-    driscord::media::GoogleWebRtcRuntime runtime(test_util::headless_audio_runtime());
+    // Deliberately the platform-ADM path, not an injected device: on a
+    // machine without a working audio server this exercises the dummy-device
+    // fallback (DRISCORD-9) — the session must still negotiate and connect.
+    // The decode tests below keep injected audio for deterministic PCM.
+    driscord::media::GoogleWebRtcRuntime runtime;
     Transport transport;
     Waiter connected;
     std::mutex error_mutex;

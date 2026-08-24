@@ -70,6 +70,12 @@ public:
 
     [[nodiscard]] bool ready() const noexcept;
 
+    // True when no working platform audio device was available at
+    // construction and the runtime fell back to WebRTC's silent dummy
+    // device: sessions still connect and negotiate audio, but nothing is
+    // captured or played out. Always false with an injected audio device.
+    [[nodiscard]] bool audio_device_degraded() const noexcept;
+
     // Queues one 10 ms frame for an injected audio device. Returns false when
     // the runtime uses a platform device, the shape is invalid, or the bounded
     // queue is full. One runtime represents one physical/logical microphone;

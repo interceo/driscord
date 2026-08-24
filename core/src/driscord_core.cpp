@@ -238,6 +238,11 @@ bool DriscordCore::audio_set_output_device(const std::string& id)
     return media_->set_output_device(id);
 }
 
+bool DriscordCore::audio_device_available() const
+{
+    return media_->audio_device_available();
+}
+
 void DriscordCore::audio_set_peer_volume(
     const std::string& peer, float volume)
 {

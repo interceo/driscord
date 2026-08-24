@@ -51,6 +51,11 @@ public:
     output_devices() const;
     [[nodiscard]] bool set_input_device(const std::string& id);
     [[nodiscard]] bool set_output_device(const std::string& id);
+    // False when the platform audio device could not be initialised and the
+    // voice runtime runs on the silent dummy fallback (headless machine,
+    // dead audio stack): sessions connect and receive, but the user is
+    // neither heard nor hears anyone — the UI should say why.
+    [[nodiscard]] bool audio_device_available() const;
     void set_peer_volume(const std::string& peer_id, float volume);
     [[nodiscard]] float peer_volume(const std::string& peer_id) const;
     void set_peer_muted(const std::string& peer_id, bool muted);
