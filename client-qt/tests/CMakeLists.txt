@@ -26,6 +26,15 @@ target_compile_options(test_app_config PRIVATE ${CLIENT_TEST_WARNING_FLAGS})
 target_link_libraries(test_app_config PRIVATE Qt6::Test)
 add_test(NAME test_app_config COMMAND test_app_config)
 
+add_executable(test_session_store
+    test_session_store.cpp
+    ../src/api/SessionStore.cpp
+)
+target_include_directories(test_session_store PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+target_compile_options(test_session_store PRIVATE ${CLIENT_TEST_WARNING_FLAGS})
+target_link_libraries(test_session_store PRIVATE Qt6::Test)
+add_test(NAME test_session_store COMMAND test_session_store)
+
 add_test(NAME client_version COMMAND driscord_client --version)
 set_tests_properties(client_version PROPERTIES
     PASS_REGULAR_EXPRESSION "^Driscord [0-9]+\\.[0-9]+\\.[0-9]+"

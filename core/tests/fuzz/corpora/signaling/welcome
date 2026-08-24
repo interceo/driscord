@@ -1,0 +1,1 @@
+{"type":"welcome","id":"peer-1","peers":[{"id":"peer-2","username":"alice"},{"id":"peer-3"}],"streaming_peers":["peer-2"]}

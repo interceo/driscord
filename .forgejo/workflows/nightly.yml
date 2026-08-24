@@ -1,0 +1,90 @@
+name: Nightly
+
+# Heavy, long-running verification kept out of the PR gate: open-ended
+# fuzzing, the soak-labelled scale/quality tests, the full suite under
+# ASan/UBSan, and coverage. Scheduled off the default branch (Forgejo only
+# registers schedules from there) and runnable on demand.
+#
+# NOTE: the driscord-builder pool has a single replica, so a nightly run
+# blocks PR CI for its duration. Before enabling the cron, raise the pool to
+# replicas: 2 in /homelab/apps/shared/ci-runner-pool/pool-driscord-builder.yaml
+# (the node has the headroom; the pool README documents it).
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  # Deliberately distinct from ci.yml's group so a nightly run and PR CI do
+  # not cancel each other.
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deep-verification:
+    name: Fuzz, soak, sanitizers, coverage
+    runs-on: driscord-builder
+    timeout-minutes: 180
+    env:
+      FORGEJO_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout exact event commit
+        run: forgejo-checkout
+
+      # Open-ended fuzzing on each SFU parser: build the fuzz preset, then run
+      # every fuzz target for a wall-clock budget seeded from its corpus.
+      - name: Build fuzz targets
+        run: cmake --workflow --preset server-fuzz
+
+      - name: Fuzz RTP slot rewriter
+        run: >-
+          .builds/server-fuzz/core/tests/fuzz/fuzz_rtp_slot_rewriter
+          -max_total_time=300 -max_len=1400
+          core/tests/fuzz/corpora/rtp
+
+      - name: Fuzz SFU SDP
+        run: >-
+          .builds/server-fuzz/core/tests/fuzz/fuzz_sfu_sdp
+          -max_total_time=300 -max_len=1400
+          -dict=core/tests/fuzz/dictionaries/sdp.tokens
+          core/tests/fuzz/corpora/sdp
+
+      - name: Fuzz signaling protocol
+        run: >-
+          .builds/server-fuzz/core/tests/fuzz/fuzz_protocol
+          -max_total_time=300 -max_len=1400
+          core/tests/fuzz/corpora/signaling
+
+      # The whole media suite under ASan/UBSan, plus the soak-labelled scale
+      # and quality tests that the PR gate excludes.
+      - name: Core tests under ASan/UBSan
+        run: cmake --workflow --preset core-tests-asan
+
+      - name: Soak and capacity tests
+        run: |
+          cmake --workflow --preset core-tests
+          ctest --test-dir .builds/core-tests -L soak --output-on-failure             --no-tests=ignore
+
+      # Coverage: instrument, run, and archive the merged report.
+      - name: C++ coverage report
+        run: |
+          cmake --workflow --preset coverage
+          ./scripts/coverage_report.sh
+
+      - name: Python coverage report
+        working-directory: backend/api
+        run: tox -e py312-cov
+
+      # The runner is fully offline, so external artifact-upload actions are
+      # unreachable (same reason ci.yml uses the forgejo-checkout run-command
+      # instead of a checkout action). Surface coverage in the job log and
+      # leave the files in the build tree for local inspection; wire real
+      # artifact upload once a store-mirrored upload action is available.
+      - name: Show coverage summary
+        if: always()
+        run: |
+          echo "=== C++ coverage ==="
+          cat .builds/coverage/coverage/summary.txt || echo "(no C++ summary)"

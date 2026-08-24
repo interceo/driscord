@@ -33,6 +33,13 @@ jobs:
       - name: Signaling and SFU tests
         run: cmake --workflow --preset server-tests
 
+      # Doubles as the server-side sanitizer gate: the same server tests run
+      # again under ASan/UBSan, and every fuzzer replays its checked-in
+      # corpus with -runs=0 (seconds, not minutes — open-ended fuzzing is
+      # nightly's job).
+      - name: Fuzz corpus regression and sanitized server tests
+        run: cmake --workflow --preset server-fuzz
+
       - name: Core tests (real Google WebRTC)
         run: cmake --workflow --preset core-tests
 

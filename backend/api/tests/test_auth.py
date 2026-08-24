@@ -133,3 +133,52 @@ async def test_users_me_patch_display_name(client, auth_headers):
     r = await client.patch("/users/me", headers=h, json={"display_name": None})
     assert r.status_code == 200
     assert r.json()["display_name"] is None
+
+
+async def test_expired_access_token_is_rejected(client, register):
+    from datetime import datetime, timedelta, timezone
+
+    await register("alice")
+    expired = jwt.encode(
+        {
+            "sub": "1",
+            "exp": datetime.now(timezone.utc) - timedelta(minutes=1),
+            "type": "access",
+        },
+        settings.secret_key,
+        algorithm=ALGORITHM,
+    )
+    r = await client.get("/users/me", headers={"Authorization": f"Bearer {expired}"})
+    assert r.status_code == 401
+
+
+async def test_refresh_token_is_not_an_access_token(client, register):
+    tokens = await register("alice")
+    r = await client.get(
+        "/users/me", headers={"Authorization": f"Bearer {tokens['refresh']}"}
+    )
+    assert r.status_code == 401
+
+
+async def test_non_bearer_authorization_scheme_is_rejected(client, register):
+    tokens = await register("alice")
+    for header in (
+        f"Basic {tokens['token']}",
+        tokens["token"],  # bare token, no scheme
+        "Bearer",  # scheme, no token
+    ):
+        r = await client.get("/users/me", headers={"Authorization": header})
+        assert r.status_code in (401, 403), header
+
+
+async def test_refresh_flow_reuses_old_refresh_token(client, register):
+    # Refresh tokens are stateless JWTs: refreshing does not invalidate the
+    # old one. This pins the current contract; if rotation/denylisting is
+    # ever added, this test must flip.
+    tokens = await register("alice")
+    first = await client.post("/auth/refresh", json={"refresh_token": tokens["refresh"]})
+    assert first.status_code == 200
+
+    second = await client.post("/auth/refresh", json={"refresh_token": tokens["refresh"]})
+    assert second.status_code == 200
+    assert second.json()["access_token"]

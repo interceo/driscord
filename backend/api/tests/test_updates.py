@@ -171,3 +171,77 @@ async def test_download_rejects_traversal(releases_dir, tmp_path, path):
 async def test_download_rejects_unknown_platform(client, releases_dir):
     r = await client.get("/updates/download/bsd/1.0.0/driscord")
     assert r.status_code == 400
+
+
+async def test_check_with_no_published_release_reports_no_update(client, releases_dir):
+    r = await client.get("/updates/check", params={"version": "1.0.0"})
+    assert r.status_code == 200
+    assert r.json() == {
+        "update_available": False,
+        "latest_version": "1.0.0",
+        "notes": "",
+    }
+
+
+@pytest.mark.parametrize(
+    "installed,published,expected",
+    [
+        ("1.0.0", "1.0.1", True),
+        ("1.0.0", "1.1.0", True),
+        ("1.0.0", "2.0.0", True),
+        ("1.0.1", "1.0.1", False),
+        ("1.0.2", "1.0.1", False),
+        # Numeric comparison, not lexicographic: 1.0.10 > 1.0.9.
+        ("1.0.9", "1.0.10", True),
+    ],
+)
+async def test_check_compares_versions_numerically(
+    client, admin_headers, releases_dir, installed, published, expected
+):
+    headers = await admin_headers("admin")
+    uploaded = await client.post(
+        "/updates/upload",
+        headers=headers,
+        data={"version": published, "platform": "linux", "notes": "n"},
+        files={"file": ("driscord", b"payload")},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+
+    r = await client.get("/updates/check", params={"version": installed})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["update_available"] is expected
+    assert body["latest_version"] == published
+    assert body["notes"] == "n"
+
+
+async def test_check_rejects_malformed_installed_version(client, admin_headers, releases_dir):
+    headers = await admin_headers("admin")
+    uploaded = await client.post(
+        "/updates/upload",
+        headers=headers,
+        data={"version": "1.0.1", "platform": "linux"},
+        files={"file": ("driscord", b"payload")},
+    )
+    assert uploaded.status_code == 200
+
+    for bad in ("1.0", "1.0.0.0", "v1.0.0", "1.0.0-rc1", "", "01.0.0"):
+        r = await client.get("/updates/check", params={"version": bad})
+        assert r.status_code == 400, bad
+
+
+async def test_check_for_platform_without_releases_reports_no_update(
+    client, admin_headers, releases_dir
+):
+    headers = await admin_headers("admin")
+    uploaded = await client.post(
+        "/updates/upload",
+        headers=headers,
+        data={"version": "1.0.1", "platform": "linux"},
+        files={"file": ("driscord", b"payload")},
+    )
+    assert uploaded.status_code == 200
+
+    r = await client.get("/updates/check", params={"version": "1.0.0", "platform": "windows"})
+    assert r.status_code == 200
+    assert r.json()["update_available"] is False

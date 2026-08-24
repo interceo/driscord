@@ -50,6 +50,44 @@ namespace {
         }
     }
 
+    // splitmix64: a tiny, well-distributed PRNG. Deterministic given a seed,
+    // so a burst-loss test reproduces exactly across runs and machines.
+    uint64_t next_random(uint64_t& state)
+    {
+        state += 0x9E3779B97F4A7C15ull;
+        uint64_t z = state;
+        z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+        z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+        return z ^ (z >> 31);
+    }
+
+    // Uniform double in [0, 1).
+    double next_unit(uint64_t& state)
+    {
+        return static_cast<double>(next_random(state) >> 11)
+            / static_cast<double>(1ull << 53);
+    }
+
+    // One Gilbert-Elliott step: decides loss for this packet, then advances
+    // between the good and bad states. Returns true if the packet is lost.
+    bool burst_should_drop(const BurstLossConfig& burst, RtpFaultState& state)
+    {
+        if (!state.burst_initialized) {
+            state.rng = burst.seed + 0xD1B54A32D192ED03ull;
+            state.in_bad_state = false;
+            state.burst_initialized = true;
+        }
+        const double loss_probability
+            = state.in_bad_state ? burst.loss_in_bad : burst.loss_in_good;
+        const bool lost = next_unit(state.rng) < loss_probability;
+        const double transition = state.in_bad_state ? burst.bad_to_good
+                                                     : burst.good_to_bad;
+        if (next_unit(state.rng) < transition) {
+            state.in_bad_state = !state.in_bad_state;
+        }
+        return lost;
+    }
+
 } // namespace
 
 RtpFaultResult apply_rtp_faults(const RtpFaultConfig& config,
@@ -57,14 +95,19 @@ RtpFaultResult apply_rtp_faults(const RtpFaultConfig& config,
     rtc::binary packet)
 {
     if (rtc::IsRtcp(packet)
-        || (config.drop_every_nth == 0
-            && config.reorder_every_nth == 0)) {
+        || (config.drop_every_nth == 0 && config.reorder_every_nth == 0
+            && !config.burst.enabled())) {
         return { .first = std::move(packet), .second = std::nullopt };
     }
 
     ++state.packets_seen;
-    if (config.drop_every_nth != 0
-        && state.packets_seen % config.drop_every_nth == 0) {
+    // Burst loss is evaluated on every packet so its state machine stays
+    // coherent, but it never touches reordering.
+    const bool burst_drop
+        = config.burst.enabled() && burst_should_drop(config.burst, state);
+    if (burst_drop
+        || (config.drop_every_nth != 0
+            && state.packets_seen % config.drop_every_nth == 0)) {
         return { };
     }
 

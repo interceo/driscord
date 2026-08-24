@@ -21,6 +21,42 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(BUILD_CORE "Build the core library" ON)
 option(BUILD_SERVER "Build the signaling server" ON)
 
+# libFuzzer harnesses over the SFU's parsing/rewrite surface (Clang only).
+# Instruments every target in the tree with fuzzer coverage + ASan/UBSan so
+# the fuzzers see through driscord_signaling and libdatachannel alike; the
+# fuzz executables themselves add -fsanitize=fuzzer for the driver.
+option(DRISCORD_FUZZ "Build libFuzzer fuzz targets (requires Clang)" OFF)
+
+# Standalone sanitizer switch for ordinary test runs: a comma-separated
+# -fsanitize list, e.g. "address,undefined". Empty disables.
+set(DRISCORD_SANITIZE "" CACHE STRING
+    "Comma-separated -fsanitize= list applied to the whole tree")
+
+# llvm-cov source-based coverage instrumentation for the whole tree.
+option(DRISCORD_COVERAGE
+    "Instrument with -fprofile-instr-generate/-fcoverage-mapping" OFF)
+
+if(DRISCORD_FUZZ)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "DRISCORD_FUZZ requires Clang (libFuzzer)")
+    endif()
+    add_compile_options(-fsanitize=fuzzer-no-link,address,undefined
+        -fno-sanitize-recover=undefined)
+    add_link_options(-fsanitize=address,undefined)
+elseif(DRISCORD_SANITIZE)
+    add_compile_options(-fsanitize=${DRISCORD_SANITIZE}
+        -fno-sanitize-recover=undefined -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=${DRISCORD_SANITIZE})
+endif()
+
+if(DRISCORD_COVERAGE)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "DRISCORD_COVERAGE requires Clang (llvm-cov)")
+    endif()
+    add_compile_options(-fprofile-instr-generate -fcoverage-mapping)
+    add_link_options(-fprofile-instr-generate)
+endif()
+
 # Google WebRTC is the only client media backend. Server-only builds remain
 # independent of the external GN artifact by configuring BUILD_CORE=OFF.
 option(DRISCORD_USE_GOOGLE_WEBRTC

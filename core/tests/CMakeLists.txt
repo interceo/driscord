@@ -3,7 +3,7 @@ include(FetchContent)
 FetchContent_Declare(
     googletest
     GIT_REPOSITORY https://github.com/google/googletest.git
-    GIT_TAG        v1.15.2
+    GIT_TAG        v1.16.0
     GIT_SHALLOW    TRUE
 )
 
@@ -34,6 +34,7 @@ function(add_unit_test name)
     target_compile_options(${name} PRIVATE ${TEST_WARNING_FLAGS})
     target_link_libraries(${name} PRIVATE GTest::gtest_main Boost::boost)
     add_test(NAME ${name} COMMAND ${name})
+    set_tests_properties(${name} PROPERTIES LABELS "unit")
 endfunction()
 
 # --- Helper for tests that need the Google WebRTC client media stack ---
@@ -43,6 +44,7 @@ function(add_core_test name)
     target_compile_options(${name} PRIVATE ${TEST_WARNING_FLAGS})
     target_link_libraries(${name} PRIVATE GTest::gtest_main driscord_core Boost::boost)
     add_test(NAME ${name} COMMAND ${name})
+    set_tests_properties(${name} PROPERTIES LABELS "unit;media")
 endfunction()
 
 add_unit_test(test_expected)
@@ -57,6 +59,11 @@ target_compile_options(test_protocol PRIVATE ${TEST_WARNING_FLAGS})
 target_link_libraries(test_protocol PRIVATE
     GTest::gtest_main driscord_protocol Boost::boost)
 add_test(NAME test_protocol COMMAND test_protocol)
+set_tests_properties(test_protocol PROPERTIES LABELS "unit")
+
+if(DRISCORD_FUZZ AND BUILD_SERVER)
+    add_subdirectory(fuzz)
+endif()
 
 # --- Server-side tests: no Google WebRTC, so a BUILD_CORE=OFF tree runs them --
 if(BUILD_SERVER)
@@ -69,21 +76,56 @@ if(BUILD_SERVER)
         target_link_libraries(${name} PRIVATE
             GTest::gtest_main driscord_signaling)
         add_test(NAME ${name} COMMAND ${name})
+        set_tests_properties(${name} PROPERTIES LABELS "unit;signaling")
     endfunction()
 
     add_signaling_test(test_rtp_slot_rewriter unit/test_rtp_slot_rewriter.cpp)
     add_signaling_test(test_sfu_media_utils unit/test_sfu_media_utils.cpp)
+    add_signaling_test(test_sfu_rtcp_classification
+        unit/test_sfu_rtcp_classification.cpp)
+    add_signaling_test(test_rtp_burst_loss unit/test_rtp_burst_loss.cpp)
+
+    # Raw-Beast hostile input against the live server: garbage frames,
+    # oversized messages, aborted sockets, hostile usernames, malformed SDP.
+    add_signaling_test(test_ws_server_hostile
+        integration/test_ws_server_hostile.cpp)
+    target_link_libraries(test_ws_server_hostile PRIVATE
+        ${DRISCORD_LIBDATACHANNEL_TARGET})
+    set_tests_properties(test_ws_server_hostile PROPERTIES TIMEOUT 90
+        LABELS "integration;signaling")
+
+    # The authenticator against an API that is down, slow, broken or lying:
+    # every failure mode must fail closed without hanging the io_context.
+    add_signaling_test(test_api_authenticator
+        integration/test_api_authenticator.cpp)
+    set_tests_properties(test_api_authenticator PROPERTIES TIMEOUT 60
+        LABELS "integration;signaling")
 
     # Real WebSocket handshakes against the real server, but no media: this is
     # the gate on session authorization.
     add_signaling_test(test_signaling_auth integration/test_signaling_auth.cpp)
     target_link_libraries(test_signaling_auth PRIVATE
         ${DRISCORD_LIBDATACHANNEL_TARGET})
-    set_tests_properties(test_signaling_auth PROPERTIES TIMEOUT 60)
+    set_tests_properties(test_signaling_auth PROPERTIES TIMEOUT 60
+        LABELS "integration;signaling")
 endif()
 
 if(BUILD_CORE)
     add_core_test(test_google_webrtc_screen_stats)
+
+    # The PCM playout is a small self-contained hardware boundary (miniaudio +
+    # boost lockfree, no Google WebRTC), so its test compiles the production
+    # sources straight in rather than linking driscord_core.
+    add_executable(test_pcm_playout
+        unit/test_pcm_playout.cpp
+        ${CMAKE_SOURCE_DIR}/core/src/webrtc/google_webrtc_pcm_playout.cpp
+        ${CMAKE_SOURCE_DIR}/core/src/utils/ma_device.cpp)
+    target_include_directories(test_pcm_playout PRIVATE ${TEST_INCLUDE_DIRS})
+    target_compile_options(test_pcm_playout PRIVATE ${TEST_WARNING_FLAGS})
+    target_link_libraries(test_pcm_playout PRIVATE
+        GTest::gtest_main miniaudio_lib Boost::boost)
+    add_test(NAME test_pcm_playout COMMAND test_pcm_playout)
+    set_tests_properties(test_pcm_playout PROPERTIES LABELS "unit;media")
 
     # libdatachannel's GnuTLS backend is patched to retry positive partial
     # writes. A 32 KiB text frame crosses the TLS record boundary and regresses
@@ -102,7 +144,8 @@ if(BUILD_CORE)
             --client $<TARGET_FILE:test_libdatachannel_wss_client>
             --cert ${CMAKE_CURRENT_SOURCE_DIR}/support/wss-test-cert.pem
             --key ${CMAKE_CURRENT_SOURCE_DIR}/support/wss-test-key.pem)
-    set_tests_properties(test_libdatachannel_wss PROPERTIES TIMEOUT 30)
+    set_tests_properties(test_libdatachannel_wss PROPERTIES TIMEOUT 30
+        LABELS "integration;media")
 
     add_executable(test_google_webrtc_runtime
         unit/test_google_webrtc_runtime.cpp)
@@ -113,7 +156,8 @@ if(BUILD_CORE)
     target_link_libraries(test_google_webrtc_runtime PRIVATE
         GTest::gtest_main driscord_webrtc_backend)
     add_test(NAME test_google_webrtc_runtime COMMAND test_google_webrtc_runtime)
-    set_tests_properties(test_google_webrtc_runtime PROPERTIES TIMEOUT 30)
+    set_tests_properties(test_google_webrtc_runtime PROPERTIES TIMEOUT 30
+        LABELS "unit;media")
 endif()
 
 # --- Integration tests (need driscord_core + driscord_signaling) ---
@@ -128,10 +172,15 @@ if(BUILD_SERVER AND BUILD_CORE)
         target_link_libraries(${name} PRIVATE
             GTest::gtest_main driscord_core driscord_signaling)
         add_test(NAME ${name} COMMAND ${name})
-        set_tests_properties(${name} PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+        set_tests_properties(${name} PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE
+            LABELS "integration;media")
     endfunction()
 
     add_integration_test(test_room_isolation)
+    add_integration_test(test_shutdown_ordering)
+    add_integration_test(test_reconnect)
+    add_integration_test(test_client_lifecycle)
+    target_link_libraries(test_client_lifecycle PRIVATE driscord_webrtc_backend)
     add_integration_test(test_google_webrtc_transport)
     target_link_libraries(test_google_webrtc_transport PRIVATE
         driscord_webrtc_backend)

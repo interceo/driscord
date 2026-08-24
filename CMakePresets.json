@@ -36,6 +36,13 @@
       "cacheVariables": { "BUILD_TESTS": "ON" }
     },
     {
+      "name": "server-fuzz",
+      "inherits": "server-tests",
+      "displayName": "Signaling server, fuzzers + ASan/UBSan tests",
+      "description": "The whole server tree instrumented with libFuzzer coverage and ASan/UBSan: the fuzz targets, their corpus-replay regressions, and every ordinary server test running under the sanitizers. This preset therefore doubles as the server-side sanitizer gate.",
+      "cacheVariables": { "DRISCORD_FUZZ": "ON" }
+    },
+    {
       "name": "core-tests",
       "inherits": "base",
       "displayName": "Core + server + tests (real Google WebRTC)",
@@ -46,6 +53,19 @@
         "BUILD_TESTS": "ON",
         "BUILD_QT_CLIENT": "OFF"
       }
+    },
+    {
+      "name": "core-tests-asan",
+      "inherits": "core-tests",
+      "displayName": "Core + server tests under ASan/UBSan",
+      "description": "Nightly configuration. libwebrtc.a is not instrumented, hence the container-overflow suppression in the test preset.",
+      "cacheVariables": { "DRISCORD_SANITIZE": "address,undefined" }
+    },
+    {
+      "name": "coverage",
+      "inherits": "core-tests",
+      "displayName": "Core + server tests with llvm-cov instrumentation",
+      "cacheVariables": { "DRISCORD_COVERAGE": "ON" }
     },
     {
       "name": "client",
@@ -94,7 +114,10 @@
       "targets": ["driscord_server"]
     },
     { "name": "server-tests", "configurePreset": "server-tests" },
+    { "name": "server-fuzz", "configurePreset": "server-fuzz" },
     { "name": "core-tests", "configurePreset": "core-tests" },
+    { "name": "core-tests-asan", "configurePreset": "core-tests-asan" },
+    { "name": "coverage", "configurePreset": "coverage" },
     {
       "name": "client",
       "configurePreset": "client",
@@ -128,12 +151,44 @@
     {
       "name": "server-tests",
       "configurePreset": "server-tests",
-      "output": { "outputOnFailure": true }
+      "output": { "outputOnFailure": true },
+      "filter": { "exclude": { "label": "soak" } }
     },
     {
       "name": "core-tests",
       "configurePreset": "core-tests",
-      "output": { "outputOnFailure": true }
+      "output": { "outputOnFailure": true },
+      "filter": { "exclude": { "label": "soak" } }
+    },
+    {
+      "name": "server-fuzz",
+      "configurePreset": "server-fuzz",
+      "output": { "outputOnFailure": true },
+      "filter": { "exclude": { "label": "soak" } },
+      "environment": {
+        "ASAN_OPTIONS": "abort_on_error=1",
+        "UBSAN_OPTIONS": "print_stacktrace=1"
+      }
+    },
+    {
+      "name": "core-tests-asan",
+      "configurePreset": "core-tests-asan",
+      "output": { "outputOnFailure": true },
+      "filter": { "exclude": { "label": "soak" } },
+      "environment": {
+        "ASAN_OPTIONS": "detect_container_overflow=0",
+        "UBSAN_OPTIONS": "print_stacktrace=1"
+      },
+      "description": "detect_container_overflow is off because the pinned libwebrtc.a is built without ASan; instrumented code inspecting its containers would raise false positives."
+    },
+    {
+      "name": "coverage",
+      "configurePreset": "coverage",
+      "output": { "outputOnFailure": true },
+      "filter": { "exclude": { "label": "soak" } },
+      "environment": {
+        "LLVM_PROFILE_FILE": "${sourceDir}/.builds/$env{DRISCORD_BUILD_TAG}coverage/profiles/%p.profraw"
+      }
     },
     {
       "name": "client-tests",
@@ -165,6 +220,30 @@
         { "type": "configure", "name": "core-tests" },
         { "type": "build", "name": "core-tests" },
         { "type": "test", "name": "core-tests" }
+      ]
+    },
+    {
+      "name": "server-fuzz",
+      "steps": [
+        { "type": "configure", "name": "server-fuzz" },
+        { "type": "build", "name": "server-fuzz" },
+        { "type": "test", "name": "server-fuzz" }
+      ]
+    },
+    {
+      "name": "core-tests-asan",
+      "steps": [
+        { "type": "configure", "name": "core-tests-asan" },
+        { "type": "build", "name": "core-tests-asan" },
+        { "type": "test", "name": "core-tests-asan" }
+      ]
+    },
+    {
+      "name": "coverage",
+      "steps": [
+        { "type": "configure", "name": "coverage" },
+        { "type": "build", "name": "coverage" },
+        { "type": "test", "name": "coverage" }
       ]
     },
     {

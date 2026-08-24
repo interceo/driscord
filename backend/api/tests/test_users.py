@@ -34,7 +34,7 @@ async def test_missing_avatar_file_is_not_advertised(
     assert me.status_code == 200
     assert me.json()["avatar_url"] is None
 
-    lookup = await client.get("/users/lookup?username=alice")
+    lookup = await client.get("/users/lookup?username=alice", headers=headers)
     assert lookup.status_code == 200
     assert lookup.json()["avatar_url"] is None
 
@@ -56,3 +56,56 @@ async def test_empty_avatar_is_rejected(client, auth_headers):
         files={"file": ("avatar.png", b"", "image/png")},
     )
     assert uploaded.status_code == 400
+
+
+async def test_user_profile_endpoints_require_auth(client, auth_headers):
+    await auth_headers("alice")
+
+    for url in ("/users/1", "/users/lookup?username=alice"):
+        r = await client.get(url)
+        assert r.status_code in (401, 403), url
+
+
+async def test_get_user_by_id_hides_private_fields(client, auth_headers):
+    ha = await auth_headers("alice")
+    r = await client.get("/users/1", headers=ha)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["username"] == "alice"
+    assert "email" not in body
+    assert "hashed_password" not in body
+
+
+async def test_avatar_download_stays_public(client, auth_headers, tmp_path, monkeypatch):
+    # The QML Image element fetches this URL without an Authorization header;
+    # locking it down would break every avatar in the client.
+    from config import settings
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    headers = await auth_headers("alice")
+
+    uploaded = await client.put(
+        "/users/1/avatar",
+        headers=headers,
+        files={"file": ("avatar.png", b"png-bytes", "image/png")},
+    )
+    assert uploaded.status_code == 200
+
+    anonymous = await client.get("/users/1/avatar")
+    assert anonymous.status_code == 200
+    assert anonymous.content == b"png-bytes"
+
+
+async def test_cannot_modify_another_users_profile(client, auth_headers):
+    await auth_headers("alice")
+    hb = await auth_headers("bob")
+
+    r = await client.patch("/users/1", headers=hb, json={"display_name": "gotcha"})
+    assert r.status_code == 403
+
+    r = await client.put(
+        "/users/1/avatar",
+        headers=hb,
+        files={"file": ("avatar.png", b"x", "image/png")},
+    )
+    assert r.status_code == 403

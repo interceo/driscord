@@ -13,17 +13,43 @@ struct RtpFormat {
     uint32_t clock_rate = 0;
 };
 
+// Gilbert-Elliott burst-loss model. Unlike the counter-based `drop_every_nth`,
+// this alternates between a good and a bad state, so losses arrive in bursts —
+// the shape real networks produce and the one NACK/PLI recovery actually has
+// to survive. Disabled by default (transition into the bad state is zero).
+// The field set mirrors WebRTC's BuiltInNetworkBehaviorConfig loss knobs.
+struct BurstLossConfig {
+    // Per-packet state-transition probabilities, in [0, 1].
+    double good_to_bad = 0.0; // enter a loss burst
+    double bad_to_good = 1.0; // leave a loss burst
+    // Loss probability while in each state, in [0, 1].
+    double loss_in_good = 0.0;
+    double loss_in_bad = 1.0;
+    // Seed for the per-track deterministic PRNG; tests pin it for repro.
+    uint64_t seed = 0;
+
+    [[nodiscard]] bool enabled() const noexcept
+    {
+        return good_to_bad > 0.0 || loss_in_good > 0.0;
+    }
+};
+
 // Deterministic post-SRTP impairment used by the real client <-> SFU
 // integration gate. Zero values are the production default and add no packet
 // buffering. Counters are independent per publisher/media track.
 struct RtpFaultConfig {
     uint32_t drop_every_nth = 0;
     uint32_t reorder_every_nth = 0;
+    BurstLossConfig burst;
 };
 
 struct RtpFaultState {
     uint64_t packets_seen = 0;
     std::optional<rtc::binary> delayed_packet;
+    // Gilbert-Elliott running state.
+    bool burst_initialized = false;
+    bool in_bad_state = false;
+    uint64_t rng = 0;
 };
 
 struct RtpFaultResult {

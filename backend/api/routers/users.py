@@ -47,6 +47,7 @@ async def update_me(
 @router.get("/lookup", response_model=UserResponse)
 async def lookup_user(
     username: str,
+    _current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(User).where(User.username == username))
@@ -56,6 +57,9 @@ async def lookup_user(
     return user
 
 
+# Deliberately unauthenticated: the Qt client hands this URL straight to a QML
+# Image element, which cannot attach an Authorization header. Avatars are the
+# only public user field; everything else requires a token.
 @router.get("/{user_id}/avatar")
 async def get_avatar(
     user_id: int,
@@ -119,6 +123,7 @@ async def update_user(
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user(
     user_id: int,
+    _current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(User).where(User.id == user_id))
