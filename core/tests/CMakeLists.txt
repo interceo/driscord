@@ -132,9 +132,11 @@ if(BUILD_CORE)
     # hazard CLAUDE.md documents). Consumers must link the archive themselves
     # via driscord_webrtc_backend or driscord::google_webrtc, which keeps it
     # ahead of the OpenSSL DSOs.
-    target_include_directories(driscord_webrtc_test_support SYSTEM PRIVATE
+    # PUBLIC: the exported headers themselves include absl/, and the CI image
+    # has no system abseil to fall back on (a dev box might, masking this).
+    target_include_directories(driscord_webrtc_test_support SYSTEM PUBLIC
         $<TARGET_PROPERTY:driscord_google_webrtc,INTERFACE_INCLUDE_DIRECTORIES>)
-    target_compile_definitions(driscord_webrtc_test_support PRIVATE
+    target_compile_definitions(driscord_webrtc_test_support PUBLIC
         $<TARGET_PROPERTY:driscord_google_webrtc,INTERFACE_COMPILE_DEFINITIONS>)
 
     # Replays the committed real-traffic fixtures through the slot rewriter.
