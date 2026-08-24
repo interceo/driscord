@@ -76,12 +76,15 @@ public:
     }
 
     bool wait_for_active_mids(size_t count,
+        size_t minimum_frames = 5,
         std::chrono::milliseconds timeout = test_util::kDefaultTimeout)
     {
         std::unique_lock lock(mutex_);
         return changed_.wait_for(lock, timeout, [&] {
             return std::count_if(observations_.begin(), observations_.end(),
-                       [](const auto& item) { return item.second.frames >= 5; })
+                       [minimum_frames](const auto& item) {
+                           return item.second.frames >= minimum_frames;
+                       })
                 >= static_cast<std::ptrdiff_t>(count);
         });
     }
@@ -524,13 +527,21 @@ TEST_F(GoogleWebRtcTransportTest, RoutesAndDecodesTwoConcurrentPcmSources)
             make_tone_frame(880.0, frame)));
     }
 
-    ASSERT_TRUE(decoded_audio.wait_for_active_mids(2));
+    // Goodput floor: each publisher injected 250 frames (2.5 s) of tone, and
+    // the 1-in-11 post-SRTP drop is recovered by NACK, so the listener must
+    // decode well over half of it per mid — "some frames arrived" is not
+    // "audio flows". The per-mid asserts below run on this rich window on
+    // purpose: sampling after the first few frames put the loss-concealed
+    // ramp-in in charge of the zero-crossing frequency estimate, which made
+    // the tone check flake.
+    ASSERT_TRUE(decoded_audio.wait_for_active_mids(2, 150))
+        << "decoded audio goodput stayed under 150/250 frames per mid";
     const auto observations = decoded_audio.snapshot();
     for (const auto& [mid, peer] : peer_by_mid) {
         (void)peer;
         const auto found = observations.find(mid);
         ASSERT_NE(found, observations.end()) << "missing decoded mid " << mid;
-        EXPECT_GE(found->second.frames, 5u);
+        EXPECT_GE(found->second.frames, 150u);
         EXPECT_GT(found->second.non_silent_samples, 0u);
         EXPECT_EQ(found->second.sample_rate_hz, 48'000);
         EXPECT_EQ(found->second.channels, 1u);

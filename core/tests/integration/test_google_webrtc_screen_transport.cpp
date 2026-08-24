@@ -85,13 +85,14 @@ public:
     }
 
     bool wait_for_active_mids(size_t count,
+        size_t minimum_frames = 3,
         std::chrono::milliseconds timeout = test_util::kDefaultTimeout)
     {
         std::unique_lock lock(mutex_);
         return changed_.wait_for(lock, timeout, [&] {
             return std::count_if(observations_.begin(), observations_.end(),
-                       [](const auto& item) {
-                           return item.second.frames >= 3;
+                       [minimum_frames](const auto& item) {
+                           return item.second.frames >= minimum_frames;
                        })
                 >= static_cast<std::ptrdiff_t>(count);
         });
@@ -345,9 +346,14 @@ TEST_F(GoogleWebRtcScreenTransportTest,
     const int64_t start_us = std::chrono::duration_cast<std::chrono::microseconds>(epoch).count();
     size_t first_accepted = 0;
     size_t second_accepted = 0;
+    // Feed until both mids clear the goodput floor below, so the floor is
+    // checked against a continuously fed pipeline: the encoder legitimately
+    // drops frames while ramping up, so a fixed submission count would tie
+    // the floor to encoder efficiency. The 300-frame cap (~10 s) only bounds
+    // the failure path.
     for (size_t frame = 0;
-        frame < 120
-        && (frame < 30 || !decoded_video.has_active_mids(2));
+        frame < 300
+        && (frame < 30 || !decoded_video.has_active_mids(2, 30));
         ++frame) {
         const auto first = make_bgra_frame(kWidth, kHeight, 31, frame);
         const auto second = make_bgra_frame(kWidth, kHeight, 113, frame);
@@ -361,7 +367,11 @@ TEST_F(GoogleWebRtcScreenTransportTest,
 
     EXPECT_GT(first_accepted, 0u);
     EXPECT_GT(second_accepted, 0u);
-    ASSERT_TRUE(decoded_video.wait_for_active_mids(2));
+    // Goodput floor: 30 decoded frames per mid (~1 s of 30 fps video) out of
+    // at most 120 submitted, with the 1-in-37 drop recovered via NACK/PLI. A
+    // pipeline that only ever delivers the first keyframe fails here.
+    ASSERT_TRUE(decoded_video.wait_for_active_mids(2, 30))
+        << "decoded video goodput stayed under 30 frames per mid";
     const auto observations = decoded_video.snapshot();
     std::set<std::string> video_publishers;
     for (const auto& [mid, observation] : observations) {
