@@ -10,6 +10,13 @@ namespace test_util {
 
 constexpr auto kDefaultTimeout = std::chrono::seconds(10);
 
+// Deadline for "the server noticed a client's disconnect" waits. With client
+// and SFU sharing one test process, the client's graceful WebSocket close can
+// starve behind libdatachannel-internal teardown until its own ~10 s close
+// timeout force-closes the TCP (DRISCORD-11) — so these waits must outlast
+// that internal timer; kDefaultTimeout would race it and lose by a hair.
+constexpr auto kDisconnectNoticeTimeout = std::chrono::seconds(15);
+
 class Waiter {
 public:
     void signal()

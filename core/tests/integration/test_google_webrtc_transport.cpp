@@ -346,14 +346,12 @@ TEST_F(GoogleWebRtcTransportTest, VoiceSlotsBindThreeParticipantsIndependently)
     EXPECT_EQ(second_bindings.snapshot().back().second, third_id);
 
     // Churn must clear the exact slot before it can be reused by a later peer.
-    // 15 s, not the 10 s default: with client and SFU in one process the
-    // graceful WS close can starve until libdatachannel's own ~10 s close
-    // timeout force-closes the TCP, and a 10 s wait races that internal
-    // timer (DRISCORD-11; same reasoning as the reconnect-replay wait).
     third_voice->close();
     third_transport.disconnect();
-    ASSERT_TRUE(first_bindings.wait_for_count(4, std::chrono::seconds(15)));
-    ASSERT_TRUE(second_bindings.wait_for_count(4, std::chrono::seconds(15)));
+    ASSERT_TRUE(first_bindings.wait_for_count(
+        4, test_util::kDisconnectNoticeTimeout));
+    ASSERT_TRUE(second_bindings.wait_for_count(
+        4, test_util::kDisconnectNoticeTimeout));
     EXPECT_FALSE(first_bindings.snapshot().back().second);
     EXPECT_FALSE(second_bindings.snapshot().back().second);
 

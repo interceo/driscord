@@ -43,7 +43,8 @@ TEST(Reconnect, PeerRejoinsAfterDisconnectAndIsSeenAgain)
         ASSERT_TRUE(stable.joined.wait_for_count(1));
         // transient drops here.
     }
-    ASSERT_TRUE(stable.left.wait_for_count(1));
+    ASSERT_TRUE(
+        stable.left.wait_for_count(1, test_util::kDisconnectNoticeTimeout));
     EXPECT_EQ(server.active_sessions(std::string { "1" }), 1u);
 
     // A fresh peer takes its place: the stable peer must see the new join,
@@ -69,7 +70,8 @@ TEST(Reconnect, SameTransportReconnectsAfterExplicitDisconnect)
     ASSERT_TRUE(observer.joined.wait_for_count(1));
 
     transport->disconnect();
-    ASSERT_TRUE(observer.left.wait_for_count(1));
+    ASSERT_TRUE(
+        observer.left.wait_for_count(1, test_util::kDisconnectNoticeTimeout));
 
     // Reusing the same Transport object to reconnect must work and produce a
     // fresh session identity.
@@ -126,7 +128,8 @@ TEST(Reconnect, RapidReconnectStormLeavesConsistentRoster)
 
     // After the storm, only the observer remains, and the server agrees.
     ASSERT_TRUE(observer.joined.wait_for_count(10));
-    ASSERT_TRUE(observer.left.wait_for_count(10));
+    ASSERT_TRUE(
+        observer.left.wait_for_count(10, test_util::kDisconnectNoticeTimeout));
     EXPECT_EQ(server.active_sessions(std::string { "1" }), 1u);
 }
 

@@ -648,16 +648,8 @@ TEST_F(GoogleWebRtcScreenTransportTest,
     }
 
     viewer_transport.disconnect();
-    // 15 s, not kDefaultTimeout: with client and SFU sharing one process the
-    // client's graceful WS close can starve behind the SFU-side
-    // PeerConnection teardown of the previous test until libdatachannel's own
-    // ~10 s close timeout force-closes the TCP — a 10 s deadline here races
-    // that internal timer and loses by a hair (DRISCORD-11). Production is
-    // unaffected: the real client process hosts no libdatachannel
-    // PeerConnections. The assert itself — the server must notice the
-    // disconnect — stays.
     const auto disconnect_deadline
-        = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+        = std::chrono::steady_clock::now() + test_util::kDisconnectNoticeTimeout;
     while (server.active_sessions() != 1
         && std::chrono::steady_clock::now() < disconnect_deadline) {
         std::this_thread::sleep_for(std::chrono::milliseconds(20));

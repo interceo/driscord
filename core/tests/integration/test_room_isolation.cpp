@@ -113,9 +113,10 @@ TEST_F(RoomIsolationTest, DifferentRooms_PeerLeftNotBroadcastCrossRoom)
 
     EXPECT_TRUE(b.transport->peers().empty());
 
-    ASSERT_TRUE(a.left.wait_for_count(1, kDefaultTimeout));
+    ASSERT_TRUE(a.left.wait_for_count(1, test_util::kDisconnectNoticeTimeout));
     EXPECT_EQ(a.left.snapshot().front(), b_id);
-    ASSERT_TRUE(a.streaming_stopped.wait_for_count(1, kDefaultTimeout));
+    ASSERT_TRUE(a.streaming_stopped.wait_for_count(
+        1, test_util::kDisconnectNoticeTimeout));
     EXPECT_EQ(a.streaming_stopped.snapshot().front(), b_id);
 
     // c must not receive any peer_left.
