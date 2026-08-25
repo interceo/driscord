@@ -21,8 +21,11 @@ DriscordCore::DriscordCore(std::vector<IceServer> ice_servers)
 
     media_ = std::make_unique<GoogleWebRtcClient>(transport,
         GoogleWebRtcClient::Callbacks {
-            .on_frame = [this](const std::string& peer, const uint8_t* rgba,
-                            int width, int height) { emit_frame(peer, rgba, width, height); },
+            .on_frame =
+                [this](const std::string& peer,
+                    const driscord::media::DecodedVideoFrameView& frame) {
+                    emit_frame(peer, frame);
+                },
             .on_frame_removed = [this](const std::string& peer) { emit_frame_removed(peer); },
         },
         std::move(media_ice_servers));
@@ -151,14 +154,12 @@ void DriscordCore::set_on_watch_rejected(WatchRejectedCb cb)
     on_watch_rejected_cb_ = std::move(cb);
 }
 
-void DriscordCore::emit_frame(const std::string& peer,
-    const uint8_t* rgba,
-    int width,
-    int height)
+void DriscordCore::emit_frame(
+    const std::string& peer, const VideoFrameView& frame)
 {
     std::scoped_lock lock(cb_mtx_);
     if (on_frame_cb_) {
-        on_frame_cb_(peer, rgba, width, height);
+        on_frame_cb_(peer, frame);
     }
 }
 

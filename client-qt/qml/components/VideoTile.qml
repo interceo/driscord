@@ -1,25 +1,51 @@
 import QtQuick
 import QtQuick.Controls
+import QtMultimedia
 
 Rectangle {
     id: root
     property string peerId: ""
     property string displayName: ""
     property string avatarUrl: ""
+    // True once the sink received a real frame; drives the avatar fallback.
+    property bool hasVideo: false
 
     color: "#111214"
     radius: 8
     clip: true
 
-    // Live video frame from FrameProvider
-    Image {
-        id: videoImg
+    // Frames arrive straight from the decoder thread through the sink the
+    // bridge holds; YUV->RGB happens in the render shader.
+    VideoOutput {
+        id: videoOut
         anchors.fill: parent
-        source: root.peerId !== "" ? ("image://frames/" + root.peerId) : ""
-        fillMode: Image.PreserveAspectFit
-        cache: false
-        visible: status === Image.Ready
+        fillMode: VideoOutput.PreserveAspectFit
+        visible: root.hasVideo
     }
+
+    Connections {
+        target: videoOut.videoSink
+        function onVideoFrameChanged() {
+            root.hasVideo = videoOut.videoSink.videoFrame.isValid
+        }
+    }
+
+    // The id the sink is currently registered under: peerId has already
+    // changed by the time onPeerIdChanged runs, so the old binding must be
+    // released by its remembered name.
+    property string boundPeerId: ""
+    function rebindSink() {
+        if (boundPeerId !== "")
+            bridge.unregisterVideoSink(boundPeerId, videoOut.videoSink)
+        boundPeerId = peerId
+        hasVideo = false
+        if (boundPeerId !== "")
+            bridge.registerVideoSink(boundPeerId, videoOut.videoSink)
+    }
+    onPeerIdChanged: rebindSink()
+    Component.onCompleted: rebindSink()
+    Component.onDestruction: if (boundPeerId !== "")
+        bridge.unregisterVideoSink(boundPeerId, videoOut.videoSink)
 
     // Fallback avatar when no stream
     AvatarBox {
@@ -27,7 +53,7 @@ Rectangle {
         size: Math.min(root.width, root.height) * 0.4
         displayName: root.displayName
         avatarUrl: root.avatarUrl
-        visible: videoImg.status !== Image.Ready
+        visible: !root.hasVideo
     }
 
     // Name label
@@ -38,17 +64,5 @@ Rectangle {
         font.pixelSize: 13
         style: Text.Outline
         styleColor: "black"
-    }
-
-    // Update image when frame arrives
-    Connections {
-        target: bridge
-        function onFrameUpdated(pid) {
-            if (pid === root.peerId) videoImg.source = ""  // force reload
-            videoImg.source = "image://frames/" + root.peerId
-        }
-        function onFrameRemoved(pid) {
-            if (pid === root.peerId) videoImg.source = ""
-        }
     }
 }

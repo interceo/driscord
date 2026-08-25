@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 include(GNUInstallDirs)
-find_package(Qt6 REQUIRED COMPONENTS Quick Network Widgets QuickDialogs2 Core5Compat)
+find_package(Qt6 REQUIRED COMPONENTS Quick Network Widgets QuickDialogs2 Core5Compat Multimedia)
 qt_standard_project_setup(REQUIRES 6.5)
 
 if(Qt6Core5Compat_DIR)
@@ -58,8 +58,6 @@ qt_add_qml_module(driscord_client
         qml/dialogs/InviteUsersDialog.qml
         qml/dialogs/VoiceStatsDialog.qml
     SOURCES
-        src/app/FrameProvider.h
-        src/app/FrameProvider.cpp
         src/app/ThumbnailProvider.h
         src/app/ThumbnailProvider.cpp
 )
@@ -100,6 +98,7 @@ target_link_libraries(driscord_client PRIVATE
     Qt6::Widgets
     Qt6::QuickDialogs2
     Qt6::Core5Compat
+    Qt6::Multimedia
 )
 
 if(UNIX AND NOT APPLE AND TARGET datachannel)

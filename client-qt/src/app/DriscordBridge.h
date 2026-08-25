@@ -1,7 +1,8 @@
 #pragma once
 #include "AppConfig.h"
-#include "FrameProvider.h"
 #include "ThumbnailProvider.h"
+#include <QHash>
+#include <QMutex>
 #include <QObject>
 #include <QString>
 #include <QThreadPool>
@@ -12,6 +13,7 @@
 #include <memory>
 
 class DriscordCore;
+class QVideoSink;
 
 // Wraps DriscordCore — all methods callable from QML via Q_INVOKABLE.
 // Callbacks from the core are forwarded to the main thread via QMetaObject::invokeMethod.
@@ -22,7 +24,6 @@ public:
         const QVector<IceServerSetting>& iceServers = { });
     ~DriscordBridge();
 
-    void setFrameProvider(FrameProvider* fp);
     void setThumbnailProvider(ThumbnailProvider* tp);
 
     // Stops media and detaches the image providers. The QML engine owns those
@@ -77,6 +78,15 @@ public:
     Q_INVOKABLE void stopSharing();
     Q_INVOKABLE bool sharing() const;
     Q_INVOKABLE void setLocalPreviewEnabled(bool enabled);
+    // Per-peer video sinks: QML VideoOutput hands its videoSink here while a
+    // tile or the expanded view is on screen. Decoded I420 frames are wrapped
+    // into QVideoFrame(Format_YUV420P) on the decoder thread and handed to
+    // QVideoSink::setVideoFrame (thread-safe); YUV->RGB happens in the Qt RHI
+    // shader at render time. Unregister before the VideoOutput dies; the
+    // bridge also drops sinks on their destroyed() as a safety net.
+    Q_INVOKABLE void registerVideoSink(const QString& peerId, QVideoSink* sink);
+    Q_INVOKABLE void unregisterVideoSink(const QString& peerId, QVideoSink* sink);
+
     Q_INVOKABLE void joinStream(const QString& peerId);
     Q_INVOKABLE void leaveStream(const QString& peerId);
     Q_INVOKABLE QString screenStatsJson(const QString& peerId) const;
@@ -92,14 +102,17 @@ signals:
     void streamingStopped(const QString& peerId);
     void streamWatchRejected(const QString& peerId, const QString& reason);
     void frameRemoved(const QString& peerId);
-    void frameUpdated(const QString& peerId);
     // Empty url means the source could not be captured.
     void thumbnailReady(const QString& targetJson, const QString& url);
 
 private:
     std::unique_ptr<DriscordCore> m_core;
-    FrameProvider* m_frameProvider = nullptr;
     ThumbnailProvider* m_thumbnailProvider = nullptr;
+    // Written from the GUI thread, read (and used) from the decoder thread
+    // under the same lock, so a sink can never be destroyed mid-delivery as
+    // long as QML unregisters before its VideoOutput goes away.
+    QMutex m_sinkMutex;
+    QHash<QString, QList<QVideoSink*>> m_videoSinks;
     // Audio-device discovery can block. Keeping it in an owned, serial pool
     // lets shutdown join it and prevents a late voice_start() after leave().
     QThreadPool m_audioPool;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "transport.hpp"
+#include "webrtc/google_webrtc_screen_session.hpp"
 
 #include <cstdint>
 #include <functional>
@@ -26,7 +27,10 @@ public:
     using StringCb = std::function<void(const std::string&)>;
     using WatchRejectedCb = std::function<void(
         const std::string&, signaling::WatchRejectReason)>;
-    using FrameCb = std::function<void(const std::string&, const uint8_t*, int, int)>;
+    // Borrowed I420 planes from the decoder thread (no WebRTC types leak:
+    // the view is a plain struct). Consumers copy/upload before returning.
+    using VideoFrameView = driscord::media::DecodedVideoFrameView;
+    using FrameCb = std::function<void(const std::string&, const VideoFrameView&)>;
 
     Transport transport;
 
@@ -107,10 +111,7 @@ public:
     [[nodiscard]] float screen_stream_volume(const std::string& peer) const;
 
 private:
-    void emit_frame(const std::string& peer,
-        const uint8_t* rgba,
-        int width,
-        int height);
+    void emit_frame(const std::string& peer, const VideoFrameView& frame);
     void emit_frame_removed(const std::string& peer);
 
     std::unique_ptr<GoogleWebRtcClient> media_;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "webrtc/google_webrtc_runtime.hpp"
+#include "webrtc/google_webrtc_screen_session.hpp"
 
 #include <cstdint>
 #include <functional>
@@ -16,7 +17,10 @@ class Transport;
 // native Google WebRTC objects rather than Driscord wrapper classes.
 class GoogleWebRtcClient final {
 public:
-    using FrameCallback = std::function<void(const std::string&, const uint8_t*, int, int)>;
+    // Decoded I420 frame straight from the decoder thread; the view's planes
+    // are borrowed and must be consumed (copied/uploaded) before returning.
+    using FrameCallback = std::function<void(const std::string&,
+        const driscord::media::DecodedVideoFrameView&)>;
     using PeerCallback = std::function<void(const std::string&)>;
 
     struct Callbacks {

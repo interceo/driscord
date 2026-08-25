@@ -43,31 +43,47 @@ public:
     void observe(std::string_view mid,
         const driscord::media::DecodedVideoFrameView& frame)
     {
-        if (frame.width <= 0 || frame.height <= 0 || frame.rgba.empty()) {
+        if (frame.width <= 0 || frame.height <= 0 || frame.y == nullptr
+            || frame.u == nullptr || frame.v == nullptr) {
             return;
         }
+        // Non-black content shows up as luma above the video black level;
+        // publisher identity shows up in chroma: for BT.601,
+        // V - U ~= 0.587 R - 0.077 G - 0.510 B, so a red frame scores high
+        // positive and a blue frame negative.
         size_t colored = 0;
-        uint64_t red_sum = 0;
-        uint64_t blue_sum = 0;
-        for (size_t i = 0; i + 3 < frame.rgba.size(); i += 4) {
-            red_sum += frame.rgba[i];
-            blue_sum += frame.rgba[i + 2];
-            if (frame.rgba[i] > 20 || frame.rgba[i + 1] > 20
-                || frame.rgba[i + 2] > 20) {
-                ++colored;
+        for (int row = 0; row < frame.height; ++row) {
+            const uint8_t* line = frame.y + static_cast<size_t>(row) * static_cast<size_t>(frame.y_stride);
+            for (int col = 0; col < frame.width; ++col) {
+                if (line[col] > 32) {
+                    ++colored;
+                }
             }
         }
         if (colored == 0) {
             return;
+        }
+        uint64_t u_sum = 0;
+        uint64_t v_sum = 0;
+        const int chroma_width = frame.chroma_width();
+        const int chroma_height = frame.chroma_height();
+        for (int row = 0; row < chroma_height; ++row) {
+            const uint8_t* u_line = frame.u + static_cast<size_t>(row) * static_cast<size_t>(frame.u_stride);
+            const uint8_t* v_line = frame.v + static_cast<size_t>(row) * static_cast<size_t>(frame.v_stride);
+            for (int col = 0; col < chroma_width; ++col) {
+                u_sum += u_line[col];
+                v_sum += v_line[col];
+            }
         }
         {
             std::scoped_lock lock(mutex_);
             auto& observation = observations_[std::string(mid)];
             ++observation.frames;
             observation.colored_pixels += colored;
-            observation.red_sum += red_sum;
-            observation.blue_sum += blue_sum;
-            observation.sampled_pixels += frame.rgba.size() / 4;
+            observation.u_sum += u_sum;
+            observation.v_sum += v_sum;
+            observation.sampled_pixels += static_cast<size_t>(chroma_width)
+                * static_cast<size_t>(chroma_height);
             observation.width = frame.width;
             observation.height = frame.height;
         }
@@ -115,16 +131,18 @@ public:
         size_t colored_pixels = 0;
         int width = 0;
         int height = 0;
-        uint64_t red_sum = 0;
-        uint64_t blue_sum = 0;
+        uint64_t u_sum = 0;
+        uint64_t v_sum = 0;
         size_t sampled_pixels = 0;
 
-        [[nodiscard]] double red_minus_blue() const
+        // Mean chroma difference; positive = red-dominant content,
+        // negative/low = blue-dominant. Roughly 0.55x the old RGB R-B metric.
+        [[nodiscard]] double v_minus_u() const
         {
             return sampled_pixels == 0
                 ? 0.0
-                : (static_cast<double>(red_sum)
-                      - static_cast<double>(blue_sum))
+                : (static_cast<double>(v_sum)
+                      - static_cast<double>(u_sum))
                     / static_cast<double>(sampled_pixels);
         }
     };
@@ -384,11 +402,13 @@ TEST_F(GoogleWebRtcScreenTransportTest,
         for (const auto& [publisher, mids] : mids_by_publisher) {
             if (mids.contains(mid)) {
                 video_publishers.insert(publisher);
+                // Expected means from make_bgra_frame: seed 31 (red-heavy)
+                // scores V-U ~= +85, seed 113 (blue-heavy) ~= +15.
                 if (publisher == first_transport.local_id()) {
-                    EXPECT_GT(observation.red_minus_blue(), 90.0)
+                    EXPECT_GT(observation.v_minus_u(), 60.0)
                         << "first publisher decoded on wrong mid " << mid;
                 } else if (publisher == second_transport.local_id()) {
-                    EXPECT_LT(observation.red_minus_blue(), 65.0)
+                    EXPECT_LT(observation.v_minus_u(), 35.0)
                         << "second publisher decoded on wrong mid " << mid;
                 }
             }
@@ -595,12 +615,14 @@ TEST_F(GoogleWebRtcScreenTransportTest,
 
     GoogleWebRtcClient viewer(viewer_transport,
         GoogleWebRtcClient::Callbacks {
-            .on_frame = [&decoded_publishers](const std::string& peer,
-                            const uint8_t*, int width, int height) {
-                if (width > 0 && height > 0) {
-                    decoded_publishers.push(peer);
-                }
-            },
+            .on_frame =
+                [&decoded_publishers](const std::string& peer,
+                    const driscord::media::DecodedVideoFrameView& frame) {
+                    if (frame.width > 0 && frame.height > 0
+                        && frame.y != nullptr) {
+                        decoded_publishers.push(peer);
+                    }
+                },
             .on_frame_removed = { },
         });
     viewer_transport.on_streaming_started(

@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtMultimedia
 
 Rectangle {
     id: root
@@ -180,7 +181,26 @@ Rectangle {
                             && (isYou
                                 || appState.watchedPeerIds.indexOf(modelData.id) !== -1)
                     property bool hasFrame: false
-                    onWatchingChanged: if (!watching) hasFrame = false
+                    // The sink is registered only while this tile actually
+                    // watches the stream, so an unwatched tile costs nothing.
+                    property string boundPeerId: ""
+                    function syncSink() {
+                        var want = tile.isStream && tile.watching
+                            ? modelData.id : ""
+                        if (want === tile.boundPeerId) return
+                        if (tile.boundPeerId !== "")
+                            bridge.unregisterVideoSink(
+                                tile.boundPeerId, tileVideo.videoSink)
+                        tile.boundPeerId = want
+                        tile.hasFrame = false
+                        if (tile.boundPeerId !== "")
+                            bridge.registerVideoSink(
+                                tile.boundPeerId, tileVideo.videoSink)
+                    }
+                    onWatchingChanged: syncSink()
+                    Component.onDestruction: if (boundPeerId !== "")
+                        bridge.unregisterVideoSink(
+                            boundPeerId, tileVideo.videoSink)
 
                     // Peer tile background: a single solid color sampled from
                     // the avatar (1×1 downscale, computed once in C++ and cached).
@@ -220,19 +240,25 @@ Rectangle {
                     }
 
                     // ---- Stream tile contents ----
-                    Image {
-                        id: videoImg
+                    VideoOutput {
+                        id: tileVideo
                         anchors.fill: parent
-                        fillMode: Image.PreserveAspectFit
-                        cache: false
-                        source: tile.watching && tile.hasFrame ? ("image://frames/" + modelData.id) : ""
-                        visible: tile.isStream && tile.watching && tile.hasFrame && status === Image.Ready
+                        fillMode: VideoOutput.PreserveAspectFit
+                        visible: tile.isStream && tile.watching && tile.hasFrame
+                        Component.onCompleted: tile.syncSink()
+                    }
+                    Connections {
+                        target: tileVideo.videoSink
+                        function onVideoFrameChanged() {
+                            tile.hasFrame
+                                = tileVideo.videoSink.videoFrame.isValid
+                        }
                     }
 
                     ColumnLayout {
                         anchors.centerIn: parent
                         spacing: 4
-                        visible: tile.isStream && !videoImg.visible
+                        visible: tile.isStream && !tileVideo.visible
                         Text {
                             visible: tile.watching
                             text: qsTr("Buffering…")
@@ -314,23 +340,6 @@ Rectangle {
                         }
                     }
 
-                    Connections {
-                        target: bridge
-                        enabled: tile.isStream
-                        function onFrameUpdated(pid) {
-                            if (pid === modelData.id && tile.watching) {
-                                tile.hasFrame = true
-                                videoImg.source = ""
-                                videoImg.source = "image://frames/" + modelData.id
-                            }
-                        }
-                        function onFrameRemoved(pid) {
-                            if (pid === modelData.id) {
-                                tile.hasFrame = false
-                                videoImg.source = ""
-                            }
-                        }
-                    }
                 }
             }
 
@@ -380,20 +389,24 @@ Rectangle {
                         }
                     }
 
-                    // ---- Stream content: live video frame ----
-                    Image {
-                        id: expandedImage
+                    // ---- Stream content: live video frames ----
+                    VideoOutput {
+                        id: expandedVideo
                         anchors.fill: parent
-                        fillMode: Image.PreserveAspectFit
-                        cache: false
-                        source: expandedView.isStream && root.expandedHasFrame
-                                ? ("image://frames/" + root.expandedPeerId) : ""
-                        visible: expandedView.isStream && status === Image.Ready
+                        fillMode: VideoOutput.PreserveAspectFit
+                        visible: expandedView.isStream && root.expandedHasFrame
+                    }
+                    Connections {
+                        target: expandedVideo.videoSink
+                        function onVideoFrameChanged() {
+                            root.expandedHasFrame
+                                = expandedVideo.videoSink.videoFrame.isValid
+                        }
                     }
 
                     Text {
                         anchors.centerIn: parent
-                        visible: expandedView.isStream && !expandedImage.visible
+                        visible: expandedView.isStream && !expandedVideo.visible
                         text: qsTr("Buffering…")
                         color: "#b9bbbe"
                         font.pixelSize: 18
@@ -464,22 +477,27 @@ Rectangle {
                     }
                 }
 
-                // Live frame updates only matter for stream expansion.
+                // The expanded sink follows the expanded stream identity.
+                property string boundPeerId: ""
+                function syncSink() {
+                    var want = expandedView.isStream ? root.expandedPeerId : ""
+                    if (want === expandedView.boundPeerId) return
+                    if (expandedView.boundPeerId !== "")
+                        bridge.unregisterVideoSink(
+                            expandedView.boundPeerId, expandedVideo.videoSink)
+                    expandedView.boundPeerId = want
+                    if (expandedView.boundPeerId !== "")
+                        bridge.registerVideoSink(
+                            expandedView.boundPeerId, expandedVideo.videoSink)
+                }
+                Component.onCompleted: syncSink()
+                Component.onDestruction: if (boundPeerId !== "")
+                    bridge.unregisterVideoSink(
+                        boundPeerId, expandedVideo.videoSink)
                 Connections {
-                    target: bridge
-                    enabled: expandedView.isStream
-                    function onFrameUpdated(pid) {
-                        if (pid !== root.expandedPeerId) return
-                        root.expandedHasFrame = true
-                        expandedImage.source = ""
-                        expandedImage.source = "image://frames/" + root.expandedPeerId
-                    }
-                    function onFrameRemoved(pid) {
-                        if (pid === root.expandedPeerId) {
-                            root.expandedHasFrame = false
-                            expandedImage.source = ""
-                        }
-                    }
+                    target: root
+                    function onExpandedPeerIdChanged() { expandedView.syncSink() }
+                    function onExpandedKindChanged() { expandedView.syncSink() }
                 }
 
                 // Auto-collapse stream expansion if the stream goes away or is

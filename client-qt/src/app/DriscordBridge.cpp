@@ -7,6 +7,9 @@
 #include <QThread>
 #include <QThreadPool>
 #include <QUrl>
+#include <QVideoFrame>
+#include <QVideoFrameFormat>
+#include <QVideoSink>
 
 #include "driscord_core.hpp"
 
@@ -72,16 +75,53 @@ DriscordBridge::DriscordBridge(
         [this](const std::string& id, signaling::WatchRejectReason reason) {
             QMetaObject::invokeMethod(this, [this, id = QString::fromStdString(id), reason = QString::fromStdString(std::string(signaling::to_string(reason)))] { emit streamWatchRejected(id, reason); }, Qt::QueuedConnection);
         });
-    m_core->set_on_frame([this](const std::string& id, const uint8_t* rgba, int w, int h) {
-        QString qid = QString::fromStdString(id);
-        if (m_frameProvider)
-            m_frameProvider->updateFrame(qid, rgba, w, h);
-        QMetaObject::invokeMethod(this, [this, qid] { emit frameUpdated(qid); }, Qt::QueuedConnection);
+    m_core->set_on_frame([this](const std::string& id,
+                             const DriscordCore::VideoFrameView& f) {
+        // Decoder thread. One copy of the planes into a mappable QVideoFrame;
+        // colour conversion is the render shader's job.
+        QMutexLocker lock(&m_sinkMutex);
+        const QList<QVideoSink*> sinks
+            = m_videoSinks.value(QString::fromStdString(id));
+        if (sinks.isEmpty())
+            return;
+        QVideoFrame frame(QVideoFrameFormat(
+            QSize(f.width, f.height), QVideoFrameFormat::Format_YUV420P));
+        if (!frame.map(QVideoFrame::WriteOnly))
+            return;
+        const struct {
+            const uint8_t* data;
+            int stride;
+            int rows;
+            int row_bytes;
+        } planes[3] = {
+            { f.y, f.y_stride, f.height, f.width },
+            { f.u, f.u_stride, f.chroma_height(), f.chroma_width() },
+            { f.v, f.v_stride, f.chroma_height(), f.chroma_width() },
+        };
+        for (int plane = 0; plane < 3; ++plane) {
+            uchar* dst = frame.bits(plane);
+            const int dstStride = frame.bytesPerLine(plane);
+            for (int row = 0; row < planes[plane].rows; ++row) {
+                memcpy(dst + static_cast<size_t>(row) * dstStride,
+                    planes[plane].data
+                        + static_cast<size_t>(row) * planes[plane].stride,
+                    planes[plane].row_bytes);
+            }
+        }
+        frame.unmap();
+        // Tile and expanded view can watch the same peer at once; QVideoFrame
+        // is implicitly shared, so the extra sinks are free.
+        for (QVideoSink* sink : sinks)
+            sink->setVideoFrame(frame);
     });
     m_core->set_on_frame_removed([this](const std::string& id) {
         QString qid = QString::fromStdString(id);
-        if (m_frameProvider)
-            m_frameProvider->removeFrame(qid);
+        {
+            // Clear the last picture so a re-watch does not flash stale video.
+            QMutexLocker lock(&m_sinkMutex);
+            for (QVideoSink* sink : m_videoSinks.value(qid))
+                sink->setVideoFrame(QVideoFrame());
+        }
         QMetaObject::invokeMethod(this, [this, qid] { emit frameRemoved(qid); }, Qt::QueuedConnection);
     });
 }
@@ -103,13 +143,48 @@ void DriscordBridge::shutdown()
     m_core->deinit_screen_session();
     m_core->voice_stop();
     m_core->transport.disconnect();
-    m_frameProvider = nullptr;
+    {
+        QMutexLocker lock(&m_sinkMutex);
+        m_videoSinks.clear();
+    }
     m_thumbnailProvider = nullptr;
     m_core.reset();
 }
 
-void DriscordBridge::setFrameProvider(FrameProvider* fp) { m_frameProvider = fp; }
 void DriscordBridge::setThumbnailProvider(ThumbnailProvider* tp) { m_thumbnailProvider = tp; }
+
+void DriscordBridge::registerVideoSink(const QString& peerId, QVideoSink* sink)
+{
+    if (peerId.isEmpty() || sink == nullptr)
+        return;
+    {
+        QMutexLocker lock(&m_sinkMutex);
+        auto& sinks = m_videoSinks[peerId];
+        if (!sinks.contains(sink))
+            sinks.append(sink);
+    }
+    // Safety net for QML teardown orders that skip unregisterVideoSink.
+    QObject::connect(sink, &QObject::destroyed, this, [this, peerId, sink] {
+        QMutexLocker lock(&m_sinkMutex);
+        const auto found = m_videoSinks.find(peerId);
+        if (found != m_videoSinks.end()) {
+            found->removeAll(sink);
+            if (found->isEmpty())
+                m_videoSinks.erase(found);
+        }
+    });
+}
+
+void DriscordBridge::unregisterVideoSink(const QString& peerId, QVideoSink* sink)
+{
+    QMutexLocker lock(&m_sinkMutex);
+    const auto found = m_videoSinks.find(peerId);
+    if (found != m_videoSinks.end()) {
+        found->removeAll(sink);
+        if (found->isEmpty())
+            m_videoSinks.erase(found);
+    }
+}
 
 void DriscordBridge::requestThumbnail(const QString& targetJson, int maxW, int maxH)
 {

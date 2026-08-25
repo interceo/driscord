@@ -7,6 +7,7 @@
 #include "api/scoped_refptr.h"
 #include "api/video/adapted_video_track_source.h"
 #include "api/video/video_sink_interface.h"
+#include "common_video/include/video_frame_buffer_pool.h"
 #include "modules/desktop_capture/desktop_capturer.h"
 
 #include <atomic>
@@ -74,6 +75,10 @@ private:
     std::atomic<bool> capture_failed_ { false };
     std::atomic<int> max_width_ { 0 };
     std::atomic<int> max_height_ { 0 };
+    // Recycles I420 buffers between frames instead of allocating one (or
+    // two, when adaptation crops/scales) per frame. Frames arrive from a
+    // single producer at a time — the capture thread or the test feeder.
+    webrtc::VideoFrameBufferPool buffer_pool_;
 };
 
 class DecodedVideoSink final
@@ -90,8 +95,6 @@ public:
 private:
     const std::string mid_;
     const Callback callback_;
-    std::mutex buffer_mutex_;
-    std::vector<uint8_t> rgba_;
 };
 
 // Optional sink for the publisher's own source track. It is attached only

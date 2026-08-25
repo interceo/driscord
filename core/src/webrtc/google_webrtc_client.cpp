@@ -797,7 +797,7 @@ struct GoogleWebRtcClient::Impl
             on_frame = callbacks.on_frame;
         }
         if (on_frame) {
-            on_frame(peer, frame.rgba.data(), frame.width, frame.height);
+            on_frame(peer, frame);
         }
     }
 
@@ -816,7 +816,7 @@ struct GoogleWebRtcClient::Impl
             on_frame = callbacks.on_frame;
         }
         if (on_frame) {
-            on_frame(peer, frame.rgba.data(), frame.width, frame.height);
+            on_frame(peer, frame);
         }
     }
 

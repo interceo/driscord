@@ -17,7 +17,6 @@
 #include "app/AppState.h"
 #include "app/AvatarTintProvider.h"
 #include "app/DriscordBridge.h"
-#include "app/FrameProvider.h"
 #include "app/ThumbnailProvider.h"
 #include "driscord/client_build_config.hpp"
 #include "driscord/version.hpp"
@@ -83,17 +82,14 @@ int main(int argc, char* argv[])
         auto* serverRepo = new ServerRepository(apiClient, &app);
         auto* userRepo = new UserRepository(apiClient, &app);
         auto* bridge = new DriscordBridge(&app, cfg.iceServers);
-        auto* frameProvider = new FrameProvider;
         auto* thumbProvider = new ThumbnailProvider;
         auto* avatarTint = new AvatarTintProvider(&app);
         auto* appState = new AppState(authManager, serverRepo, userRepo, bridge,
             signalingUrl, apiBaseUrl, &app);
 
-        bridge->setFrameProvider(frameProvider);
         bridge->setThumbnailProvider(thumbProvider);
 
         QQmlApplicationEngine engine;
-        engine.addImageProvider("frames", frameProvider);
         engine.addImageProvider("thumbs", thumbProvider);
         engine.rootContext()->setContextProperty("appState", appState);
         engine.rootContext()->setContextProperty("authManager", authManager);

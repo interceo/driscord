@@ -42,12 +42,31 @@ struct ScreenSessionConfig {
     int max_system_audio_bitrate_bps = 128'000;
 };
 
+// Decoded frame as the three I420 planes the decoder produced. Pointers are
+// borrowed and valid only for the duration of the callback; consumers that
+// keep the frame (for rendering on another thread) must copy the planes.
+// Handing out planes instead of RGBA keeps the decoder thread free of a
+// per-frame colour conversion — YUV->RGB happens on the GPU at render time.
 struct DecodedVideoFrameView {
-    // RGBA, tightly packed, valid only for the duration of on_remote_video.
-    std::span<const uint8_t> rgba;
+    const uint8_t* y = nullptr;
+    const uint8_t* u = nullptr;
+    const uint8_t* v = nullptr;
+    int y_stride = 0;
+    int u_stride = 0;
+    int v_stride = 0;
     int width = 0;
     int height = 0;
     int64_t timestamp_us = 0;
+
+    // Chroma plane dimensions (4:2:0).
+    [[nodiscard]] int chroma_width() const noexcept
+    {
+        return (width + 1) / 2;
+    }
+    [[nodiscard]] int chroma_height() const noexcept
+    {
+        return (height + 1) / 2;
+    }
 };
 
 struct ScreenInboundRtpStats {

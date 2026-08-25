@@ -117,7 +117,10 @@ bool DesktopVideoSource::submit_bgra(std::span<const uint8_t> bgra,
         return false;
     }
 
-    auto input = webrtc::I420Buffer::Create(width, height);
+    auto input = buffer_pool_.CreateI420Buffer(width, height);
+    if (!input) {
+        return false;
+    }
     // libyuv's ARGB name denotes the register word; on little-endian desktop
     // platforms its byte layout is exactly the BGRA emitted by DesktopFrame.
     if (libyuv::ARGBToI420(bgra.data(), stride, input->MutableDataY(),
@@ -131,7 +134,10 @@ bool DesktopVideoSource::submit_bgra(std::span<const uint8_t> bgra,
     if (crop_x != 0 || crop_y != 0 || crop_width != width
         || crop_height != height || out_width != width
         || out_height != height) {
-        auto adapted = webrtc::I420Buffer::Create(out_width, out_height);
+        auto adapted = buffer_pool_.CreateI420Buffer(out_width, out_height);
+        if (!adapted) {
+            return false;
+        }
         adapted->CropAndScaleFrom(*input, crop_x, crop_y, crop_width,
             crop_height);
         output = std::move(adapted);
@@ -385,25 +391,22 @@ void DecodedVideoSink::OnFrame(const webrtc::VideoFrame& frame)
     if (!callback_) {
         return;
     }
+    // ToI420 is a no-op for the decoder's native output; the buffer keeps the
+    // planes alive for the duration of the callback. No conversion, no lock:
+    // the consumer copies (or uploads) what it needs.
     auto i420 = frame.video_frame_buffer()->ToI420();
     if (!i420 || i420->width() <= 0 || i420->height() <= 0) {
         return;
     }
-    const int width = i420->width();
-    const int height = i420->height();
-    std::scoped_lock lock(buffer_mutex_);
-    rgba_.resize(static_cast<size_t>(width) * static_cast<size_t>(height) * 4);
-    // ABGR's little-endian byte layout is RGBA, matching the public view.
-    if (libyuv::I420ToABGR(i420->DataY(), i420->StrideY(), i420->DataU(),
-            i420->StrideU(), i420->DataV(), i420->StrideV(), rgba_.data(),
-            width * 4, width, height)
-        != 0) {
-        return;
-    }
     callback_(mid_, DecodedVideoFrameView {
-                        .rgba = rgba_,
-                        .width = width,
-                        .height = height,
+                        .y = i420->DataY(),
+                        .u = i420->DataU(),
+                        .v = i420->DataV(),
+                        .y_stride = i420->StrideY(),
+                        .u_stride = i420->StrideU(),
+                        .v_stride = i420->StrideV(),
+                        .width = i420->width(),
+                        .height = i420->height(),
                         .timestamp_us = frame.timestamp_us(),
                     });
 }
