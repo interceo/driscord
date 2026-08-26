@@ -95,6 +95,37 @@
       }
     },
     {
+      "name": "base-windows",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/.builds/$env{DRISCORD_BUILD_TAG}${presetName}",
+      "warnings": { "dev": false },
+      "toolchainFile": "${sourceDir}/cmake/toolchain/windows-clang-cl.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_PREFIX_PATH": "$env{DRISCORD_QT_WIN_ROOT}",
+        "QT_HOST_PATH": "$env{QT_HOST_PATH}",
+        "BUILD_CORE": "ON",
+        "BUILD_SERVER": "OFF",
+        "BUILD_TESTS": "OFF",
+        "BUILD_QT_CLIENT": "ON"
+      },
+      "description": "Cross build to Windows x64: clang-cl/lld-link/llvm-* from PATH against DRISCORD_MSVC_SYSROOT (see cmake/toolchain/windows-clang-cl.cmake). Deliberately not inheriting base — it pins clang/clang++. Inputs from the environment, like every other preset: DRISCORD_MSVC_SYSROOT, DRISCORD_QT_WIN_ROOT (Qt msvc2019_64), QT_HOST_PATH (Linux Qt of the same version for moc/rcc/qmlcachegen), BOOST_ROOT, DRISCORD_WEBRTC_SDK_ROOT (windows SDK export). The server does not build for Windows; tests need a Windows runtime."
+    },
+    {
+      "name": "client-windows",
+      "inherits": "base-windows",
+      "displayName": "Qt/QML client (Windows x64 cross)"
+    },
+    {
+      "name": "windows-release",
+      "inherits": "client-windows",
+      "displayName": "Portable Windows client package",
+      "description": "Cross-builds and packages the client as a zip: curated Qt plugin/QML deploy plus a GET_RUNTIME_DEPENDENCIES closure over the staged tree. Also needs DRISCORD_MSVC_REDIST_DIR (Microsoft.VC143.CRT DLLs) for the /MD Qt libraries.",
+      "cacheVariables": { "DRISCORD_ENABLE_PACKAGING": "ON" }
+    },
+    {
       "name": "server-debug",
       "inherits": "server",
       "displayName": "Signaling server (debug)",
@@ -130,6 +161,16 @@
       "targets": ["driscord_client", "driscord_launcher"]
     },
     {
+      "name": "client-windows",
+      "configurePreset": "client-windows",
+      "targets": ["driscord_client"]
+    },
+    {
+      "name": "windows-release",
+      "configurePreset": "windows-release",
+      "targets": ["driscord_client"]
+    },
+    {
       "name": "server-debug",
       "configurePreset": "server-debug",
       "targets": ["driscord_server"]
@@ -145,6 +186,11 @@
       "name": "linux-release",
       "configurePreset": "linux-release",
       "generators": ["TGZ"]
+    },
+    {
+      "name": "windows-release",
+      "configurePreset": "windows-release",
+      "generators": ["ZIP"]
     }
   ],
   "testPresets": [
@@ -262,11 +308,26 @@
       ]
     },
     {
+      "name": "client-windows",
+      "steps": [
+        { "type": "configure", "name": "client-windows" },
+        { "type": "build", "name": "client-windows" }
+      ]
+    },
+    {
       "name": "linux-release",
       "steps": [
         { "type": "configure", "name": "linux-release" },
         { "type": "build", "name": "linux-release" },
         { "type": "package", "name": "linux-release" }
+      ]
+    },
+    {
+      "name": "windows-release",
+      "steps": [
+        { "type": "configure", "name": "windows-release" },
+        { "type": "build", "name": "windows-release" },
+        { "type": "package", "name": "windows-release" }
       ]
     }
   ]

@@ -106,10 +106,40 @@ else()
     set(NO_MEDIA ON CACHE BOOL "" FORCE)
 endif()
 # BoringSSL in Google's complete static archive intentionally exports the same
-# C symbols as OpenSSL. The Qt client still uses libdatachannel's WebSocket, so
-# its DSO is built with GnuTLS to prevent TLS symbol interposition. A standalone
-# server build remains on libdatachannel's default OpenSSL backend.
-if(BUILD_CORE)
+# C symbols as OpenSSL. On Linux the Qt client therefore isolates
+# libdatachannel's WebSocket in a GnuTLS DSO to prevent ELF symbol
+# interposition. A PE link resolves symbols per module and the client's
+# libdatachannel carries no libSRTP (NO_MEDIA above), so the Windows client
+# links libdatachannel statically with MbedTLS instead — mbedtls_* symbols are
+# disjoint from BoringSSL's OpenSSL-style exports, and MbedTLS cross-compiles
+# with clang-cl where GnuTLS does not. A standalone server build remains on
+# libdatachannel's default OpenSSL backend.
+if(BUILD_CORE AND WIN32)
+    set(USE_GNUTLS OFF CACHE BOOL "Use GnuTLS instead of OpenSSL" FORCE)
+    set(USE_MBEDTLS ON CACHE BOOL "Use Mbed TLS instead of OpenSSL" FORCE)
+    unset(OPENSSL CACHE)
+    unset(NSS CACHE)
+    # libdatachannel v0.24.5 skips find_package(MbedTLS) entirely when the
+    # MbedTLS::MbedTLS target already exists, so the pinned FetchContent
+    # build below is the whole integration.
+    set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
+    set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+    set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "" FORCE)
+    # PUBLIC define on the MbedTLS targets, so libdatachannel sees the same
+    # configuration (it needs the DTLS-SRTP API compiled in).
+    set(MBEDTLS_USER_CONFIG_FILE
+        "${CMAKE_SOURCE_DIR}/cmake/mbedtls_user_config.h" CACHE FILEPATH "" FORCE)
+    FetchContent_Declare(
+        mbedtls
+        GIT_REPOSITORY https://github.com/Mbed-TLS/mbedtls.git
+        GIT_TAG        v3.6.7
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(mbedtls)
+    if(NOT TARGET MbedTLS::MbedTLS)
+        add_library(MbedTLS::MbedTLS ALIAS mbedtls)
+    endif()
+elseif(BUILD_CORE)
     set(USE_GNUTLS ON CACHE BOOL "Use GnuTLS instead of OpenSSL" FORCE)
     set(USE_MBEDTLS OFF CACHE BOOL "Use Mbed TLS instead of OpenSSL" FORCE)
     set(ENABLE_OPENSSL OFF CACHE BOOL
@@ -148,18 +178,20 @@ FetchContent_Declare(
         "-DPATCH_FILE=${CMAKE_SOURCE_DIR}/third_party/patches/libdatachannel-gnutls-partial-write.patch"
         -P "${CMAKE_SOURCE_DIR}/cmake/ApplyGitPatch.cmake"
 )
-# In the client process libdatachannel must be a shared isolation boundary.
-# Both projects embed libSRTP and intentionally expose the same C
+# In the Linux client process libdatachannel must be a shared isolation
+# boundary. Both projects embed libSRTP and intentionally expose the same C
 # API; linking both static archives into one executable either produces
 # duplicate definitions or, depending on archive order, silently mixes their
 # process-global state. Keep libdatachannel's bundled dependencies local to
-# its DSO below. Other builds retain the project's explicit static target.
-if(BUILD_CORE)
+# its DSO below. The Windows client and server builds retain the project's
+# explicit static target — a DSO boundary there would put std:: types of the
+# rtc::WebSocket API across two static CRT heaps.
+if(BUILD_CORE AND NOT WIN32)
     set(_driscord_saved_build_shared_libs "${BUILD_SHARED_LIBS}")
     set(BUILD_SHARED_LIBS ON)
 endif()
 FetchContent_MakeAvailable(libdatachannel)
-if(BUILD_CORE)
+if(BUILD_CORE AND NOT WIN32)
     set(BUILD_SHARED_LIBS "${_driscord_saved_build_shared_libs}")
     unset(_driscord_saved_build_shared_libs)
     set(DRISCORD_LIBDATACHANNEL_TARGET datachannel)
@@ -173,9 +205,9 @@ else()
     set(DRISCORD_LIBDATACHANNEL_TARGET datachannel-static)
 endif()
 
-# The non-WebRTC build links the explicit static target everywhere. Upstream's
-# shared target would otherwise compile the stack a second time unused.
-if(TARGET datachannel AND NOT BUILD_CORE)
+# Builds that link the explicit static target leave upstream's shared target
+# unbuilt; it would otherwise compile the stack a second time unused.
+if(TARGET datachannel AND NOT DRISCORD_LIBDATACHANNEL_TARGET STREQUAL "datachannel")
     set_target_properties(datachannel PROPERTIES EXCLUDE_FROM_ALL TRUE)
 endif()
 
@@ -262,11 +294,13 @@ if(DRISCORD_ENABLE_PACKAGING)
         message(FATAL_ERROR
             "DRISCORD_ENABLE_PACKAGING requires BUILD_QT_CLIENT=ON")
     endif()
-    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux"
-        OR NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64)$")
+    string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" _driscord_package_processor)
+    if(NOT CMAKE_SYSTEM_NAME MATCHES "^(Linux|Windows)$"
+        OR NOT _driscord_package_processor MATCHES "^(x86_64|amd64)$")
         message(FATAL_ERROR
-            "The release package currently supports Linux x86_64 only")
+            "The release package supports Linux and Windows x86_64 only")
     endif()
+    unset(_driscord_package_processor)
 
     set(_driscord_default_package_dir "${CMAKE_BINARY_DIR}/packages")
     if(DEFINED ENV{DRISCORD_RELEASE_STAGING}
@@ -276,12 +310,23 @@ if(DRISCORD_ENABLE_PACKAGING)
     set(DRISCORD_RELEASE_STAGING "${_driscord_default_package_dir}"
         CACHE PATH "Directory for generated release artifacts")
 
-    set(CPACK_GENERATOR "TGZ")
+    if(WIN32)
+        set(CPACK_GENERATOR "ZIP")
+        set(_driscord_package_basename
+            "driscord-client-${DRISCORD_VERSION_DISPLAY}-windows-x86_64")
+        set(_driscord_verify_script
+            "${CMAKE_SOURCE_DIR}/cmake/VerifyPackageWindows.cmake")
+    else()
+        set(CPACK_GENERATOR "TGZ")
+        set(_driscord_package_basename
+            "driscord-client-${DRISCORD_VERSION_DISPLAY}-linux-x86_64")
+        set(_driscord_verify_script
+            "${CMAKE_SOURCE_DIR}/cmake/VerifyPackage.cmake")
+    endif()
     set(CPACK_PACKAGE_NAME "driscord-client")
     set(CPACK_PACKAGE_VENDOR "Driscord")
     set(CPACK_PACKAGE_VERSION "${DRISCORD_VERSION_DISPLAY}")
-    set(CPACK_PACKAGE_FILE_NAME
-        "driscord-client-${DRISCORD_VERSION_DISPLAY}-linux-x86_64")
+    set(CPACK_PACKAGE_FILE_NAME "${_driscord_package_basename}")
     set(CPACK_PACKAGE_DIRECTORY "${DRISCORD_RELEASE_STAGING}")
     set(CPACK_PACKAGE_CHECKSUM "SHA256")
     # CPack otherwise switches back to a monolithic install when only one
@@ -291,11 +336,11 @@ if(DRISCORD_ENABLE_PACKAGING)
     set(CPACK_COMPONENTS_ALL Runtime)
     set(CPACK_ARCHIVE_COMPONENT_INSTALL ON)
     set(CPACK_COMPONENTS_GROUPING ALL_COMPONENTS_IN_ONE)
-    set(CPACK_ARCHIVE_FILE_NAME
-        "driscord-client-${DRISCORD_VERSION_DISPLAY}-linux-x86_64")
+    set(CPACK_ARCHIVE_FILE_NAME "${_driscord_package_basename}")
     set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY ON)
-    set(CPACK_PRE_BUILD_SCRIPTS
-        "${CMAKE_SOURCE_DIR}/cmake/VerifyPackage.cmake")
+    set(CPACK_PRE_BUILD_SCRIPTS "${_driscord_verify_script}")
     include(CPack)
+    unset(_driscord_verify_script)
+    unset(_driscord_package_basename)
     unset(_driscord_default_package_dir)
 endif()

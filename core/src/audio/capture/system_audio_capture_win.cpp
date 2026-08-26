@@ -22,7 +22,7 @@
 
 #if DRIST_HAS_PROCESS_LOOPBACK
 
-class LoopbackActivationHandler
+class LoopbackActivationHandler final
     : public IActivateAudioInterfaceCompletionHandler {
 public:
     LoopbackActivationHandler()

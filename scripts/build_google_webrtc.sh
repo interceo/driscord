@@ -16,8 +16,37 @@ DEPOT_TOOLS_REVISION="$(tr -d '[:space:]' < "$DEPOT_TOOLS_REVISION_FILE")"
 DEPOT_TOOLS_DIR="${DRISCORD_DEPOT_TOOLS_DIR:-$PROJECT_ROOT/.cache/depot_tools}"
 CHECKOUT_ROOT="${DRISCORD_WEBRTC_CHECKOUT_ROOT:-$PROJECT_ROOT/.cache/google-webrtc}"
 SOURCE_DIR="$CHECKOUT_ROOT/src"
-OUT_DIR="${DRISCORD_WEBRTC_OUT_DIR:-$SOURCE_DIR/out/driscord-release}"
-SDK_ROOT="${DRISCORD_WEBRTC_SDK_ROOT:-$PROJECT_ROOT/.cache/google-webrtc-sdk}"
+# One checkout serves both targets; only the GN out directory and the exported
+# SDK differ. The Windows cross build consumes a packaged MSVC+SDK layout in
+# the package_from_installed.py format (as produced by `xwin splat
+# --use-winsysroot-style --preserve-ms-arch-notation` plus the SetEnv json):
+# GN resolves it through build/win_toolchain.json, clang through /winsysroot.
+TARGET="${DRISCORD_WEBRTC_TARGET:-linux}"
+case "$TARGET" in
+linux)
+    OUT_DIR="${DRISCORD_WEBRTC_OUT_DIR:-$SOURCE_DIR/out/driscord-release}"
+    SDK_ROOT="${DRISCORD_WEBRTC_SDK_ROOT:-$PROJECT_ROOT/.cache/google-webrtc-sdk}"
+    ;;
+windows)
+    OUT_DIR="${DRISCORD_WEBRTC_OUT_DIR:-$SOURCE_DIR/out/driscord-release-win}"
+    SDK_ROOT="${DRISCORD_WEBRTC_SDK_ROOT:-$PROJECT_ROOT/.cache/google-webrtc-sdk-win}"
+    MSVC_SYSROOT="${DRISCORD_MSVC_SYSROOT:?the windows target needs DRISCORD_MSVC_SYSROOT}"
+    # GN and clang receive this path verbatim; keep it absolute.
+    MSVC_SYSROOT="$(cd "$MSVC_SYSROOT" && pwd)"
+    for probe in "VC/Tools/MSVC" "Windows Kits/10/bin/SetEnv.x64.json"; do
+        if [ ! -e "$MSVC_SYSROOT/$probe" ]; then
+            echo "ERROR: $MSVC_SYSROOT is not a packaged MSVC sysroot:" \
+                "$probe is missing" >&2
+            exit 1
+        fi
+    done
+    ;;
+*)
+    echo "ERROR: DRISCORD_WEBRTC_TARGET must be 'linux' or 'windows'," \
+        "got '$TARGET'" >&2
+    exit 1
+    ;;
+esac
 # gclient defaults to max(8, nproc) concurrent clones. On a many-core machine
 # that reliably trips googlesource's anonymous rate limit (HTTP 429,
 # "shared_anonymous") partway through a first sync.
@@ -42,6 +71,8 @@ fi
 git -C "$DEPOT_TOOLS_DIR" checkout --detach --force \
     "$DEPOT_TOOLS_REVISION"
 export DEPOT_TOOLS_UPDATE=0
+# gclient shells out to helpers (cipd, vpython3) that resolve through PATH.
+export PATH="$DEPOT_TOOLS_DIR:$PATH"
 
 if [ ! -f "$CHECKOUT_ROOT/.gclient" ]; then
     echo "==> Creating Google WebRTC checkout..."
@@ -62,6 +93,12 @@ fi
         --custom-var=checkout_configuration=small \
         https://webrtc.googlesource.com/src.git
 )
+# `gclient config` rewrites .gclient, so the target_os line never duplicates.
+# The win entry only adds deps (cross clang runtime); a later linux run does
+# not need to prune them.
+if [ "$TARGET" = windows ]; then
+    printf 'target_os = ["win"]\n' >> "$CHECKOUT_ROOT/.gclient"
+fi
 
 # Leave the checkout clean while gclient moves between revisions.
 if [ -d "$SOURCE_DIR/.git" ]; then
@@ -101,6 +138,35 @@ done
 python3 "$SOURCE_DIR/build/util/lastchange.py" \
     -o "$SOURCE_DIR/build/util/LASTCHANGE"
 
+if [ "$TARGET" = windows ]; then
+    # vs_toolchain.py never probes a Linux host for Visual Studio: an existing
+    # win_toolchain.json whose version matches its packaged expectation
+    # short-circuits the (Google-internal) toolchain download and points GN at
+    # the sysroot. setup_toolchain.py then loads
+    # "Windows Kits/10/bin/SetEnv.x64.json" from it and hands clang and
+    # lld-link a plain /winsysroot.
+    python3 - "$SOURCE_DIR" "$MSVC_SYSROOT" <<'EOF'
+import json
+import sys
+
+source_dir, sysroot = sys.argv[1:3]
+sys.path.insert(0, source_dir + "/build")
+import vs_toolchain
+
+with open(source_dir + "/build/win_toolchain.json", "w") as f:
+    json.dump(
+        {
+            "path": sysroot,
+            "version": vs_toolchain.GetVisualStudioVersion(),
+            "win_sdk": sysroot + "/Windows Kits/10",
+            "wdk": "",
+            "runtime_dirs": [],
+        },
+        f,
+    )
+EOF
+fi
+
 GN_ARGS=$(cat <<'EOF'
 is_debug=false
 is_component_build=false
@@ -115,6 +181,12 @@ symbol_level=0
 EOF
 )
 
+if [ "$TARGET" = windows ]; then
+    GN_ARGS="$GN_ARGS
+target_os=\"win\"
+target_cpu=\"x64\""
+fi
+
 echo "==> Generating GN build..."
 "$SOURCE_DIR/buildtools/linux64/gn" gen "$OUT_DIR" \
     --root="$SOURCE_DIR" --args="$GN_ARGS"
@@ -122,7 +194,11 @@ echo "==> Generating GN build..."
 echo "==> Building //:webrtc..."
 "$SOURCE_DIR/third_party/ninja/ninja" -C "$OUT_DIR" webrtc
 
-ARCHIVE="$OUT_DIR/obj/libwebrtc.a"
+if [ "$TARGET" = windows ]; then
+    ARCHIVE="$OUT_DIR/obj/webrtc.lib"
+else
+    ARCHIVE="$OUT_DIR/obj/libwebrtc.a"
+fi
 if [ ! -f "$ARCHIVE" ]; then
     echo "ERROR: GN completed but $ARCHIVE was not produced" >&2
     exit 1
@@ -146,9 +222,26 @@ cmake -E make_directory "$SDK_STAGING/src"
         | tar --null --files-from=- -cf - \
         | tar -xf - -C "$SDK_STAGING/src"
 )
-cmake -E make_directory "$SDK_STAGING/src/out/driscord-release/obj"
+OUT_REL="${OUT_DIR#"$SOURCE_DIR/"}"
+if [ "$OUT_REL" = "$OUT_DIR" ]; then
+    echo "ERROR: the SDK export expects OUT_DIR under $SOURCE_DIR" >&2
+    exit 1
+fi
+cmake -E make_directory "$SDK_STAGING/src/$OUT_REL/obj"
 cmake -E copy "$ARCHIVE" \
-    "$SDK_STAGING/src/out/driscord-release/obj/libwebrtc.a"
+    "$SDK_STAGING/src/$OUT_REL/obj/$(basename "$ARCHIVE")"
+if [ "$TARGET" = windows ]; then
+    # GN links the archive's compiler-rt intrinsics from the Chromium clang
+    # package; a consumer's clang does not ship Windows builtins, so the SDK
+    # carries them next to the archive.
+    BUILTINS="$(echo "$SOURCE_DIR"/third_party/llvm-build/Release+Asserts/lib/clang/*/lib/windows/clang_rt.builtins-x86_64.lib)"
+    if [ ! -f "$BUILTINS" ]; then
+        echo "ERROR: clang_rt.builtins-x86_64.lib not found in the checkout" >&2
+        exit 1
+    fi
+    cmake -E copy "$BUILTINS" \
+        "$SDK_STAGING/src/$OUT_REL/obj/clang_rt.builtins-x86_64.lib"
+fi
 cmake -E remove_directory "$SDK_ROOT"
 cmake -E rename "$SDK_STAGING" "$SDK_ROOT"
 echo "==> Cacheable WebRTC SDK ready: $SDK_ROOT"

@@ -45,6 +45,7 @@ add_library(driscord_core STATIC
     src/webrtc/google_webrtc_screen_stats.cpp
     src/transport.cpp
     src/utils/ma_device.cpp
+    src/utils/system_ca_bundle.cpp
     ${SYSTEM_AUDIO_SOURCES}
 )
 
@@ -107,8 +108,9 @@ if(APPLE)
         ${COREFOUNDATION_FRAMEWORK}
     )
 elseif(WIN32)
+    # crypt32: utils/system_ca_bundle.cpp serialises the ROOT store to PEM.
     target_link_libraries(driscord_core PRIVATE
-        ole32 ksuser mmdevapi
+        ole32 ksuser mmdevapi crypt32
     )
 elseif(UNIX)
     find_library(PULSE_SIMPLE pulse-simple)

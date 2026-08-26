@@ -23,10 +23,15 @@ cd backend/api && tox                   # Python API tests
 ./scripts/run.sh --api
 ```
 
-Client/core builds currently require Linux x86_64, Clang/lld and the pinned
-Google WebRTC checkout/archive produced by `scripts/build_google_webrtc.sh`.
-Do not restore the deleted MinGW or legacy benchmark paths as fake
-compatibility.
+Client/core builds require Clang and the pinned Google WebRTC SDK produced by
+`scripts/build_google_webrtc.sh`: natively on Linux x86_64, or cross-compiled
+to Windows x64 with `DRISCORD_WEBRTC_TARGET=windows` plus a packaged MSVC
+sysroot (`DRISCORD_MSVC_SYSROOT`, xwin layout — see
+`cmake/toolchain/windows-clang-cl.cmake`). The `client-windows` and
+`windows-release` presets additionally read `DRISCORD_QT_WIN_ROOT` (Qt
+msvc2019_64), `QT_HOST_PATH` (Linux Qt of the same version) and, for
+packaging, `DRISCORD_MSVC_REDIST_DIR`. Do not restore the deleted MinGW or
+legacy benchmark paths as fake compatibility.
 
 Outputs:
 
@@ -133,6 +138,8 @@ public Qt/DriscordCore headers.
   client build, see `PLAN3.md`;
 - add screen simulcast/SVC and SFU layer selection if multi-tile bandwidth
   becomes part of the MVP target;
-- produce pinned Windows/macOS WebRTC artifacts before enabling those clients.
-  The Windows route (build VM, artifact cache, self-hosted release pipeline) is
-  planned in `PLAN3.md`; MinGW stays off the table.
+- wire the Windows cross build into CI: supply-store blobs (msvc-sysroot, Qt
+  msvc kit, WebRTC SDK win, VC redist), a `driscord-win-builder` profile/pool
+  and a `client-windows` bundle in the release-builder policy. The client
+  itself cross-builds and packages already (`windows-release` preset); MinGW
+  stays off the table. macOS remains unplanned.

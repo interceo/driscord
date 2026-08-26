@@ -1,0 +1,7 @@
+# Lowercased names of operating-system DLLs a packaged Windows binary may
+# import without the package shipping them. Shared by the client deploy
+# closure (client-qt/CMakeLists.txt) and cmake/VerifyPackageWindows.cmake so
+# the two gates cannot drift apart. Extend deliberately: a miss fails the
+# package build with the offending name.
+set(DRISCORD_WINDOWS_SYSTEM_DLL_REGEX
+    "^(((api|ext)-ms-[a-z0-9-]+|advapi32|authz|avrt|bcrypt|bcryptprimitives|comctl32|comdlg32|crypt32|cryptbase|d2d1|d3d9|d3d11|d3d12|d3dcompiler_47|dcomp|dbghelp|dnsapi|dwmapi|dwrite|dxgi|dxva2|evr|gdi32|hid|imagehlp|imm32|iphlpapi|kernel32|ksuser|mf|mfcore|mfplat|mfreadwrite|mmdevapi|mpr|msdmo|msvcrt|ncrypt|netapi32|ntdll|ole32|oleaut32|opengl32|powrprof|propsys|psapi|rpcrt4|secur32|setupapi|shcore|shell32|shlwapi|user32|userenv|uxtheme|version|winhttp|wininet|winmm|winspool|wldap32|ws2_32|wsock32|wtsapi32|windowscodecs)\\.dll|winspool\\.drv)$")
