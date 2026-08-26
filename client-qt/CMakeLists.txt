@@ -184,6 +184,18 @@ if(UNIX AND NOT APPLE AND DRISCORD_ENABLE_PACKAGING)
         OUTPUT_SCRIPT driscord_deploy_script)
     install(SCRIPT ${driscord_deploy_script}
         COMPONENT Runtime)
+
+    # Qt Deploy ships every installed multimedia backend. The gstreamer one
+    # links the system GStreamer stack, which neither the build image nor a
+    # target machine is guaranteed to have; the ffmpeg backend is
+    # self-contained through Qt's bundled libav*. The client only renders
+    # already-decoded WebRTC frames through QVideoSink, so dropping the
+    # gstreamer backend loses nothing. VerifyPackage.cmake keeps this honest:
+    # an undeployed libgst* dependency fails the package build.
+    install(CODE [[
+        file(REMOVE
+            "${CMAKE_INSTALL_PREFIX}/plugins/multimedia/libgstreamermediaplugin.so")
+    ]] COMPONENT Runtime)
 endif()
 
 if(WIN32)
