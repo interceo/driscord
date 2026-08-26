@@ -11,42 +11,42 @@
 namespace utils {
 namespace {
 
-std::optional<std::string> collect_root_store_pem()
-{
-    HCERTSTORE store = CertOpenSystemStoreW(0, L"ROOT");
-    if (store == nullptr) {
-        return std::nullopt;
-    }
-
-    std::string bundle;
-    PCCERT_CONTEXT context = nullptr;
-    while ((context = CertEnumCertificatesInStore(store, context)) != nullptr) {
-        DWORD pem_size = 0;
-        if (CryptBinaryToStringA(context->pbCertEncoded,
-                context->cbCertEncoded, CRYPT_STRING_BASE64HEADER, nullptr,
-                &pem_size)
-            == FALSE) {
-            continue;
+    std::optional<std::string> collect_root_store_pem()
+    {
+        HCERTSTORE store = CertOpenSystemStoreW(0, L"ROOT");
+        if (store == nullptr) {
+            return std::nullopt;
         }
-        const std::size_t offset = bundle.size();
-        bundle.resize(offset + pem_size);
-        if (CryptBinaryToStringA(context->pbCertEncoded,
-                context->cbCertEncoded, CRYPT_STRING_BASE64HEADER,
-                bundle.data() + offset, &pem_size)
-            == FALSE) {
-            bundle.resize(offset);
-            continue;
-        }
-        // pem_size excludes the NUL terminator the API still writes.
-        bundle.resize(offset + pem_size);
-    }
-    CertCloseStore(store, 0);
 
-    if (bundle.empty()) {
-        return std::nullopt;
+        std::string bundle;
+        PCCERT_CONTEXT context = nullptr;
+        while ((context = CertEnumCertificatesInStore(store, context)) != nullptr) {
+            DWORD pem_size = 0;
+            if (CryptBinaryToStringA(context->pbCertEncoded,
+                    context->cbCertEncoded, CRYPT_STRING_BASE64HEADER, nullptr,
+                    &pem_size)
+                == FALSE) {
+                continue;
+            }
+            const std::size_t offset = bundle.size();
+            bundle.resize(offset + pem_size);
+            if (CryptBinaryToStringA(context->pbCertEncoded,
+                    context->cbCertEncoded, CRYPT_STRING_BASE64HEADER,
+                    bundle.data() + offset, &pem_size)
+                == FALSE) {
+                bundle.resize(offset);
+                continue;
+            }
+            // pem_size excludes the NUL terminator the API still writes.
+            bundle.resize(offset + pem_size);
+        }
+        CertCloseStore(store, 0);
+
+        if (bundle.empty()) {
+            return std::nullopt;
+        }
+        return bundle;
     }
-    return bundle;
-}
 
 } // namespace
 
