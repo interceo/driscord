@@ -65,10 +65,8 @@ def accept_websocket(stream: ssl.SSLSocket) -> None:
     stream.sendall(b"\x89\x00")
 
 
-def receive_text_frame(stream: ssl.SSLSocket) -> str:
+def receive_frame(stream: ssl.SSLSocket) -> tuple[int, bytes]:
     first, second = receive_exact(stream, 2)
-    if first != 0x81:
-        raise RuntimeError(f"expected a final text frame, got 0x{first:02x}")
     if not second & 0x80:
         raise RuntimeError("client WebSocket frame is not masked")
 
@@ -81,7 +79,18 @@ def receive_text_frame(stream: ssl.SSLSocket) -> str:
     mask = receive_exact(stream, 4)
     encoded = receive_exact(stream, length)
     decoded = bytes(value ^ mask[index % 4] for index, value in enumerate(encoded))
-    return decoded.decode("utf-8")
+    return first & 0x0F, decoded
+
+
+def receive_text_frame(stream: ssl.SSLSocket) -> str:
+    # The client answers the post-upgrade ping concurrently with its onOpen
+    # send, so the pong may arrive before or after the text frame.
+    while True:
+        opcode, payload = receive_frame(stream)
+        if opcode == 0x1:
+            return payload.decode("utf-8")
+        if opcode != 0xA:
+            raise RuntimeError(f"expected a text frame or a pong, got opcode {opcode:#x}")
 
 
 def run(client: Path, cert: Path, key: Path) -> None:
@@ -115,6 +124,15 @@ def run(client: Path, cert: Path, key: Path) -> None:
                 if payload != expected:
                     raise RuntimeError("large WebSocket text payload was corrupted")
                 stream.sendall(b"\x81\x02ok")
+                # Closing with the client's pong (or close frame) still
+                # unread turns the close into a TCP reset, which can destroy
+                # the acknowledgement before delivery. Drain until the client
+                # closes: it only does so after receiving the acknowledgement.
+                try:
+                    while receive_frame(stream)[0] != 0x8:
+                        pass
+                except (RuntimeError, ssl.SSLError, OSError):
+                    pass
 
             stdout, stderr = process.communicate(timeout=10)
             if process.returncode:
