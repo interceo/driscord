@@ -1,0 +1,32 @@
+name: Windows
+
+# Cross-build gate for the Windows x64 client on the driscord-win-builder
+# pool (clang-cl + MSVC sysroot + Qt msvc2019_64 + windows WebRTC SDK, all
+# from the supply store). Runs the same workflow preset the release-builder
+# uses for the client-windows bundle, so a green run here means the release
+# bundle will build too. Tests need a Windows runtime and stay out.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  cross-build:
+    name: Cross-build and package
+    runs-on: driscord-win-builder
+    timeout-minutes: 60
+    env:
+      FORGEJO_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout exact event commit
+        run: forgejo-checkout
+
+      - name: Windows client package
+        run: cmake --workflow --preset windows-release
