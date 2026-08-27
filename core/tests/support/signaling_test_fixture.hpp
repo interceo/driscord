@@ -8,9 +8,11 @@
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
+#include <cstdlib>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 
@@ -29,6 +31,27 @@ public:
         driscord::sfu::RtpFaultConfig fault_config = { },
         const std::string& api_base_url = { })
     {
+        // Tests talk over loopback, where host candidates always suffice and
+        // a STUN lookup can only hurt: on the offline CI runner the juice
+        // resolver blocks in getaddrinfo for the glibc DNS timeout, and
+        // libdatachannel's global teardown thread then joins that resolver in
+        // ~IceTransport, wedging every queued transport teardown behind it
+        // (which is how disconnect tests miss their server-noticed-disconnect
+        // deadlines). An explicit environment value still wins.
+        ::setenv("DRISCORD_ICE_STUN_URLS", "none", /*overwrite=*/0);
+        // Opt-in libdatachannel tracing for flake hunts: the signaling
+        // reconnect races live below Transport, where our own logs are blind.
+        static const bool rtc_log_enabled = [] {
+            const char* level = std::getenv("DRISCORD_TEST_RTC_LOG");
+            if (level == nullptr) {
+                return false;
+            }
+            rtc::InitLogger(std::string_view(level) == "verbose"
+                    ? rtc::LogLevel::Verbose
+                    : rtc::LogLevel::Debug);
+            return true;
+        }();
+        (void)rtc_log_enabled;
         std::shared_ptr<driscord::ApiAuthenticator> authenticator;
         if (!api_base_url.empty()) {
             authenticator
