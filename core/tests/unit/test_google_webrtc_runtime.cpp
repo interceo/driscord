@@ -8,6 +8,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <cstdlib>
 #include <mutex>
 #include <string>
 #include <type_traits>
@@ -343,6 +344,13 @@ TEST(GoogleWebRtcScreenSession, DesktopCaptureProducesPreviewFrame)
     using namespace std::chrono_literals;
     using driscord::media::DesktopCaptureKind;
     using driscord::media::GoogleWebRtcScreenSession;
+
+    // Wine advertises a desktop that DXGI/GDI capture cannot actually grab,
+    // so the empty-source skip below never fires there; the cross-test preset
+    // disables the test explicitly instead.
+    if (std::getenv("DRISCORD_TEST_NO_DESKTOP_CAPTURE") != nullptr) {
+        GTEST_SKIP() << "Desktop capture disabled for this environment";
+    }
 
     const auto sources = GoogleWebRtcScreenSession::list_desktop_sources(
         DesktopCaptureKind::Screen);

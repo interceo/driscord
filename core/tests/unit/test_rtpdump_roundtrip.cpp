@@ -88,6 +88,9 @@ TEST(RtpDumpRoundTrip, WriteThenReadPreservesBytesAndTimestamps)
     }
     EXPECT_EQ(read_count, kPacketCount);
 
+    // Windows refuses to remove a file with an open handle, so the reader
+    // must be gone first (POSIX quietly allows unlink-while-open).
+    reader.reset();
     std::filesystem::remove(path);
 }
 
@@ -127,6 +130,7 @@ TEST(RtpDumpRoundTrip, SsrcFilterIsIgnoredByTheRtpDumpReader)
     }
     EXPECT_EQ(read_count, 20u);
 
+    reader.reset();
     std::filesystem::remove(path);
 }
 

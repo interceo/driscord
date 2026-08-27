@@ -126,6 +126,17 @@
       "cacheVariables": { "DRISCORD_ENABLE_PACKAGING": "ON" }
     },
     {
+      "name": "windows-tests",
+      "inherits": "client-windows",
+      "displayName": "Core tests (Windows x64 cross, run via Wine)",
+      "description": "Cross-compiles the non-Qt test tier and registers Wine as the ctest launcher (CMAKE_CROSSCOMPILING_EMULATOR). BUILD_SERVER stays OFF, so only unit and media tests exist until the signaling library grows a Windows build.",
+      "cacheVariables": {
+        "BUILD_TESTS": "ON",
+        "BUILD_QT_CLIENT": "OFF",
+        "CMAKE_CROSSCOMPILING_EMULATOR": "wine"
+      }
+    },
+    {
       "name": "server-debug",
       "inherits": "server",
       "displayName": "Signaling server (debug)",
@@ -171,6 +182,10 @@
       "targets": ["driscord_client"]
     },
     {
+      "name": "windows-tests",
+      "configurePreset": "windows-tests"
+    },
+    {
       "name": "server-debug",
       "configurePreset": "server-debug",
       "targets": ["driscord_server"]
@@ -205,6 +220,16 @@
       "configurePreset": "core-tests",
       "output": { "outputOnFailure": true },
       "filter": { "exclude": { "label": "soak" } }
+    },
+    {
+      "name": "windows-tests",
+      "configurePreset": "windows-tests",
+      "output": { "outputOnFailure": true },
+      "filter": { "include": { "label": "unit" }, "exclude": { "label": "soak" } },
+      "environment": {
+        "WINEPREFIX": "${sourceDir}/.builds/$env{DRISCORD_BUILD_TAG}windows-tests/wineprefix",
+        "DRISCORD_TEST_NO_DESKTOP_CAPTURE": "1"
+      }
     },
     {
       "name": "server-fuzz",
@@ -328,6 +353,14 @@
         { "type": "configure", "name": "windows-release" },
         { "type": "build", "name": "windows-release" },
         { "type": "package", "name": "windows-release" }
+      ]
+    },
+    {
+      "name": "windows-tests",
+      "steps": [
+        { "type": "configure", "name": "windows-tests" },
+        { "type": "build", "name": "windows-tests" },
+        { "type": "test", "name": "windows-tests" }
       ]
     }
   ]

@@ -7,6 +7,11 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 
+# libdatachannel's option() leaves BUILD_SHARED_LIBS=ON in the cache; shadow
+# it in this directory so gtest links static — the cross-built Windows test
+# binaries must not depend on gtest.dll discovery under Wine, and nothing in
+# the test tree wants a shared gtest anywhere else either.
+set(BUILD_SHARED_LIBS OFF)
 FetchContent_MakeAvailable(googletest)
 
 # Shared include directories:
