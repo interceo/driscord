@@ -140,7 +140,12 @@ public Qt/DriscordCore headers.
   becomes part of the MVP target;
 - the Windows cross build is wired end to end: supply-store blobs
   (msvc-sysroot, Qt msvc kit, WebRTC SDK win, VC redist), the
-  `driscord-win-builder` profile/pool, the `windows.yml` push gate and the
-  `client-windows` bundle in the release-builder policy. Remaining Windows
-  debt: no Windows-runtime tests and no Authenticode signing. MinGW stays off
-  the table. macOS remains unplanned.
+  `driscord-win-builder` profile/pool (its image carries WineHQ), the
+  `windows.yml` push gate — cross-build, the `windows-tests` unit tier under
+  Wine, packaging — and the `client-windows` bundle in the release-builder
+  policy. The signaling server cross-builds too (MbedTLS libdatachannel), so
+  the Wine gate covers signaling unit tests; the integration tier passes 7/11
+  under Wine and joins CI once the four Wine-sensitive tests stabilise
+  (DRISCORD-15). Remaining Windows debt: a real Windows-VM runner for
+  WASAPI/capture/D3D coverage and Authenticode signing. MinGW stays off the
+  table. macOS remains unplanned.
