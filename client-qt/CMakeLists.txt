@@ -340,6 +340,9 @@ if(WIN32 AND DRISCORD_ENABLE_PACKAGING)
     # file(GET_RUNTIME_DEPENDENCIES) cannot read PE binaries on a Linux host,
     # so the closure is a plain breadth-first walk over the import tables.
     install(CODE [[
+        # Install scripts run under CMake's minimum policy floor, where
+        # IN_LIST (CMP0057) is not an if() operator yet.
+        cmake_policy(VERSION 3.25)
         function(_driscord_pe_imports _driscord_binary _driscord_out)
             execute_process(
                 COMMAND "${CMAKE_OBJDUMP}" -p "${_driscord_binary}"

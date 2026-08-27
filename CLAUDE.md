@@ -138,8 +138,9 @@ public Qt/DriscordCore headers.
   client build, see `PLAN3.md`;
 - add screen simulcast/SVC and SFU layer selection if multi-tile bandwidth
   becomes part of the MVP target;
-- wire the Windows cross build into CI: supply-store blobs (msvc-sysroot, Qt
-  msvc kit, WebRTC SDK win, VC redist), a `driscord-win-builder` profile/pool
-  and a `client-windows` bundle in the release-builder policy. The client
-  itself cross-builds and packages already (`windows-release` preset); MinGW
-  stays off the table. macOS remains unplanned.
+- the Windows cross build is wired end to end: supply-store blobs
+  (msvc-sysroot, Qt msvc kit, WebRTC SDK win, VC redist), the
+  `driscord-win-builder` profile/pool, the `windows.yml` push gate and the
+  `client-windows` bundle in the release-builder policy. Remaining Windows
+  debt: no Windows-runtime tests and no Authenticode signing. MinGW stays off
+  the table. macOS remains unplanned.

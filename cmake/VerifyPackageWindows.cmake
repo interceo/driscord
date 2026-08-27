@@ -4,6 +4,10 @@
 # this gate re-checks the result independently so a deploy regression fails
 # the package build instead of shipping a zip that cannot start.
 
+# CPack runs pre-build scripts under CMake's minimum policy floor, where
+# IN_LIST (CMP0057) is not an if() operator yet.
+cmake_policy(VERSION 3.25)
+
 if(NOT DEFINED CPACK_TEMPORARY_INSTALL_DIRECTORY
         OR CPACK_TEMPORARY_INSTALL_DIRECTORY STREQUAL "")
     message(FATAL_ERROR
