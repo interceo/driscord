@@ -79,6 +79,10 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
 endif()
 
 include(FetchContent)
+# fmt auto-enables its C++ module target on Clang>=16/Ninja/CMake>=3.28, and
+# CMake cannot scan module dependencies for clang-cl in the Windows cross
+# build; nothing here imports fmt as a module.
+set(FMT_MODULE OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
     fmt
     GIT_REPOSITORY https://github.com/fmtlib/fmt.git
