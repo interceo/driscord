@@ -38,7 +38,13 @@ public:
         // ~IceTransport, wedging every queued transport teardown behind it
         // (which is how disconnect tests miss their server-noticed-disconnect
         // deadlines). An explicit environment value still wins.
-        ::setenv("DRISCORD_ICE_STUN_URLS", "none", /*overwrite=*/0);
+        if (std::getenv("DRISCORD_ICE_STUN_URLS") == nullptr) {
+#ifdef _WIN32
+            ::_putenv_s("DRISCORD_ICE_STUN_URLS", "none");
+#else
+            ::setenv("DRISCORD_ICE_STUN_URLS", "none", /*overwrite=*/1);
+#endif
+        }
         // Opt-in libdatachannel tracing for flake hunts: the signaling
         // reconnect races live below Transport, where our own logs are blind.
         static const bool rtc_log_enabled = [] {

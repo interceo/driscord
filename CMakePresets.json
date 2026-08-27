@@ -129,11 +129,12 @@
       "name": "windows-tests",
       "inherits": "client-windows",
       "displayName": "Core tests (Windows x64 cross, run via Wine)",
-      "description": "Cross-compiles the non-Qt test tier and registers Wine as the ctest launcher (CMAKE_CROSSCOMPILING_EMULATOR). BUILD_SERVER stays OFF, so only unit and media tests exist until the signaling library grows a Windows build.",
+      "description": "Cross-compiles the non-Qt test tier and registers Wine as the ctest launcher (CMAKE_CROSSCOMPILING_EMULATOR). BUILD_SERVER=ON builds the signaling library against the client's MbedTLS libdatachannel — a PE link resolves symbols per module, so the Linux GnuTLS-DSO isolation is unnecessary here.",
       "cacheVariables": {
         "BUILD_TESTS": "ON",
         "BUILD_QT_CLIENT": "OFF",
-        "CMAKE_CROSSCOMPILING_EMULATOR": "wine"
+        "BUILD_SERVER": "ON",
+        "CMAKE_CROSSCOMPILING_EMULATOR": "/usr/bin/wine"
       }
     },
     {

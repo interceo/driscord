@@ -140,9 +140,54 @@ if(BUILD_CORE AND WIN32)
         GIT_SHALLOW    TRUE
     )
     FetchContent_MakeAvailable(mbedtls)
+    # Not an ALIAS: libdatachannel's bundled libSRTP (built when the SFU
+    # media path is on) runs its FindMbedTLS module unconditionally, and the
+    # module calls set_property on MbedTLS::MbedTLS — which aborts on an
+    # alias. A real imported target survives that, carries the .lib the
+    # module later drops when it rewrites INTERFACE_LINK_LIBRARIES, and keeps
+    # the user-config define (module rewrites options, not definitions) that
+    # libdatachannel's DTLS-SRTP compilation depends on.
     if(NOT TARGET MbedTLS::MbedTLS)
-        add_library(MbedTLS::MbedTLS ALIAS mbedtls)
+        add_library(MbedTLS::MbedTLS UNKNOWN IMPORTED GLOBAL)
+        set_target_properties(MbedTLS::MbedTLS PROPERTIES
+            IMPORTED_LOCATION "${mbedtls_BINARY_DIR}/library/mbedtls.lib"
+            INTERFACE_INCLUDE_DIRECTORIES "${mbedtls_SOURCE_DIR}/include"
+            INTERFACE_COMPILE_DEFINITIONS
+                "MBEDTLS_USER_CONFIG_FILE=\"${CMAKE_SOURCE_DIR}/cmake/mbedtls_user_config.h\""
+            INTERFACE_LINK_LIBRARIES mbedtls)
     endif()
+    # The module links MbedTLS::MbedTLS against these two; created in a
+    # subdirectory scope they would be invisible to libdatachannel's targets,
+    # so they must exist as GLOBAL imports before the module ever runs.
+    # Bundled libSRTP defaults ENABLE_WARNINGS_AS_ERRORS=ON, and clang-cl's
+    # -Wdocumentation trips over upstream's own doxygen comments.
+    set(ENABLE_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
+    foreach(_driscord_mbed_component Crypto X509)
+        string(TOLOWER "mbed${_driscord_mbed_component}" _driscord_mbed_lib)
+        if(NOT TARGET MbedTLS::Mbed${_driscord_mbed_component})
+            add_library(MbedTLS::Mbed${_driscord_mbed_component}
+                UNKNOWN IMPORTED GLOBAL)
+            set_target_properties(MbedTLS::Mbed${_driscord_mbed_component}
+                PROPERTIES
+                IMPORTED_LOCATION
+                    "${mbedtls_BINARY_DIR}/library/${_driscord_mbed_lib}.lib"
+                INTERFACE_INCLUDE_DIRECTORIES "${mbedtls_SOURCE_DIR}/include")
+        endif()
+    endforeach()
+    unset(_driscord_mbed_component)
+    unset(_driscord_mbed_lib)
+    # Pre-seed the module's cache variables with the FetchContent build:
+    # find_path/find_library accept them as-is, the version parses from the
+    # real headers, and the .lib files exist by link time through the
+    # datachannel-static ordering dependency below.
+    set(MbedTLS_INCLUDE_DIR "${mbedtls_SOURCE_DIR}/include"
+        CACHE PATH "" FORCE)
+    set(MbedTLS_LIBRARY "${mbedtls_BINARY_DIR}/library/mbedtls.lib"
+        CACHE FILEPATH "" FORCE)
+    set(MbedX509_LIBRARY "${mbedtls_BINARY_DIR}/library/mbedx509.lib"
+        CACHE FILEPATH "" FORCE)
+    set(MbedCrypto_LIBRARY "${mbedtls_BINARY_DIR}/library/mbedcrypto.lib"
+        CACHE FILEPATH "" FORCE)
 elseif(BUILD_CORE)
     set(USE_GNUTLS ON CACHE BOOL "Use GnuTLS instead of OpenSSL" FORCE)
     set(USE_MBEDTLS OFF CACHE BOOL "Use Mbed TLS instead of OpenSSL" FORCE)
@@ -213,6 +258,13 @@ endif()
 # unbuilt; it would otherwise compile the stack a second time unused.
 if(TARGET datachannel AND NOT DRISCORD_LIBDATACHANNEL_TARGET STREQUAL "datachannel")
     set_target_properties(datachannel PROPERTIES EXCLUDE_FROM_ALL TRUE)
+endif()
+
+# The imported MbedTLS::MbedTLS above references mbedtls .lib files by path,
+# which carries no build-order edge; consumers all link datachannel-static,
+# so anchoring the ordering there guarantees the archives exist by link time.
+if(WIN32 AND TARGET datachannel-static AND TARGET mbedtls)
+    add_dependencies(datachannel-static mbedtls)
 endif()
 
 # --- Boost (header-only, shared by protocol + core + signaling server) ---
