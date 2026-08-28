@@ -111,6 +111,12 @@ public:
     std::string presence_json() const;
     std::string media_stats_json() const;
 
+    // Replaces the fault stage for every existing room router and for rooms
+    // created later. Test-only control surface: scenario timelines (blackout,
+    // bandwidth ramps) mutate faults mid-call through the test fixture.
+    // Production never calls this. Thread-safe.
+    void update_fault_config(sfu::RtpFaultConfig fault_config);
+
 private:
     void do_accept();
 

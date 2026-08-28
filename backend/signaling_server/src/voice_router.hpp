@@ -3,6 +3,7 @@
 #include "identity.hpp"
 #include "sfu_media_utils.hpp"
 
+#include <boost/asio/any_io_executor.hpp>
 #include <rtc/rtc.hpp>
 
 #include <functional>
@@ -32,11 +33,19 @@ public:
         uint64_t bytes_out = 0;
     };
 
-    explicit VoiceRouter(sfu::RtpFaultConfig fault_config = { });
+    // The executor drives the link-model delay timer; without one an enabled
+    // link model degrades to inline forwarding. Production configs are
+    // zero-valued, so no timer is ever created there either way.
+    explicit VoiceRouter(sfu::RtpFaultConfig fault_config = { },
+        std::optional<boost::asio::any_io_executor> executor = { });
     ~VoiceRouter();
 
     VoiceRouter(const VoiceRouter&) = delete;
     VoiceRouter& operator=(const VoiceRouter&) = delete;
+
+    // Swaps the whole fault stage mid-call; scenario timelines (blackout,
+    // ramp) drive this through WebSocketServer::update_fault_config.
+    void update_fault_config(sfu::RtpFaultConfig fault_config);
 
     void register_track(const PeerId& owner,
         std::shared_ptr<rtc::Track> track,

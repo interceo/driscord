@@ -4,6 +4,7 @@
 #include "rtp_slot_rewriter.hpp"
 #include "sfu_media_utils.hpp"
 
+#include <boost/asio/steady_timer.hpp>
 #include <rtc/plihandler.hpp>
 #include <rtc/rtcpnackresponder.hpp>
 #include <rtc/rtcpreceivingsession.hpp>
@@ -12,6 +13,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <map>
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
@@ -45,11 +48,23 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
         std::optional<uint8_t> audio_mid_extension_id;
         sfu::RtpFaultState video_fault_state;
         sfu::RtpFaultState audio_fault_state;
+        sfu::LinkModelState video_link_state;
+        sfu::LinkModelState audio_link_state;
         std::vector<OutputPair> outputs;
         BindingSender send_binding;
         bool streaming = false;
         std::unordered_map<PeerId, uint64_t> watched_publishers;
         uint64_t next_watch_order = 0;
+    };
+
+    // A media packet the link model is holding back. Targets and the mid
+    // extension are re-resolved at departure so rebinds during the delay
+    // window keep working.
+    struct DelayedPacket {
+        PeerId publisher;
+        std::string media_type;
+        std::weak_ptr<rtc::Track> expected_input;
+        rtc::binary packet;
     };
 
     struct BindingNotice {
@@ -84,9 +99,24 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
     std::atomic<uint64_t> audio_bytes_out { 0 };
     std::atomic<uint64_t> keyframe_requests { 0 };
 
-    explicit Impl(sfu::RtpFaultConfig config)
-        : fault_config(config)
+    // Link-model delay queue, keyed by departure time; armed on the server
+    // io_context. Both stay empty with the zero-valued production config.
+    std::optional<boost::asio::any_io_executor> executor;
+    std::optional<boost::asio::steady_timer> delay_timer;
+    std::multimap<int64_t, DelayedPacket> delay_queue;
+
+    explicit Impl(sfu::RtpFaultConfig config,
+        std::optional<boost::asio::any_io_executor> timer_executor)
+        : fault_config(std::move(config))
+        , executor(std::move(timer_executor))
     {
+    }
+
+    static int64_t now_us()
+    {
+        return std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count();
     }
 
     PeerState& peer_for_locked(const PeerId& peer_id)
@@ -221,6 +251,7 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
                 source_changed = peer.input_video.lock() != track;
                 if (source_changed) {
                     peer.video_fault_state = { };
+                    peer.video_link_state = { };
                 }
                 peer.input_video = track;
                 peer.video_mid_extension_id = sfu::mid_extension_id(description);
@@ -228,6 +259,7 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
                 source_changed = peer.input_audio.lock() != track;
                 if (source_changed) {
                     peer.audio_fault_state = { };
+                    peer.audio_link_state = { };
                 }
                 peer.input_audio = track;
                 peer.audio_mid_extension_id = sfu::mid_extension_id(description);
@@ -488,77 +520,46 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
         }
     }
 
-    void route(const PeerId& publisher,
-        const std::string& media_type,
-        const std::weak_ptr<rtc::Track>& expected_input,
-        rtc::binary packet)
+    struct Target {
+        std::weak_ptr<rtc::Track> track;
+        uint32_t ssrc = 0;
+        std::shared_ptr<sfu::RtpSlotRewriter> rewriter;
+        uint64_t source_generation = 0;
+    };
+
+    std::vector<Target> collect_targets_locked(const PeerId& publisher,
+        const std::string& media_type) const
     {
-        struct Target {
-            std::weak_ptr<rtc::Track> track;
-            uint32_t ssrc = 0;
-            std::shared_ptr<sfu::RtpSlotRewriter> rewriter;
-            uint64_t source_generation = 0;
-        };
         std::vector<Target> targets;
-        sfu::RtpFaultResult packets;
-        std::optional<uint8_t> mid_id;
-        {
-            std::scoped_lock lock(mutex);
-            if (closed) {
-                return;
-            }
-            const auto source = peers.find(publisher);
-            if (source == peers.end()) {
-                return;
-            }
-            const auto actual_input = media_type == "video"
-                ? source->second.input_video.lock()
-                : source->second.input_audio.lock();
-            if (actual_input != expected_input.lock()
-                || !source->second.streaming) {
-                return;
-            }
-            mid_id = media_type == "video"
-                ? source->second.video_mid_extension_id
-                : source->second.audio_mid_extension_id;
-            if (!rtc::IsRtcp(packet)) {
-                (media_type == "video" ? video_packets_in : audio_packets_in)
-                    .fetch_add(1, std::memory_order_relaxed);
-            }
-            auto& fault_state = media_type == "video"
-                ? source->second.video_fault_state
-                : source->second.audio_fault_state;
-            packets = sfu::apply_rtp_faults(
-                fault_config, fault_state, std::move(packet));
-            if (!packets.first) {
-                return;
-            }
-            for (const auto& [_, subscriber] : peers) {
-                for (const auto& pair : subscriber.outputs) {
-                    if (!pair.publisher || *pair.publisher != publisher) {
-                        continue;
-                    }
-                    const auto& output = media_type == "video"
-                        ? pair.video
-                        : pair.audio;
-                    if (output && output->ready) {
-                        targets.push_back({ output->track, output->ssrc,
-                            output->rewriter, output->source_generation });
-                    }
+        for (const auto& [_, subscriber] : peers) {
+            for (const auto& pair : subscriber.outputs) {
+                if (!pair.publisher || *pair.publisher != publisher) {
+                    continue;
+                }
+                const auto& output = media_type == "video"
+                    ? pair.video
+                    : pair.audio;
+                if (output && output->ready) {
+                    targets.push_back({ output->track, output->ssrc,
+                        output->rewriter, output->source_generation });
                 }
             }
         }
+        return targets;
+    }
 
-        for (const auto* routed_packet : { &packets.first, &packets.second }) {
-            if (!*routed_packet) {
-                continue;
-            }
+    void send_packets(const std::vector<Target>& targets,
+        const std::string& media_type,
+        const std::optional<uint8_t>& mid_id,
+        const std::vector<rtc::binary>& outgoing)
+    {
+        for (const auto& routed_packet : outgoing) {
             for (const auto& target : targets) {
                 auto output = target.track.lock();
                 if (!output || !output->isOpen()) {
                     continue;
                 }
-                rtc::binary rewritten = **routed_packet;
+                rtc::binary rewritten = routed_packet;
                 if (!target.rewriter
                     || !target.rewriter->rewrite(rewritten,
                         target.source_generation, target.ssrc, mid_id)) {
@@ -578,6 +579,170 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
                 }
             }
         }
+    }
+
+    // Must be called with `mutex` held. expires_at() cancels the previous
+    // wait, so re-arming after every queue mutation keeps exactly one wait
+    // outstanding; aborted handlers return without touching state.
+    void arm_delay_timer_locked()
+    {
+        if (!executor) {
+            return;
+        }
+        if (delay_queue.empty()) {
+            if (delay_timer) {
+                delay_timer->cancel();
+            }
+            return;
+        }
+        if (!delay_timer) {
+            delay_timer.emplace(*executor);
+        }
+        delay_timer->expires_at(std::chrono::steady_clock::time_point(
+            std::chrono::microseconds(delay_queue.begin()->first)));
+        delay_timer->async_wait(
+            [weak = weak_from_this()](const boost::system::error_code& error) {
+                if (error) {
+                    return;
+                }
+                if (auto self = weak.lock()) {
+                    self->flush_delayed();
+                }
+            });
+    }
+
+    void flush_delayed()
+    {
+        std::vector<DelayedPacket> due;
+        {
+            std::scoped_lock lock(mutex);
+            if (closed) {
+                return;
+            }
+            const int64_t now = now_us();
+            while (!delay_queue.empty()
+                && delay_queue.begin()->first <= now) {
+                due.push_back(std::move(delay_queue.begin()->second));
+                delay_queue.erase(delay_queue.begin());
+            }
+            arm_delay_timer_locked();
+        }
+        for (auto& item : due) {
+            forward_delayed(item);
+        }
+    }
+
+    void forward_delayed(DelayedPacket& item)
+    {
+        std::vector<Target> targets;
+        std::optional<uint8_t> mid_id;
+        {
+            std::scoped_lock lock(mutex);
+            if (closed) {
+                return;
+            }
+            const auto source = peers.find(item.publisher);
+            if (source == peers.end()) {
+                return;
+            }
+            const bool video = item.media_type == "video";
+            const auto actual_input = video
+                ? source->second.input_video.lock()
+                : source->second.input_audio.lock();
+            if (actual_input != item.expected_input.lock()
+                || !source->second.streaming) {
+                return;
+            }
+            auto& queued = (video ? source->second.video_link_state
+                                  : source->second.audio_link_state)
+                               .queued_packets;
+            if (queued > 0) {
+                --queued;
+            }
+            mid_id = video ? source->second.video_mid_extension_id
+                           : source->second.audio_mid_extension_id;
+            targets = collect_targets_locked(item.publisher, item.media_type);
+        }
+        std::vector<rtc::binary> outgoing;
+        outgoing.push_back(std::move(item.packet));
+        send_packets(targets, item.media_type, mid_id, outgoing);
+    }
+
+    void route(const PeerId& publisher,
+        const std::string& media_type,
+        const std::weak_ptr<rtc::Track>& expected_input,
+        rtc::binary packet)
+    {
+        std::vector<Target> targets;
+        std::optional<uint8_t> mid_id;
+        std::vector<rtc::binary> immediate;
+        {
+            std::scoped_lock lock(mutex);
+            if (closed) {
+                return;
+            }
+            const auto source = peers.find(publisher);
+            if (source == peers.end()) {
+                return;
+            }
+            const bool video = media_type == "video";
+            const auto actual_input = video
+                ? source->second.input_video.lock()
+                : source->second.input_audio.lock();
+            if (actual_input != expected_input.lock()
+                || !source->second.streaming) {
+                return;
+            }
+            mid_id = video ? source->second.video_mid_extension_id
+                           : source->second.audio_mid_extension_id;
+            const bool rtcp = rtc::IsRtcp(packet);
+            if (!rtcp) {
+                (video ? video_packets_in : audio_packets_in)
+                    .fetch_add(1, std::memory_order_relaxed);
+                if (fault_config.link_down) {
+                    return;
+                }
+            }
+            auto& fault_state = video ? source->second.video_fault_state
+                                      : source->second.audio_fault_state;
+            auto packets = sfu::apply_rtp_faults(
+                fault_config, fault_state, std::move(packet));
+            for (auto* faulted : { &packets.first, &packets.second }) {
+                if (!*faulted) {
+                    continue;
+                }
+                if (rtcp || !fault_config.link.enabled()) {
+                    immediate.push_back(std::move(**faulted));
+                    continue;
+                }
+                auto& link_state = video ? source->second.video_link_state
+                                         : source->second.audio_link_state;
+                const int64_t now = now_us();
+                const auto scheduled = sfu::schedule_packet_departure(
+                    fault_config.link, link_state, now, (*faulted)->size());
+                if (!scheduled) {
+                    continue;
+                }
+                const size_t copies = scheduled->duplicate ? 2u : 1u;
+                if (scheduled->departure_us <= now || !executor) {
+                    for (size_t i = 0; i < copies; ++i) {
+                        immediate.push_back(**faulted);
+                    }
+                } else {
+                    for (size_t i = 0; i < copies; ++i) {
+                        delay_queue.emplace(scheduled->departure_us,
+                            DelayedPacket { publisher, media_type,
+                                expected_input, **faulted });
+                    }
+                    arm_delay_timer_locked();
+                }
+            }
+            if (immediate.empty()) {
+                return;
+            }
+            targets = collect_targets_locked(publisher, media_type);
+        }
+        send_packets(targets, media_type, mid_id, immediate);
     }
 
     void set_streaming(const PeerId& peer_id, bool streaming)
@@ -721,6 +886,10 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
                 return;
             }
             closed = true;
+            delay_queue.clear();
+            if (delay_timer) {
+                delay_timer->cancel();
+            }
             for (auto& [_, peer] : peers) {
                 if (auto track = peer.input_video.lock()) {
                     tracks.push_back(std::move(track));
@@ -750,14 +919,21 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
     }
 };
 
-ScreenRouter::ScreenRouter(sfu::RtpFaultConfig fault_config)
-    : impl_(std::make_shared<Impl>(fault_config))
+ScreenRouter::ScreenRouter(sfu::RtpFaultConfig fault_config,
+    std::optional<boost::asio::any_io_executor> executor)
+    : impl_(std::make_shared<Impl>(std::move(fault_config), std::move(executor)))
 {
 }
 
 ScreenRouter::~ScreenRouter()
 {
     close();
+}
+
+void ScreenRouter::update_fault_config(sfu::RtpFaultConfig fault_config)
+{
+    std::scoped_lock lock(impl_->mutex);
+    impl_->fault_config = std::move(fault_config);
 }
 
 void ScreenRouter::register_track(const PeerId& owner,

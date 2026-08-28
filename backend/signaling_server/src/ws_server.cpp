@@ -767,12 +767,12 @@ std::optional<std::string> WebSocketServer::register_and_build_welcome(
 
         auto& room = rooms_[room_id];
         if (!room.voice_router) {
-            room.voice_router
-                = std::make_shared<VoiceRouter>(fault_config_);
+            room.voice_router = std::make_shared<VoiceRouter>(fault_config_,
+                io_context_.get_executor());
         }
         if (!room.screen_router) {
-            room.screen_router
-                = std::make_shared<ScreenRouter>(fault_config_);
+            room.screen_router = std::make_shared<ScreenRouter>(fault_config_,
+                io_context_.get_executor());
         }
 
         signaling::Welcome welcome;
@@ -1043,6 +1043,20 @@ size_t WebSocketServer::active_sessions(const driscord::RoomId& room_id) const
     std::scoped_lock lk(rooms_mutex_);
     auto it = rooms_.find(room_id);
     return it != rooms_.end() ? it->second.sessions.size() : 0;
+}
+
+void WebSocketServer::update_fault_config(sfu::RtpFaultConfig fault_config)
+{
+    std::scoped_lock lk(rooms_mutex_);
+    fault_config_ = fault_config;
+    for (auto& [_, room] : rooms_) {
+        if (room.voice_router) {
+            room.voice_router->update_fault_config(fault_config);
+        }
+        if (room.screen_router) {
+            room.screen_router->update_fault_config(fault_config);
+        }
+    }
 }
 
 void WebSocketServer::add_streaming_peer(const driscord::PeerId& id,

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <cmath>
 #include <stdexcept>
 #include <string>
 #include <unordered_set>
@@ -88,7 +89,68 @@ namespace {
         return lost;
     }
 
+    // Box-Muller: standard normal deviate from two uniform draws. Purely a
+    // function of the PRNG state, so schedules reproduce exactly per seed.
+    double next_gaussian(uint64_t& state)
+    {
+        constexpr double kPi = 3.14159265358979323846;
+        const double u1 = std::max(next_unit(state), 1e-12);
+        const double u2 = next_unit(state);
+        return std::sqrt(-2.0 * std::log(u1)) * std::cos(2.0 * kPi * u2);
+    }
+
 } // namespace
+
+std::optional<LinkScheduleResult> schedule_packet_departure(
+    const LinkModelConfig& config,
+    LinkModelState& state,
+    int64_t arrival_us,
+    size_t packet_bytes)
+{
+    if (!config.enabled()) {
+        return LinkScheduleResult { .departure_us = arrival_us };
+    }
+    if (!state.initialized) {
+        state.rng = config.seed + 0x9E3779B97F4A7C15ull;
+        state.initialized = true;
+    }
+    ++state.packets_seen;
+
+    // Serialization on the single-packet capacity link.
+    const int64_t start = std::max(arrival_us, state.capacity_busy_until_us);
+    const int64_t serialization_us = config.link_capacity_kbps == 0
+        ? 0
+        : static_cast<int64_t>(packet_bytes) * 8'000
+            / static_cast<int64_t>(config.link_capacity_kbps);
+    int64_t departure = start + serialization_us;
+
+    if (config.queue_delay_ms > 0 || config.delay_standard_deviation_ms > 0) {
+        const double jitter_ms = config.delay_standard_deviation_ms > 0
+            ? next_gaussian(state.rng) * config.delay_standard_deviation_ms
+            : 0.0;
+        const double delay_ms
+            = std::max(0.0, static_cast<double>(config.queue_delay_ms) + jitter_ms);
+        departure += static_cast<int64_t>(delay_ms * 1'000.0);
+    }
+    if (!config.allow_reordering) {
+        departure = std::max(departure, state.last_departure_us);
+    }
+
+    if (departure > arrival_us && config.queue_length_packets != 0
+        && state.queued_packets >= config.queue_length_packets) {
+        return std::nullopt;
+    }
+    state.capacity_busy_until_us = start + serialization_us;
+    state.last_departure_us = departure;
+    if (departure > arrival_us) {
+        ++state.queued_packets;
+    }
+    return LinkScheduleResult {
+        .departure_us = departure,
+        .duplicate = config.duplicate_every_nth != 0
+            && state.packets_seen % config.duplicate_every_nth == 0,
+    };
+}
 
 RtpFaultResult apply_rtp_faults(const RtpFaultConfig& config,
     RtpFaultState& state,

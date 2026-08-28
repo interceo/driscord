@@ -101,6 +101,13 @@ public:
 
     unsigned short port() const { return port_; }
 
+    // Replaces the fault stage of every room router mid-call — the handle
+    // scenario timelines (blackout, bandwidth ramps) drive. Thread-safe.
+    void set_fault_config(driscord::sfu::RtpFaultConfig fault_config)
+    {
+        server_->update_fault_config(std::move(fault_config));
+    }
+
     // Blocking plain-HTTP GET against the server's own listener, for the
     // read-only endpoints it serves next to the WebSocket upgrade.
     std::pair<unsigned, std::string> http_get(const std::string& target,

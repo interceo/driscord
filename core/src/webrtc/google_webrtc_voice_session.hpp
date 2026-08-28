@@ -34,6 +34,9 @@ struct VoiceInboundRtpStats {
     uint64_t concealed_samples = 0;
     uint64_t jitter_buffer_emitted_count = 0;
     double jitter_buffer_delay_seconds = 0.0;
+    double jitter_buffer_target_delay_seconds = 0.0;
+    RtpReceiveStats rtp;
+    AudioReceiveStats audio;
 };
 
 struct VoiceSessionStats {
@@ -43,6 +46,9 @@ struct VoiceSessionStats {
     // Negative until ICE has measured one. There is no per-peer RTT to report:
     // every client has exactly one transport, and it terminates at the SFU.
     double round_trip_time_seconds = -1.0;
+    // Congestion-controller estimate on the nominated pair; negative until
+    // bandwidth estimation has produced one.
+    double available_outgoing_bitrate_bps = -1.0;
     std::vector<VoiceInboundRtpStats> inbound;
 };
 

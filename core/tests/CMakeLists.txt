@@ -56,6 +56,11 @@ add_unit_test(test_expected)
 add_unit_test(test_bounded_queue)
 add_unit_test(test_match)
 
+# Pure metric math over the plain stats value types; header-only, so no
+# driscord_core link even though the types live in core/src/webrtc/.
+add_unit_test(test_media_metrics)
+set_tests_properties(test_media_metrics PROPERTIES LABELS "unit;media")
+
 # The wire format is shared by the client and the server, so its test must not
 # drag in either media stack.
 add_executable(test_protocol unit/test_protocol.cpp)
@@ -89,6 +94,7 @@ if(BUILD_SERVER)
     add_signaling_test(test_sfu_rtcp_classification
         unit/test_sfu_rtcp_classification.cpp)
     add_signaling_test(test_rtp_burst_loss unit/test_rtp_burst_loss.cpp)
+    add_signaling_test(test_link_model unit/test_link_model.cpp)
 
     # Raw-Beast hostile input against the live server: garbage frames,
     # oversized messages, aborted sockets, hostile usernames, malformed SDP.
@@ -117,6 +123,66 @@ endif()
 
 if(BUILD_CORE)
     add_core_test(test_google_webrtc_screen_stats)
+
+    # Media quality probes shared by the integration gate and (later) the
+    # standalone probe binary: frame markers, libyuv PSNR/SSIM, deterministic
+    # screen content, chirp generation/detection. Deliberately NOT linked
+    # against the WebRTC archive (same ABI hazard note as
+    # driscord_webrtc_test_support below): consumers bring libwebrtc.a in
+    # through driscord_core or driscord::google_webrtc themselves.
+    add_library(driscord_test_media_support STATIC
+        support/frame_marker.cpp
+        support/video_quality.cpp
+        support/screen_content.cpp
+        support/audio_probe.cpp
+        support/media_dump.cpp)
+    target_include_directories(driscord_test_media_support PUBLIC
+        ${TEST_INCLUDE_DIRS})
+    target_compile_options(driscord_test_media_support PRIVATE
+        ${TEST_WARNING_FLAGS})
+    target_include_directories(driscord_test_media_support SYSTEM PRIVATE
+        $<TARGET_PROPERTY:driscord_google_webrtc,INTERFACE_INCLUDE_DIRECTORIES>)
+    target_compile_definitions(driscord_test_media_support PRIVATE
+        $<TARGET_PROPERTY:driscord_google_webrtc,INTERFACE_COMPILE_DEFINITIONS>)
+
+    # Marker/quality/chirp math without any live WebRTC session. The marker
+    # and accumulator tests link the archive for libyuv conversions.
+    add_executable(test_frame_marker unit/test_frame_marker.cpp)
+    target_compile_options(test_frame_marker PRIVATE ${TEST_WARNING_FLAGS})
+    target_link_libraries(test_frame_marker PRIVATE
+        GTest::gtest_main driscord_test_media_support driscord::google_webrtc)
+    add_test(NAME test_frame_marker COMMAND test_frame_marker)
+    set_tests_properties(test_frame_marker PROPERTIES TIMEOUT 30
+        LABELS "unit;media")
+
+    add_executable(test_video_quality_accumulator
+        unit/test_video_quality_accumulator.cpp)
+    target_compile_options(test_video_quality_accumulator PRIVATE
+        ${TEST_WARNING_FLAGS})
+    target_link_libraries(test_video_quality_accumulator PRIVATE
+        GTest::gtest_main driscord_test_media_support driscord::google_webrtc)
+    add_test(NAME test_video_quality_accumulator
+        COMMAND test_video_quality_accumulator)
+    set_tests_properties(test_video_quality_accumulator PROPERTIES TIMEOUT 30
+        LABELS "unit;media")
+
+    add_executable(test_chirp_detector unit/test_chirp_detector.cpp)
+    target_compile_options(test_chirp_detector PRIVATE ${TEST_WARNING_FLAGS})
+    target_link_libraries(test_chirp_detector PRIVATE
+        GTest::gtest_main driscord_test_media_support)
+    add_test(NAME test_chirp_detector COMMAND test_chirp_detector)
+    set_tests_properties(test_chirp_detector PROPERTIES TIMEOUT 30
+        LABELS "unit;media")
+
+    # Y4M/WAV writers behind DRISCORD_MEDIA_DUMP_DIR — the container formats
+    # the ffmpeg cross-check and the offline analyzers consume.
+    add_executable(test_media_dump unit/test_media_dump.cpp)
+    target_compile_options(test_media_dump PRIVATE ${TEST_WARNING_FLAGS})
+    target_link_libraries(test_media_dump PRIVATE
+        GTest::gtest_main driscord_test_media_support)
+    add_test(NAME test_media_dump COMMAND test_media_dump)
+    set_tests_properties(test_media_dump PROPERTIES TIMEOUT 30
+        LABELS "unit;media")
 
     # Vendored WebRTC test helpers (third_party/webrtc_test/README.md): the
     # pinned archive is built with rtc_include_tests=false, so upstream test/
@@ -227,6 +293,28 @@ if(BUILD_SERVER AND BUILD_CORE)
     add_integration_test(test_google_webrtc_screen_transport)
     target_link_libraries(test_google_webrtc_screen_transport PRIVATE
         driscord_webrtc_backend)
+    # Reference-free degradation ladders: the same loopback call at 0/2/8%
+    # Gilbert–Elliott loss, gated on monotone concealment/loss accounting.
+    add_integration_test(test_google_webrtc_degraded_voice)
+    target_link_libraries(test_google_webrtc_degraded_voice PRIVATE
+        driscord_webrtc_backend)
+    add_integration_test(test_google_webrtc_degraded_screen)
+    target_link_libraries(test_google_webrtc_degraded_screen PRIVATE
+        driscord_webrtc_backend)
+    # Link-model scenarios: bursty WiFi, LTE jitter, mid-call blackout with
+    # in-place recovery driven through update_fault_config.
+    add_integration_test(test_google_webrtc_network_scenarios)
+    target_link_libraries(test_google_webrtc_network_scenarios PRIVATE
+        driscord_webrtc_backend)
+    # Full-reference screen quality (marked frames, PSNR/SSIM, freezes) and
+    # A/V sync (chirp + marker ground truth, stats-based skew) on the clean
+    # production path.
+    add_integration_test(test_google_webrtc_screen_quality)
+    target_link_libraries(test_google_webrtc_screen_quality PRIVATE
+        driscord_webrtc_backend driscord_test_media_support)
+    add_integration_test(test_google_webrtc_av_sync)
+    target_link_libraries(test_google_webrtc_av_sync PRIVATE
+        driscord_webrtc_backend driscord_test_media_support)
     # Captures real publisher RTP off the fault-stage tap into rtpdump; with
     # DRISCORD_RECORD_FIXTURES_DIR set it refreshes core/tests/fixtures/.
     add_integration_test(test_rtpdump_capture)

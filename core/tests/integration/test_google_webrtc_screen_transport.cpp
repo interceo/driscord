@@ -480,18 +480,27 @@ TEST_F(GoogleWebRtcScreenTransportTest,
     EXPECT_GT(first_stats.snapshot().front().video_bytes_sent, 0u);
     EXPECT_GT(second_stats.snapshot().front().video_packets_sent, 0u);
     EXPECT_GT(second_stats.snapshot().front().video_bytes_sent, 0u);
+    // The lifted outbound encoder counters carry real data.
+    EXPECT_GT(first_stats.snapshot().front().video_frames_encoded, 0u);
+    EXPECT_GT(second_stats.snapshot().front().video_frames_encoded, 0u);
 
     const auto listener_stats_snapshot = listener_stats.snapshot();
     std::set<std::string> active_stats_mids;
     int64_t packets_lost = 0;
+    uint32_t frames_received = 0;
     for (const auto& inbound : listener_stats_snapshot.front().inbound) {
         packets_lost += std::max<int64_t>(0, inbound.packets_lost);
+        if (inbound.video) {
+            frames_received += inbound.video_playback.frames_received;
+        }
         if (inbound.video && inbound.packets_received > 0
             && inbound.bytes_received > 0 && inbound.frames_decoded > 0) {
             active_stats_mids.insert(inbound.mid);
         }
     }
     EXPECT_GT(packets_lost, 0);
+    // The lifted inbound video counters carry real data.
+    EXPECT_GT(frames_received, 0u);
     for (const auto& [mid, observation] : observations) {
         if (observation.frames >= 3) {
             EXPECT_TRUE(active_stats_mids.contains(mid))

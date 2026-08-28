@@ -82,6 +82,11 @@ struct ScreenInboundRtpStats {
     uint32_t frames_decoded = 0;
     uint32_t frames_dropped = 0;
     uint32_t key_frames_decoded = 0;
+    RtpReceiveStats rtp;
+    // Populated for audio tracks only.
+    AudioReceiveStats audio;
+    // Populated for video tracks only.
+    VideoReceiveStats video_playback;
 };
 
 struct ScreenSessionStats {
@@ -89,6 +94,15 @@ struct ScreenSessionStats {
     uint64_t video_bytes_sent = 0;
     uint64_t audio_packets_sent = 0;
     uint64_t audio_bytes_sent = 0;
+    uint32_t video_frames_encoded = 0;
+    uint32_t video_key_frames_encoded = 0;
+    // Encoder target from the outbound video stream; negative until known.
+    double video_target_bitrate_bps = -1.0;
+    QualityLimitation video_quality_limitation = QualityLimitation::None;
+    double video_quality_limitation_bandwidth_seconds = 0.0;
+    // Congestion-controller estimate on the nominated pair; negative until
+    // bandwidth estimation has produced one.
+    double available_outgoing_bitrate_bps = -1.0;
     std::vector<ScreenInboundRtpStats> inbound;
 };
 

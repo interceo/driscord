@@ -1,5 +1,7 @@
 #include "webrtc/google_webrtc_voice_adapters.hpp"
 
+#include "webrtc/google_webrtc_stats_lift.hpp"
+
 #include "api/stats/rtcstats_objects.h"
 
 #include <algorithm>
@@ -67,15 +69,21 @@ VoiceSessionStats parse_voice_stats(const webrtc::RTCStatsReport& report)
             .concealed_samples = inbound->concealed_samples.value_or(0),
             .jitter_buffer_emitted_count = inbound->jitter_buffer_emitted_count.value_or(0),
             .jitter_buffer_delay_seconds = inbound->jitter_buffer_delay.value_or(0.0),
+            .jitter_buffer_target_delay_seconds
+            = inbound->jitter_buffer_target_delay.value_or(0.0),
+            .rtp = lift_rtp_receive_stats(*inbound),
+            .audio = lift_audio_receive_stats(*inbound),
         });
     }
     for (const auto* pair :
         report.GetStatsOfType<webrtc::RTCIceCandidatePairStats>()) {
-        if (!pair->current_round_trip_time.has_value()
-            || !pair->nominated.value_or(false)) {
+        if (!pair->nominated.value_or(false)) {
             continue;
         }
-        result.round_trip_time_seconds = *pair->current_round_trip_time;
+        result.round_trip_time_seconds
+            = pair->current_round_trip_time.value_or(-1.0);
+        result.available_outgoing_bitrate_bps
+            = pair->available_outgoing_bitrate.value_or(-1.0);
         break;
     }
     std::sort(result.inbound.begin(), result.inbound.end(),

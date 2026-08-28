@@ -1,5 +1,7 @@
 #include "webrtc/google_webrtc_screen_adapters.hpp"
 
+#include "webrtc/google_webrtc_stats_lift.hpp"
+
 #include "api/stats/rtcstats_objects.h"
 #include "api/video/i420_buffer.h"
 #include "api/video/video_frame.h"
@@ -654,6 +656,20 @@ ScreenSessionStats parse_screen_stats(const webrtc::RTCStatsReport& report)
         if (video) {
             result.video_packets_sent += outbound->packets_sent.value_or(0);
             result.video_bytes_sent += outbound->bytes_sent.value_or(0);
+            result.video_frames_encoded += outbound->frames_encoded.value_or(0);
+            result.video_key_frames_encoded
+                += outbound->key_frames_encoded.value_or(0);
+            result.video_target_bitrate_bps
+                = outbound->target_bitrate.value_or(-1.0);
+            result.video_quality_limitation = lift_quality_limitation(*outbound);
+            if (outbound->quality_limitation_durations.has_value()) {
+                const auto& durations = *outbound->quality_limitation_durations;
+                if (const auto it = durations.find("bandwidth");
+                    it != durations.end()) {
+                    result.video_quality_limitation_bandwidth_seconds
+                        = it->second;
+                }
+            }
         } else if (!outbound->kind || *outbound->kind == "audio") {
             result.audio_packets_sent += outbound->packets_sent.value_or(0);
             result.audio_bytes_sent += outbound->bytes_sent.value_or(0);
@@ -665,7 +681,7 @@ ScreenSessionStats parse_screen_stats(const webrtc::RTCStatsReport& report)
         if (inbound->kind && !video && *inbound->kind != "audio") {
             continue;
         }
-        result.inbound.push_back(ScreenInboundRtpStats {
+        ScreenInboundRtpStats stats {
             .mid = inbound->mid.value_or(std::string { }),
             .video = video,
             .packets_received = inbound->packets_received.value_or(0),
@@ -678,7 +694,23 @@ ScreenSessionStats parse_screen_stats(const webrtc::RTCStatsReport& report)
             .frames_decoded = inbound->frames_decoded.value_or(0),
             .frames_dropped = inbound->frames_dropped.value_or(0),
             .key_frames_decoded = inbound->key_frames_decoded.value_or(0),
-        });
+            .rtp = lift_rtp_receive_stats(*inbound),
+        };
+        if (video) {
+            stats.video_playback = lift_video_receive_stats(*inbound);
+        } else {
+            stats.audio = lift_audio_receive_stats(*inbound);
+        }
+        result.inbound.push_back(std::move(stats));
+    }
+    for (const auto* pair :
+        report.GetStatsOfType<webrtc::RTCIceCandidatePairStats>()) {
+        if (!pair->nominated.value_or(false)) {
+            continue;
+        }
+        result.available_outgoing_bitrate_bps
+            = pair->available_outgoing_bitrate.value_or(-1.0);
+        break;
     }
     std::sort(result.inbound.begin(), result.inbound.end(),
         [](const ScreenInboundRtpStats& left,

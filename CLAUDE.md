@@ -104,7 +104,12 @@ The integration gate starts the real signaling/SFU server in-process and tests
 Google WebRTC encode → SRTP → libdatachannel Track routing → decode. Keep voice
 and screen tests on that production path; avoid mocks for codec, jitter buffer,
 RTP packetization or decode. The test server's deterministic `RtpFaultConfig`
-injects post-SRTP loss/reorder while production defaults remain disabled.
+injects post-SRTP faults — Gilbert–Elliott burst loss plus a SimulatedNetwork
+style link model (delay/jitter/capacity/blackout, runtime-mutable via
+`update_fault_config`) — while production defaults remain disabled and add no
+timers. RTCP is never impaired. Media-quality gates (PSNR/SSIM via frame
+markers, degradation ladders, A/V sync via chirps) live on the same path; see
+`docs/testing-media-quality.md` for the program, metrics and thresholds.
 Unit-test deterministic signaling parsers and pure RTP transforms separately.
 
 `rtc::Cleanup()` must run only after all libdatachannel users have stopped.
@@ -132,7 +137,12 @@ public Qt/DriscordCore headers.
 - continue splitting the private `GoogleWebRtcClient::Impl` into voice and
   screen lifecycle components without recreating sender/receiver abstraction
   layers; stateful screen stats are already isolated in `ScreenStatsTracker`;
-- add a long-running multi-publisher soak/capacity gate;
+- media-quality testing program (`docs/testing-media-quality.md`, tracked as
+  DRISCORD-16): phases 1–3 are in the per-PR gate; remaining phases — nightly
+  scenario matrix with baselines and per-subscriber egress faults, headless
+  probe client + unprivileged-netns netem tier, the soak/capacity gate for the
+  pre-wired `soak` ctest label, and the offline ViSQOL/OCR/VMAF analyzer
+  container with Prometheus trend export;
 - move the decoded-video path off `QQuickImageProvider` onto per-peer
   `QVideoSink`/`VideoOutput` (three copies per frame today); blocked on a local
   client build, see `PLAN3.md`;

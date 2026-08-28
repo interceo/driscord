@@ -580,14 +580,22 @@ TEST_F(GoogleWebRtcTransportTest, RoutesAndDecodesTwoConcurrentPcmSources)
     EXPECT_GT(second_stats.snapshot().front().bytes_sent, 0u);
     std::set<std::string> active_stats_mids;
     int64_t packets_lost = 0;
+    uint64_t total_samples_received = 0;
+    double total_audio_energy = 0.0;
     for (const auto& inbound : stats.inbound) {
         packets_lost += std::max<int64_t>(0, inbound.packets_lost);
+        total_samples_received += inbound.audio.total_samples_received;
+        total_audio_energy += inbound.audio.total_audio_energy;
         if (inbound.packets_received > 0 && inbound.bytes_received > 0
             && inbound.jitter_buffer_emitted_count > 0) {
             active_stats_mids.insert(inbound.mid);
         }
     }
     EXPECT_GT(packets_lost, 0);
+    // The lifted NetEq fields carry real data: cumulative counters, so no
+    // race against the tone having drained by the time stats are polled.
+    EXPECT_GT(total_samples_received, 0u);
+    EXPECT_GT(total_audio_energy, 0.0);
     for (const auto& [mid, peer] : peer_by_mid) {
         (void)peer;
         EXPECT_TRUE(active_stats_mids.contains(mid))

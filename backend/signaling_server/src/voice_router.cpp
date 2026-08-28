@@ -4,6 +4,7 @@
 #include "rtp_slot_rewriter.hpp"
 #include "sfu_media_utils.hpp"
 
+#include <boost/asio/steady_timer.hpp>
 #include <rtc/rtcpnackresponder.hpp>
 #include <rtc/rtcpreceivingsession.hpp>
 #include <rtc/rtcpsrreporter.hpp>
@@ -11,6 +12,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <map>
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
@@ -34,8 +37,18 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
         std::weak_ptr<rtc::Track> input;
         std::optional<uint8_t> input_mid_extension_id;
         sfu::RtpFaultState input_fault_state;
+        sfu::LinkModelState input_link_state;
         std::vector<OutputSlot> outputs;
         BindingSender send_binding;
+    };
+
+    // A media packet the link model is holding back. Targets and the mid
+    // extension are re-resolved at departure so rebinds during the delay
+    // window keep working.
+    struct DelayedPacket {
+        PeerId publisher;
+        std::weak_ptr<rtc::Track> expected_input;
+        rtc::binary packet;
     };
 
     struct BindingNotice {
@@ -58,14 +71,28 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
     sfu::RtpFaultConfig fault_config;
     uint64_t next_peer_order = 0;
     bool closed = false;
+    // Link-model delay queue, keyed by departure time; armed on the server
+    // io_context. Both stay empty with the zero-valued production config.
+    std::optional<boost::asio::any_io_executor> executor;
+    std::optional<boost::asio::steady_timer> delay_timer;
+    std::multimap<int64_t, DelayedPacket> delay_queue;
     // Kept out of `mutex` so the RTP path does not pay for observability.
     std::atomic<uint64_t> packets_in { 0 };
     std::atomic<uint64_t> packets_out { 0 };
     std::atomic<uint64_t> bytes_out { 0 };
 
-    explicit Impl(sfu::RtpFaultConfig config)
-        : fault_config(config)
+    explicit Impl(sfu::RtpFaultConfig config,
+        std::optional<boost::asio::any_io_executor> timer_executor)
+        : fault_config(std::move(config))
+        , executor(std::move(timer_executor))
     {
+    }
+
+    static int64_t now_us()
+    {
+        return std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now().time_since_epoch())
+            .count();
     }
 
     PeerState& peer_for_locked(const PeerId& peer_id)
@@ -142,6 +169,7 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
             const bool source_changed = peer.input.lock() != track;
             if (source_changed) {
                 peer.input_fault_state = { };
+                peer.input_link_state = { };
             }
             peer.input = track;
             peer.input_mid_extension_id = sfu::mid_extension_id(description);
@@ -283,58 +311,38 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
         }
     }
 
-    void route(const PeerId& publisher,
-        const std::weak_ptr<rtc::Track>& expected_input,
-        rtc::binary packet)
+    struct Target {
+        std::weak_ptr<rtc::Track> track;
+        uint32_t ssrc = 0;
+        std::shared_ptr<sfu::RtpSlotRewriter> rewriter;
+        uint64_t source_generation = 0;
+    };
+
+    std::vector<Target> collect_targets_locked(const PeerId& publisher) const
     {
-        struct Target {
-            std::weak_ptr<rtc::Track> track;
-            uint32_t ssrc;
-            std::shared_ptr<sfu::RtpSlotRewriter> rewriter;
-            uint64_t source_generation;
-        };
         std::vector<Target> targets;
-        sfu::RtpFaultResult packets;
-        std::optional<uint8_t> mid_id;
-        {
-            std::scoped_lock lock(mutex);
-            if (closed) {
-                return;
-            }
-            const auto source = peers.find(publisher);
-            if (source == peers.end()
-                || source->second.input.lock() != expected_input.lock()) {
-                return;
-            }
-            mid_id = source->second.input_mid_extension_id;
-            if (!rtc::IsRtcp(packet)) {
-                packets_in.fetch_add(1, std::memory_order_relaxed);
-            }
-            packets = sfu::apply_rtp_faults(fault_config,
-                source->second.input_fault_state, std::move(packet));
-            if (!packets.first) {
-                return;
-            }
-            for (const auto& [_, subscriber] : peers) {
-                for (const auto& output : subscriber.outputs) {
-                    if (output.publisher && *output.publisher == publisher) {
-                        targets.push_back({ output.track, output.ssrc,
-                            output.rewriter, output.source_generation });
-                    }
+        for (const auto& [_, subscriber] : peers) {
+            for (const auto& output : subscriber.outputs) {
+                if (output.publisher && *output.publisher == publisher) {
+                    targets.push_back({ output.track, output.ssrc,
+                        output.rewriter, output.source_generation });
                 }
             }
         }
+        return targets;
+    }
 
-        for (const auto* routed_packet : { &packets.first, &packets.second }) {
-            if (!*routed_packet) {
-                continue;
-            }
+    void send_packets(const std::vector<Target>& targets,
+        const std::optional<uint8_t>& mid_id,
+        const std::vector<rtc::binary>& outgoing)
+    {
+        for (const auto& routed_packet : outgoing) {
             for (const auto& target : targets) {
                 auto output = target.track.lock();
                 if (!output || !output->isOpen()) {
                     continue;
                 }
-                rtc::binary rewritten = **routed_packet;
+                rtc::binary rewritten = routed_packet;
                 if (target.rewriter
                     && target.rewriter->rewrite(rewritten,
                         target.source_generation, target.ssrc, mid_id)) {
@@ -350,6 +358,147 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
                 }
             }
         }
+    }
+
+    // Must be called with `mutex` held. expires_at() cancels the previous
+    // wait, so re-arming after every queue mutation keeps exactly one wait
+    // outstanding; aborted handlers return without touching state.
+    void arm_delay_timer_locked()
+    {
+        if (!executor) {
+            return;
+        }
+        if (delay_queue.empty()) {
+            if (delay_timer) {
+                delay_timer->cancel();
+            }
+            return;
+        }
+        if (!delay_timer) {
+            delay_timer.emplace(*executor);
+        }
+        delay_timer->expires_at(std::chrono::steady_clock::time_point(
+            std::chrono::microseconds(delay_queue.begin()->first)));
+        delay_timer->async_wait(
+            [weak = weak_from_this()](const boost::system::error_code& error) {
+                if (error) {
+                    return;
+                }
+                if (auto self = weak.lock()) {
+                    self->flush_delayed();
+                }
+            });
+    }
+
+    void flush_delayed()
+    {
+        std::vector<DelayedPacket> due;
+        {
+            std::scoped_lock lock(mutex);
+            if (closed) {
+                return;
+            }
+            const int64_t now = now_us();
+            while (!delay_queue.empty()
+                && delay_queue.begin()->first <= now) {
+                due.push_back(std::move(delay_queue.begin()->second));
+                delay_queue.erase(delay_queue.begin());
+            }
+            arm_delay_timer_locked();
+        }
+        for (auto& item : due) {
+            forward_delayed(item);
+        }
+    }
+
+    void forward_delayed(DelayedPacket& item)
+    {
+        std::vector<Target> targets;
+        std::optional<uint8_t> mid_id;
+        {
+            std::scoped_lock lock(mutex);
+            if (closed) {
+                return;
+            }
+            const auto source = peers.find(item.publisher);
+            if (source == peers.end()
+                || source->second.input.lock() != item.expected_input.lock()) {
+                return;
+            }
+            auto& queued = source->second.input_link_state.queued_packets;
+            if (queued > 0) {
+                --queued;
+            }
+            mid_id = source->second.input_mid_extension_id;
+            targets = collect_targets_locked(item.publisher);
+        }
+        std::vector<rtc::binary> outgoing;
+        outgoing.push_back(std::move(item.packet));
+        send_packets(targets, mid_id, outgoing);
+    }
+
+    void route(const PeerId& publisher,
+        const std::weak_ptr<rtc::Track>& expected_input,
+        rtc::binary packet)
+    {
+        std::vector<Target> targets;
+        std::optional<uint8_t> mid_id;
+        std::vector<rtc::binary> immediate;
+        {
+            std::scoped_lock lock(mutex);
+            if (closed) {
+                return;
+            }
+            const auto source = peers.find(publisher);
+            if (source == peers.end()
+                || source->second.input.lock() != expected_input.lock()) {
+                return;
+            }
+            mid_id = source->second.input_mid_extension_id;
+            const bool rtcp = rtc::IsRtcp(packet);
+            if (!rtcp) {
+                packets_in.fetch_add(1, std::memory_order_relaxed);
+                if (fault_config.link_down) {
+                    return;
+                }
+            }
+            auto packets = sfu::apply_rtp_faults(fault_config,
+                source->second.input_fault_state, std::move(packet));
+            for (auto* faulted : { &packets.first, &packets.second }) {
+                if (!*faulted) {
+                    continue;
+                }
+                if (rtcp || !fault_config.link.enabled()) {
+                    immediate.push_back(std::move(**faulted));
+                    continue;
+                }
+                const int64_t now = now_us();
+                const auto scheduled = sfu::schedule_packet_departure(
+                    fault_config.link, source->second.input_link_state, now,
+                    (*faulted)->size());
+                if (!scheduled) {
+                    continue;
+                }
+                const size_t copies = scheduled->duplicate ? 2u : 1u;
+                if (scheduled->departure_us <= now || !executor) {
+                    for (size_t i = 0; i < copies; ++i) {
+                        immediate.push_back(**faulted);
+                    }
+                } else {
+                    for (size_t i = 0; i < copies; ++i) {
+                        delay_queue.emplace(scheduled->departure_us,
+                            DelayedPacket { publisher, expected_input,
+                                **faulted });
+                    }
+                    arm_delay_timer_locked();
+                }
+            }
+            if (immediate.empty()) {
+                return;
+            }
+            targets = collect_targets_locked(publisher);
+        }
+        send_packets(targets, mid_id, immediate);
     }
 
     void remove_peer(const PeerId& peer_id)
@@ -412,6 +561,10 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
                 return;
             }
             closed = true;
+            delay_queue.clear();
+            if (delay_timer) {
+                delay_timer->cancel();
+            }
             for (auto& [_, peer] : peers) {
                 if (auto input = peer.input.lock()) {
                     tracks.push_back(std::move(input));
@@ -434,14 +587,21 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
     }
 };
 
-VoiceRouter::VoiceRouter(sfu::RtpFaultConfig fault_config)
-    : impl_(std::make_shared<Impl>(fault_config))
+VoiceRouter::VoiceRouter(sfu::RtpFaultConfig fault_config,
+    std::optional<boost::asio::any_io_executor> executor)
+    : impl_(std::make_shared<Impl>(std::move(fault_config), std::move(executor)))
 {
 }
 
 VoiceRouter::~VoiceRouter()
 {
     close();
+}
+
+void VoiceRouter::update_fault_config(sfu::RtpFaultConfig fault_config)
+{
+    std::scoped_lock lock(impl_->mutex);
+    impl_->fault_config = std::move(fault_config);
 }
 
 void VoiceRouter::register_track(const PeerId& owner,
