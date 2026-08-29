@@ -5,6 +5,8 @@
 
 namespace test_util {
 
+using std::size_t;
+
 namespace {
 
     uint64_t hash64(uint64_t value)
