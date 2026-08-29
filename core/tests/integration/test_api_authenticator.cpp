@@ -1,9 +1,3 @@
-// ApiAuthenticator failure modes.
-//
-// test_signaling_auth covers the happy paths through the whole WebSocket
-// handshake; this file points the authenticator at an API that is down, slow,
-// broken or lying, and asserts that every such case fails closed — the
-// callback fires exactly once with std::nullopt and nothing hangs.
 
 #include "api_authenticator.hpp"
 #include "fake_api_server.hpp"
@@ -32,8 +26,6 @@ struct SuppressLogs {
 };
 const SuppressLogs suppress_logs_on_startup;
 
-// The authenticator's own request timeout is 5 s; every negative wait below
-// must sit above it so a timing-out call still counts as "answered".
 constexpr auto kBeyondRequestTimeout = std::chrono::seconds(8);
 
 class ApiAuthenticatorTest : public ::testing::Test {
@@ -62,8 +54,6 @@ protected:
         return authenticator;
     }
 
-    // Runs one authorization and returns what the callback delivered, or
-    // nullopt-of-nullopt if the callback never fired within the deadline.
     std::optional<std::optional<driscord::ApiAuthenticator::Identity>>
     authorize(driscord::ApiAuthenticator& authenticator,
         std::chrono::milliseconds deadline
@@ -219,8 +209,6 @@ TEST_F(ApiAuthenticatorTest, RefusesWhenAConnectingProxyRefuses)
 TEST_F(ApiAuthenticatorTest, RefusesWhenTheApiHopIsTooSlow)
 {
     FakeApiServer api;
-    // A latency well past the authenticator's 5 s request timeout: the call
-    // must time out and fail closed rather than block a handshake forever.
     TcpFaultProxy proxy("127.0.0.1", api.port(),
         TcpFaultProxy::Config { .latency = std::chrono::seconds(9) });
     auto authenticator
@@ -233,4 +221,4 @@ TEST_F(ApiAuthenticatorTest, RefusesWhenTheApiHopIsTooSlow)
     EXPECT_FALSE(answered->has_value());
 }
 
-} // namespace
+}

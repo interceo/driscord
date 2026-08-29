@@ -1,8 +1,6 @@
 { pkgs }:
 
 let
-  # Match backend/api/Dockerfile, tox.ini and the infrastructure CI job. Following
-  # nixpkgs' moving `python3` alias made the local test runtime drift silently.
   python = pkgs.python312;
 in
 pkgs.mkShell {
@@ -49,8 +47,6 @@ pkgs.mkShell {
   env = {
     CMAKE_GENERATOR = "Ninja";
     DRISCORD_NIXOS_ENV = "1";
-    # Prefixes the build directory of every CMake preset. Without it a nix build
-    # and a host build would share one CMake cache and fight over the toolchain.
     DRISCORD_BUILD_TAG = "nixos-";
   };
 
@@ -61,8 +57,6 @@ pkgs.mkShell {
     export QML2_IMPORT_PATH="$QML_IMPORT_PATH"
     export PKG_CONFIG_PATH="${pkgs.openssl.dev}/lib/pkgconfig:${pkgs.libpulseaudio}/lib/pkgconfig:$PKG_CONFIG_PATH"
     export LD_LIBRARY_PATH="${pkgs.lib.makeLibraryPath [
-      # WebRTC's Linux audio backends are dlopen'd, not linked, so libasound
-      # and libpulse have to be resolvable at runtime rather than at link time.
       pkgs.alsa-lib
       pkgs.gnutls
       pkgs.libpulseaudio
@@ -72,8 +66,6 @@ pkgs.mkShell {
       pkgs.qt6.qt5compat
       pkgs.qt6.qtdeclarative
       pkgs.qt6.qtsvg
-      # WebRTC's DesktopCapturer pulls in the X11 extensions, and the archive
-      # is built against the process libstdc++ rather than a custom libc++.
       pkgs.stdenv.cc.cc.lib
       pkgs.libglvnd
       pkgs.libx11

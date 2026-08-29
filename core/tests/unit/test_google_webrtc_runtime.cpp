@@ -44,7 +44,7 @@ struct PreviewResult {
     std::string error;
 };
 
-} // namespace
+}
 
 TEST(GoogleWebRtcRuntime, OwnsFactoryAndThreadsBehindPimpl)
 {
@@ -83,12 +83,6 @@ TEST(GoogleWebRtcRuntime, PlatformAudioRejectsInjectedFrames)
 
 TEST(GoogleWebRtcRuntime, PlatformAudioFallsBackToDummyInsteadOfAborting)
 {
-    // On a machine without a working audio server the ADM Init() probe fails
-    // and construction must degrade to the silent dummy device instead of
-    // leaving a live grenade for the voice engine's fatal RTC_CHECK
-    // (DRISCORD-9). On a healthy machine the platform device stays and the
-    // flag stays false — this test is meaningful in both environments and
-    // never skips.
     driscord::media::GoogleWebRtcRuntime runtime;
     ASSERT_TRUE(runtime.ready());
     if (runtime.audio_device_degraded()) {
@@ -96,7 +90,6 @@ TEST(GoogleWebRtcRuntime, PlatformAudioFallsBackToDummyInsteadOfAborting)
         EXPECT_TRUE(runtime.playout_devices().empty());
     }
 
-    // The injected-audio path never degrades: it does not touch the platform.
     driscord::media::GoogleWebRtcRuntime injected(
         driscord::media::GoogleWebRtcRuntimeConfig {
             .injected_audio_device
@@ -345,9 +338,6 @@ TEST(GoogleWebRtcScreenSession, DesktopCaptureProducesPreviewFrame)
     using driscord::media::DesktopCaptureKind;
     using driscord::media::GoogleWebRtcScreenSession;
 
-    // Wine advertises a desktop that DXGI/GDI capture cannot actually grab,
-    // so the empty-source skip below never fires there; the cross-test preset
-    // disables the test explicitly instead.
     if (std::getenv("DRISCORD_TEST_NO_DESKTOP_CAPTURE") != nullptr) {
         GTEST_SKIP() << "Desktop capture disabled for this environment";
     }

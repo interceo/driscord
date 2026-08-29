@@ -33,6 +33,42 @@ Item {
         }
     }
 
+    Rectangle {
+        id: updateBanner
+        objectName: "updateBanner"
+        anchors { left: parent.left; right: parent.right; top: parent.top }
+        height: visible ? 36 : 0
+        color: "#23a559"
+        visible: updateManager.noticeVisible
+        z: 100
+
+        Text {
+            anchors.centerIn: parent
+            text: qsTr("Update %1 is available — click to view")
+                .arg(updateManager.latestVersion)
+            color: "white"
+            font.pixelSize: 13
+        }
+        MouseArea {
+            anchors.fill: parent
+            anchors.rightMargin: 36
+            cursorShape: Qt.PointingHandCursor
+            onClicked: settingsDialog.openAdvanced()
+        }
+        Text {
+            anchors { right: parent.right; verticalCenter: parent.verticalCenter; rightMargin: 12 }
+            text: "✕"
+            color: "white"
+            font.pixelSize: 13
+            MouseArea {
+                anchors.fill: parent
+                anchors.margins: -8
+                cursorShape: Qt.PointingHandCursor
+                onClicked: updateManager.dismissNotice()
+            }
+        }
+    }
+
     SettingsDialog  { id: settingsDialog }
     ShareDialog     { id: shareDialog }
     CreateServerDialog  { id: createServerDialog }

@@ -73,17 +73,14 @@ TEST(LinkModel, SerializationDelayFollowsCapacity)
     config.link_capacity_kbps = 1'000;
     LinkModelState state;
 
-    // 1250 bytes at 1000 kbps = 10 ms on the wire.
     const auto lone = schedule_packet_departure(config, state, 0, 1'250);
     ASSERT_TRUE(lone.has_value());
     EXPECT_EQ(lone->departure_us, 10'000);
 
-    // A back-to-back packet waits for the link to free up.
     const auto queued = schedule_packet_departure(config, state, 0, 1'250);
     ASSERT_TRUE(queued.has_value());
     EXPECT_EQ(queued->departure_us, 20'000);
 
-    // After the link idles, serialization restarts from the arrival.
     const auto later = schedule_packet_departure(config, state, 100'000, 1'250);
     ASSERT_TRUE(later.has_value());
     EXPECT_EQ(later->departure_us, 110'000);
@@ -102,7 +99,6 @@ TEST(LinkModel, BoundedQueueOverflows)
     EXPECT_FALSE(schedule_packet_departure(config, state, 0, 1'200))
         << "third deferred packet must overflow the two-packet queue";
 
-    // Draining the caller's queue re-opens the link.
     state.queued_packets = 0;
     EXPECT_TRUE(schedule_packet_departure(config, state, 2'000'000, 1'200));
 }
@@ -121,8 +117,6 @@ TEST(LinkModel, DeparturesStayMonotonicUnlessReorderingIsAllowed)
             << "jitter must not double as a hidden reorder fault";
     }
 
-    // With reordering allowed, some seed in a small range must produce an
-    // inversion — the raw jittered schedule leaks through.
     config.allow_reordering = true;
     bool inversion_found = false;
     for (uint64_t seed = 1; seed < 50 && !inversion_found; ++seed) {
@@ -148,7 +142,6 @@ TEST(LinkModel, JitterCentersOnTheConfiguredDelay)
     config.seed = 11;
     LinkModelState state;
 
-    // Wide spacing so departures do not interact through the monotonic clamp.
     std::vector<double> delays_ms;
     for (size_t i = 0; i < 2'000; ++i) {
         const int64_t arrival = static_cast<int64_t>(i) * 1'000'000;
@@ -167,8 +160,6 @@ TEST(LinkModel, JitterCentersOnTheConfiguredDelay)
         variance += (delay - mean) * (delay - mean);
     }
     variance /= static_cast<double>(delays_ms.size());
-    // The distribution is a truncated normal (delays clamp at zero), so the
-    // sample deviation sits near but not exactly on the configured sigma.
     EXPECT_NEAR(std::sqrt(variance), 20.0, 5.0);
 }
 
@@ -189,4 +180,4 @@ TEST(LinkModel, DuplicatesEveryNthPacket)
     EXPECT_EQ(duplicates, 20u);
 }
 
-} // namespace
+}

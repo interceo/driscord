@@ -25,15 +25,6 @@
 #include <utility>
 #include <vector>
 
-// Full-reference screen quality on the clean production path: marked source
-// frames, PSNR/SSIM against the exact submitted reference. Freeze and
-// framerate continuity come from libwebrtc's own VideoReceiveStats (the W3C
-// definitions), not from test-side math. The first decoded frames are
-// excluded from the reference comparison — the encoder's rate ramp is
-// startup behavior, not steady quality. With DRISCORD_MEDIA_DUMP_DIR set,
-// every compared pair is also written as aligned Y4M for the ffmpeg
-// cross-check (scripts/media_metrics_crosscheck.sh).
-
 namespace {
 
 using test_util::EventCollector;
@@ -49,7 +40,6 @@ using ContentGenerator
 
 struct QualityRun {
     test_util::VideoQualityReport report;
-    // Video playback continuity as libwebrtc itself measured it.
     std::optional<driscord::media::VideoReceiveStats> video_stats;
     size_t decoded_frames = 0;
     size_t errors = 0;
@@ -228,7 +218,7 @@ QualityRun run_screen_quality_call(const ContentGenerator& content,
         }
         const int64_t timestamp_us
             = std::chrono::duration_cast<std::chrono::microseconds>(
-                base.time_since_epoch())
+                  base.time_since_epoch())
                   .count()
             + static_cast<int64_t>(frame) * 33'333;
         (void)publisher_screen->submit_bgra_frame(bgra, kWidth, kHeight,
@@ -239,8 +229,6 @@ QualityRun run_screen_quality_call(const ContentGenerator& content,
     EXPECT_TRUE(decoded_target_reached.wait_for(std::chrono::seconds(5)))
         << "decoded only " << decoded_count.load() << "/" << decoded_target;
 
-    // Playback continuity from the receiver's own inbound-rtp stats — the
-    // production measurement the freeze/framerate gates sit on.
     const auto stats_samples
         = test_util::sample_stats<driscord::media::ScreenSessionStats>(
             *listener_screen, 1);
@@ -266,7 +254,7 @@ QualityRun run_screen_quality_call(const ContentGenerator& content,
     return result;
 }
 
-} // namespace
+}
 
 TEST(GoogleWebRtcScreenQuality, CleanScrollingTextPsnrSsim)
 {
@@ -274,13 +262,12 @@ TEST(GoogleWebRtcScreenQuality, CleanScrollingTextPsnrSsim)
         [](int width, int height, size_t index) {
             return test_util::scrolling_text_frame(width, height, index);
         },
-        /*max_frames=*/450, /*decoded_target=*/330,
+        450, 330,
         "screen_quality_scrolling_text");
 
     EXPECT_EQ(run.errors, 0u);
     ASSERT_GT(run.report.compared_frames, 200u);
 
-    // Marker integrity is a prerequisite for every full-reference number.
     const double marker_failure_ratio
         = static_cast<double>(run.report.undecodable_markers)
         / static_cast<double>(
@@ -305,8 +292,6 @@ TEST(GoogleWebRtcScreenQuality, CleanScrollingTextPsnrSsim)
     EXPECT_TRUE(test_util::gate_le("screen_quality.freeze_count",
         static_cast<double>(run.video_stats->freeze_count), 0.0));
 
-    // Glass-to-glass delay: observe-only until a baseline exists — the JSON
-    // lines feed the trend pipeline either way.
     if (!run.report.e2e_delay_ms.empty()) {
         (void)test_util::gate_le("screen_quality.e2e_delay_p95_ms",
             test_util::percentile(run.report.e2e_delay_ms, 95.0), 400.0);
@@ -319,14 +304,11 @@ TEST(GoogleWebRtcScreenQuality, SlideTransitionsKeepHarmonicFramerate)
         [](int width, int height, size_t index) {
             return test_util::sliding_blocks_frame(width, height, index);
         },
-        /*max_frames=*/330, /*decoded_target=*/240,
+        330, 240,
         "screen_quality_sliding_blocks");
 
     EXPECT_EQ(run.errors, 0u);
     ASSERT_GT(run.report.compared_frames, 150u);
-    // Harmonic framerate penalizes stalls: 30 fps input must not degrade
-    // into a slideshow even while slides transition. Both numbers come from
-    // libwebrtc's own inter-frame accounting.
     ASSERT_TRUE(run.video_stats.has_value());
     EXPECT_TRUE(test_util::gate_ge("screen_quality.harmonic_framerate",
         test_util::harmonic_framerate(*run.video_stats), 24.0));

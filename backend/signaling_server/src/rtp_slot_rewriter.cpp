@@ -107,7 +107,7 @@ namespace {
         return true;
     }
 
-} // namespace
+}
 
 bool rewrite_rtp_for_slot(rtc::binary& packet,
     uint32_t output_ssrc,
@@ -155,9 +155,6 @@ bool rewrite_rtp_for_slot(rtc::binary& packet,
         }
     }
 
-    // libdatachannel's RtcpSrReporter asserts on padded RTP. Strip valid
-    // padding before the packet reaches its media-handler chain while keeping
-    // the RTP packet (and therefore sequence continuity) intact.
     if ((byte_at(packet, 0) & 0x20) != 0) {
         if (packet.size() <= payload_begin) {
             return false;
@@ -233,8 +230,6 @@ bool RtpSlotRewriter::rewrite(rtc::binary& packet,
     } else if (static_cast<int16_t>(
                    input_sequence - source_anchor_sequence_)
         < 0) {
-        // This packet predates the first packet accepted after reassignment and
-        // would collide with the previous publisher's output sequence space.
         return false;
     }
 
@@ -258,4 +253,4 @@ bool RtpSlotRewriter::rewrite(rtc::binary& packet,
     return true;
 }
 
-} // namespace driscord::sfu
+}

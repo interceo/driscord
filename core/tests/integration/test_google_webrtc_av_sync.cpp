@@ -29,13 +29,6 @@
 #include <utility>
 #include <vector>
 
-// A/V sync for the screen video / system-audio pair, measured two ways in
-// one call: (a) marker ground truth — a chirp mixed into the audio feed at
-// the same synthetic capture instant as a marked video frame, both timed at
-// playout; (b) the stats-based playout skew from estimatedPlayoutTimestamp,
-// when the tracks report it. The marker method also catches SFU
-// timestamp-rewriting bugs the stats method is blind to.
-
 namespace {
 
 using namespace std::chrono_literals;
@@ -75,16 +68,11 @@ AvSyncRun run_av_sync_call(driscord::sfu::RtpFaultConfig faults,
     SignalingServerFixture server { std::move(faults) };
 
     test_util::AvSyncCorrelator correlator;
-    // Loud chirp over a quiet tone: post-codec NCC stays well above the
-    // threshold even after NetEq time-stretching warps the template.
     test_util::ChirpDetector detector(
-        test_util::make_chirp(48'000, 20, 1'000.0, 4'000.0, /*amplitude=*/16'000),
+        test_util::make_chirp(48'000, 20, 1'000.0, 4'000.0, 16'000),
         48'000, detector_threshold);
     std::mutex probe_mutex;
 
-    // Optional WAV pair for offline audio analysis (ViSQOL, ffmpeg
-    // ebur128/axcorrelate): the fed reference and the post-NetEq playout.
-    // Declared before the sessions so callbacks never outlive the writers.
     const auto dump_dir = test_util::media_dump_dir();
     test_util::WavWriter reference_audio_dump;
     test_util::WavWriter rendered_audio_dump;
@@ -93,8 +81,6 @@ AvSyncRun run_av_sync_call(driscord::sfu::RtpFaultConfig faults,
             *dump_dir / (std::string(dump_label) + ".ref.wav"), 48'000, 1);
     }
 
-    // Listener hears the mixed post-NetEq playout — the first consumer of
-    // the on_rendered_audio tap.
     driscord::media::InjectedAudioDeviceConfig listener_audio;
     listener_audio.on_rendered_audio
         = [&](std::span<const int16_t> samples, int sample_rate_hz,
@@ -259,7 +245,6 @@ AvSyncRun run_av_sync_call(driscord::sfu::RtpFaultConfig faults,
     listener_transport.send_watch_start(publisher_transport.local_id());
     EXPECT_TRUE(bindings.wait_for_count(2));
 
-    // One shared capture clock for both feeds.
     const auto base = std::chrono::steady_clock::now() + 100ms;
     {
         std::scoped_lock lock(base_mutex);
@@ -290,7 +275,7 @@ AvSyncRun run_av_sync_call(driscord::sfu::RtpFaultConfig faults,
 
     std::thread audio_feeder([&] {
         const auto chirp = test_util::make_chirp(48'000, 20, 1'000.0, 4'000.0,
-            /*amplitude=*/16'000);
+            16'000);
         constexpr double kPi = 3.14159265358979323846;
         constexpr size_t kSamplesPerFrame = 480;
         const size_t total_audio_frames
@@ -299,7 +284,6 @@ AvSyncRun run_av_sync_call(driscord::sfu::RtpFaultConfig faults,
         for (size_t k = 0; k < kEventCount; ++k) {
             const size_t frame_index
                 = kFirstEventFrame + k * kEventStrideFrames;
-            // The same capture instant, expressed in samples.
             chirp_starts.push_back(static_cast<size_t>(
                 static_cast<uint64_t>(frame_index) * 33'333 * 48 / 1'000));
         }
@@ -310,13 +294,11 @@ AvSyncRun run_av_sync_call(driscord::sfu::RtpFaultConfig faults,
             const size_t first_sample = frame * kSamplesPerFrame;
             for (size_t i = 0; i < kSamplesPerFrame; ++i) {
                 samples[i] = static_cast<int16_t>(std::lround(
-                    6'000.0 * std::sin(2.0 * kPi * 440.0
-                        * static_cast<double>(first_sample + i) / 48'000.0)));
+                    6'000.0 * std::sin(2.0 * kPi * 440.0 * static_cast<double>(first_sample + i) / 48'000.0)));
             }
             for (const size_t start : chirp_starts) {
                 if (start < first_sample + kSamplesPerFrame
                     && start + chirp.size() > first_sample) {
-                    // The chirp region overlapping this frame.
                     const size_t chirp_from
                         = start > first_sample ? 0 : first_sample - start;
                     const size_t frame_from
@@ -332,8 +314,6 @@ AvSyncRun run_av_sync_call(driscord::sfu::RtpFaultConfig faults,
         }
     });
 
-    // Stats sampling while media flows: playout skew whenever both tracks
-    // report their playout timestamp.
     const size_t stats_polls = kTotalVideoFrames * 33 / 1'000;
     for (size_t poll = 0; poll < stats_polls; ++poll) {
         std::this_thread::sleep_for(1s);
@@ -371,7 +351,6 @@ AvSyncRun run_av_sync_call(driscord::sfu::RtpFaultConfig faults,
 
     video_feeder.join();
     audio_feeder.join();
-    // Let the tail of the last event play out.
     std::this_thread::sleep_for(500ms);
 
     {
@@ -401,29 +380,22 @@ void expect_sync_within(const AvSyncRun& run,
     ASSERT_GE(run.markers.matched, min_matched)
         << "matched only " << run.markers.matched << "/" << kEventCount
         << " sync events";
-    // Hard gates sit on the ITU-R BT.1359 acceptability envelope. The clean
-    // loopback measures a steady ~40 ms audio-behind-video (NetEq target
-    // delay vs the near-empty video jitter buffer), so the tight "ideal"
-    // targets stay observe-only until the Phase-4 baselines pin them.
     EXPECT_TRUE(test_util::gate_le(
         std::string(label) + ".av_sync_abs_p95_ms", run.markers.abs_p95_ms,
         p95_limit_ms));
     EXPECT_TRUE(test_util::gate_le(
         std::string(label) + ".av_sync_abs_max_ms", run.markers.abs_max_ms,
         125.0));
-    // The intolerable direction (BT.1359 asymmetry): audio must not lead
-    // video by more than 45 ms.
     EXPECT_TRUE(test_util::gate_le(
         std::string(label) + ".av_sync_audio_lead_max_ms",
         run.markers.audio_lead_max_ms, 45.0));
-    // Observe-only tight targets for the trend pipeline.
     (void)test_util::gate_le(std::string(label) + ".av_sync_abs_p50_ms",
         run.markers.abs_p50_ms, 25.0);
     (void)test_util::gate_le(std::string(label) + ".av_sync_abs_p95_ideal_ms",
         run.markers.abs_p95_ms, 45.0);
 }
 
-} // namespace
+}
 
 TEST(GoogleWebRtcAvSync, CleanPathMarkersAndStatsAgree)
 {
@@ -431,9 +403,6 @@ TEST(GoogleWebRtcAvSync, CleanPathMarkersAndStatsAgree)
         "av_sync_clean");
     expect_sync_within(run, "av_sync.clean", 80.0);
 
-    // Stats-based skew: enforced only when both tracks actually report the
-    // NTP-anchored playout timestamp — whether screen audio does through the
-    // SFU is exactly what this records.
     (void)test_util::gate_ge("av_sync.clean.video_playout_ts_seen",
         run.video_playout_ts_seen ? 1.0 : 0.0, 1.0);
     (void)test_util::gate_ge("av_sync.clean.audio_playout_ts_seen",
@@ -446,7 +415,6 @@ TEST(GoogleWebRtcAvSync, CleanPathMarkersAndStatsAgree)
         }
         EXPECT_TRUE(test_util::gate_le("av_sync.clean.stats_skew_p95_ms",
             test_util::percentile(magnitudes, 95.0), 45.0));
-        // Cross-validation of the two methods.
         (void)test_util::gate_le("av_sync.clean.methods_disagreement_ms",
             std::abs(test_util::percentile(magnitudes, 50.0)
                 - run.markers.abs_p50_ms),
@@ -456,14 +424,7 @@ TEST(GoogleWebRtcAvSync, CleanPathMarkersAndStatsAgree)
 
 TEST(GoogleWebRtcAvSync, WifiBurstSyncHolds)
 {
-    // NetEq's concealment/time-stretch under bursty loss warps some chirps
-    // beyond recognition: a lower detector threshold and a half-events floor
-    // keep the envelope gates statistically grounded without demanding every
-    // marker survive a degraded link.
     const auto run = run_av_sync_call(test_util::wifi_burst_profile(59),
-        "av_sync_wifi_burst", /*detector_threshold=*/0.30);
-    // The constant link delay is common-mode for both tracks; only the
-    // differential jitter can widen the offset. Must stay inside the
-    // acceptability envelope.
+        "av_sync_wifi_burst", 0.30);
     expect_sync_within(run, "av_sync.wifi_burst", 100.0, kEventCount / 3);
 }

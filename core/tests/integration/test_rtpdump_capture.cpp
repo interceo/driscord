@@ -1,11 +1,3 @@
-// Records real publisher RTP off the SFU's production forwarding path into
-// rtpdump files: Google WebRTC encodes, libdatachannel receives, and the
-// RtpFaultConfig packet tap (the same seam the deterministic loss faults use)
-// hands every packet to the vendored WebRTC rtpdump writer. In the gate this
-// proves the capture toolchain end to end — session → SFU input → tap →
-// writer → reader. With DRISCORD_RECORD_FIXTURES_DIR set it additionally
-// refreshes the committed fixtures (core/tests/fixtures/) and the fuzz seeds
-// derived from them; see test_rtpdump_replay.cpp for the consumers.
 
 #include "rtc_cleanup_env.hpp"
 #include "signaling_test_fixture.hpp"
@@ -47,9 +39,6 @@ struct CapturedPacket {
     uint32_t time_ms = 0;
 };
 
-// Thread-safe RTP collector behind the fault-stage tap. RTCP is dropped here:
-// the fixtures feed the RTP rewrite path, and RTCP already has its own
-// checked-in corpus.
 class PacketRecorder {
 public:
     void observe(const rtc::binary& packet)
@@ -118,9 +107,6 @@ void write_rtpdump(const std::string& path,
     }
 }
 
-// Round-trips the capture through the vendored reader and pins what real
-// loopback publisher traffic must look like: parseable RTP v2 with one
-// dominant SSRC whose sequence numbers arrive gap-free and in order.
 void verify_capture(const std::string& path, size_t expected_minimum)
 {
     std::unique_ptr<webrtc::test::RtpFileReader> reader(
@@ -159,9 +145,6 @@ void verify_capture(const std::string& path, size_t expected_minimum)
     }
 }
 
-// With DRISCORD_RECORD_FIXTURES_DIR set, refresh the committed fixture and
-// derive fuzz seeds in the fuzz_rtp_slot_rewriter input format (two control
-// bytes steering SSRC/MID parameters, then the packet).
 void maybe_record_fixtures(const std::string& name,
     const std::vector<CapturedPacket>& packets)
 {
@@ -184,8 +167,8 @@ void maybe_record_fixtures(const std::string& name,
         std::ofstream seed(std::string(dir) + "/" + name + "_seed_"
                 + std::to_string(seed_index) + ".bin",
             std::ios::binary);
-        seed.put(char(0x80)); // mid extension enabled
-        seed.put(char(0x03)); // extension id 3
+        seed.put(char(0x80));
+        seed.put(char(0x03));
         seed.write(reinterpret_cast<const char*>(captured.bytes.data()),
             static_cast<std::streamsize>(captured.bytes.size()));
     }
@@ -277,7 +260,6 @@ TEST(RtpDumpCapture, VoicePublisherRtpRoundTripsThroughRtpdump)
         ASSERT_TRUE(runtime.submit_recorded_audio_10ms(
             make_tone_frame(440.0, frame)));
     }
-    // 1.5 s of injected tone → ~75 Opus packets at 20 ms ptime.
     ASSERT_TRUE(recorder.wait_for_count(60));
 
     voice.close();
@@ -329,7 +311,6 @@ TEST(RtpDumpCapture, ScreenPublisherRtpRoundTripsThroughRtpdump)
             .remote_stream_slots = 1,
             .sharing_enabled = true,
             .system_audio_enabled = false,
-            // Keep the committed fixture small.
             .max_video_bitrate_bps = 300'000,
         },
         std::move(callbacks));
@@ -351,9 +332,6 @@ TEST(RtpDumpCapture, ScreenPublisherRtpRoundTripsThroughRtpdump)
     ASSERT_TRUE(test_util::wait_for_local_id(transport));
     ASSERT_TRUE(screen.start());
     ASSERT_TRUE(connected.wait_for());
-    // Activates the publisher's input on the screen router. The broadcast
-    // goes to *other* peers only, so there is nothing to wait on here — the
-    // tap seeing packets below is the confirmation.
     transport.send_streaming_start();
 
     constexpr int kWidth = 320;
@@ -367,9 +345,6 @@ TEST(RtpDumpCapture, ScreenPublisherRtpRoundTripsThroughRtpdump)
             start_us + static_cast<int64_t>(frame) * 33'333);
         std::this_thread::sleep_for(std::chrono::milliseconds(33));
     }
-    // Screen capture carries more than one SSRC (bandwidth probing shares the
-    // transport), so collect enough packets that the dominant video stream
-    // alone clears the verification floor.
     ASSERT_TRUE(recorder.wait_for_count(120));
 
     screen.close();
@@ -384,4 +359,4 @@ TEST(RtpDumpCapture, ScreenPublisherRtpRoundTripsThroughRtpdump)
     std::filesystem::remove(path);
 }
 
-} // namespace
+}

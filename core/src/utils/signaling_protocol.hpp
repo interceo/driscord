@@ -13,8 +13,6 @@
 
 namespace signaling {
 
-// Independent PeerConnections isolate latency-sensitive voice from
-// bandwidth-heavy screen media.
 enum class ConnectionId {
     Voice,
     Screen,
@@ -70,8 +68,6 @@ struct Candidate {
     ConnectionId connection = ConnectionId::Voice;
 };
 
-// Associates one pre-negotiated recvonly transceiver with the peer whose RTP
-// the SFU currently forwards through it. A missing peer clears the slot.
 struct TrackBinding {
     std::string sdp_mid;
     std::optional<driscord::PeerId> peer_id;
@@ -94,8 +90,6 @@ struct WatchStop {
     driscord::PeerId peer_id;
 };
 
-// Server response for a watch_start that could not be retained. Successful
-// subscriptions are confirmed by their subsequent TrackBinding messages.
 struct WatchRejected {
     driscord::PeerId peer_id;
     WatchRejectReason reason = WatchRejectReason::UnknownPeer;
@@ -137,4 +131,4 @@ utils::Expected<Message, ParseError> parse(std::string_view raw);
 
 std::string dump(const Message& message);
 
-} // namespace signaling
+}

@@ -1,6 +1,3 @@
-# Derive the user-visible version from the repository state. Exact semver tags
-# are release versions; other commits keep a numeric CMake project version and
-# add deterministic development metadata for diagnostics and package names.
 set(DRISCORD_VERSION_CORE "0.0.0")
 set(DRISCORD_VERSION_DISPLAY "0.0.0+unknown")
 set(DRISCORD_VERSION_IS_RELEASE OFF)

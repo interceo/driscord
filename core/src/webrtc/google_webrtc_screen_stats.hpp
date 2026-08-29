@@ -12,10 +12,6 @@
 
 namespace driscord::media {
 
-// Stateful because WebRTC counters are cumulative per stable SFU slot. This
-// tracker rebases them at each mid -> publisher binding epoch and rejects late
-// callbacks from a previous screen session. GoogleWebRtcClient serializes all
-// calls with its own mutex; duplicating a second lock here is unnecessary.
 class ScreenStatsTracker final {
 public:
     using TimePoint = std::chrono::steady_clock::time_point;
@@ -32,7 +28,6 @@ public:
     void clear_watched();
     void remove_peer(std::string_view peer_id);
 
-    // Keeps the watched set so a reconnect can replay its subscriptions.
     void reset_session();
 
     [[nodiscard]] Poll poll(
@@ -63,4 +58,4 @@ private:
     uint64_t session_generation_ = 0;
 };
 
-} // namespace driscord::media
+}

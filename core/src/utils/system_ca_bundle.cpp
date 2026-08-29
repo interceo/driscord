@@ -37,7 +37,6 @@ namespace {
                 bundle.resize(offset);
                 continue;
             }
-            // pem_size excludes the NUL terminator the API still writes.
             bundle.resize(offset + pem_size);
         }
         CertCloseStore(store, 0);
@@ -48,18 +47,15 @@ namespace {
         return bundle;
     }
 
-} // namespace
+}
 
 std::optional<std::string> system_ca_bundle_pem()
 {
-    // The ROOT store changes only through system administration; one snapshot
-    // per process is the same trust window a store handle held open would
-    // give.
     static const std::optional<std::string> bundle = collect_root_store_pem();
     return bundle;
 }
 
-} // namespace utils
+}
 
 #else
 
@@ -70,6 +66,6 @@ std::optional<std::string> system_ca_bundle_pem()
     return std::nullopt;
 }
 
-} // namespace utils
+}
 
 #endif

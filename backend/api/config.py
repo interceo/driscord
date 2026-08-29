@@ -22,12 +22,8 @@ class Settings(BaseSettings):
     api_port: int = 8000
     data_dir: Path = Path(__file__).parent / "data"
 
-    # Escape hatch for throwaway environments. Without it a missing SECRET_KEY
-    # is fatal: the default value would let anyone mint valid tokens, and the
-    # signaling server trusts the same signature.
     allow_insecure_secret: bool = False
 
-    # JWT
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
 
@@ -45,7 +41,6 @@ class Settings(BaseSettings):
 
 
 def _redact(url: str) -> str:
-    # postgresql+asyncpg://user:pass@host:port/db -> postgresql+asyncpg://user:***@host:port/db
     if "://" not in url or "@" not in url:
         return url
     scheme, rest = url.split("://", 1)

@@ -51,8 +51,6 @@ namespace {
         }
     }
 
-    // splitmix64: a tiny, well-distributed PRNG. Deterministic given a seed,
-    // so a burst-loss test reproduces exactly across runs and machines.
     uint64_t next_random(uint64_t& state)
     {
         state += 0x9E3779B97F4A7C15ull;
@@ -62,15 +60,12 @@ namespace {
         return z ^ (z >> 31);
     }
 
-    // Uniform double in [0, 1).
     double next_unit(uint64_t& state)
     {
         return static_cast<double>(next_random(state) >> 11)
             / static_cast<double>(1ull << 53);
     }
 
-    // One Gilbert-Elliott step: decides loss for this packet, then advances
-    // between the good and bad states. Returns true if the packet is lost.
     bool burst_should_drop(const BurstLossConfig& burst, RtpFaultState& state)
     {
         if (!state.burst_initialized) {
@@ -89,8 +84,6 @@ namespace {
         return lost;
     }
 
-    // Box-Muller: standard normal deviate from two uniform draws. Purely a
-    // function of the PRNG state, so schedules reproduce exactly per seed.
     double next_gaussian(uint64_t& state)
     {
         constexpr double kPi = 3.14159265358979323846;
@@ -99,7 +92,7 @@ namespace {
         return std::sqrt(-2.0 * std::log(u1)) * std::cos(2.0 * kPi * u2);
     }
 
-} // namespace
+}
 
 std::optional<LinkScheduleResult> schedule_packet_departure(
     const LinkModelConfig& config,
@@ -116,7 +109,6 @@ std::optional<LinkScheduleResult> schedule_packet_departure(
     }
     ++state.packets_seen;
 
-    // Serialization on the single-packet capacity link.
     const int64_t start = std::max(arrival_us, state.capacity_busy_until_us);
     const int64_t serialization_us = config.link_capacity_kbps == 0
         ? 0
@@ -166,8 +158,6 @@ RtpFaultResult apply_rtp_faults(const RtpFaultConfig& config,
     }
 
     ++state.packets_seen;
-    // Burst loss is evaluated on every packet so its state machine stays
-    // coherent, but it never touches reordering.
     const bool burst_drop
         = config.burst.enabled() && burst_should_drop(config.burst, state);
     if (burst_drop
@@ -261,4 +251,4 @@ RtpFormat primary_rtp_format(const rtc::Description::Media& description,
                                  : RtpFormat { 96, 90'000 };
 }
 
-} // namespace driscord::sfu
+}

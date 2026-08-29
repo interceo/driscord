@@ -132,9 +132,6 @@ async def join_server(
     server_id: int,
     _current_user: User = Depends(get_current_user),
 ):
-    # Keep an explicit response for old clients instead of silently turning the
-    # route into 405. Membership is granted only by accepting an invite or by an
-    # owner adding a known user; knowing an incremental server id is not access.
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="An invite is required to join this server",

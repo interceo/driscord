@@ -11,11 +11,6 @@
 using test_support::HttpFixture;
 using test_support::HttpResponse;
 
-// ApiClient is the single HTTP seam of the client: every repository and the
-// auth flow go through it. These tests speak real HTTP over localhost and pin
-// its wire contract — verb, path, headers, body — and its error-delivery
-// contract: the callback always fires exactly once, and a JSON error body is
-// still parsed so callers can surface the server's "detail".
 class TestApiClient : public QObject {
     Q_OBJECT
 
@@ -203,9 +198,6 @@ private slots:
     void abruptCloseStillInvokesCallbackWithError()
     {
         HttpFixture http;
-        // QNetworkAccessManager silently retries an idempotent request once
-        // after an unexpected connection close, so the abort must be scripted
-        // for the retry too or it would hit the default 200.
         http.enqueue({ .closeWithoutResponse = true });
         http.enqueue({ .closeWithoutResponse = true });
 

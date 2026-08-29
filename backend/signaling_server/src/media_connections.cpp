@@ -36,10 +36,6 @@ struct MediaConnections::Impl : std::enable_shared_from_this<Impl> {
     void accept_offer(signaling::ConnectionId connection,
         const std::string& sdp)
     {
-        // Client sessions preallocate their Unified Plan transceivers, so they
-        // never renegotiate in place. A later offer for the same logical
-        // connection comes from a newly-created Google PeerConnection and
-        // must replace the old libdatachannel counterpart (including ICE).
         std::shared_ptr<rtc::PeerConnection> pc;
         {
             std::scoped_lock lk(mutex);
@@ -83,10 +79,6 @@ struct MediaConnections::Impl : std::enable_shared_from_this<Impl> {
                 if (!self || !owner || !self->owns(connection, owner)) {
                     return;
                 }
-                // Whether the SFU offers a candidate a remote client can
-                // actually reach is the difference between working media and
-                // a connection that fails ~15s after signalling succeeds, so
-                // the gathered addresses are worth having in the log.
                 LOG_INFO() << "local candidate ("
                            << signaling::to_string(connection)
                            << "): " << std::string(candidate);
@@ -180,8 +172,6 @@ struct MediaConnections::Impl : std::enable_shared_from_this<Impl> {
             }
             it->second.tracks[mid] = track;
         }
-        // Track callbacks may re-enter this object, so never close or destroy
-        // the last strong reference while holding `mutex`.
         if (replaced && replaced != track) {
             replaced->close();
         }
@@ -318,4 +308,4 @@ void MediaConnections::close()
     }
 }
 
-} // namespace driscord
+}

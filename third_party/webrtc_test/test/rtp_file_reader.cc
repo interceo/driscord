@@ -110,7 +110,7 @@ bool ReadUint16(uint16_t* out, FILE* file) {
   return true;
 }
 
-}  // namespace
+}
 
 class RtpFileReaderImpl : public RtpFileReader {
  public:
@@ -157,8 +157,6 @@ class InterleavedRtpFileReader : public RtpFileReaderImpl {
   int64_t time_ms_ = 0;
 };
 
-// Read RTP packets from file in rtpdump format, as documented at:
-// http://www.cs.columbia.edu/irt/software/rtptools/
 class RtpDumpReader : public RtpFileReaderImpl {
  public:
   RtpDumpReader() : file_(nullptr) {}
@@ -221,7 +219,6 @@ class RtpDumpReader : public RtpFileReaderImpl {
     TRY(ReadUint16(&plen, file_));
     TRY(ReadUint32(&offset, file_));
 
-    // Use 'len' here because a 'plen' of 0 specifies rtcp.
     len -= kRtpDumpPacketHeaderSize;
     if (packet->length < len) {
       RTC_LOG(LS_ERROR) << "Packet is too large to fit: " << len << " bytes vs "
@@ -244,10 +241,6 @@ class RtpDumpReader : public RtpFileReaderImpl {
   FILE* file_;
 };
 
-// Read RTP packets from file in tcpdump/libpcap format, as documented at:
-// http://wiki.wireshark.org/Development/LibpcapFileFormat
-// Transparently supports PCAPNG as described at
-// https://pcapng.com/
 class PcapReader : public RtpFileReaderImpl {
  public:
   PcapReader()
@@ -308,21 +301,6 @@ class PcapReader : public RtpFileReaderImpl {
                        << " packets, pt=" << pt << ".";
     }
 
-    // TODO(solenberg): Better validation of identified SSRC streams.
-    //
-    // Since we're dealing with raw network data here, we will wrongly identify
-    // some packets as RTP. When these packets are consumed by RtpPlayer, they
-    // are unlikely to cause issues as they will ultimately be filtered out by
-    // the RtpRtcp module. However, we should really do better filtering here,
-    // which we can accomplish in a number of ways, e.g.:
-    //
-    // - Verify that the time stamps and sequence numbers for RTP packets are
-    //   both increasing/decreasing. If they move in different directions, the
-    //   SSRC is likely bogus and can be dropped. (Normally they should be inc-
-    //   reasing but we must allow packet reordering).
-    // - If RTP sequence number is not changing, drop the stream.
-    // - Can also use srcip:port->dstip:port pairs, assuming few SSRC collisions
-    //   for up/down streams.
 
     next_packet_it_ = packets_.begin();
     return kResultSuccess;
@@ -408,17 +386,14 @@ class PcapReader : public RtpFileReaderImpl {
   }
 
  private:
-  // A marker of an RTP packet within the file.
   struct RtpPacketMarker {
     uint32_t time_offset_ms;
     uint32_t source_ip;
     uint32_t dest_ip;
     uint16_t source_port;
     uint16_t dest_port;
-    // Payload type of the RTP packet,
-    // or RTCP packet type of the first RTCP packet in a compound RTCP packet.
     int payload_type;
-    int32_t pos_in_file;  // Byte offset of payload from start of file.
+    int32_t pos_in_file;
     uint32_t payload_length;
   };
 
@@ -450,17 +425,15 @@ class PcapReader : public RtpFileReaderImpl {
       return kResultFail;
     }
 
-    int32_t this_zone;  // GMT to local correction.
-    uint32_t sigfigs;   // Accuracy of timestamps.
-    uint32_t snaplen;   // Max length of captured packets, in octets.
-    uint32_t network;   // Data link type.
+    int32_t this_zone;
+    uint32_t sigfigs;
+    uint32_t snaplen;
+    uint32_t network;
     TRY_PCAP(Read(&this_zone, false));
     TRY_PCAP(Read(&sigfigs, false));
     TRY_PCAP(Read(&snaplen, false));
     TRY_PCAP(Read(&network, false));
 
-    // Accept only LINKTYPE_NULL and LINKTYPE_ETHERNET.
-    // See: http://www.tcpdump.org/linktypes.html
     if (network != kLinktypeNull && network != kLinktypeEthernet) {
       return kResultFail;
     }
@@ -497,10 +470,10 @@ class PcapReader : public RtpFileReaderImpl {
                  const std::set<uint32_t>& ssrc_filter) {
     RTC_DCHECK(next_packet_pos);
 
-    uint32_t ts_sec;    // Timestamp seconds.
-    uint32_t ts_usec;   // Timestamp microseconds.
-    uint32_t incl_len;  // Number of octets of packet saved in file.
-    uint32_t orig_len;  // Actual length of packet.
+    uint32_t ts_sec;
+    uint32_t ts_usec;
+    uint32_t incl_len;
+    uint32_t orig_len;
     TRY_PCAP(Read(&ts_sec, false));
     TRY_PCAP(Read(&ts_usec, false));
     TRY_PCAP(Read(&incl_len, false));
@@ -537,8 +510,6 @@ class PcapReader : public RtpFileReaderImpl {
     *next_packet_pos += block_length;
     switch (block_type) {
       case kPcapNgSectionHeaderBlock: {
-        // TODO: https://issues.webrtc.org/issues/351327754 - interpret more of
-        // this block, in particular the if_tsresol option.
         uint32_t byte_order_magic;
         TRY_PCAP(Read(&byte_order_magic, false));
         swap_pcap_byte_order_ = (byte_order_magic == kPcapNgBOMLittleEndian);
@@ -546,11 +517,11 @@ class PcapReader : public RtpFileReaderImpl {
       case kPcapNgInterfaceDescriptionBlock:
         break;
       case kPcapNgPacketBlock: {
-        uint32_t interface;  // Interface ID. Unused.
-        uint32_t ts_upper;   // Upper 32 bits of timestamp.
-        uint32_t ts_lower;   // Lower 32 bits of timestamp.
-        uint32_t incl_len;   // Number of octets of packet saved in file.
-        uint32_t orig_len;   // Actual length of packet.
+        uint32_t interface;
+        uint32_t ts_upper;
+        uint32_t ts_lower;
+        uint32_t incl_len;
+        uint32_t orig_len;
         TRY_PCAP(Read(&interface, false));
         TRY_PCAP(Read(&ts_upper, false));
         TRY_PCAP(Read(&ts_lower, false));
@@ -558,9 +529,6 @@ class PcapReader : public RtpFileReaderImpl {
         TRY_PCAP(Read(&orig_len, false));
 
         RtpPacketMarker marker = {};
-        // Note: Wireshark writes nanoseconds most of the time, see comments in
-        // it's pcapio.c. We are only interesting in the time difference so
-        // truncating to uint32_t is ok.
         uint64_t timestamp_ms =
             ((static_cast<uint64_t>(ts_upper) << 32) | ts_lower) /
             kNumMicrosecsPerSec;
@@ -587,10 +555,6 @@ class PcapReader : public RtpFileReaderImpl {
   int ReadPacketHeader(RtpPacketMarker* marker) {
     int32_t file_pos = ftell(file_);
 
-    // Check for BSD null/loopback frame header. The header is just 4 bytes in
-    // native byte order, so we check for both versions as we don't care about
-    // the header as such and will likely fail reading the IP header if this is
-    // something else than null/loopback.
     uint32_t protocol;
     TRY_PCAP(Read(&protocol, true));
     if (protocol == kBsdNullLoopback1 || protocol == kBsdNullLoopback2) {
@@ -602,9 +566,8 @@ class PcapReader : public RtpFileReaderImpl {
 
     TRY_PCAP(fseek(file_, file_pos, SEEK_SET));
 
-    // Check for Ethernet II, IP frame header.
     uint16_t type;
-    TRY_PCAP(Skip(kEthernetIIHeaderMacSkip));  // Source+destination MAC.
+    TRY_PCAP(Skip(kEthernetIIHeaderMacSkip));
     TRY_PCAP(Read(&type, true));
     if (type == kEthertypeIp) {
       int result = ReadXxpIpHeader(marker);
@@ -617,7 +580,6 @@ class PcapReader : public RtpFileReaderImpl {
   }
 
   uint32_t CalcTimeDelta(uint32_t ts_sec, uint32_t ts_usec, uint32_t start_ms) {
-    // Round to nearest ms.
     uint64_t t2_ms =
         ((static_cast<uint64_t>(ts_sec) * 1000000) + ts_usec + 500) / 1000;
     uint64_t t1_ms = static_cast<uint64_t>(start_ms);
@@ -657,7 +619,6 @@ class PcapReader : public RtpFileReaderImpl {
       return kResultSkip;
     }
 
-    // Skip remaining fields of IP header.
     uint16_t header_length = (version & 0x0f00) >> (8 - 2);
     RTC_DCHECK_GE(header_length, kMinIpHeaderLength);
     TRY_PCAP(Skip(header_length - kMinIpHeaderLength));
@@ -811,5 +772,5 @@ RtpFileReader* RtpFileReader::Create(FileFormat format,
   return RtpFileReader::Create(format, filename, std::set<uint32_t>());
 }
 
-}  // namespace test
-}  // namespace webrtc
+}
+}

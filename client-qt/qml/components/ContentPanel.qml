@@ -7,10 +7,6 @@ Rectangle {
     id: root
     color: "#313338"
 
-    // Inline-expanded tile state — empty when nothing is expanded.
-    // Expansion happens within the content panel (does not cover the sidebar).
-    // expandedKind is "stream" (video) or "peer" (avatar+name); the same id can
-    // appear as both, so kind is part of the identity.
     property string expandedKind:      ""
     property string expandedPeerId:    ""
     property string expandedPeerName:  ""
@@ -43,9 +39,6 @@ Rectangle {
         root.expandedHasFrame  = false
     }
 
-    // Pick a deterministic accent color for a peer based on their displayed
-    // name — same palette/algorithm as AvatarBox so the tile background and
-    // the avatar fallback agree when no avatar image is loaded.
     function peerAccentColor(name) {
         var colors = ["#5865f2","#3ba55c","#faa61a","#ed4245","#eb459e","#9b59b6"]
         if (!name || name.length === 0) return "#1e1f22"
@@ -54,16 +47,12 @@ Rectangle {
         return colors[h % colors.length]
     }
 
-    // Pick the best human-readable label for a peer: display name → username → id.
     function peerLabel(displayName, username, id) {
         if (displayName && displayName.length > 0) return displayName
         if (username && username.length > 0)       return username
         return id ?? ""
     }
 
-    // Build a unified model: local user + remote peers + a separate tile for
-    // each stream. The local preview uses the same tile/frame path as remote
-    // streams, but never creates a self-subscription through the SFU.
     function buildTiles() {
         var tiles = []
         if (appState.connectionState === "connected") {
@@ -134,7 +123,6 @@ Rectangle {
         anchors.fill: parent
         spacing: 0
 
-        // Toolbar
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 44
@@ -154,7 +142,6 @@ Rectangle {
         }
         Rectangle { Layout.fillWidth: true; height: 1; color: "#1e1f22"; visible: appState.connected }
 
-        // Grid of tiles (peers + streams)
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -181,8 +168,6 @@ Rectangle {
                             && (isYou
                                 || appState.watchedPeerIds.indexOf(modelData.id) !== -1)
                     property bool hasFrame: false
-                    // The sink is registered only while this tile actually
-                    // watches the stream, so an unwatched tile costs nothing.
                     property string boundPeerId: ""
                     function syncSink() {
                         var want = tile.isStream && tile.watching
@@ -202,10 +187,6 @@ Rectangle {
                         bridge.unregisterVideoSink(
                             boundPeerId, tileVideo.videoSink)
 
-                    // Peer tile background: a single solid color sampled from
-                    // the avatar (1×1 downscale, computed once in C++ and cached).
-                    // Falls back to a hash-of-name accent until the tint resolves
-                    // or when no avatar URL is present.
                     property color peerTint: !tile.isStream
                             ? avatarTint.colorFor(modelData.avatarUrl ?? "")
                             : "transparent"
@@ -230,7 +211,6 @@ Rectangle {
                         }
                     }
 
-                    // ---- Peer tile contents ----
                     AvatarBox {
                         anchors.centerIn: parent
                         size: Math.min(parent.width, parent.height) * 0.4
@@ -239,7 +219,6 @@ Rectangle {
                         visible: !tile.isStream
                     }
 
-                    // ---- Stream tile contents ----
                     VideoOutput {
                         id: tileVideo
                         anchors.fill: parent
@@ -280,7 +259,6 @@ Rectangle {
                         }
                     }
 
-                    // LIVE badge (stream only)
                     Rectangle {
                         visible: tile.isStream
                         anchors { top: parent.top; right: parent.right; margins: 6 }
@@ -302,7 +280,6 @@ Rectangle {
                         peerId: modelData.id
                     }
 
-                    // Name label
                     Rectangle {
                         anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
                         height: 24
@@ -323,7 +300,6 @@ Rectangle {
                         cursorShape: Qt.PointingHandCursor
                         onClicked: (mouse) => {
                             if (mouse.button === Qt.RightButton) {
-                                // Leave-stream confirm only for stream tiles the user is watching.
                                 if (tile.isStream && tile.watching && !tile.isYou) {
                                     leaveConfirm.peerId   = modelData.id
                                     leaveConfirm.peerName = modelData.displayName ?? modelData.username ?? ""
@@ -343,9 +319,6 @@ Rectangle {
                 }
             }
 
-            // Inline-expanded tile view — fills the grid area while the
-            // sidebar / toolbar remain visible. Click anywhere to collapse.
-            // Renders a video for streams or a large avatar+name for peers.
             Item {
                 id: expandedView
                 anchors { fill: parent; margins: 16 }
@@ -356,14 +329,11 @@ Rectangle {
 
                 Rectangle {
                     id: expandedRect
-                    // Fit a 16:9 box within the available area, preserving the
-                    // grid tile's aspect ratio instead of stretching to fill.
                     anchors.centerIn: parent
                     width:  Math.min(parent.width,  parent.height * 16 / 9)
                     height: Math.min(parent.height, parent.width  *  9 / 16)
                     radius: 8
 
-                    // Same avatar-derived tint pattern as the grid peer tile.
                     property color peerTint: expandedView.isPeer
                             ? avatarTint.colorFor(root.expandedAvatarUrl)
                             : "transparent"
@@ -389,7 +359,6 @@ Rectangle {
                         }
                     }
 
-                    // ---- Stream content: live video frames ----
                     VideoOutput {
                         id: expandedVideo
                         anchors.fill: parent
@@ -412,7 +381,6 @@ Rectangle {
                         font.pixelSize: 18
                     }
 
-                    // ---- Peer content: large centered avatar ----
                     AvatarBox {
                         anchors.centerIn: parent
                         size: Math.min(parent.width, parent.height) * 0.4
@@ -421,7 +389,6 @@ Rectangle {
                         visible: expandedView.isPeer
                     }
 
-                    // Name label (bottom strip) — same style as grid tile.
                     Rectangle {
                         anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
                         height: 28
@@ -436,7 +403,6 @@ Rectangle {
                         }
                     }
 
-                    // LIVE badge (top-right) — streams only.
                     Rectangle {
                         visible: expandedView.isStream
                         anchors { top: parent.top; right: parent.right; margins: 12 }
@@ -458,7 +424,6 @@ Rectangle {
                         peerId: root.expandedPeerId
                     }
 
-                    // LMB anywhere collapses. RMB opens leave dialog only for streams.
                     MouseArea {
                         anchors.fill: parent
                         acceptedButtons: Qt.LeftButton | Qt.RightButton
@@ -477,7 +442,6 @@ Rectangle {
                     }
                 }
 
-                // The expanded sink follows the expanded stream identity.
                 property string boundPeerId: ""
                 function syncSink() {
                     var want = expandedView.isStream ? root.expandedPeerId : ""
@@ -500,8 +464,6 @@ Rectangle {
                     function onExpandedKindChanged() { expandedView.syncSink() }
                 }
 
-                // Auto-collapse stream expansion if the stream goes away or is
-                // left elsewhere. Peer expansion is collapsed when the peer leaves.
                 Connections {
                     target: appState
                     function onWatchedStreamsChanged() {
@@ -552,7 +514,6 @@ Rectangle {
         }
     }
 
-    // ---- Leave-stream confirmation (Discord-styled) ----
     Popup {
         id: leaveConfirm
         property string peerId: ""
@@ -576,7 +537,6 @@ Rectangle {
         focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
-        // Backdrop dimming, like Discord's modal scrim.
         Overlay.modal: Rectangle { color: "#000000"; opacity: 0.6 }
 
         background: Rectangle {
@@ -592,7 +552,6 @@ Rectangle {
             Keys.onReturnPressed: leaveConfirm.accept()
             Keys.onEnterPressed:  leaveConfirm.accept()
 
-            // Header
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.margins: 16
@@ -617,13 +576,11 @@ Rectangle {
                 }
             }
 
-            // Footer: dark gray strip with right-aligned buttons.
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 64
                 color: "#2b2d31"
                 radius: 6
-                // Square the top corners so it looks attached to the body.
                 Rectangle {
                     anchors { left: parent.left; right: parent.right; top: parent.top }
                     height: parent.radius
@@ -637,7 +594,6 @@ Rectangle {
                     spacing: 8
                     Item { Layout.fillWidth: true }
 
-                    // Cancel — text-only link style
                     Item {
                         Layout.preferredHeight: 38
                         Layout.preferredWidth: cancelText.implicitWidth + 24
@@ -657,7 +613,6 @@ Rectangle {
                         }
                     }
 
-                    // Leave — destructive red button
                     Rectangle {
                         Layout.preferredHeight: 38
                         Layout.preferredWidth: leaveText.implicitWidth + 32

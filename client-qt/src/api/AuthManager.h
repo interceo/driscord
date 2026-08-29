@@ -18,7 +18,6 @@ public:
 
     bool loggedIn() const;
     QString username() const;
-    // The signaling server authorizes the media session with the same token.
     QString accessToken() const;
     int userId() const;
     QString avatarUrl() const;

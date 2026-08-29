@@ -18,35 +18,19 @@
 
 namespace test_util {
 
-// Spins up an in-process driscord::WebSocketServer on an OS-assigned
-// ephemeral port and runs its io_context on a background thread. The
-// fixture's destructor stops the server cleanly so RAII order in test
-// bodies (declare fixture first → destruct last) avoids races with
-// Transport's WS callbacks.
 class SignalingServerFixture {
 public:
-    // `api_base_url` turns on session authorization against a REST API; empty
-    // keeps the server anonymous, which is what the media/room tests want.
     explicit SignalingServerFixture(
         driscord::sfu::RtpFaultConfig fault_config = { },
         const std::string& api_base_url = { })
     {
-        // Tests talk over loopback, where host candidates always suffice and
-        // a STUN lookup can only hurt: on the offline CI runner the juice
-        // resolver blocks in getaddrinfo for the glibc DNS timeout, and
-        // libdatachannel's global teardown thread then joins that resolver in
-        // ~IceTransport, wedging every queued transport teardown behind it
-        // (which is how disconnect tests miss their server-noticed-disconnect
-        // deadlines). An explicit environment value still wins.
         if (std::getenv("DRISCORD_ICE_STUN_URLS") == nullptr) {
 #ifdef _WIN32
             ::_putenv_s("DRISCORD_ICE_STUN_URLS", "none");
 #else
-            ::setenv("DRISCORD_ICE_STUN_URLS", "none", /*overwrite=*/1);
+            ::setenv("DRISCORD_ICE_STUN_URLS", "none", 1);
 #endif
         }
-        // Opt-in libdatachannel tracing for flake hunts: the signaling
-        // reconnect races live below Transport, where our own logs are blind.
         static const bool rtc_log_enabled = [] {
             const char* level = std::getenv("DRISCORD_TEST_RTC_LOG");
             if (level == nullptr) {
@@ -64,7 +48,7 @@ public:
                 = driscord::ApiAuthenticator::create(io_, api_base_url);
         }
         server_ = std::make_shared<driscord::WebSocketServer>(
-            io_, /*port=*/0, fault_config, std::move(authenticator));
+            io_, 0, fault_config, std::move(authenticator));
         server_->run();
         port_ = server_->bound_port();
         work_.emplace(boost::asio::make_work_guard(io_));
@@ -91,8 +75,6 @@ public:
         return "ws://127.0.0.1:" + std::to_string(port_);
     }
 
-    // Returns a URL that joins a specific voice channel room, matching
-    // the path the Kotlin client sends: /channels/{id}
     std::string ws_url(int channel_id) const
     {
         return "ws://127.0.0.1:" + std::to_string(port_)
@@ -101,15 +83,11 @@ public:
 
     unsigned short port() const { return port_; }
 
-    // Replaces the fault stage of every room router mid-call — the handle
-    // scenario timelines (blackout, bandwidth ramps) drive. Thread-safe.
     void set_fault_config(driscord::sfu::RtpFaultConfig fault_config)
     {
         server_->update_fault_config(std::move(fault_config));
     }
 
-    // Blocking plain-HTTP GET against the server's own listener, for the
-    // read-only endpoints it serves next to the WebSocket upgrade.
     std::pair<unsigned, std::string> http_get(const std::string& target,
         const std::string& token = { }) const
     {
@@ -155,4 +133,4 @@ private:
     unsigned short port_ { 0 };
 };
 
-} // namespace test_util
+}

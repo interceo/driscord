@@ -1,9 +1,3 @@
-# Cross toolchain: Linux host -> Windows x64 with clang-cl against the packaged
-# MSVC sysroot. DRISCORD_MSVC_SYSROOT is the same tree
-# scripts/build_google_webrtc.sh consumes (xwin splat --use-winsysroot-style
-# plus the SetEnv/cl.exe finishing step); clang, lld-link and the WebRTC GN
-# build therefore share one sysroot pin. Tools resolve through PATH: clang-cl,
-# lld-link, llvm-lib, llvm-rc and llvm-mt of one LLVM major.
 set(CMAKE_SYSTEM_NAME Windows)
 set(CMAKE_SYSTEM_PROCESSOR AMD64)
 
@@ -19,7 +13,6 @@ if(NOT EXISTS "${_driscord_msvc_sysroot}/VC/Tools/MSVC")
         "an MSVC sysroot (VC/Tools/MSVC is missing).")
 endif()
 if(_driscord_msvc_sysroot MATCHES " ")
-    # The flag below travels unquoted through *_FLAGS_INIT.
     message(FATAL_ERROR "DRISCORD_MSVC_SYSROOT must not contain spaces")
 endif()
 
@@ -31,13 +24,8 @@ set(CMAKE_LINKER lld-link)
 set(CMAKE_AR llvm-lib)
 set(CMAKE_RC_COMPILER llvm-rc)
 set(CMAKE_MT llvm-mt)
-# The packaging closure reads PE import tables through
-# file(GET_RUNTIME_DEPENDENCIES); pin the reader to LLVM instead of hoping
-# the host binutils was built with PE support.
 find_program(CMAKE_OBJDUMP llvm-objdump)
 
-# Plain set, not append: CMake re-reads the toolchain file for every language
-# and try_compile, and appending would stack the flag.
 set(CMAKE_C_FLAGS_INIT "/winsysroot${_driscord_msvc_sysroot}")
 set(CMAKE_CXX_FLAGS_INIT "/winsysroot${_driscord_msvc_sysroot}")
 foreach(_driscord_linker_flags
@@ -48,13 +36,8 @@ foreach(_driscord_linker_flags
 endforeach()
 unset(_driscord_linker_flags)
 
-# The sysroot deliberately carries neither the dynamic nor the debug CRT
-# (xwin default); every configuration of this toolchain uses the static
-# release CRT, matching the /MT GN build of the WebRTC archive.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
 
-# Target-platform dependencies (Qt msvc2019_64, Boost headers) come from the
-# environment like every other preset input; host programs stay findable.
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)

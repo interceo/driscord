@@ -25,8 +25,6 @@ namespace {
         if (!guid.empty()) {
             return "guid:" + std::string(guid);
         }
-        // The separator is deliberately part of the opaque ID. Consumers do not
-        // parse it; the ordinal only disambiguates equal display names.
         return "name:" + std::string(name) + "#" + std::to_string(name_ordinal);
     }
 
@@ -123,17 +121,12 @@ namespace {
         const int select_error = recording ? adm.SetRecordingDevice(index)
                                            : adm.SetPlayoutDevice(index);
         if (select_error != 0) {
-            // Stop does not clear the previous selection. Restore the active
-            // stream when selection failed so a bad/stale ID does not silence an
-            // otherwise healthy call.
             if (was_active) {
                 (void)start_stream();
             }
             return false;
         }
 
-        // Match WebRTC's own ADM initialization sequence. This refreshes the
-        // platform mixer handle before recreating a stopped stream.
         if (!initialize_endpoint()) {
             (void)restore_default();
             return false;
@@ -148,7 +141,7 @@ namespace {
         return false;
     }
 
-} // namespace
+}
 
 std::vector<AudioDeviceInfo> list_audio_devices(
     webrtc::AudioDeviceModule& adm, bool recording)
@@ -181,4 +174,4 @@ bool select_audio_device(webrtc::AudioDeviceModule& adm,
         && restart_on_device(adm, recording, selected->index);
 }
 
-} // namespace driscord::media::detail
+}

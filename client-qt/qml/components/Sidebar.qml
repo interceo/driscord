@@ -15,7 +15,6 @@ Rectangle {
         anchors.fill: parent
         spacing: 0
 
-        // Server name header
         Rectangle {
             Layout.fillWidth: true
             height: 48
@@ -47,7 +46,6 @@ Rectangle {
 
         Rectangle { Layout.fillWidth: true; height: 1; color: "#1e1f22" }
 
-        // Channel list
         ScrollView {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -59,7 +57,6 @@ Rectangle {
 
                 Item { implicitHeight: 8 }
 
-                // Voice channels
                 Text {
                     text: "VOICE CHANNELS"
                     color: "#72767d"; font.pixelSize: 11
@@ -77,7 +74,6 @@ Rectangle {
                             appState.selectedChannelId === channel.id
                             && appState.connectionState !== "disconnected"
 
-                        // Channel row
                         Rectangle {
                             Layout.fillWidth: true
                             Layout.preferredHeight: 32
@@ -101,7 +97,6 @@ Rectangle {
                             }
                         }
 
-                        // Local user — shown when this channel is the joined one
                         RowLayout {
                             Layout.fillWidth: true
                             Layout.leftMargin: 28
@@ -129,7 +124,6 @@ Rectangle {
                             }
                         }
 
-                        // Remote peers — shown when this channel is the joined one
                         Repeater {
                             model: isJoined ? appState.peers : []
                             delegate: RowLayout {
@@ -156,7 +150,6 @@ Rectangle {
                     }
                 }
 
-                // Add channel button
                 Text {
                     text: "+ Add Channel"; color: "#72767d"; font.pixelSize: 13
                     leftPadding: 16; topPadding: 4
@@ -165,7 +158,6 @@ Rectangle {
             }
         }
 
-        // Voice connected status banner — shows server/channel name + ping popup trigger
         Rectangle {
             id: voiceStatusBanner
             Layout.fillWidth: true
@@ -181,7 +173,6 @@ Rectangle {
                 anchors { fill: parent; leftMargin: 10; rightMargin: 10 }
                 spacing: 8
 
-                // Signal/wifi icon — clickable to open stats popup (when connected)
                 Rectangle {
                     id: signalIcon
                     Layout.preferredWidth: 28; Layout.preferredHeight: 28
@@ -246,7 +237,6 @@ Rectangle {
             }
         }
 
-        // Voice bar at bottom
         Rectangle {
             Layout.fillWidth: true
             height: appState.connected ? 52 : 0
@@ -270,7 +260,6 @@ Rectangle {
                     elide: Text.ElideRight
                 }
 
-                // Mute
                 IconButton {
                     icon.source: appState.muted ? "qrc:/icons/mic-off.svg" : "qrc:/icons/mic.svg"
                     iconColor: appState.muted ? "#ed4245" : "#dcddde"
@@ -278,7 +267,6 @@ Rectangle {
                     ToolTip.visible: hovered; ToolTip.text: appState.muted ? "Unmute" : "Mute"
                 }
 
-                // Deafen
                 IconButton {
                     icon.source: appState.deafened ? "qrc:/icons/headphones-off.svg" : "qrc:/icons/headphones.svg"
                     iconColor: appState.deafened ? "#ed4245" : "#dcddde"
@@ -286,7 +274,6 @@ Rectangle {
                     ToolTip.visible: hovered; ToolTip.text: appState.deafened ? "Undeafen" : "Deafen"
                 }
 
-                // Share
                 IconButton {
                     icon.source: appState.sharing ? "qrc:/icons/monitor-off.svg" : "qrc:/icons/monitor.svg"
                     iconColor: appState.sharing ? "#ed4245" : "#dcddde"
@@ -294,7 +281,6 @@ Rectangle {
                     ToolTip.visible: hovered; ToolTip.text: appState.sharing ? "Stop sharing" : "Share screen"
                 }
 
-                // Settings
                 IconButton {
                     icon.source: "qrc:/icons/settings.svg"
                     onClicked: root.settingsRequested()
@@ -303,7 +289,6 @@ Rectangle {
             }
         }
 
-        // Disconnect / user bar (not connected)
         Rectangle {
             Layout.fillWidth: true
             height: 52

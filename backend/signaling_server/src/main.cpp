@@ -30,8 +30,6 @@ unsigned short parse_port(const char* value)
     return static_cast<unsigned short>(parsed);
 }
 
-// Anonymous mode has to be asked for. Without it a deployment that forgets
-// DRISCORD_API_URL would silently serve every channel to everyone.
 std::shared_ptr<driscord::ApiAuthenticator> make_authenticator(
     boost::asio::io_context& io)
 {
@@ -53,7 +51,7 @@ std::shared_ptr<driscord::ApiAuthenticator> make_authenticator(
     return nullptr;
 }
 
-} // namespace
+}
 
 int main(int argc, char** argv)
 {
@@ -87,8 +85,6 @@ int main(int argc, char** argv)
         rtc::Cleanup().wait();
         return 1;
     }
-    // Joins libdatachannel's thread pool while the runtime is still alive.
-    // Without this its static teardown races the process exit.
     rtc::Cleanup().wait();
     return 0;
 }

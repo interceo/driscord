@@ -1,7 +1,3 @@
-// Round-trips synthetic RTP packets through the vendored rtpdump writer and
-// reader (third_party/webrtc_test). This is the fixture toolchain for future
-// loss/jitter regressions: prove write -> read identity and garbage rejection
-// before any fixture is recorded or replayed by other tests.
 
 #include "test/rtp_file_reader.h"
 #include "test/rtp_file_writer.h"
@@ -25,7 +21,7 @@ std::vector<uint8_t> make_rtp_packet(uint16_t sequence,
     size_t payload_length)
 {
     std::vector<uint8_t> packet(12 + payload_length);
-    packet[0] = 0x80; // V=2, no padding, no extension, no CSRC
+    packet[0] = 0x80;
     packet[1] = payload_type;
     packet[2] = static_cast<uint8_t>(sequence >> 8);
     packet[3] = static_cast<uint8_t>(sequence & 0xff);
@@ -88,16 +84,10 @@ TEST(RtpDumpRoundTrip, WriteThenReadPreservesBytesAndTimestamps)
     }
     EXPECT_EQ(read_count, kPacketCount);
 
-    // Windows refuses to remove a file with an open handle, so the reader
-    // must be gone first (POSIX quietly allows unlink-while-open).
     reader.reset();
     std::filesystem::remove(path);
 }
 
-// Upstream surprise worth pinning: the ssrc_filter argument is honored by the
-// pcap reader only — RtpDumpReader::Init ignores it, so an rtpdump fixture
-// always yields every stream it contains. Fixture consumers must filter by
-// SSRC themselves instead of relying on the Create() overload.
 TEST(RtpDumpRoundTrip, SsrcFilterIsIgnoredByTheRtpDumpReader)
 {
     const std::string path = ::testing::TempDir() + "driscord_filter.rtpdump";
@@ -150,4 +140,4 @@ TEST(RtpDumpRoundTrip, GarbageFileIsRejectedAtOpen)
     std::filesystem::remove(path);
 }
 
-} // namespace
+}

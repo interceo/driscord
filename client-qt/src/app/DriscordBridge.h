@@ -15,8 +15,6 @@
 class DriscordCore;
 class QVideoSink;
 
-// Wraps DriscordCore — all methods callable from QML via Q_INVOKABLE.
-// Callbacks from the core are forwarded to the main thread via QMetaObject::invokeMethod.
 class DriscordBridge : public QObject {
     Q_OBJECT
 public:
@@ -26,12 +24,8 @@ public:
 
     void setThumbnailProvider(ThumbnailProvider* tp);
 
-    // Stops media and detaches the image providers. The QML engine owns those
-    // providers and is destroyed before this object, so the media threads must
-    // be joined here rather than in the destructor.
     void shutdown();
 
-    // Transport
     Q_INVOKABLE void connect(const QString& serverUrl,
         const QString& username,
         const QString& accessToken);
@@ -40,7 +34,6 @@ public:
     Q_INVOKABLE QString localId() const;
     Q_INVOKABLE QString voiceStatsJson() const;
 
-    // Audio
     Q_INVOKABLE void audioStart();
     Q_INVOKABLE void audioStop();
     Q_INVOKABLE void setMuted(bool muted);
@@ -60,14 +53,10 @@ public:
     Q_INVOKABLE void setPeerMuted(const QString& peerId, bool muted);
     Q_INVOKABLE bool peerMuted(const QString& peerId) const;
 
-    // Video / Screen sharing
     Q_INVOKABLE void initScreenSession();
     Q_INVOKABLE void deinitScreenSession();
     Q_INVOKABLE QString captureVideoTargetsJson() const;
     Q_INVOKABLE QString captureAudioTargetsJson() const;
-    // Capturing one frame of a source can block for up to two seconds, so the
-    // answer arrives on thumbnailReady instead of blocking the UI thread once
-    // per source.
     Q_INVOKABLE void requestThumbnail(const QString& targetJson, int maxW, int maxH);
     Q_INVOKABLE bool startSharing(const QString& targetJson,
         int maxW,
@@ -78,12 +67,6 @@ public:
     Q_INVOKABLE void stopSharing();
     Q_INVOKABLE bool sharing() const;
     Q_INVOKABLE void setLocalPreviewEnabled(bool enabled);
-    // Per-peer video sinks: QML VideoOutput hands its videoSink here while a
-    // tile or the expanded view is on screen. Decoded I420 frames are wrapped
-    // into QVideoFrame(Format_YUV420P) on the decoder thread and handed to
-    // QVideoSink::setVideoFrame (thread-safe); YUV->RGB happens in the Qt RHI
-    // shader at render time. Unregister before the VideoOutput dies; the
-    // bridge also drops sinks on their destroyed() as a safety net.
     Q_INVOKABLE void registerVideoSink(const QString& peerId, QVideoSink* sink);
     Q_INVOKABLE void unregisterVideoSink(const QString& peerId, QVideoSink* sink);
 
@@ -102,22 +85,14 @@ signals:
     void streamingStopped(const QString& peerId);
     void streamWatchRejected(const QString& peerId, const QString& reason);
     void frameRemoved(const QString& peerId);
-    // Empty url means the source could not be captured.
     void thumbnailReady(const QString& targetJson, const QString& url);
 
 private:
     std::unique_ptr<DriscordCore> m_core;
     ThumbnailProvider* m_thumbnailProvider = nullptr;
-    // Written from the GUI thread, read (and used) from the decoder thread
-    // under the same lock, so a sink can never be destroyed mid-delivery as
-    // long as QML unregisters before its VideoOutput goes away.
     QMutex m_sinkMutex;
     QHash<QString, QList<QVideoSink*>> m_videoSinks;
-    // Audio-device discovery can block. Keeping it in an owned, serial pool
-    // lets shutdown join it and prevents a late voice_start() after leave().
     QThreadPool m_audioPool;
     std::atomic<std::uint64_t> m_audioGeneration { 0 };
-    // One thread: desktop capture is serialised anyway, and a burst of source
-    // previews should not fan out into as many X11 capturers.
     QThreadPool m_thumbnailPool;
 };

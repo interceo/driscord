@@ -1,11 +1,5 @@
 #pragma once
 
-// Network-condition profiles for the integration gate, expressed in the
-// author-facing terms (loss fraction, mean burst length, delay±jitter,
-// capacity) and converted to the SFU fault-stage knobs. The profile values
-// synthesize RMCAT RFC 8867/8869 and WebRTC full_stack_tests presets.
-// Integration-tier only: includes the signaling server's fault-stage header.
-
 #include "sfu_media_utils.hpp"
 
 #include <algorithm>
@@ -16,9 +10,6 @@
 
 namespace test_util {
 
-// Mean loss = P(bad) * loss_in_bad with loss_in_good = 0, so with
-// loss_in_bad = 1: good_to_bad / (good_to_bad + bad_to_good) = loss_fraction
-// and mean burst length = 1 / bad_to_good.
 inline driscord::sfu::BurstLossConfig burst_loss(double loss_fraction,
     double mean_burst_packets,
     uint64_t seed)
@@ -50,8 +41,6 @@ inline driscord::sfu::LinkModelConfig link_model(int delay_ms,
     config.seed = seed;
     return config;
 }
-
-// ---- Profiles ---------------------------------------------------------------
 
 inline driscord::sfu::RtpFaultConfig clean_profile()
 {
@@ -90,8 +79,6 @@ inline driscord::sfu::RtpFaultConfig lte_edge_profile(uint64_t seed)
     };
 }
 
-// No random loss at all: a small queue on a slow link is what actually
-// stresses rate control and pacing, harder than raw loss does.
 inline driscord::sfu::RtpFaultConfig congested_profile(uint64_t seed)
 {
     return {
@@ -114,16 +101,11 @@ inline driscord::sfu::RtpFaultConfig link_down_profile()
     return config;
 }
 
-// ---- Timelines --------------------------------------------------------------
-
 struct ScenarioStep {
     std::chrono::milliseconds duration { 0 };
     driscord::sfu::RtpFaultConfig config;
 };
 
-// Applies each step to the running fixture and holds it for its duration.
-// Blocking; drive it from the test thread while media flows on its own
-// threads. Fixture is any type exposing set_fault_config().
 template <typename Fixture>
 void run_scenario_timeline(Fixture& fixture,
     std::span<const ScenarioStep> steps)
@@ -134,4 +116,4 @@ void run_scenario_timeline(Fixture& fixture,
     }
 }
 
-} // namespace test_util
+}

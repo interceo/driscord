@@ -59,9 +59,6 @@ def accept_websocket(stream: ssl.SSLSocket) -> None:
         + accept
         + b"\r\n\r\n"
     )
-    # Production sends its welcome message immediately after the upgrade.
-    # Keep the test's first application message a control frame so only the
-    # explicit acknowledgement reaches the client's onMessage callback.
     stream.sendall(b"\x89\x00")
 
 
@@ -83,8 +80,6 @@ def receive_frame(stream: ssl.SSLSocket) -> tuple[int, bytes]:
 
 
 def receive_text_frame(stream: ssl.SSLSocket) -> str:
-    # The client answers the post-upgrade ping concurrently with its onOpen
-    # send, so the pong may arrive before or after the text frame.
     while True:
         opcode, payload = receive_frame(stream)
         if opcode == 0x1:
@@ -95,9 +90,6 @@ def receive_text_frame(stream: ssl.SSLSocket) -> str:
 
 def run(client: Path, cert: Path, key: Path) -> None:
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    # Python/OpenSSL emits TLS 1.3 post-handshake tickets immediately. The
-    # libdatachannel 0.24 receive loop may defer application data behind those
-    # tickets, which is unrelated to the partial-write regression under test.
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.maximum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(cert, key)
@@ -124,10 +116,6 @@ def run(client: Path, cert: Path, key: Path) -> None:
                 if payload != expected:
                     raise RuntimeError("large WebSocket text payload was corrupted")
                 stream.sendall(b"\x81\x02ok")
-                # Closing with the client's pong (or close frame) still
-                # unread turns the close into a TCP reset, which can destroy
-                # the acknowledgement before delivery. Drain until the client
-                # closes: it only does so after receiving the acknowledgement.
                 try:
                     while receive_frame(stream)[0] != 0x8:
                         pass

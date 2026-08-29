@@ -1,9 +1,3 @@
-// Replays the committed rtpdump fixtures — real Opus/VP8 publisher traffic
-// captured off the SFU's production forwarding path by test_rtpdump_capture —
-// through the slot rewrite pipeline. Synthetic packets in the rewriter's own
-// unit test pin the byte-level contract; these fixtures pin it against header
-// shapes Google WebRTC actually emits (extensions, padding, real payload
-// sizes), including a mid-stream publisher switch on the same slot.
 
 #include "rtp_slot_rewriter.hpp"
 
@@ -40,8 +34,6 @@ uint16_t read_u16(const rtc::binary& packet, size_t offset)
         | std::to_integer<uint8_t>(packet[offset + 1]));
 }
 
-// Loads the dominant-SSRC stream of a fixture; other SSRCs (bandwidth
-// probing) ride along in the capture but are not the rewrite subject.
 FixtureStream load_dominant_stream(const std::string& name)
 {
     const std::string path
@@ -81,9 +73,6 @@ void replay_through_slot_rewriter(const std::string& fixture,
     constexpr std::optional<uint8_t> kMidExtensionId = 3;
     driscord::sfu::RtpSlotRewriter rewriter(clock_rate, timestamp_step);
 
-    // First half: one publisher generation. Real traffic must be accepted
-    // packet for packet, keep the slot SSRC, and preserve the publisher's
-    // sequence/timestamp deltas exactly.
     const size_t half = stream.packets.size() / 2;
     auto generation = rewriter.begin_source();
     std::optional<uint16_t> previous_in_seq;
@@ -114,10 +103,6 @@ void replay_through_slot_rewriter(const std::string& fixture,
         previous_out_ts = out_ts;
     }
 
-    // Publisher switch mid-stream: the slot is reassigned, the old
-    // generation must be rejected, and the subscriber-facing timeline must
-    // continue seamlessly (+1 sequence, +step timestamp) even though the
-    // "new publisher" carries entirely unrelated sequence numbers.
     rewriter.end_source();
     const auto old_generation = generation;
     generation = rewriter.begin_source();
@@ -137,10 +122,6 @@ void replay_through_slot_rewriter(const std::string& fixture,
         if (first_after_switch) {
             ASSERT_EQ(out_seq, uint16_t(*previous_out_seq + 1))
                 << fixture << ": sequence discontinuity across the switch";
-            // The rewriter learns the input's real timestamp cadence (VP8 at
-            // ~29.4 fps steps by ~3060, not the configured default), so pin
-            // continuity, not the exact default step: strictly forward, by
-            // no more than a second of media.
             const uint32_t ts_jump = out_ts - *previous_out_ts;
             ASSERT_GT(ts_jump, 0u)
                 << fixture << ": timestamp went backwards across the switch";
@@ -155,14 +136,12 @@ void replay_through_slot_rewriter(const std::string& fixture,
 
 TEST(RtpDumpReplay, VoiceFixtureSurvivesSlotRewriteAndPublisherSwitch)
 {
-    // Voice slots run at the Opus clock: see voice_router.cpp.
     replay_through_slot_rewriter("voice.rtpdump", 48'000, 960);
 }
 
 TEST(RtpDumpReplay, ScreenFixtureSurvivesSlotRewriteAndPublisherSwitch)
 {
-    // Video slots run at the 90 kHz RTP clock: see screen_router.cpp.
     replay_through_slot_rewriter("screen.rtpdump", 90'000, 3'000);
 }
 
-} // namespace
+}

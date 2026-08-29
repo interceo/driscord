@@ -1,12 +1,5 @@
 #pragma once
 
-// Marker-based A/V sync ground truth: the generator emits a video marker
-// frame and mixes a chirp into the audio feed at the same synthetic capture
-// instant; the receive side reports when each actually played out. The
-// signed offset per event is audio minus video — negative means audio led.
-// Catches SFU timestamp-rewriting bugs the stats-based playout-skew method
-// cannot see.
-
 #include "media_metrics.hpp"
 
 #include <algorithm>
@@ -24,25 +17,17 @@ struct AvSyncReport {
     double abs_p50_ms = 0.0;
     double abs_p95_ms = 0.0;
     double abs_max_ms = 0.0;
-    // Largest lead (audio earlier than video), in positive ms; the human ear
-    // tolerates audio lag far better than lead (ITU-R BT.1359 asymmetry).
     double audio_lead_max_ms = 0.0;
 };
 
 class AvSyncCorrelator {
 public:
-    // A sync event: video frame `frame_index` and the chirp share this
-    // capture instant.
     void register_event(uint32_t frame_index,
         std::chrono::steady_clock::time_point capture_time)
     {
         events_.push_back(Event { frame_index, capture_time });
     }
 
-    // Every decoded video frame, with the capture time its own index maps to
-    // (from the reference store). The first decoded frame at or shortly
-    // after an event's index closes the video side; the correction term
-    // rebases a slightly-later frame onto the event's capture instant.
     void on_video_frame(uint32_t frame_index,
         std::chrono::steady_clock::time_point frame_capture_time,
         std::chrono::steady_clock::time_point render_wall_time)
@@ -59,8 +44,6 @@ public:
         }
     }
 
-    // A chirp playout detection; matched to the nearest pending event by
-    // capture-time proximity.
     void on_chirp(std::chrono::steady_clock::time_point playout_wall_time)
     {
         Event* best = nullptr;
@@ -100,7 +83,7 @@ public:
             const double offset_ms
                 = std::chrono::duration_cast<std::chrono::microseconds>(
                       *event.audio_wall - *event.video_wall)
-                    .count()
+                      .count()
                 / 1'000.0;
             result.offsets_ms.push_back(offset_ms);
             magnitudes.push_back(std::abs(offset_ms));
@@ -132,4 +115,4 @@ private:
     std::vector<Event> events_;
 };
 
-} // namespace test_util
+}

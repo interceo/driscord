@@ -10,9 +10,6 @@ BCRYPT_MAX_BYTES = 72
 
 
 def _encode(password: str) -> bytes:
-    # bcrypt has a hard 72-byte limit on the password input.
-    # Reject instead of truncating: otherwise two distinct passwords with the
-    # same 72-byte prefix authenticate as the same secret.
     encoded = password.encode("utf-8")
     if len(encoded) > BCRYPT_MAX_BYTES:
         raise ValueError("password exceeds bcrypt's 72-byte limit")

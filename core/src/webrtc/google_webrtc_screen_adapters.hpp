@@ -25,9 +25,6 @@ class Thread;
 
 namespace driscord::media::detail {
 
-// The only state here belongs to the native source contract: frame adaptation
-// and the lifetime of an optional DesktopCapturer loop. Session/signaling state
-// remains in GoogleWebRtcScreenSession.
 class DesktopVideoSource
     : public webrtc::AdaptedVideoTrackSource,
       private webrtc::DesktopCapturer::Callback {
@@ -75,9 +72,6 @@ private:
     std::atomic<bool> capture_failed_ { false };
     std::atomic<int> max_width_ { 0 };
     std::atomic<int> max_height_ { 0 };
-    // Recycles I420 buffers between frames instead of allocating one (or
-    // two, when adaptation crops/scales) per frame. Frames arrive from a
-    // single producer at a time — the capture thread or the test feeder.
     webrtc::VideoFrameBufferPool buffer_pool_;
 };
 
@@ -97,10 +91,6 @@ private:
     const Callback callback_;
 };
 
-// Optional sink for the publisher's own source track. It is attached only
-// while the UI needs a preview, so an inactive/minimized client does not pay
-// for I420 -> RGBA conversion or Qt frame uploads. Capture and RTP sending are
-// independent from this sink.
 class LocalVideoSink final {
 public:
     using Callback = std::function<void(DecodedVideoFrameView frame)>;
@@ -122,8 +112,6 @@ private:
     std::unique_ptr<DecodedVideoSink> sink_;
 };
 
-// Owns the mandatory native sink objects and detaches them before their tracks
-// disappear. It is deliberately independent of signaling/session state.
 class RemoteScreenSinks final {
 public:
     using VideoCallback = std::function<void(
@@ -168,4 +156,4 @@ private:
 [[nodiscard]] ScreenSessionStats parse_screen_stats(
     const webrtc::RTCStatsReport& report);
 
-} // namespace driscord::media::detail
+}

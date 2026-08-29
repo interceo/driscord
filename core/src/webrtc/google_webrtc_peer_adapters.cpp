@@ -79,4 +79,4 @@ std::vector<webrtc::PeerConnectionInterface::IceServer> to_ice_servers(
     return result;
 }
 
-} // namespace driscord::media::detail
+}

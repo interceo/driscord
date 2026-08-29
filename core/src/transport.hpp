@@ -37,8 +37,6 @@ struct TransportStats {
     std::optional<int> rtt_ms;
 };
 
-// WebSocket signaling only. Media PeerConnections live in GoogleWebRtcClient;
-// the former libdatachannel PeerConnection/DataChannel transport was removed.
 class Transport final {
 public:
     using PeerEventCb = std::function<void(const std::string& peer_id)>;

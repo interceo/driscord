@@ -20,12 +20,10 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
-    # Check username
     existing = await db.execute(select(User).where(User.username == body.username))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already taken")
 
-    # Check email
     existing = await db.execute(select(User).where(User.email == body.email))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
@@ -39,8 +37,6 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     try:
         await db.commit()
     except IntegrityError:
-        # The SELECT checks above make the common error specific and friendly;
-        # this closes the concurrent-registration race at the unique indexes.
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

@@ -4,8 +4,6 @@ endif()
 
 find_program(GIT_EXECUTABLE git REQUIRED)
 
-# FetchContent can keep a populated source tree across reconfiguration. Treat
-# an already-applied patch as success, while still failing loudly on drift.
 execute_process(
     COMMAND "${GIT_EXECUTABLE}" apply --reverse --check "${PATCH_FILE}"
     WORKING_DIRECTORY "${SOURCE_DIR}"

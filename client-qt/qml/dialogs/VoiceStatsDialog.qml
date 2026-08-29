@@ -8,7 +8,6 @@ DiscordDialog {
     title: qsTr("About voice call")
     width: 360
 
-    // Re-render the chart whenever stats change
     Connections {
         target: appState
         function onConnectionStatsChanged() { rttCanvas.requestPaint() }
@@ -18,7 +17,6 @@ DiscordDialog {
         width: parent.width
         spacing: 12
 
-        // Tab header
         Rectangle {
             Layout.fillWidth: true
             height: 28
@@ -35,7 +33,6 @@ DiscordDialog {
             }
         }
 
-        // Ping graph
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 140
@@ -55,18 +52,15 @@ DiscordDialog {
                     var hist = appState.rttHistory
                     var W = width, H = height
 
-                    // Compute scale
                     var localMax = 50
                     for (var i = 0; i < hist.length; i++) {
                         var v = hist[i].rtt
                         if (v > localMax) localMax = v
                     }
-                    // Round up to a nice number
                     var step = 20
                     while (step < localMax) step += 20
                     rttCanvas.maxRtt = step
 
-                    // Grid lines + Y labels
                     ctx.strokeStyle = "#2c2d31"
                     ctx.fillStyle   = "#72767d"
                     ctx.font        = "9px sans-serif"
@@ -80,7 +74,6 @@ DiscordDialog {
 
                     if (hist.length < 2) return
 
-                    // Line
                     ctx.strokeStyle = "#5865f2"
                     ctx.lineWidth   = 2
                     ctx.beginPath()
@@ -96,7 +89,6 @@ DiscordDialog {
             }
         }
 
-        // Stats text block
         ColumnLayout {
             Layout.fillWidth: true
             spacing: 4
@@ -147,8 +139,6 @@ DiscordDialog {
             color: "#72767d"; font.pixelSize: 11
         }
 
-        // Media is decrypted and re-encrypted by the SFU on its way through, so
-        // claiming end-to-end encryption here would be untrue.
         Text {
             Layout.fillWidth: true
             wrapMode: Text.WordWrap

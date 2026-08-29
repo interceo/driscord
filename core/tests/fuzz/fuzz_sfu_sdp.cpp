@@ -1,10 +1,3 @@
-// Fuzzes attacker-supplied SDP through the exact path the SFU walks on every
-// offer: libdatachannel's Description parser, then driscord's media
-// transforms (feedback policy, auxiliary-codec removal, MID extension lookup,
-// primary format selection), then SDP regeneration.
-//
-// This is the WebRTC `sdp_integration` idea — SDP through the consuming state
-// machine, not just a parser — scoped to what the SFU actually executes.
 
 #include "sfu_media_utils.hpp"
 
@@ -35,8 +28,6 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
         }
         (void)description.generateSdp();
     } catch (...) {
-        // Rejecting hostile SDP with an exception is the contract; crashing
-        // or tripping a sanitizer is the bug this fuzzer hunts.
     }
     return 0;
 }

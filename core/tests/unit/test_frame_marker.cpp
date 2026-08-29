@@ -81,8 +81,6 @@ TEST(FrameMarker, RejectsCorruptedPayload)
 {
     auto bgra = test_util::scrolling_text_frame(kWidth, kHeight, 7);
     test_util::encode_frame_marker(bgra, kWidth, kHeight, kWidth * 4, 7);
-    // Overwrite two cells in the middle of the grid with mid-gray: the
-    // checksum must catch it rather than return a wrong index.
     for (int y = test_util::kMarkerMarginPx;
         y < test_util::kMarkerMarginPx + test_util::kMarkerCellPx; ++y) {
         for (int x = test_util::kMarkerMarginPx;
@@ -101,8 +99,6 @@ TEST(FrameMarker, RejectsCorruptedPayload)
     const auto marker
         = test_util::decode_frame_marker(view_of(frame), kWidth, kHeight);
     if (marker.has_value()) {
-        // Mid-gray lands on the threshold boundary; the only acceptable
-        // decode is the correct one.
         EXPECT_EQ(marker->frame_index, 7u);
     }
 }
@@ -123,4 +119,4 @@ TEST(FrameMarker, TooSmallFramesAreLeftUntouched)
     EXPECT_EQ(tiny, before);
 }
 
-} // namespace
+}

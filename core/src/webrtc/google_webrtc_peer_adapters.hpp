@@ -42,9 +42,7 @@ private:
 
 [[nodiscard]] MediaConnectionState to_public_connection_state(int state);
 
-// Voice and screen build their RTCConfiguration independently; both need the
-// configured STUN/TURN servers translated the same way.
 [[nodiscard]] std::vector<webrtc::PeerConnectionInterface::IceServer>
 to_ice_servers(const std::vector<IceServerConfig>& servers);
 
-} // namespace driscord::media::detail
+}

@@ -11,7 +11,6 @@
 
 #include "log.hpp"
 
-// SCStreamOutput delegate that forwards audio samples to the C++ callback
 @interface DRAudioStreamOutput : NSObject <SCStreamOutput>
 @property (nonatomic, assign) SystemAudioCapture::AudioCallback callback;
 @end
@@ -70,8 +69,6 @@ public:
             return true;
         }
 
-        // Loopback source selection is Linux-only so far; this backend
-        // always captures the default render endpoint.
         (void)target_id;
         callback_ = std::move(cb);
 
@@ -189,7 +186,6 @@ bool SystemAudioCapture::available()
     return false;
 }
 
-// ScreenCaptureKit captures system audio as a whole — no per-sink selection.
 std::vector<AudioCaptureTarget> SystemAudioCapture::list_sinks()
 {
     return {};
@@ -204,4 +200,4 @@ std::unique_ptr<SystemAudioCapture> SystemAudioCapture::create()
     return std::make_unique<SystemAudioCaptureMac>();
 }
 
-#endif // __APPLE__
+#endif

@@ -29,8 +29,6 @@ async def test_register_rejects_password_over_bcrypt_limit(client):
         json={
             "username": "alice",
             "email": "alice@example.com",
-            # 36 Cyrillic characters occupy 72 bytes; the final ASCII byte
-            # crosses bcrypt's limit without looking unusually long in a UI.
             "password": "я" * 36 + "x",
         },
     )
@@ -164,17 +162,14 @@ async def test_non_bearer_authorization_scheme_is_rejected(client, register):
     tokens = await register("alice")
     for header in (
         f"Basic {tokens['token']}",
-        tokens["token"],  # bare token, no scheme
-        "Bearer",  # scheme, no token
+        tokens["token"],
+        "Bearer",
     ):
         r = await client.get("/users/me", headers={"Authorization": header})
         assert r.status_code in (401, 403), header
 
 
 async def test_refresh_flow_reuses_old_refresh_token(client, register):
-    # Refresh tokens are stateless JWTs: refreshing does not invalidate the
-    # old one. This pins the current contract; if rotation/denylisting is
-    # ever added, this test must flip.
     tokens = await register("alice")
     first = await client.post("/auth/refresh", json={"refresh_token": tokens["refresh"]})
     assert first.status_code == 200

@@ -6,11 +6,6 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Threads REQUIRED)
-# The signaling sources use no OpenSSL API; the link exists for the Linux
-# builds where libdatachannel's OpenSSL backend resolves through it. The
-# Windows cross build pairs the server with the client's MbedTLS-backed
-# libdatachannel (see the top-level TLS-backend comment) and has no OpenSSL
-# in its sysroot at all.
 if(WIN32)
     set(DRISCORD_SIGNALING_TLS_LIBS "")
 else()

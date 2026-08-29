@@ -12,7 +12,7 @@ namespace {
 
 constexpr size_t kPayloadSize = 32 * 1024;
 
-} // namespace
+}
 
 int main(int argc, char** argv)
 {
@@ -34,8 +34,6 @@ int main(int argc, char** argv)
     rtc::WebSocket::Configuration config;
     config.disableTlsVerification = true;
     config.pingInterval = std::chrono::milliseconds::zero();
-    // Keep callback state alive until after the socket and its asynchronous
-    // callbacks have been destroyed.
     rtc::WebSocket socket(config);
 
     auto finish = [&](bool ok, std::string message = { }) {
@@ -56,8 +54,6 @@ int main(int argc, char** argv)
         std::string payload = prefix;
         payload.append(kPayloadSize - prefix.size() - suffix.size(), 'a');
         payload += suffix;
-        // A false return only means the lower transport buffered the frame;
-        // delivery still proceeds asynchronously.
         (void)socket.send(payload);
     });
     socket.onMessage([&](rtc::message_variant message) {

@@ -41,7 +41,6 @@ namespace {
         return out;
     }
 
-    // One request, owning everything it touches until the callback fires.
     class Call : public std::enable_shared_from_this<Call> {
     public:
         Call(boost::asio::io_context& io_context,
@@ -164,7 +163,7 @@ namespace {
         ApiAuthenticator::Callback callback_;
     };
 
-} // namespace
+}
 
 std::shared_ptr<ApiAuthenticator> ApiAuthenticator::create(
     boost::asio::io_context& io_context, const std::string& base_url)
@@ -197,8 +196,6 @@ std::shared_ptr<ApiAuthenticator> ApiAuthenticator::create(
     std::string port = "80";
     const auto colon = host.rfind(':');
     if (colon != std::string::npos) {
-        // Bracketed IPv6 needs a separate Host header and resolver value. Do
-        // not half-parse it as a hostname and an arbitrary service string.
         if (host.find(':') != colon) {
             LOG_ERROR() << "DRISCORD_API_URL does not support IPv6 literals: "
                         << base_url;
@@ -263,4 +260,4 @@ void ApiAuthenticator::request(std::string target,
         ->run();
 }
 
-} // namespace driscord
+}

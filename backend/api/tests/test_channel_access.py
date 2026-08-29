@@ -33,8 +33,6 @@ async def test_member_is_authorized_with_identity_payload(client, auth_headers):
     r = await client.get(f"/channels/{channel_id}/access", headers=headers)
     assert r.status_code == 200, r.text
     body = r.json()
-    # The SFU parses every one of these fields; renaming any is a breaking
-    # change for backend/signaling_server/src/api_authenticator.cpp.
     assert body["channel_id"] == channel_id
     assert body["server_id"] == server_id
     assert body["user_id"] > 0

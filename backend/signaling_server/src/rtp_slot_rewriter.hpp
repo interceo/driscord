@@ -8,16 +8,10 @@
 
 namespace driscord::sfu {
 
-// Applies the stable SSRC of an SFU output slot and removes the publisher MID.
-// Sequence number and timestamp are intentionally left unchanged; use
-// RtpSlotRewriter for a slot that can be reassigned between publishers.
 bool rewrite_rtp_for_slot(rtc::binary& packet,
     uint32_t output_ssrc,
     std::optional<uint8_t> publisher_mid_extension_id) noexcept;
 
-// Maintains one continuous RTP sequence/timestamp space for a long-lived
-// subscriber slot. The generation token rejects packets that raced with a
-// publisher reassignment.
 class RtpSlotRewriter final {
 public:
     RtpSlotRewriter(uint32_t clock_rate, uint32_t default_timestamp_step);
@@ -48,4 +42,4 @@ private:
     uint32_t timestamp_offset_ = 0;
 };
 
-} // namespace driscord::sfu
+}

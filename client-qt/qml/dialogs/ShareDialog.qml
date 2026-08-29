@@ -13,8 +13,6 @@ Dialog {
 
     property var targets: []
     property int selectedIndex: -1
-    // Playback devices whose monitor can be captured, with the system default
-    // first so the common case needs no decision.
     property var audioTargets: []
 
     readonly property var qualityPresets: [
@@ -25,8 +23,6 @@ Dialog {
     ]
     readonly property var fpsPresets: [30, 60]
 
-    // Previews arrive asynchronously: capturing one frame per source can take
-    // up to two seconds each, which would freeze the dialog while it opens.
     onOpened: {
         var parsed = JSON.parse(appState.captureVideoTargetsJson())
         for (var i = 0; i < parsed.length; i++)
@@ -81,7 +77,6 @@ Dialog {
         }
     }
 
-    // --- Reusable dark dropdown ----------------------------------------------
     component DarkCombo : Item {
         id: combo
         property var options: []
@@ -272,7 +267,6 @@ Dialog {
                     0, root.fpsPresets.indexOf(defaultScreenFps))
             }
 
-            // Share Audio checkbox
             Item {
                 id: audioCheck
                 Layout.preferredHeight: 22
@@ -314,9 +308,6 @@ Dialog {
                 }
             }
 
-            // Which output device is recorded. Capturing the one you listen
-            // through also captures the other participants, so this is a
-            // choice rather than a fixed default.
             DarkCombo {
                 id: audioTargetCombo
                 label: qsTr("Audio source")
@@ -331,7 +322,6 @@ Dialog {
 
             Item { Layout.fillWidth: true }
 
-            // Cancel
             Rectangle {
                 Layout.preferredWidth: 80; Layout.preferredHeight: 32
                 Layout.alignment: Qt.AlignVCenter
@@ -353,7 +343,6 @@ Dialog {
                 }
             }
 
-            // Go Live
             Rectangle {
                 Layout.preferredWidth: 96; Layout.preferredHeight: 32
                 Layout.alignment: Qt.AlignVCenter

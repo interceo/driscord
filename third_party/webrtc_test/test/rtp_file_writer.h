@@ -27,6 +27,6 @@ class RtpFileWriter {
 
   virtual bool WritePacket(const RtpPacket* packet) = 0;
 };
-}  // namespace test
-}  // namespace webrtc
-#endif  // TEST_RTP_FILE_WRITER_H_
+}
+}
+#endif

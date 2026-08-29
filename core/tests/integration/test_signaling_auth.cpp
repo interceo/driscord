@@ -23,14 +23,8 @@ struct SuppressLogs {
 };
 const SuppressLogs suppress_logs_on_startup;
 
-// A refused handshake never produces a welcome, so the negative cases wait for
-// the absence of one. Deliberately short: the server answers 401 immediately
-// once the API has replied.
 constexpr auto kHandshakeTimeout = std::chrono::seconds(3);
 
-// Opens a signaling WebSocket and reports whether the server accepted it.
-// Acceptance means a welcome frame arrived: an upgrade that is answered with
-// 401 shows up as an error/close instead.
 class ProbeSocket {
 public:
     bool connect(const std::string& url)
@@ -80,7 +74,7 @@ private:
     bool welcomed_ = false;
 };
 
-} // namespace
+}
 
 TEST(ApiAuthenticatorConfiguration, RejectsAmbiguousOrInvalidUrls)
 {
@@ -154,7 +148,6 @@ TEST_F(SignalingAuthTest, RejectsAMissingToken)
 
     ProbeSocket socket;
     EXPECT_FALSE(socket.connect(server.ws_url(42)));
-    // No token means no question worth asking the API.
     EXPECT_TRUE(api.requests().empty());
     EXPECT_EQ(server.active_sessions(), 0u);
 }
@@ -167,7 +160,6 @@ TEST_F(SignalingAuthTest, UsesTheIdentityFromTheApiNotTheQueryString)
     ASSERT_TRUE(socket.connect(
         server.ws_url(42) + "?u=impersonated&t=good-token"));
 
-    // Presence is where the resolved username surfaces.
     const auto presence = server.http_get("/presence", "good-token");
     ASSERT_EQ(presence.first, 200u);
     EXPECT_NE(presence.second.find("\"alice\""), std::string::npos)
@@ -188,9 +180,6 @@ TEST_F(SignalingAuthTest, ReadOnlyEndpointsRequireAToken)
     EXPECT_EQ(api.requests().back().target, "/users/me");
 }
 
-// /media_stats is the only window into the SFU. Publishing counters per room
-// is what tells an operator whether media reaches the server, the subscribers,
-// or neither.
 TEST_F(SignalingAuthTest, MediaStatsReportPerRoomRouterCounters)
 {
     api.set_response(200, R"({"user_id": 7, "username": "alice"})");
@@ -212,8 +201,6 @@ TEST_F(SignalingAuthTest, MediaStatsReportPerRoomRouterCounters)
     EXPECT_EQ(room["screen"]["keyframeRequests"], 0);
 }
 
-// Probes have no credentials; if health checking needed one, enabling
-// authorization would take the deployment down instead of securing it.
 TEST_F(SignalingAuthTest, HealthEndpointStaysOpenAndEmpty)
 {
     api.set_response(401, R"({"detail": "Invalid token"})");

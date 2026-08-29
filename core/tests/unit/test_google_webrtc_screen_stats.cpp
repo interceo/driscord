@@ -31,7 +31,7 @@ ScreenInboundRtpStats video_stats(
     };
 }
 
-} // namespace
+}
 
 TEST(GoogleWebRtcScreenStats, CoalescesPollsAndRetriesFailedRequest)
 {

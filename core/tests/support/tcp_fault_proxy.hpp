@@ -17,24 +17,9 @@
 
 namespace test_util {
 
-// A one-hop TCP fault proxy for the connection-oriented paths WebRTC's
-// UDP-only network emulation cannot reach: the WSS signaling socket and the
-// REST API. It listens on an ephemeral port and forwards to a fixed upstream,
-// applying the impairments a test configures. Same idea as Toxiproxy / Pion's
-// vnet — a single injection point in front of the socket — but in-process, no
-// external binary, no privileges.
-//
-// The impairment set is intentionally small: reject the connection outright,
-// drop it after a while, or add latency to the first bytes each way. That is
-// enough to exercise reconnect, handshake-timeout and slow-API behaviour.
-// Impairments applied to a proxied connection. Namespace-scoped so it can be
-// a default constructor argument.
 struct TcpFaultConfig {
-    // Refuse every connection at accept time (models a down upstream).
     bool refuse = false;
-    // Close the connection this long after it opens (0 = never).
     std::chrono::milliseconds drop_after { 0 };
-    // Delay applied before forwarding the first chunk in each direction.
     std::chrono::milliseconds latency { 0 };
 };
 
@@ -74,15 +59,11 @@ public:
 
     unsigned short port() const { return port_; }
 
-    // A test flips this to sever every live and future connection, modelling
-    // the upstream vanishing mid-session.
     void sever_connections() { severed_.store(true); }
 
 private:
     using tcp = boost::asio::ip::tcp;
 
-    // One proxied connection: a downstream client socket and an upstream
-    // server socket, pumping bytes both ways until either side closes.
     struct Bridge : std::enable_shared_from_this<Bridge> {
         Bridge(boost::asio::io_context& io, tcp::socket client, Config config,
             const std::atomic<bool>& severed)
@@ -186,7 +167,6 @@ private:
                     io_, std::move(socket), config_, severed_);
                 bridge->run(upstream_host_, upstream_port_);
             }
-            // config_.refuse just drops the accepted socket → RST/close.
             accept();
         });
     }
@@ -204,4 +184,4 @@ private:
     unsigned short port_ { 0 };
 };
 
-} // namespace test_util
+}

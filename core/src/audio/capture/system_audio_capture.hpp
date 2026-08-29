@@ -8,8 +8,8 @@
 #include <vector>
 
 struct AudioCaptureTarget {
-    std::string id; // device identifier (e.g. ALSA device name)
-    std::string name; // audio device name
+    std::string id;
+    std::string name;
 
     static AudioCaptureTarget from_json(const nlohmann::json& j)
     {
@@ -31,14 +31,9 @@ public:
     static std::unique_ptr<SystemAudioCapture> create();
     static bool available();
 
-    // PA sinks (playback devices) whose monitors can be captured for loopback.
     static std::vector<AudioCaptureTarget> list_sinks();
 
     virtual ~SystemAudioCapture() = default;
-    // `target_id` selects which playback device's monitor is captured; empty
-    // means the current default sink. Capturing the monitor of the device the
-    // user listens through also captures everyone else in the call, so the
-    // choice belongs to the user.
     virtual bool start(const std::string& target_id, AudioCallback cb) = 0;
     virtual void stop() = 0;
     virtual bool running() const = 0;

@@ -1,11 +1,4 @@
-# Validate the staged Windows component tree before CPack creates the
-# archive, mirroring cmake/VerifyPackage.cmake for the Linux TGZ. The deploy
-# closure in client-qt/CMakeLists.txt is what makes the package complete;
-# this gate re-checks the result independently so a deploy regression fails
-# the package build instead of shipping a zip that cannot start.
 
-# CPack runs pre-build scripts under CMake's minimum policy floor, where
-# IN_LIST (CMP0057) is not an if() operator yet.
 cmake_policy(VERSION 3.25)
 
 if(NOT DEFINED CPACK_TEMPORARY_INSTALL_DIRECTORY
@@ -45,7 +38,7 @@ set(_driscord_required_paths
     "plugins/iconengines/qsvgicon.dll"
     "qml/QtQuick/qmldir"
     "qml/QtQuick/Controls/qmldir"
-    "qml/Qt5Compat/GraphicalEffects/qmldir")
+    "qml/QtQuick/Effects/qmldir")
 foreach(_driscord_relative_path IN LISTS _driscord_required_paths)
     if(NOT EXISTS "${_driscord_package_root}/${_driscord_relative_path}")
         message(FATAL_ERROR
@@ -53,10 +46,30 @@ foreach(_driscord_relative_path IN LISTS _driscord_required_paths)
     endif()
 endforeach()
 
-foreach(_driscord_forbidden_path IN ITEMS include lib/cmake)
+foreach(_driscord_forbidden_path IN ITEMS
+        include
+        lib/cmake
+        qml/Qt5Compat
+        qml/QtTest
+        qml/QtQuick/Controls/Fusion
+        qml/QtQuick/Controls/Imagine
+        qml/QtQuick/Controls/Material
+        qml/QtQuick/Controls/Universal
+        Qt6Core5Compat.dll
+        Qt6ShaderTools.dll
+        Qt6Test.dll
+        Qt6QuickTest.dll
+        Qt6QuickControls2Fusion.dll
+        Qt6QuickControls2FusionStyleImpl.dll
+        Qt6QuickControls2Imagine.dll
+        Qt6QuickControls2ImagineStyleImpl.dll
+        Qt6QuickControls2Material.dll
+        Qt6QuickControls2MaterialStyleImpl.dll
+        Qt6QuickControls2Universal.dll
+        Qt6QuickControls2UniversalStyleImpl.dll)
     if(EXISTS "${_driscord_package_root}/${_driscord_forbidden_path}")
         message(FATAL_ERROR
-            "Development files leaked into Runtime component: "
+            "Forbidden artifact in Runtime component: "
             "${_driscord_forbidden_path}")
     endif()
 endforeach()
@@ -73,8 +86,6 @@ find_program(_driscord_objdump NAMES llvm-objdump objdump REQUIRED)
 file(GLOB_RECURSE _driscord_package_files LIST_DIRECTORIES FALSE
     "${_driscord_package_root}/*.dll" "${_driscord_package_root}/*.exe")
 
-# Names shipped inside the package, lowercased: PE import references are
-# case-insensitive.
 set(_driscord_shipped_names "")
 foreach(_driscord_packaged_file IN LISTS _driscord_package_files)
     get_filename_component(_driscord_name "${_driscord_packaged_file}" NAME)

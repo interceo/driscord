@@ -29,8 +29,6 @@ inline std::unique_ptr<Transport> make_test_transport()
     return std::make_unique<Transport>();
 }
 
-// Signaling-only peer used by roster/room tests. Media is covered separately
-// by the real Google WebRTC ↔ SFU integration tests.
 struct PeerNode {
     std::unique_ptr<Transport> transport = make_test_transport();
     EventCollector<std::string> joined;
@@ -84,4 +82,4 @@ inline bool wait_for_rendezvous(PeerNode& first,
         && second.joined.wait_for_count(1, timeout);
 }
 
-} // namespace test_util
+}

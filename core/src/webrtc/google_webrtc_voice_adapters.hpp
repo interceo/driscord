@@ -14,8 +14,6 @@
 
 namespace driscord::media::detail {
 
-// Google WebRTC requires a stateful sink interface. This adapter owns no
-// session state; it only translates the virtual callback to a function.
 class DecodedAudioSink final : public webrtc::AudioTrackSinkInterface {
 public:
     using Callback = std::function<void(std::string_view mid,
@@ -40,7 +38,6 @@ private:
     const Callback callback_;
 };
 
-// Ref-counting is supplied by webrtc::make_ref_counted at construction.
 class StatsObserver : public webrtc::RTCStatsCollectorCallback {
 public:
     using Callback = std::function<void(
@@ -59,4 +56,4 @@ private:
 [[nodiscard]] VoiceSessionStats parse_voice_stats(
     const webrtc::RTCStatsReport& report);
 
-} // namespace driscord::media::detail
+}

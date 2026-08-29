@@ -57,9 +57,6 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
         uint64_t next_watch_order = 0;
     };
 
-    // A media packet the link model is holding back. Targets and the mid
-    // extension are re-resolved at departure so rebinds during the delay
-    // window keep working.
     struct DelayedPacket {
         PeerId publisher;
         std::string media_type;
@@ -78,19 +75,12 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
         std::weak_ptr<rtc::Track> publisher_video;
     };
 
-    // Ordering of outbound notifications. A subscriber must see slot changes
-    // in the order the router decided them: two concurrent mutations touching
-    // the same slot could otherwise deliver "bound to A" before "unbound", and
-    // the tile would then stay black while A's packets keep arriving. Held
-    // around the whole mutate-then-publish sequence; always taken before
-    // `mutex`, and never by the RTP path.
     std::mutex publish_mutex;
     mutable std::mutex mutex;
     std::unordered_map<PeerId, PeerState> peers;
     sfu::RtpFaultConfig fault_config;
     uint64_t next_peer_order = 0;
     bool closed = false;
-    // Kept out of `mutex` so the RTP path does not pay for observability.
     std::atomic<uint64_t> video_packets_in { 0 };
     std::atomic<uint64_t> video_packets_out { 0 };
     std::atomic<uint64_t> video_bytes_out { 0 };
@@ -99,8 +89,6 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
     std::atomic<uint64_t> audio_bytes_out { 0 };
     std::atomic<uint64_t> keyframe_requests { 0 };
 
-    // Link-model delay queue, keyed by departure time; armed on the server
-    // io_context. Both stay empty with the zero-valued production config.
     std::optional<boost::asio::any_io_executor> executor;
     std::optional<boost::asio::steady_timer> delay_timer;
     std::multimap<int64_t, DelayedPacket> delay_queue;
@@ -409,8 +397,6 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
             sfu::remove_auxiliary_video_codecs(description);
         }
         description.clearSSRCs();
-        // Audio and video share one MediaStream/CNAME for RTCP sync, but the
-        // WebRTC track IDs must remain distinct within that stream.
         description.addSSRC(ssrc, cname, "driscord-screen",
             cname + "-" + media_type);
         track->setDescription(description);
@@ -581,9 +567,6 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
         }
     }
 
-    // Must be called with `mutex` held. expires_at() cancels the previous
-    // wait, so re-arming after every queue mutation keeps exactly one wait
-    // outstanding; aborted handlers return without touching state.
     void arm_delay_timer_locked()
     {
         if (!executor) {
@@ -910,8 +893,6 @@ struct ScreenRouter::Impl final : std::enable_shared_from_this<Impl> {
             peers.clear();
         }
 
-        // Detaching may wait for an in-flight route callback, which itself
-        // takes mutex. Keep all external libdatachannel calls outside it.
         for (const auto& track : tracks) {
             track->onMessage(nullptr);
             track->setMediaHandler(nullptr);
@@ -972,4 +953,4 @@ void ScreenRouter::close()
     }
 }
 
-} // namespace driscord
+}

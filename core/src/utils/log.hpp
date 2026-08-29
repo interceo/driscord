@@ -76,9 +76,9 @@ public:
 
         std::tm tm { };
 #if defined(_WIN32)
-        localtime_s(&tm, &tt); // Windows (MSVC + MinGW): localtime_s(tm*, time_t*)
+        localtime_s(&tm, &tt);
 #else
-        localtime_r(&tt, &tm); // POSIX (Linux, macOS)
+        localtime_r(&tt, &tm);
 #endif
 
         std::scoped_lock lk(mtx);
@@ -104,7 +104,7 @@ private:
     std::ostringstream ss_;
 };
 
-} // namespace driscord
+}
 
 #define LOG_INFO() driscord::LogMessage(driscord::LogLevel::Info)
 #define LOG_WARNING() driscord::LogMessage(driscord::LogLevel::Warning)

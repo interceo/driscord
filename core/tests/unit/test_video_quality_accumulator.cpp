@@ -101,7 +101,6 @@ TEST(VideoQualityAccumulator, DumpsComparedPairsAsAlignedY4m)
     test_util::ReferenceFrameStore references(10);
     const auto base = std::chrono::steady_clock::now();
     {
-        // Scoped: the writers flush and finalize on destruction.
         test_util::VideoQualityAccumulator accumulator(references, kWidth,
             kHeight);
         accumulator.enable_dump(dir, "pairs");
@@ -113,23 +112,18 @@ TEST(VideoQualityAccumulator, DumpsComparedPairsAsAlignedY4m)
         }
     }
 
-    // Both files: the one-line stream header plus, per frame, "FRAME\n" and
-    // the three I420 planes (w*h * 3/2 bytes).
     const size_t frame_bytes
         = 6 + static_cast<size_t>(kWidth) * kHeight * 3 / 2;
     for (const char* name : { "pairs.ref.y4m", "pairs.recv.y4m" }) {
         const auto path = dir / name;
         ASSERT_TRUE(std::filesystem::exists(path)) << name;
         const auto size = std::filesystem::file_size(path);
-        // Exactly three frames plus the short stream header.
         ASSERT_GT(size, 3 * frame_bytes) << name;
         EXPECT_LT(size - 3 * frame_bytes, 128u) << name;
         std::ifstream stream(path, std::ios::binary);
         std::string magic(9, '\0');
         stream.read(magic.data(), 9);
         EXPECT_EQ(magic, "YUV4MPEG2") << name;
-        // Header is identical for both files, so their sizes must match:
-        // aligned pair streams frame-for-frame.
     }
     EXPECT_EQ(std::filesystem::file_size(dir / "pairs.ref.y4m"),
         std::filesystem::file_size(dir / "pairs.recv.y4m"));
@@ -143,7 +137,6 @@ TEST(VideoQualityAccumulator, DegradedPixelsLowerPsnrNotIdentity)
     auto pristine = marked_frame(3);
     references.add(3, pristine, base);
 
-    // Blur the luma outside the marker: quality drops, identity survives.
     auto degraded = pristine;
     for (size_t i = kWidth * 70; i + 1 < degraded.y.size(); i += 2) {
         degraded.y[i] = static_cast<uint8_t>(
@@ -160,4 +153,4 @@ TEST(VideoQualityAccumulator, DegradedPixelsLowerPsnrNotIdentity)
     EXPECT_LT(report.ssim_mean, 1.0);
 }
 
-} // namespace
+}

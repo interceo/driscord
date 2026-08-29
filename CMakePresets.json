@@ -88,10 +88,12 @@
       "name": "linux-release",
       "inherits": "client",
       "displayName": "Portable Linux client package",
-      "description": "Builds and packages the client with Qt Deploy and CPack inside the pinned Debian 12 image.",
+      "description": "Builds and packages the client with Qt Deploy and CPack inside the pinned Debian 12 image. Bakes the production endpoints: release bundles are what the update channel serves.",
       "cacheVariables": {
         "DRISCORD_ENABLE_PACKAGING": "ON",
-        "QT_ENABLE_VERBOSE_DEPLOYMENT": "ON"
+        "QT_ENABLE_VERBOSE_DEPLOYMENT": "ON",
+        "DRISCORD_CLIENT_API_URL": "https://driscord.homelab.ceooptimizator.tech",
+        "DRISCORD_CLIENT_SIGNALING_URL": "wss://driscord.homelab.ceooptimizator.tech"
       }
     },
     {
@@ -122,8 +124,12 @@
       "name": "windows-release",
       "inherits": "client-windows",
       "displayName": "Portable Windows client package",
-      "description": "Cross-builds and packages the client as a zip: curated Qt plugin/QML deploy plus a GET_RUNTIME_DEPENDENCIES closure over the staged tree. Also needs DRISCORD_MSVC_REDIST_DIR (Microsoft.VC143.CRT DLLs) for the /MD Qt libraries.",
-      "cacheVariables": { "DRISCORD_ENABLE_PACKAGING": "ON" }
+      "description": "Cross-builds and packages the client as a zip: curated Qt plugin/QML deploy plus a GET_RUNTIME_DEPENDENCIES closure over the staged tree. Also needs DRISCORD_MSVC_REDIST_DIR (Microsoft.VC143.CRT DLLs) for the /MD Qt libraries. Bakes the production endpoints: release bundles are what the update channel serves.",
+      "cacheVariables": {
+        "DRISCORD_ENABLE_PACKAGING": "ON",
+        "DRISCORD_CLIENT_API_URL": "https://driscord.homelab.ceooptimizator.tech",
+        "DRISCORD_CLIENT_SIGNALING_URL": "wss://driscord.homelab.ceooptimizator.tech"
+      }
     },
     {
       "name": "windows-tests",
@@ -201,7 +207,7 @@
     {
       "name": "linux-release",
       "configurePreset": "linux-release",
-      "generators": ["TGZ"]
+      "generators": ["External"]
     },
     {
       "name": "windows-release",

@@ -110,7 +110,7 @@ namespace {
         return utils::Unexpected(ParseError::InvalidField);
     }
 
-} // namespace
+}
 
 std::string_view to_string(ParseError error)
 {
@@ -452,4 +452,4 @@ std::string dump(const Message& message)
     return encode(message).dump();
 }
 
-} // namespace signaling
+}

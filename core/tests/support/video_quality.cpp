@@ -22,8 +22,6 @@ I420Frame bgra_to_i420(std::span<const uint8_t> bgra,
         = static_cast<size_t>((width + 1) / 2) * static_cast<size_t>((height + 1) / 2);
     frame.u.resize(chroma);
     frame.v.resize(chroma);
-    // libyuv "ARGB" is B,G,R,A in memory on little-endian — the BGRA layout
-    // the capture path uses.
     libyuv::ARGBToI420(bgra.data(), stride,
         frame.y.data(), frame.y_stride(),
         frame.u.data(), frame.chroma_stride(),
@@ -42,7 +40,7 @@ namespace {
             && received.u != nullptr && received.v != nullptr;
     }
 
-} // namespace
+}
 
 double i420_psnr(const I420Frame& reference,
     const driscord::media::DecodedVideoFrameView& received)
@@ -151,4 +149,4 @@ VideoQualityReport VideoQualityAccumulator::report() const
     return result;
 }
 
-} // namespace test_util
+}

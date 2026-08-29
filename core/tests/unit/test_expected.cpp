@@ -8,8 +8,6 @@
 using utils::Expected;
 using utils::Unexpected;
 
-// --- Expected<T, E> ---
-
 TEST(Expected, ValueConstruction)
 {
     Expected<int> r(42);
@@ -76,8 +74,6 @@ TEST(Expected, CustomErrorType)
     EXPECT_FALSE(r);
     EXPECT_EQ(r.error(), Err::Timeout);
 }
-
-// --- Expected<void, E> ---
 
 TEST(ExpectedVoid, SuccessConstruction)
 {

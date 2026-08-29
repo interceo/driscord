@@ -1,14 +1,4 @@
 #!/usr/bin/env sh
-# Build the Driscord API and signaling images in-cluster (Kaniko), apply the
-# manifests and roll both deployments out to k3s. Kaniko builds from this repo
-# clone on the node (/mnt/raid1/homelab/repos/driscord), so push your changes
-# there first.
-#
-# Prereqs: kubectl context set; SOPS age key at ~/.config/sops/age/keys.txt
-# (secret.yaml is rendered from secret.sops.yaml at apply time, then shredded).
-#
-# Usage: scripts/deploy.sh [api|sig]
-# Without an argument, build and roll out both services.
 set -eu
 
 NS=driscord

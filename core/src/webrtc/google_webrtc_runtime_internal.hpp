@@ -15,8 +15,6 @@ namespace driscord::media {
 
 class InjectedPcmSource;
 
-// Shared by sessions so the factory and its threads cannot disappear while a
-// PeerConnection is still alive. This header is private to the backend target.
 struct GoogleWebRtcRuntime::Impl {
     std::unique_ptr<webrtc::Thread> network_thread;
     std::unique_ptr<webrtc::Thread> worker_thread;
@@ -24,12 +22,7 @@ struct GoogleWebRtcRuntime::Impl {
     webrtc::scoped_refptr<webrtc::AudioDeviceModule> audio_device;
     webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> factory;
     std::shared_ptr<InjectedPcmSource> injected_pcm_source;
-    // True when the platform audio device failed to initialise and the
-    // runtime fell back to WebRTC's silent dummy device. Immutable after
-    // construction.
     bool audio_device_degraded = false;
-    // Read by every session when it builds its RTCConfiguration. Immutable
-    // after construction, so sessions need no synchronisation for it.
     std::vector<IceServerConfig> ice_servers;
 
     explicit Impl(const GoogleWebRtcRuntimeConfig& config);
@@ -43,4 +36,4 @@ struct GoogleWebRtcRuntime::Impl {
         bool recording, std::string_view id);
 };
 
-} // namespace driscord::media
+}

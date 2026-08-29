@@ -1,5 +1,5 @@
 import QtQuick
-import Qt5Compat.GraphicalEffects
+import QtQuick.Effects
 
 Item {
     id: root
@@ -19,10 +19,11 @@ Item {
         visible: false
     }
 
-    ColorOverlay {
+    MultiEffect {
         anchors.fill: parent
         source: img
-        color: root.color
+        colorization: 1.0
+        colorizationColor: root.color
         visible: img.status === Image.Ready
     }
 }

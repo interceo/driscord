@@ -7,9 +7,6 @@ namespace test_util {
 
 namespace {
 
-    // splitmix64 — the same deterministic hash family the SFU fault stage
-    // uses, applied per (seed, coordinate) so frames are pure functions of
-    // their index.
     uint64_t hash64(uint64_t value)
     {
         value += 0x9E3779B97F4A7C15ull;
@@ -30,9 +27,6 @@ namespace {
         bgra[offset + 3] = 255;
     }
 
-    // Text-like line content shared by the scrolling page and the terminal:
-    // rows of dark dashes with pseudo-random lengths and gaps on a light
-    // background. document_row selects content, so scrolling shifts rows.
     void render_text_row(std::vector<uint8_t>& bgra,
         int width,
         int screen_row,
@@ -64,7 +58,7 @@ namespace {
         }
     }
 
-} // namespace
+}
 
 std::vector<uint8_t> scrolling_text_frame(int width,
     int height,
@@ -85,7 +79,7 @@ std::vector<uint8_t> scrolling_text_frame(int width,
     const int scroll = static_cast<int>(frame_index)
         * scroll_px_per_frame;
     for (int y = 0; y < height; ++y) {
-        render_text_row(bgra, width, y, y + scroll, /*salt=*/1);
+        render_text_row(bgra, width, y, y + scroll, 1);
     }
     return bgra;
 }
@@ -99,8 +93,6 @@ std::vector<uint8_t> sliding_blocks_frame(int width,
         static_cast<size_t>(width) * static_cast<size_t>(height) * 4);
     const size_t slide = frame_index / slide_period;
     const size_t within = frame_index % slide_period;
-    // The transition occupies the first third of each period; afterwards the
-    // slide sits still.
     constexpr size_t kTransitionFrames = 30;
     const double progress = within >= kTransitionFrames
         ? 1.0
@@ -145,8 +137,6 @@ std::vector<uint8_t> static_terminal_frame(int width,
                 24, 18, 12);
         }
     }
-    // Light-on-dark text: reuse the row renderer's geometry by drawing the
-    // inverse — light dashes.
     for (int y = 8; y < height - 8; ++y) {
         constexpr int kLineHeight = 10;
         const int within = y % kLineHeight;
@@ -170,7 +160,6 @@ std::vector<uint8_t> static_terminal_frame(int width,
             x += dash + gap;
         }
     }
-    // Blinking cursor, 500 ms at 30 fps.
     if ((frame_index / 15) % 2 == 0) {
         const int cursor_y = height - 20;
         for (int y = cursor_y; y < cursor_y + 9 && y < height; ++y) {
@@ -212,4 +201,4 @@ std::vector<uint8_t> noise_window_frame(int width,
     return bgra;
 }
 
-} // namespace test_util
+}

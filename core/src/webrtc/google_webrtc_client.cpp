@@ -40,15 +40,12 @@ struct CaptureSelection {
     int64_t id;
 };
 
-// Everything needed to start the same capture again after the screen session
-// is recreated.
 struct SharingRequest {
     CaptureSelection selection;
     int max_width = 0;
     int max_height = 0;
     int fps = 0;
     bool share_audio = false;
-    // Empty means the default sink monitor.
     std::string audio_target;
 };
 
@@ -80,7 +77,7 @@ float clamp_volume(float volume)
     return std::clamp(volume, 0.0f, 2.0f);
 }
 
-} // namespace
+}
 
 struct GoogleWebRtcClient::Impl
     : std::enable_shared_from_this<GoogleWebRtcClient::Impl> {
@@ -104,7 +101,6 @@ struct GoogleWebRtcClient::Impl
         , callbacks(std::move(callbacks_value))
         , screen_playout(std::make_shared<GoogleWebRtcPcmPlayout>())
         , voice_runtime(driscord::media::GoogleWebRtcRuntimeConfig {
-              // Voice uses the real audio device; only screen injects PCM.
               .injected_audio_device = std::nullopt,
               .ice_servers = ice_servers,
           })
@@ -220,8 +216,6 @@ struct GoogleWebRtcClient::Impl
         }
         LOG_WARNING() << "Google WebRTC screen connection failed; "
                          "recreating PeerConnection";
-        // Viewers re-subscribe on the stop/start pair, so the announcement
-        // still brackets the rebuilt session rather than spanning it.
         if (was_sharing) {
             transport.send_streaming_stop();
         }
@@ -235,10 +229,6 @@ struct GoogleWebRtcClient::Impl
         }
     }
 
-    // Recovery must not run on the WebRTC callback thread that reported the
-    // failure, and it must not spawn a thread per failure either: a flapping
-    // connection would then pile up detached threads nobody can join at exit.
-    // One worker, started on first use, drained and joined by stop_recovery().
     void schedule_recovery(std::function<void()> task) noexcept
     {
         try {
@@ -495,9 +485,6 @@ struct GoogleWebRtcClient::Impl
         apply(std::move(updates));
     }
 
-    // Starts the capture described by `request` against whatever screen session
-    // exists now. Shared by the user-initiated path and by recovery, so a
-    // recreated PeerConnection resumes the same stream.
     [[nodiscard]] bool apply_sharing(const SharingRequest& request)
     {
         std::scoped_lock sharing_lock(sharing_mutex);
@@ -708,9 +695,6 @@ struct GoogleWebRtcClient::Impl
             return;
         }
         apply(std::move(updates));
-        // A reconnect creates a fresh server-side room/session, so targeted
-        // subscriptions must be replayed even though the local watched set is
-        // intentionally preserved across signaling loss.
         for (const auto& peer : watched) {
             transport.send_watch_start(peer);
         }
@@ -725,7 +709,6 @@ struct GoogleWebRtcClient::Impl
             old = std::move(voice_session);
             voice_session_token.reset();
             voice_bindings.clear();
-            // A stale RTT from a dead session would keep being displayed.
             voice_stats.reset();
         }
         if (old) {
@@ -931,8 +914,6 @@ struct GoogleWebRtcClient::Impl
         return updates;
     }
 
-    // Cached because RTCStats is asynchronous: the UI polls on a timer and
-    // gets the previous answer while the next one is in flight.
     void request_voice_stats()
     {
         std::shared_ptr<driscord::media::GoogleWebRtcVoiceSession> session;
@@ -1015,10 +996,6 @@ struct GoogleWebRtcClient::Impl
     bool voice_deafened = false;
     bool screen_requested = false;
     bool sharing_active = false;
-    // What the user asked to share, kept for as long as they want to share it.
-    // sharing_active only says whether a capture is running right now, so it is
-    // lost whenever the screen session is torn down; without this the stream
-    // would end permanently on the first transient PeerConnection failure.
     std::optional<SharingRequest> sharing_request;
     bool local_preview_enabled = false;
     std::string local_preview_peer_id;
@@ -1430,8 +1407,6 @@ void GoogleWebRtcClient::stop_sharing()
         session = impl_->screen_session;
         was_sharing = impl_->sharing_active;
         impl_->sharing_active = false;
-        // Clearing the intent as well, so recovery does not resurrect a stream
-        // the user has stopped.
         impl_->sharing_request.reset();
         removed_local_preview = std::move(impl_->local_preview_peer_id);
     }

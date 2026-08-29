@@ -14,7 +14,7 @@ namespace {
         return count == 0 ? -1.0 : total_seconds * 1000.0 / count;
     }
 
-} // namespace
+}
 
 void ScreenStatsTracker::set_binding(
     std::string mid, std::optional<std::string> peer_id)
@@ -249,4 +249,4 @@ void ScreenStatsTracker::update_peer(std::string_view peer_id,
     cache.updated_at = now;
 }
 
-} // namespace driscord::media
+}

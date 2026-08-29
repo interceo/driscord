@@ -52,7 +52,6 @@ ApplicationWindow {
         ]
     }
 
-    // Restoring spinner
     BusyIndicator {
         objectName: "sessionRestoreIndicator"
         anchors.centerIn: parent
@@ -60,7 +59,6 @@ ApplicationWindow {
         running: visible
     }
 
-    // Global error banner
     Rectangle {
         id: errorBanner
         objectName: "errorBanner"

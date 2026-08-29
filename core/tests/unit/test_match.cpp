@@ -5,7 +5,6 @@
 #include <string>
 #include <variant>
 
-// Dispatches to the lambda whose parameter matches the active alternative.
 TEST(Match, DispatchesByActiveType)
 {
     std::variant<int, std::string, double> v = std::string { "hi" };
@@ -19,7 +18,6 @@ TEST(Match, DispatchesByActiveType)
     EXPECT_STREQ(tag, "string");
 }
 
-// The chosen overload's return value is propagated back out.
 TEST(Match, PropagatesReturnValue)
 {
     std::variant<int, double> v = 21;
@@ -32,8 +30,6 @@ TEST(Match, PropagatesReturnValue)
     EXPECT_EQ(r, 42);
 }
 
-// A generic catch-all loses to any exact-type overload, and otherwise absorbs
-// the alternatives left unhandled.
 TEST(Match, CatchAllYieldsToExactMatch)
 {
     std::variant<int, char, long> v = 'x';
@@ -43,17 +39,16 @@ TEST(Match, CatchAllYieldsToExactMatch)
         v,
         [&](long) { hit = 1; },
         [&](auto&&) { hit = 2; });
-    EXPECT_EQ(hit, 2); // char has no exact overload -> catch-all
+    EXPECT_EQ(hit, 2);
 
     v = 7L;
     utils::Match(
         v,
         [&](long) { hit = 1; },
         [&](auto&&) { hit = 2; });
-    EXPECT_EQ(hit, 1); // long is matched exactly
+    EXPECT_EQ(hit, 1);
 }
 
-// Overloaded is usable directly with std::visit, not only through Match.
 TEST(Match, OverloadedIsStandaloneVisitor)
 {
     std::variant<int, std::string> v = 5;

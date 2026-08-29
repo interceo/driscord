@@ -15,8 +15,6 @@ from schemas.channel import (
 
 router = APIRouter(prefix="/servers/{server_id}/channels", tags=["channels"])
 
-# Channels are also addressable without their server: the signaling server only
-# knows the channel id it received in the WebSocket path.
 access_router = APIRouter(prefix="/channels", tags=["channels"])
 
 

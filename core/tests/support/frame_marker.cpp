@@ -25,8 +25,6 @@ namespace {
         return value;
     }
 
-    // XOR-fold of the index bytes, salted so index 0 still yields a mixed
-    // bit pattern (the decoder thresholds adaptively and needs both colors).
     constexpr uint8_t checksum(uint32_t index)
     {
         return static_cast<uint8_t>(
@@ -49,7 +47,7 @@ namespace {
         return bits;
     }
 
-} // namespace
+}
 
 void encode_frame_marker(std::span<uint8_t> bgra,
     int width,
@@ -63,7 +61,6 @@ void encode_frame_marker(std::span<uint8_t> bgra,
     if (width < block_width || height < block_height) {
         return;
     }
-    // White backing plate so the grid never depends on the content behind it.
     for (int y = 0; y < block_height; ++y) {
         uint8_t* line = bgra.data() + static_cast<size_t>(y) * static_cast<size_t>(stride);
         for (int x = 0; x < block_width; ++x) {
@@ -109,8 +106,6 @@ std::optional<DecodedMarker> decode_frame_marker(
     const double scale_x = static_cast<double>(frame.width) / reference_width;
     const double scale_y = static_cast<double>(frame.height) / reference_height;
 
-    // Average a small window around each cell center, then threshold
-    // adaptively between the darkest and brightest cell.
     std::array<double, kMarkerCols * kMarkerRows> samples { };
     for (int row = 0; row < kMarkerRows; ++row) {
         for (int col = 0; col < kMarkerCols; ++col) {
@@ -174,4 +169,4 @@ std::optional<DecodedMarker> decode_frame_marker(
     return DecodedMarker { .frame_index = index };
 }
 
-} // namespace test_util
+}

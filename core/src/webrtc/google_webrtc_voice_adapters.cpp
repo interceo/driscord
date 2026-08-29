@@ -93,4 +93,4 @@ VoiceSessionStats parse_voice_stats(const webrtc::RTCStatsReport& report)
     return result;
 }
 
-} // namespace driscord::media::detail
+}

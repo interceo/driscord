@@ -28,12 +28,6 @@
 #include <utility>
 #include <vector>
 
-// Per-PR network scenarios on the SFU link model: bursty WiFi loss, LTE
-// delay/jitter, and a mid-call blackout with recovery. The deeper statistical
-// matrix lives in the nightly tier; these runs pin the mechanisms — jitter
-// buffering adapts, NACK/PLI recovery works, and a dead link resumes without
-// a reconnect.
-
 namespace {
 
 using test_util::EventCollector;
@@ -131,7 +125,6 @@ struct VoiceScenarioMetrics {
     size_t errors = 0;
 };
 
-// One publisher, one listener, one profile held for the whole call.
 VoiceScenarioMetrics run_voice_scenario(driscord::sfu::RtpFaultConfig faults,
     size_t decoded_frame_floor)
 {
@@ -248,7 +241,6 @@ VoiceScenarioMetrics run_voice_scenario(driscord::sfu::RtpFaultConfig faults,
     }
     EXPECT_FALSE(bound_mid.empty());
 
-    // Settle, then take the concealment baseline (excludes NetEq ramp-in).
     std::this_thread::sleep_for(std::chrono::milliseconds(750));
     uint64_t baseline_concealed = 0;
     uint64_t baseline_total = 0;
@@ -385,15 +377,14 @@ uint64_t total_keyframe_requests(SignalingServerFixture& server)
     return total;
 }
 
-} // namespace
+}
 
 TEST(GoogleWebRtcNetworkScenarios, WifiBurstVoiceSurvives)
 {
     const auto metrics = run_voice_scenario(
-        test_util::wifi_burst_profile(31), /*decoded_frame_floor=*/220);
+        test_util::wifi_burst_profile(31), 220);
     EXPECT_EQ(metrics.errors, 0u);
     EXPECT_NEAR(metrics.estimated_frequency_hz, 440.0, 140.0);
-    // Bursty 3% loss must stay concealable, not degenerate into silence.
     EXPECT_TRUE(test_util::gate_le("voice.wifi_burst.concealment_rate",
         metrics.concealment_rate, 0.20));
 }
@@ -406,11 +397,7 @@ TEST(GoogleWebRtcNetworkScenarios, JitterGrowsTheJitterBufferWithoutStalling)
 
     EXPECT_EQ(clean.errors, 0u);
     EXPECT_EQ(jittered.errors, 0u);
-    // Playout survived the 50±20 ms path and the tone is still identifiable.
     EXPECT_NEAR(jittered.estimated_frequency_hz, 440.0, 140.0);
-    // NetEq visibly adapted: the target delay under jitter exceeds the clean
-    // loopback target instead of staying flat (a stalled buffer would also
-    // fail the decode floor inside the scenario run).
     EXPECT_GT(jittered.jitter_buffer_target_delay_seconds,
         clean.jitter_buffer_target_delay_seconds);
     EXPECT_TRUE(test_util::gate_le("voice.lte_good.concealment_rate",
@@ -538,7 +525,6 @@ TEST(GoogleWebRtcNetworkScenarios, ScreenBlackoutRecoversWithoutReconnect)
     listener_transport.send_watch_start(publisher_transport.local_id());
     ASSERT_TRUE(bindings.wait_for_count(2));
 
-    // Continuous 30 fps feed for the whole scenario.
     constexpr int kWidth = 320;
     constexpr int kHeight = 180;
     std::atomic<bool> feeding { true };
@@ -556,12 +542,9 @@ TEST(GoogleWebRtcNetworkScenarios, ScreenBlackoutRecoversWithoutReconnect)
         }
     });
 
-    // Decode flows on the clean link first.
     ASSERT_TRUE(decoded.wait_for_frames(30, std::chrono::seconds(15)));
     const uint64_t keyframes_before = total_keyframe_requests(server);
 
-    // 4 s media blackout mid-call. RTCP stays alive by design, so the
-    // transport must NOT drop — recovery is a decode concern, not an ICE one.
     server.set_fault_config(test_util::link_down_profile());
     std::this_thread::sleep_for(std::chrono::seconds(4));
     const size_t frames_during_blackout_start = decoded.frames();
@@ -570,7 +553,6 @@ TEST(GoogleWebRtcNetworkScenarios, ScreenBlackoutRecoversWithoutReconnect)
     EXPECT_LE(frames_during_blackout_end - frames_during_blackout_start, 2u)
         << "blackout leaked media";
 
-    // Restore and require decode to resume within 10 s.
     server.set_fault_config(test_util::clean_profile());
     const size_t frames_at_restore = decoded.frames();
     EXPECT_TRUE(decoded.wait_for_frames(frames_at_restore + 30,
@@ -580,10 +562,7 @@ TEST(GoogleWebRtcNetworkScenarios, ScreenBlackoutRecoversWithoutReconnect)
     feeding = false;
     feeder.join();
 
-    // Recovery went through the SFU's keyframe request path.
     EXPECT_GT(total_keyframe_requests(server), keyframes_before);
-    // The peer connection never tore down: no Disconnected/Failed/Closed
-    // transitions during the blackout.
     for (const auto state : listener_states.snapshot()) {
         EXPECT_NE(state, ScreenConnectionState::Failed);
         EXPECT_NE(state, ScreenConnectionState::Closed);

@@ -1,0 +1,19 @@
+{
+  "channel": "stable",
+  "commit": "4dd1c84a99736a33dde6ee94a0f60b21bc6c67e8",
+  "files": [
+    {
+      "name": "driscord-client-0.0.12-linux-x86_64.tar.gz",
+      "sha256": "ec15d9429fe853a0cab70503431f204cf8b197036a7a52b714a877ea9f282d4f",
+      "size": 61429070,
+      "url": "0.0.12/driscord-client-0.0.12-linux-x86_64.tar.gz"
+    }
+  ],
+  "project": "driscord",
+  "published_at": "2026-08-27T19:43:03Z",
+  "schema": 1,
+  "source": "https://git.homelab.ceooptimizator.tech/interceo/driscord",
+  "tag": "v0.0.12",
+  "target": "linux/amd64",
+  "version": "0.0.12"
+}

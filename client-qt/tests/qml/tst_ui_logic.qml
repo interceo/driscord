@@ -84,8 +84,6 @@ TestCase {
         email.text = "  user@example.test  ";
         tryCompare(submit, "enabled", true);
 
-        // Nineteen emoji are 76 UTF-8 bytes, despite being fewer than 72
-        // visible characters. The API rejects them before bcrypt as well.
         password.text = "😀".repeat(19);
         compare(submit.enabled, false);
 

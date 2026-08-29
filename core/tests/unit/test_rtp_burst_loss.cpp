@@ -1,10 +1,3 @@
-// Gilbert-Elliott burst-loss model in the RTP fault injector.
-//
-// The counter-based drop_every_nth loses one isolated packet at a time; real
-// networks lose runs of them, which is what actually stresses NACK/PLI
-// recovery. This pins the burst model's three guarantees: it is off by
-// default, it is deterministic given a seed, and it produces bursts rather
-// than a Bernoulli scatter.
 
 #include "sfu_media_utils.hpp"
 
@@ -19,7 +12,6 @@ namespace {
 
 rtc::binary make_rtp(uint16_t sequence)
 {
-    // Minimal 12-byte RTP header, PT=111, given sequence number.
     rtc::binary packet(12, std::byte { 0 });
     packet[0] = std::byte { 0x80 };
     packet[1] = std::byte { 0x6F };
@@ -28,8 +20,6 @@ rtc::binary make_rtp(uint16_t sequence)
     return packet;
 }
 
-// Runs `count` packets through the injector and returns the delivered/dropped
-// pattern (true = delivered at least once). Reordering is ignored here.
 std::vector<bool> run(const driscord::sfu::RtpFaultConfig& config, int count)
 {
     driscord::sfu::RtpFaultState state;
@@ -46,7 +36,7 @@ std::vector<bool> run(const driscord::sfu::RtpFaultConfig& config, int count)
 
 TEST(RtpBurstLoss, DisabledByDefault)
 {
-    driscord::sfu::RtpFaultConfig config; // all zero
+    driscord::sfu::RtpFaultConfig config;
     EXPECT_FALSE(config.burst.enabled());
     const auto pattern = run(config, 500);
     for (const bool delivered : pattern) {
@@ -82,8 +72,6 @@ TEST(RtpBurstLoss, DifferentSeedsDiverge)
 
 TEST(RtpBurstLoss, LossesArriveInBurstsNotScattered)
 {
-    // A sticky bad state (rare entry, slow exit, near-total loss while bad)
-    // must produce runs of consecutive drops, not a Bernoulli sprinkle.
     driscord::sfu::RtpFaultConfig config;
     config.burst.good_to_bad = 0.02;
     config.burst.bad_to_good = 0.15;
@@ -113,8 +101,6 @@ TEST(RtpBurstLoss, LossesArriveInBurstsNotScattered)
     }
 
     ASSERT_GT(dropped, 0) << "the model never dropped anything";
-    // The defining property of burst loss: mean drop-run length is well above
-    // one. A memoryless model at the same overall loss rate would sit at ~1.
     const double mean_run
         = static_cast<double>(dropped) / static_cast<double>(drop_runs);
     EXPECT_GT(mean_run, 2.0)
@@ -131,7 +117,6 @@ TEST(RtpBurstLoss, NeverDropsRtcp)
     config.burst.loss_in_bad = 1.0;
     config.burst.seed = 5;
 
-    // A BYE packet: RTCP must pass even though every RTP packet would drop.
     rtc::binary rtcp { std::byte { 0x81 }, std::byte { 0xCB },
         std::byte { 0x00 }, std::byte { 0x01 }, std::byte { 0x11 },
         std::byte { 0x22 }, std::byte { 0x33 }, std::byte { 0x44 } };
@@ -142,4 +127,4 @@ TEST(RtpBurstLoss, NeverDropsRtcp)
     EXPECT_EQ(state.packets_seen, 0u);
 }
 
-} // namespace
+}

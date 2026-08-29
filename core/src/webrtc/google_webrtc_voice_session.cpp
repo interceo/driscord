@@ -153,7 +153,6 @@ struct GoogleWebRtcVoiceSession::Impl final
         bool cancelled = false;
         {
             std::scoped_lock lock(mutex);
-            // A concurrent close() wins over a partially constructed start().
             if (close_requested) {
                 cancelled = true;
             } else {
@@ -437,7 +436,6 @@ struct GoogleWebRtcVoiceSession::Impl final
         return true;
     }
 
-    // PeerConnectionObserver
     void OnSignalingChange(
         webrtc::PeerConnectionInterface::SignalingState) override
     {
@@ -601,4 +599,4 @@ bool GoogleWebRtcVoiceSession::get_stats(
     return impl_ && impl_->get_stats(std::move(callback));
 }
 
-} // namespace driscord::media
+}

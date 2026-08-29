@@ -1,10 +1,6 @@
 import QtQuick
 import QtTest
 
-// IconBox is a leaf component: QtQuick plus Qt5Compat.GraphicalEffects, no
-// application context. That makes it the one place where a QML test can run
-// without the driscord module, which qt_add_qml_module builds into the client
-// executable rather than into a standalone module.
 TestCase {
     id: root
     name: "IconBox"

@@ -14,9 +14,6 @@
 
 namespace test_util {
 
-// Minimal stand-in for the REST API used by the signaling server's session
-// authorization. It records what was asked and replies with whatever the test
-// configured, so authorization can be exercised without a database.
 class FakeApiServer {
 public:
     struct Request {
@@ -24,14 +21,11 @@ public:
         std::string authorization;
     };
 
-    // Failure modes for exercising the authenticator's error paths. `Normal`
-    // serves the configured response; everything else models a broken or
-    // hostile API so tests can assert that authorization fails closed.
     enum class Behavior {
-        Normal, // reply with set_response()
-        ResetAfterAccept, // accept, then slam the connection (TCP RST)
-        Stall, // read the request, never answer (client timeout path)
-        TruncateBody, // claim a long body, send a fragment, close
+        Normal,
+        ResetAfterAccept,
+        Stall,
+        TruncateBody,
     };
 
     FakeApiServer()
@@ -77,8 +71,6 @@ public:
         behavior_ = behavior;
     }
 
-    // After this, new connections to base_url() are refused outright
-    // (connection refused), which models an API that is down entirely.
     void refuse_new_connections()
     {
         boost::system::error_code ignored;
@@ -146,7 +138,7 @@ private:
                 }
                 if (behavior == Behavior::Stall) {
                     std::scoped_lock lock(mutex_);
-                    stalled_.push_back(socket); // hold open, never reply
+                    stalled_.push_back(socket);
                     return;
                 }
                 if (behavior == Behavior::TruncateBody) {
@@ -199,4 +191,4 @@ private:
     std::vector<Request> requests_;
 };
 
-} // namespace test_util
+}

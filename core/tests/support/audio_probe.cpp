@@ -19,8 +19,6 @@ std::vector<int16_t> make_chirp(int sample_rate_hz,
     const double sweep = (end_hz - start_hz) / duration_s;
     for (size_t i = 0; i < samples; ++i) {
         const double t = static_cast<double>(i) / sample_rate_hz;
-        // Linear chirp phase: 2*pi*(f0*t + k/2*t^2), Hann envelope so the
-        // edges never click and the correlation peak stays sharp.
         const double phase
             = 2.0 * kPi * (start_hz * t + 0.5 * sweep * t * t);
         const double window = 0.5
@@ -48,8 +46,6 @@ void mix_chirp(std::span<int16_t> destination,
 
 namespace {
 
-    // Linear-interpolated resample of the base template by `factor` (>1 =
-    // dilated). Purely a helper for the multi-scale bank.
     std::vector<float> stretch_template(const std::vector<int16_t>& base,
         double factor)
     {
@@ -67,7 +63,7 @@ namespace {
         return result;
     }
 
-} // namespace
+}
 
 ChirpDetector::ChirpDetector(std::vector<int16_t> chirp_template,
     int sample_rate_hz,
@@ -102,12 +98,8 @@ void ChirpDetector::push(std::span<const int16_t> samples,
         ++frame_samples;
     }
     const uint64_t total_samples = base_index_ + buffer_.size();
-    // entry_time is when the first sample of THIS frame starts playing, so
-    // absolute sample s plays at entry + (s - first_sample_of_frame)/rate.
     const uint64_t frame_start_index = total_samples - frame_samples;
 
-    // Scan every start offset whose longest template window is available;
-    // the score is the best normalized correlation across the scale bank.
     while (scanned_until_ + longest_template_ <= total_samples) {
         const size_t local = static_cast<size_t>(scanned_until_ - base_index_);
         double correlation = 0.0;
@@ -129,9 +121,6 @@ void ChirpDetector::push(std::span<const int16_t> samples,
                 = static_cast<uint64_t>(sample_rate_hz_) / 10;
             if (!has_detection_
                 || scanned_until_ >= last_detection_index_ + refractory) {
-                // The chirp started at absolute sample scanned_until_, which
-                // plays (frame_start_index - scanned_until_)/rate before the
-                // current frame's first sample.
                 const double seconds_before_frame
                     = (static_cast<double>(frame_start_index)
                           - static_cast<double>(scanned_until_))
@@ -146,7 +135,6 @@ void ChirpDetector::push(std::span<const int16_t> samples,
         ++scanned_until_;
     }
 
-    // Keep one second of history.
     const size_t max_samples = static_cast<size_t>(sample_rate_hz_);
     if (buffer_.size() > max_samples) {
         const size_t trim = buffer_.size() - max_samples;
@@ -162,4 +150,4 @@ ChirpDetector::detections() const
     return detections_;
 }
 
-} // namespace test_util
+}

@@ -1,20 +1,8 @@
 #!/usr/bin/env bash
-# Unified Driscord launcher.
-#
-# Usage:
-#   ./scripts/run.sh                      # run Qt client (release)
-#   ./scripts/run.sh --debug              # run Qt client (debug build)
-#   ./scripts/run.sh --qt                 # run Qt client (explicit)
-#   ./scripts/run.sh --qt --debug         # run Qt client (debug)
-#   ./scripts/run.sh --server             # run server (release)
-#   ./scripts/run.sh --server --debug     # run server (debug)
-#   ./scripts/run.sh --api                # run API server
-#   ./scripts/run.sh --gdb                # run Qt client under GDB
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-# --- Parse flags ---
 BUILD_TYPE="release"
 TARGET="qt"
 GDB_MODE=0
@@ -30,7 +18,6 @@ for arg in "$@"; do
     esac
 done
 
-# ===== SERVER =====
 if [ "$TARGET" = "server" ]; then
     PRESET="server"
     [ "$BUILD_TYPE" = "debug" ] && PRESET="server-debug"
@@ -39,8 +26,6 @@ if [ "$TARGET" = "server" ]; then
         echo "==> Server binary not found — building..."
         cmake --workflow --preset "$PRESET"
     fi
-    # The server refuses to run without an API to authorize sessions against.
-    # Locally that API is the one ./scripts/run.sh --api starts.
     if [ -z "${DRISCORD_API_URL:-}" ] \
         && [ "${DRISCORD_ALLOW_ANONYMOUS:-}" != "1" ]; then
         export DRISCORD_API_URL="http://127.0.0.1:${DRISCORD_API_PORT:-8000}"
@@ -50,12 +35,9 @@ if [ "$TARGET" = "server" ]; then
     exec "$SERVER_BIN"
 fi
 
-# ===== API =====
 if [ "$TARGET" = "api" ]; then
     API_DIR="$ROOT/backend/api"
     VENV_DIR="$API_DIR/.venv"
-    # Runtime dependencies only. The test environment is tox's business
-    # (backend/api/tox.ini) and lives in .tox/, not here.
     if [ ! -d "$VENV_DIR" ]; then
         echo "==> Venv not found — creating it..."
         python3 -m venv "$VENV_DIR"
@@ -66,7 +48,6 @@ if [ "$TARGET" = "api" ]; then
     exec "$VENV_DIR/bin/python" main.py
 fi
 
-# ===== QT CLIENT =====
 PRESET="client"
 [ "$BUILD_TYPE" = "debug" ] && PRESET="client-debug"
 QT_BIN="$ROOT/.builds/${DRISCORD_BUILD_TAG:-}$PRESET/client-qt/driscord_client"

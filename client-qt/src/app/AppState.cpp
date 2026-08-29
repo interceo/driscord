@@ -34,7 +34,7 @@ QString avatarUrlFor(const QJsonObject& user, const QString& apiBaseUrl,
     return result;
 }
 
-} // namespace
+}
 
 AppState::AppState(AuthManager* auth, ServerRepository* servers, UserRepository* users,
     DriscordBridge* bridge, const QString& signalingUrl,
@@ -57,9 +57,6 @@ AppState::AppState(AuthManager* auth, ServerRepository* servers, UserRepository*
         if (m_auth->loggedIn()) {
             loadInitialData();
         } else {
-            // Logging out must also tear down media. Merely swapping the QML
-            // screen would otherwise leave the microphone and WebSocket alive
-            // behind the login form.
             leaveVoiceChannel();
             m_userProfile = { };
             m_servers = { };
@@ -102,10 +99,6 @@ void AppState::connectBridgeSignals()
             = m_connectionState != QStringLiteral("disconnected");
         m_connectionState = QStringLiteral("disconnected");
         m_statsTimer->stop();
-        // A remote/network disconnect does not pass through
-        // leaveVoiceChannel(). Stop local capture here as well. During an
-        // intentional leave the state is already disconnected by the time
-        // this queued signal arrives, so the teardown is not duplicated.
         if (sessionWasActive) {
             m_bridge->audioStop();
             m_bridge->deinitScreenSession();
@@ -154,7 +147,6 @@ void AppState::connectBridgeSignals()
                 if (m.value("id") == id) {
                     m["username"] = username;
                     v = m;
-                    // Fetch avatar + display name
                     m_userRepo->getUserByUsername(username, [this, id, requestedUserId](bool ok, QJsonObject json) {
                         if (!ok || !m_auth->loggedIn()
                             || m_auth->userId() != requestedUserId)
@@ -197,8 +189,6 @@ void AppState::connectBridgeSignals()
             emit watchedStreamsChanged();
         }
     };
-    // Signaling announces streams before the first decoded WebRTC frame, so a
-    // tile can subscribe and display a buffering state immediately.
     connect(m_bridge, &DriscordBridge::streamingStarted, this, addStreamingPeer);
     connect(m_bridge, &DriscordBridge::streamingStopped, this, removeStreamingPeer);
     connect(m_bridge, &DriscordBridge::streamWatchRejected, this,
@@ -240,10 +230,7 @@ void AppState::fetchCurrentUserProfile()
     const int requestedUserId = m_auth->userId();
     if (requestedUserId <= 0)
         return;
-    // Use /users/me so we get private fields (email) — /users/{id} omits them.
     m_userRepo->getMe([this, requestedUserId](bool ok, QJsonObject json) {
-        // A reply from the previous session must never repopulate the profile
-        // after logout or a different user has logged in.
         if (!ok || !m_auth->loggedIn() || m_auth->userId() != requestedUserId)
             return;
         QVariantMap p;
@@ -289,9 +276,6 @@ void AppState::reloadChannels()
     const int requestedServerId = m_selectedServerId;
     m_serverRepo->listChannels(requestedServerId,
         [this, requestedUserId, requestedServerId](bool ok, QJsonArray arr) {
-            // Server A may finish after the user has already selected server
-            // B. Discard that response instead of rendering A's channels
-            // under B's title.
             if (!ok || !m_auth->loggedIn()
                 || m_auth->userId() != requestedUserId
                 || m_selectedServerId != requestedServerId)
@@ -333,9 +317,6 @@ bool AppState::canManageSelectedServer() const
 
 void AppState::selectServer(int id)
 {
-    // This state model has one selected channel and uses it for the active
-    // voice connection. Keeping a connection to the old server after replacing
-    // that id makes the voice banner and peer list internally inconsistent.
     if (id != m_selectedServerId
         && m_connectionState != QStringLiteral("disconnected")) {
         leaveVoiceChannel();
@@ -375,9 +356,6 @@ void AppState::joinVoiceChannel(int channelId)
     m_connectionState = QStringLiteral("connecting");
     emit connectionChanged();
     m_bridge->initScreenSession();
-    // The signaling server reads the channel id from the WebSocket URL path
-    // (/channels/<id>) and uses it as the room key — peers are only visible
-    // to one another within the same room.
     const QString url = m_signalingUrl + QStringLiteral("/channels/%1").arg(channelId);
     m_bridge->connect(url, m_auth->username(), m_auth->accessToken());
     m_bridge->audioStart();
@@ -628,8 +606,6 @@ void AppState::resetConnectionStats()
 
 void AppState::pollConnectionStats()
 {
-    // One transport, one round trip: the client talks only to the SFU, so a
-    // per-peer latency would be an invention.
     const auto stats
         = QJsonDocument::fromJson(m_bridge->voiceStatsJson().toUtf8()).object();
 

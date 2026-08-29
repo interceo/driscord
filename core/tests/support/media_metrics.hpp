@@ -1,9 +1,5 @@
 #pragma once
 
-// Pure metric math over the plain stats value types, plus the quality-gate
-// reporter. Header-only and gtest-free so every tier (unit tests, the
-// integration gate, a future probe binary) shares one implementation.
-
 #include "wait_helpers.hpp"
 
 #include "webrtc/google_webrtc_media_types.hpp"
@@ -25,9 +21,6 @@
 
 namespace test_util {
 
-// ---- Ratios over the shared stats groups -----------------------------------
-
-// Fraction of played-out samples NetEq synthesized instead of decoding.
 inline double concealment_rate(uint64_t concealed_samples,
     const driscord::media::AudioReceiveStats& audio)
 {
@@ -48,8 +41,6 @@ inline double concealment_rate(const driscord::media::ScreenInboundRtpStats& s)
     return concealment_rate(s.concealed_samples, s.audio);
 }
 
-// Mean concealed samples per concealment run: separates many short glitches
-// from one long dropout.
 inline double concealment_burst_length(uint64_t concealed_samples,
     const driscord::media::AudioReceiveStats& audio)
 {
@@ -60,8 +51,6 @@ inline double concealment_burst_length(uint64_t concealed_samples,
         / static_cast<double>(audio.concealment_events);
 }
 
-// Render framerate penalized by freezes: Σd / Σd² over inter-frame delays.
-// Evenly paced playback recovers the nominal fps; one long gap collapses it.
 inline double harmonic_framerate(const driscord::media::VideoReceiveStats& v)
 {
     if (v.total_squared_inter_frame_delay_seconds <= 0.0) {
@@ -80,8 +69,6 @@ inline double freeze_ratio(const driscord::media::VideoReceiveStats& v,
     return v.total_freezes_duration_seconds / session_seconds;
 }
 
-// Positive: audio plays out ahead of video. Empty until both tracks have
-// played out at least once.
 inline std::optional<double> playout_skew_ms(
     const driscord::media::RtpReceiveStats& audio,
     const driscord::media::RtpReceiveStats& video)
@@ -94,9 +81,6 @@ inline std::optional<double> playout_skew_ms(
         - video.estimated_playout_timestamp_ms;
 }
 
-// Share of wire losses recovered by retransmission before the decoder saw a
-// gap. packets_lost is the RFC 3550 cumulative estimate and can go negative
-// when retransmissions are double-counted; treat that as fully repaired.
 inline double repair_ratio(const driscord::media::RtpReceiveStats& rtp,
     int64_t packets_lost)
 {
@@ -109,9 +93,6 @@ inline double repair_ratio(const driscord::media::RtpReceiveStats& rtp,
     return recovered / (recovered + lost);
 }
 
-// ---- Series helpers ---------------------------------------------------------
-
-// Nearest-rank percentile; p in [0, 100].
 inline double percentile(std::vector<double> values, double p)
 {
     if (values.empty()) {
@@ -129,12 +110,6 @@ inline bool is_non_decreasing(const std::vector<double>& values)
     return std::is_sorted(values.begin(), values.end());
 }
 
-// ---- Stats sampling ---------------------------------------------------------
-
-// Polls session.get_stats() until `count` snapshots arrive, `period` apart.
-// Blocking; call from the test thread. Returns short on session shutdown or
-// stats timeout — assert on the returned size. The collector is shared with
-// the callback so a late delivery after a timeout never dangles.
 template <typename Stats, typename Session>
 std::vector<Stats> sample_stats(Session& session,
     size_t count,
@@ -159,15 +134,11 @@ std::vector<Stats> sample_stats(Session& session,
     return samples;
 }
 
-// ---- Quality gates ----------------------------------------------------------
-
 enum class GateMode {
     Enforce,
     Soft,
 };
 
-// DRISCORD_QUALITY_ENFORCE=soft turns gate failures into log-only records —
-// the burn-in mode for freshly introduced thresholds.
 inline GateMode quality_gate_mode()
 {
     const char* value = std::getenv("DRISCORD_QUALITY_ENFORCE");
@@ -186,8 +157,6 @@ namespace detail {
         bool pass)
     {
         const GateMode mode = quality_gate_mode();
-        // One machine-readable line per gate: CI logs double as a metrics
-        // stream for the trend pipeline.
         std::printf("{\"gate\":\"%.*s\",\"value\":%.6f,\"cmp\":\"%.*s\","
                     "\"threshold\":%.6f,\"pass\":%s,\"mode\":\"%s\"}\n",
             static_cast<int>(name.size()), name.data(), value,
@@ -198,10 +167,8 @@ namespace detail {
         return pass || mode == GateMode::Soft;
     }
 
-} // namespace detail
+}
 
-// Both return false only when the gate fails in enforce mode; wrap in
-// EXPECT_TRUE at the call site.
 inline bool gate_le(std::string_view name, double value, double threshold)
 {
     return detail::report_gate(name, value, "<=", threshold, value <= threshold);
@@ -212,4 +179,4 @@ inline bool gate_ge(std::string_view name, double value, double threshold)
     return detail::report_gate(name, value, ">=", threshold, value >= threshold);
 }
 
-} // namespace test_util
+}

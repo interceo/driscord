@@ -1,19 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
 
 include(GNUInstallDirs)
-find_package(Qt6 REQUIRED COMPONENTS Quick Network Widgets QuickDialogs2 Core5Compat Multimedia)
+find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2 Network Widgets QuickDialogs2 Multimedia)
 qt_standard_project_setup(REQUIRES 6.5)
-
-if(Qt6Core5Compat_DIR)
-    get_filename_component(_QT5COMPAT_CMAKE_ROOT
-        "${Qt6Core5Compat_DIR}/.." ABSOLUTE)
-    find_package(Qt6qtgraphicaleffectsplugin CONFIG QUIET
-        PATHS "${_QT5COMPAT_CMAKE_ROOT}/Qt6Qml/QmlPlugins"
-        NO_DEFAULT_PATH)
-    find_package(Qt6qtgraphicaleffectsprivate CONFIG QUIET
-        PATHS "${_QT5COMPAT_CMAKE_ROOT}/Qt6Qml/QmlPlugins"
-        NO_DEFAULT_PATH)
-endif()
 
 set(CLIENT_SOURCES
     src/main.cpp
@@ -26,6 +15,11 @@ set(CLIENT_SOURCES
     src/api/SessionStore.cpp
     src/api/ServerRepository.cpp
     src/api/UserRepository.cpp
+    src/update/UpdateManifest.cpp
+    src/update/Minisign.cpp
+    src/update/InstallLayout.cpp
+    src/update/InstallSwap.cpp
+    src/update/UpdateManager.cpp
 )
 
 qt_add_executable(driscord_client ${CLIENT_SOURCES})
@@ -83,8 +77,6 @@ target_include_directories(driscord_client PRIVATE
     src
     "${CMAKE_BINARY_DIR}/generated")
 
-# The core library has been built with these all along; the client was the one
-# place in the tree compiling with no warnings at all.
 if(MSVC)
     target_compile_options(driscord_client PRIVATE /W4)
 else()
@@ -93,24 +85,16 @@ endif()
 
 target_link_libraries(driscord_client PRIVATE
     driscord_core
+    driscord::boringssl_headers
     Qt6::Quick
+    Qt6::QuickControls2
     Qt6::Network
     Qt6::Widgets
     Qt6::QuickDialogs2
-    Qt6::Core5Compat
     Qt6::Multimedia
 )
 
 if(UNIX AND NOT APPLE AND TARGET datachannel)
-    # libdatachannel is deliberately a DSO isolation boundary next to Google
-    # WebRTC. Make a build-tree client directory self-contained instead of
-    # embedding an absolute path to FetchContent's temporary build directory.
-    #
-    # Keep the Qt directory in BUILD_RPATH. Qt's deployment script scans this
-    # build-tree executable with file(GET_RUNTIME_DEPENDENCIES); using the final
-    # install RPATH while building makes direct dependencies such as Widgets
-    # and Core5Compat unresolvable and silently omits them from the package.
-    # The installed executable still contains only relocatable $ORIGIN paths.
     set_target_properties(driscord_client PROPERTIES
         BUILD_RPATH "$ORIGIN;$<TARGET_FILE_DIR:Qt6::Core>"
         INSTALL_RPATH "$ORIGIN;$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
@@ -145,23 +129,24 @@ if(UNIX AND NOT APPLE AND DRISCORD_ENABLE_PACKAGING)
         DESTINATION .
         COMPONENT Runtime)
 
+    install(PROGRAMS $<TARGET_FILE:driscord_launcher>
+        DESTINATION . RENAME AppRun COMPONENT Runtime)
+    install(FILES packaging/appimage/driscord.desktop
+        DESTINATION . COMPONENT Runtime)
+    install(FILES packaging/appimage/driscord.svg
+        DESTINATION . COMPONENT Runtime)
+    install(FILES packaging/appimage/driscord.svg
+        DESTINATION . RENAME .DirIcon COMPONENT Runtime)
+
     install(FILES packaging/README.txt
         DESTINATION .
         COMPONENT Runtime)
 
-    # Upstream libdatachannel installs its DSO, headers and CMake metadata into
-    # the implicit Unspecified component. The release archive intentionally
-    # contains only Runtime, so give the shared library its own explicit rule.
-    # NAMELINK_COMPONENT keeps the complete SONAME symlink chain together.
     install(TARGETS datachannel
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         COMPONENT Runtime
         NAMELINK_COMPONENT Runtime)
 
-    # Platform plugins are selected from the build host by Qt Deploy. A normal
-    # desktop build therefore gets xcb but not the headless plugins needed to
-    # verify the archive in a clean container. Install both explicitly; their
-    # original RUNPATH already resolves Qt libraries via ../../lib.
     foreach(_driscord_headless_plugin IN ITEMS
             Qt6::QOffscreenIntegrationPlugin
             Qt6::QMinimalIntegrationPlugin)
@@ -176,8 +161,6 @@ if(UNIX AND NOT APPLE AND DRISCORD_ENABLE_PACKAGING)
     endforeach()
     unset(_driscord_headless_plugin)
 
-    # Generates qt.conf and deploys Qt libraries, plugins, QML imports and
-    # non-system runtime dependencies into the CPack install tree.
     qt_generate_deploy_qml_app_script(
         TARGET driscord_client
         NO_TRANSLATIONS
@@ -185,16 +168,42 @@ if(UNIX AND NOT APPLE AND DRISCORD_ENABLE_PACKAGING)
     install(SCRIPT ${driscord_deploy_script}
         COMPONENT Runtime)
 
-    # Qt Deploy ships every installed multimedia backend. The gstreamer one
-    # links the system GStreamer stack, which neither the build image nor a
-    # target machine is guaranteed to have; the ffmpeg backend is
-    # self-contained through Qt's bundled libav*. The client only renders
-    # already-decoded WebRTC frames through QVideoSink, so dropping the
-    # gstreamer backend loses nothing. VerifyPackage.cmake keeps this honest:
-    # an undeployed libgst* dependency fails the package build.
     install(CODE [[
         file(REMOVE
             "${CMAKE_INSTALL_PREFIX}/plugins/multimedia/libgstreamermediaplugin.so")
+    ]] COMPONENT Runtime)
+
+    install(CODE [[
+        foreach(_driscord_pruned_dir IN ITEMS
+                plugins/qmltooling
+                plugins/egldeviceintegrations
+                qml/QtTest
+                qml/QtQuick/Controls/Fusion
+                qml/QtQuick/Controls/Imagine
+                qml/QtQuick/Controls/Material
+                qml/QtQuick/Controls/Universal)
+            file(REMOVE_RECURSE "${CMAKE_INSTALL_PREFIX}/${_driscord_pruned_dir}")
+        endforeach()
+        foreach(_driscord_pruned_lib IN ITEMS
+                libQt6Test
+                libQt6QuickTest
+                libQt6EglFSDeviceIntegration
+                libQt6EglFsKmsSupport
+                libQt6EglFsKmsGbmSupport
+                libQt6QuickControls2Fusion
+                libQt6QuickControls2FusionStyleImpl
+                libQt6QuickControls2Imagine
+                libQt6QuickControls2ImagineStyleImpl
+                libQt6QuickControls2Material
+                libQt6QuickControls2MaterialStyleImpl
+                libQt6QuickControls2Universal
+                libQt6QuickControls2UniversalStyleImpl)
+            file(GLOB _driscord_pruned_files
+                "${CMAKE_INSTALL_PREFIX}/lib/${_driscord_pruned_lib}.so*")
+            if(_driscord_pruned_files)
+                file(REMOVE ${_driscord_pruned_files})
+            endif()
+        endforeach()
     ]] COMPONENT Runtime)
 endif()
 
@@ -203,14 +212,7 @@ if(WIN32)
 endif()
 
 if(WIN32 AND DRISCORD_ENABLE_PACKAGING)
-    # Windows package layout: the executable, the Qt and CRT DLLs and qt.conf
-    # in the archive root, plugins/ and qml/ beside them. No launcher: PE
-    # resolves DLLs from the executable's directory and AppConfig already
-    # uses %LOCALAPPDATA%. windeployqt is a Windows executable and
-    # qt_generate_deploy_qml_app_script refuses cross builds, so the module
-    # selection is explicit here and the DLL closure comes from
-    # file(GET_RUNTIME_DEPENDENCIES) over the staged tree.
-    find_package(Qt6 REQUIRED COMPONENTS Svg) # provides the svg plugin targets
+    find_package(Qt6 REQUIRED COMPONENTS Svg)
 
     if("$ENV{DRISCORD_MSVC_REDIST_DIR}" STREQUAL "")
         message(FATAL_ERROR
@@ -243,9 +245,6 @@ if(WIN32 AND DRISCORD_ENABLE_PACKAGING)
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/packaging/qt.conf"
         DESTINATION . COMPONENT Runtime)
 
-    # The runtime plugins the client actually loads: platform integration,
-    # native style, icon/image formats for the QML UI, Schannel for
-    # ApiClient's https and the media backends for Qt Multimedia.
     set(_driscord_win_plugins
         Qt6::QWindowsIntegrationPlugin
         Qt6::QModernWindowsStylePlugin
@@ -277,13 +276,8 @@ if(WIN32 AND DRISCORD_ENABLE_PACKAGING)
     unset(_driscord_win_plugin)
     unset(_driscord_win_plugin_type)
 
-    # The QML import closure of client-qt/qml. Regenerate when QML imports
-    # change:
-    #   <host-qt>/libexec/qmlimportscanner -rootPath client-qt/qml \
-    #       -importPath <windows-qt>/qml
     set(_driscord_win_qml_modules
         Qt/labs/folderlistmodel
-        Qt5Compat/GraphicalEffects
         QtMultimedia
         QtQml
         QtQml/Base
@@ -293,18 +287,11 @@ if(WIN32 AND DRISCORD_ENABLE_PACKAGING)
         QtQuick/Controls
         QtQuick/Controls/Basic
         QtQuick/Controls/Basic/impl
-        QtQuick/Controls/Fusion
-        QtQuick/Controls/Fusion/impl
-        QtQuick/Controls/Imagine
-        QtQuick/Controls/Imagine/impl
-        QtQuick/Controls/Material
-        QtQuick/Controls/Material/impl
-        QtQuick/Controls/Universal
-        QtQuick/Controls/Universal/impl
         QtQuick/Controls/Windows
         QtQuick/Controls/impl
         QtQuick/Dialogs
         QtQuick/Dialogs/quickimpl
+        QtQuick/Effects
         QtQuick/Layouts
         QtQuick/NativeStyle
         QtQuick/Shapes
@@ -324,11 +311,6 @@ if(WIN32 AND DRISCORD_ENABLE_PACKAGING)
     endforeach()
     unset(_driscord_win_qml_module)
 
-    # Copy every DLL the staged binaries import from the Qt and redist
-    # directories into the archive root (Qt6*.dll, the ffmpeg DLLs of Qt
-    # Multimedia, msvcp140*/vcruntime140*). Unresolved imports must be
-    # operating-system DLLs; anything else fails the install, which is what
-    # keeps the package from being silently incomplete.
     install(CODE "set(DRISCORD_QT_BIN_DIR \"${_driscord_qt_bin_dir}\")"
         COMPONENT Runtime)
     install(CODE "set(DRISCORD_MSVC_REDIST_DIR \"${_driscord_redist_dir}\")"
@@ -337,8 +319,6 @@ if(WIN32 AND DRISCORD_ENABLE_PACKAGING)
     install(CODE
         "include(\"${CMAKE_SOURCE_DIR}/cmake/WindowsSystemDlls.cmake\")"
         COMPONENT Runtime)
-    # file(GET_RUNTIME_DEPENDENCIES) cannot read PE binaries on a Linux host,
-    # so the closure is a plain breadth-first walk over the import tables.
     install(CODE [[
         # Install scripts run under CMake's minimum policy floor, where
         # IN_LIST (CMP0057) is not an if() operator yet.

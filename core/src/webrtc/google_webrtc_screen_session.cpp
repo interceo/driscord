@@ -559,7 +559,6 @@ struct GoogleWebRtcScreenSession::Impl final
         }
     }
 
-    // PeerConnectionObserver
     void OnSignalingChange(
         webrtc::PeerConnectionInterface::SignalingState) override
     {
@@ -792,4 +791,4 @@ void GoogleWebRtcScreenSession::stop_desktop_capture() noexcept
     }
 }
 
-} // namespace driscord::media
+}

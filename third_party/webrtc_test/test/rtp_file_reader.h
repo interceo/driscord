@@ -20,13 +20,9 @@ namespace webrtc {
 namespace test {
 
 struct RtpPacket {
-  // Accommodate for 50 ms packets of 48 kHz PCM16 samples (4800 bytes) plus
-  // some overhead.
   static const size_t kMaxPacketBufferSize = 5100;
   uint8_t data[kMaxPacketBufferSize];
   size_t length;
-  // The length the packet had on wire. Will be different from `length` when
-  // reading a header-only RTP dump.
   size_t original_length;
 
   uint32_t time_ms;
@@ -47,6 +43,6 @@ class RtpFileReader {
                                const std::set<uint32_t>& ssrc_filter);
   virtual bool NextPacket(RtpPacket* packet) = 0;
 };
-}  // namespace test
-}  // namespace webrtc
-#endif  // TEST_RTP_FILE_READER_H_
+}
+}
+#endif

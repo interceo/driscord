@@ -42,9 +42,6 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
         BindingSender send_binding;
     };
 
-    // A media packet the link model is holding back. Targets and the mid
-    // extension are re-resolved at departure so rebinds during the delay
-    // window keep working.
     struct DelayedPacket {
         PeerId publisher;
         std::weak_ptr<rtc::Track> expected_input;
@@ -59,24 +56,15 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
         uint32_t ssrc = 0;
     };
 
-    // Ordering of outbound notifications. A subscriber must see slot changes
-    // in the order the router decided them: two concurrent mutations touching
-    // the same slot could otherwise deliver "bound to A" before "unbound", and
-    // the client would then discard A's packets forever. Held around the whole
-    // mutate-then-publish sequence; always taken before `mutex`, and never by
-    // the RTP path.
     std::mutex publish_mutex;
     mutable std::mutex mutex;
     std::unordered_map<PeerId, PeerState> peers;
     sfu::RtpFaultConfig fault_config;
     uint64_t next_peer_order = 0;
     bool closed = false;
-    // Link-model delay queue, keyed by departure time; armed on the server
-    // io_context. Both stay empty with the zero-valued production config.
     std::optional<boost::asio::any_io_executor> executor;
     std::optional<boost::asio::steady_timer> delay_timer;
     std::multimap<int64_t, DelayedPacket> delay_queue;
-    // Kept out of `mutex` so the RTP path does not pay for observability.
     std::atomic<uint64_t> packets_in { 0 };
     std::atomic<uint64_t> packets_out { 0 };
     std::atomic<uint64_t> bytes_out { 0 };
@@ -238,8 +226,6 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
                     = std::make_shared<sfu::RtpSlotRewriter>(48'000, 960);
                 existing->source_generation = 0;
             }
-            // Appended, not assigned: the unbind above still has to reach the
-            // subscriber when the slot is not immediately reassigned.
             auto assigned = assign_available_locked();
             notices.insert(notices.end(),
                 std::make_move_iterator(assigned.begin()),
@@ -360,9 +346,6 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
         }
     }
 
-    // Must be called with `mutex` held. expires_at() cancels the previous
-    // wait, so re-arming after every queue mutation keeps exactly one wait
-    // outstanding; aborted handlers return without touching state.
     void arm_delay_timer_locked()
     {
         if (!executor) {
@@ -578,8 +561,6 @@ struct VoiceRouter::Impl final : std::enable_shared_from_this<Impl> {
             peers.clear();
         }
 
-        // synchronized_callback waits for an in-flight callback. Never do
-        // that while holding the router mutex: route() takes the same mutex.
         for (const auto& track : tracks) {
             track->onMessage(nullptr);
             track->setMediaHandler(nullptr);
@@ -628,4 +609,4 @@ void VoiceRouter::close()
     }
 }
 
-} // namespace driscord
+}

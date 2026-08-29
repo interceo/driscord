@@ -80,7 +80,6 @@ async def test_patch_server_owner_only(client, auth_headers):
     assert r.status_code == 200
     assert r.json()["name"] == "Renamed"
 
-    # bob is not even a member, still 403 (ownership check happens regardless of membership)
     r = await client.patch(f"/servers/{s['id']}", headers=hb, json={"name": "Hack"})
     assert r.status_code == 403
 
@@ -142,7 +141,6 @@ async def test_leave_server(client, auth_headers):
     r = await client.delete(f"/servers/{s['id']}/members", headers=hb)
     assert r.status_code == 204
 
-    # Leave again → 404 (no longer a member)
     r = await client.delete(f"/servers/{s['id']}/members", headers=hb)
     assert r.status_code == 404
 

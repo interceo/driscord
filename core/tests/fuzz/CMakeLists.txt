@@ -1,11 +1,3 @@
-# libFuzzer harnesses over the SFU's parsing/rewrite surface. Built only under
-# the server-fuzz preset (DRISCORD_FUZZ=ON, BUILD_CORE=OFF): every target in
-# the tree is already instrumented with fuzzer coverage + ASan/UBSan by the
-# root CMakeLists; the executables here only add the libFuzzer driver.
-#
-# Each fuzzer is also registered as a ctest case that replays its checked-in
-# corpus with -runs=0. That regression pass takes seconds and runs in the PR
-# gate; open-ended fuzzing (-max_total_time) is the nightly's job.
 
 function(add_fuzz_target name)
     add_executable(${name} ${name}.cpp)

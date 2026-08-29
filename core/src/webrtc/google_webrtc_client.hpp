@@ -11,14 +11,8 @@
 
 class Transport;
 
-// Application-facing coordinator for the two native WebRTC PeerConnections.
-// It is a class because it owns asynchronous session/capture/playout lifetimes;
-// packet senders, receivers, codecs and jitter buffers deliberately remain
-// native Google WebRTC objects rather than Driscord wrapper classes.
 class GoogleWebRtcClient final {
 public:
-    // Decoded I420 frame straight from the decoder thread; the view's planes
-    // are borrowed and must be consumed (copied/uploaded) before returning.
     using FrameCallback = std::function<void(const std::string&,
         const driscord::media::DecodedVideoFrameView&)>;
     using PeerCallback = std::function<void(const std::string&)>;
@@ -55,18 +49,12 @@ public:
     output_devices() const;
     [[nodiscard]] bool set_input_device(const std::string& id);
     [[nodiscard]] bool set_output_device(const std::string& id);
-    // False when the platform audio device could not be initialised and the
-    // voice runtime runs on the silent dummy fallback (headless machine,
-    // dead audio stack): sessions connect and receive, but the user is
-    // neither heard nor hears anyone — the UI should say why.
     [[nodiscard]] bool audio_device_available() const;
     void set_peer_volume(const std::string& peer_id, float volume);
     [[nodiscard]] float peer_volume(const std::string& peer_id) const;
     void set_peer_muted(const std::string& peer_id, bool muted);
     [[nodiscard]] bool peer_muted(const std::string& peer_id) const;
 
-    // Voice/transport counters for the connection panel, including the round
-    // trip to the SFU. Polled; the report is one snapshot behind.
     [[nodiscard]] std::string voice_stats_json() const;
 
     void init_screen();
@@ -74,19 +62,13 @@ public:
     void join_stream(const std::string& peer_id);
     void leave_stream(const std::string& peer_id);
     void leave_streams();
-    // The peer is gone: drop everything held for it, preferences included.
     void remove_peer(const std::string& peer_id);
-    // The peer is still here but stopped publishing. Per-peer volume and mute
-    // are the user's settings for that person, not properties of the stream,
-    // so they survive.
     void peer_stopped_streaming(const std::string& peer_id);
 
     [[nodiscard]] std::string video_targets_json() const;
     [[nodiscard]] Thumbnail grab_thumbnail(const std::string& target_json,
         int max_width,
         int max_height) const;
-    // `audio_target` names the playback device whose monitor is captured for
-    // system audio; empty selects the current default sink.
     [[nodiscard]] bool start_sharing(const std::string& target_json,
         int max_width,
         int max_height,

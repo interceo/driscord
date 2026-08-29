@@ -1,13 +1,3 @@
-# Client-side tests.
-#
-# qt_add_qml_module attaches the QML module to driscord_client itself, so there
-# is no library for tests to link against. A test therefore either compiles the
-# unit under test straight into itself — the convention core/tests already uses
-# for self-contained components — or exercises QML files that do not depend on
-# the application module.
-#
-# Run them through the client-tests preset: it sets QT_QPA_PLATFORM=offscreen,
-# without which the QML test needs an X server.
 
 find_package(Qt6 REQUIRED COMPONENTS Test QuickTest)
 
@@ -35,8 +25,6 @@ target_compile_options(test_session_store PRIVATE ${CLIENT_TEST_WARNING_FLAGS})
 target_link_libraries(test_session_store PRIVATE Qt6::Test)
 add_test(NAME test_session_store COMMAND test_session_store)
 
-# The HTTP-facing tests talk to an in-process QTcpServer fixture
-# (support/http_fixture.h) instead of mocking QNetworkReply.
 add_executable(test_api_client
     test_api_client.cpp
     ../src/api/ApiClient.cpp
@@ -57,6 +45,57 @@ target_compile_options(test_auth_manager PRIVATE ${CLIENT_TEST_WARNING_FLAGS})
 target_link_libraries(test_auth_manager PRIVATE Qt6::Test Qt6::Network)
 add_test(NAME test_auth_manager COMMAND test_auth_manager)
 
+add_executable(test_update_manifest
+    test_update_manifest.cpp
+    ../src/update/UpdateManifest.cpp
+)
+target_include_directories(test_update_manifest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+target_compile_definitions(test_update_manifest PRIVATE
+    TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
+target_compile_options(test_update_manifest PRIVATE ${CLIENT_TEST_WARNING_FLAGS})
+target_link_libraries(test_update_manifest PRIVATE Qt6::Test)
+add_test(NAME test_update_manifest COMMAND test_update_manifest)
+
+add_executable(test_minisign
+    test_minisign.cpp
+    ../src/update/Minisign.cpp
+)
+target_include_directories(test_minisign PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_definitions(test_minisign PRIVATE
+    TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
+target_compile_options(test_minisign PRIVATE ${CLIENT_TEST_WARNING_FLAGS})
+target_link_libraries(test_minisign PRIVATE Qt6::Test
+    driscord::google_webrtc driscord::boringssl_headers)
+add_test(NAME test_minisign COMMAND test_minisign)
+
+add_executable(test_install_swap
+    test_install_swap.cpp
+    ../src/update/InstallSwap.cpp
+    ../src/update/InstallLayout.cpp
+)
+target_include_directories(test_install_swap PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src)
+target_compile_options(test_install_swap PRIVATE ${CLIENT_TEST_WARNING_FLAGS})
+target_link_libraries(test_install_swap PRIVATE Qt6::Test)
+add_test(NAME test_install_swap COMMAND test_install_swap)
+
+add_executable(test_update_manager
+    test_update_manager.cpp
+    ../src/update/UpdateManager.cpp
+    ../src/update/UpdateManifest.cpp
+    ../src/update/Minisign.cpp
+    ../src/update/InstallLayout.cpp
+    ../src/update/InstallSwap.cpp
+)
+target_include_directories(test_update_manager PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
+    ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_options(test_update_manager PRIVATE ${CLIENT_TEST_WARNING_FLAGS})
+target_link_libraries(test_update_manager PRIVATE Qt6::Test Qt6::Network
+    driscord::google_webrtc driscord::boringssl_headers)
+add_test(NAME test_update_manager COMMAND test_update_manager)
+
 add_test(NAME client_version COMMAND driscord_client --version)
 set_tests_properties(client_version PROPERTIES
     PASS_REGULAR_EXPRESSION "^Driscord [0-9]+\\.[0-9]+\\.[0-9]+"
@@ -67,7 +106,6 @@ set_tests_properties(client_help PROPERTIES
     PASS_REGULAR_EXPRESSION "Usage: driscord \\[options\\]"
 )
 
-# QUICK_TEST_SOURCE_DIR is the directory quick_test_main scans for tst_*.qml.
 add_executable(tst_qml_components tst_qml_components.cpp)
 target_compile_options(tst_qml_components PRIVATE ${CLIENT_TEST_WARNING_FLAGS})
 target_compile_definitions(tst_qml_components PRIVATE

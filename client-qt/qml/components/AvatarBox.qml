@@ -1,5 +1,5 @@
 import QtQuick
-import Qt5Compat.GraphicalEffects
+import QtQuick.Effects
 
 Item {
     id: root
@@ -48,13 +48,14 @@ Item {
         layer.smooth: true
     }
 
-    OpacityMask {
+    MultiEffect {
         anchors.fill: parent
         source: avatarImg
+        maskEnabled: true
         maskSource: mask
-        antialiasing: true
+        maskThresholdMin: 0.5
+        maskSpreadAtMin: 1.0
         visible: avatarImg.status === Image.Ready
-        cached: false
     }
 
     function hashColor(s) {

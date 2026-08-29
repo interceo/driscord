@@ -26,20 +26,14 @@ HttpResponse tokenResponse(const char* access = "acc-1",
     return { .body = QJsonDocument(body).toJson(QJsonDocument::Compact) };
 }
 
-} // namespace
+}
 
-// AuthManager owns the login/refresh/logout state machine that both QML and
-// the media session key off (the signaling server authorizes with the same
-// access token). The wire side is a real localhost HTTP server; the tests pin
-// the persisted-session contract and the request-generation guard that keeps
-// a late reply from resurrecting a logged-out session.
 class TestAuthManager : public QObject {
     Q_OBJECT
 
 private slots:
     void initTestCase()
     {
-        // Redirect QSettings-backed SessionStore away from real config.
         QStandardPaths::setTestModeEnabled(true);
         QCoreApplication::setOrganizationName("driscord-test");
         QCoreApplication::setApplicationName("auth-manager-test");
@@ -139,7 +133,6 @@ private slots:
         auth.login("mallory", "pw2");
         QTRY_VERIFY(auth.loggedIn());
 
-        // Only the first attempt reached the wire; the state is alice's.
         QCOMPARE(http.requests().size(), 1);
         QCOMPARE(auth.username(), QStringLiteral("alice"));
     }
@@ -244,7 +237,6 @@ private slots:
         QCOMPARE(body.value("refresh_token").toString(),
             QStringLiteral("ref-old"));
 
-        // The rotated refresh token replaced the stored one.
         QCOMPARE(store.load()->refreshToken, QStringLiteral("ref-2"));
     }
 
@@ -281,11 +273,9 @@ private slots:
         AuthManager auth(&api, &store);
 
         auth.login("alice", "pw");
-        // Logout bumps the request generation before the reply lands.
         auth.logout();
         QVERIFY(!auth.authPending());
 
-        // Give the delayed 200-with-tokens ample time to arrive and be dropped.
         QTest::qWait(400);
         QVERIFY(!auth.loggedIn());
         QVERIFY(api.accessToken().isEmpty());

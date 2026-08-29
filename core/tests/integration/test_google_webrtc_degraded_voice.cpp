@@ -24,11 +24,6 @@
 #include <utility>
 #include <vector>
 
-// Reference-free degradation ladder for voice: the same one-publisher,
-// one-listener loopback call at increasing Gilbert–Elliott loss. Gates lean
-// on monotonicity across the rungs — far less runner-noise-sensitive than
-// absolute thresholds — with one absolute tripwire on the clean rung.
-
 namespace {
 
 using test_util::EventCollector;
@@ -247,10 +242,6 @@ VoiceRungMetrics run_voice_rung(driscord::sfu::RtpFaultConfig faults,
     }
     EXPECT_FALSE(bound_mid.empty());
 
-    // Baseline after the stream settles: NetEq's ramp-in right after connect
-    // conceals a burst of samples on a perfectly clean link, so the rung
-    // measures concealment as a delta over the steady tone window instead of
-    // the cumulative counters.
     std::this_thread::sleep_for(std::chrono::milliseconds(750));
     uint64_t baseline_concealed = 0;
     uint64_t baseline_total = 0;
@@ -268,8 +259,6 @@ VoiceRungMetrics run_voice_rung(driscord::sfu::RtpFaultConfig faults,
         }
     }
 
-    // 4 s of tone, fed ahead: the clocked TestAudioDeviceModule consumes one
-    // queued 10 ms frame per tick.
     constexpr size_t kToneFrames = 400;
     for (size_t frame = 0; frame < kToneFrames; ++frame) {
         EXPECT_TRUE(publisher_runtime.submit_recorded_audio_10ms(
@@ -318,12 +307,10 @@ VoiceRungMetrics run_voice_rung(driscord::sfu::RtpFaultConfig faults,
     return metrics;
 }
 
-} // namespace
+}
 
 TEST(GoogleWebRtcDegradedVoice, LossLadderDegradesMonotonically)
 {
-    // Deterministic Gilbert–Elliott rungs: mean burst of 4 packets at 0%, 2%
-    // and 8% mean loss, fixed seed. Each rung is a fresh in-process SFU.
     const auto clean = run_voice_rung(driscord::sfu::RtpFaultConfig { }, 250);
     const auto light = run_voice_rung(
         driscord::sfu::RtpFaultConfig {
@@ -340,28 +327,18 @@ TEST(GoogleWebRtcDegradedVoice, LossLadderDegradesMonotonically)
     EXPECT_EQ(light.errors, 0u);
     EXPECT_EQ(heavy.errors, 0u);
 
-    // The tone must remain identified through light loss; heavy loss only has
-    // to keep audio flowing (goodput floor asserted inside the rung).
     EXPECT_NEAR(clean.estimated_frequency_hz, 440.0, 140.0);
     EXPECT_NEAR(light.estimated_frequency_hz, 440.0, 140.0);
 
-    // New stats fields carry real data on the clean path. No assert on
-    // estimated_playout_timestamp for voice: audio inbound needs the RTCP SR
-    // NTP mapping to produce it, and whether the SFU preserves that mapping
-    // is exactly the Phase-3 A/V-sync investigation (screen video already
-    // reports it — see the screen ladder).
     EXPECT_GT(clean.total_samples_received, 0u);
     EXPECT_GT(clean.jitter_buffer_target_delay_seconds, 0.0);
 
-    // Monotonicity is the primary gate: more injected loss must never conceal
-    // fewer samples. The absolute tripwire guards only the clean rung.
     EXPECT_LE(clean.concealment_rate, light.concealment_rate);
     EXPECT_LE(light.concealment_rate, heavy.concealment_rate);
     EXPECT_GT(heavy.concealment_rate, clean.concealment_rate);
     EXPECT_TRUE(test_util::gate_le("voice.clean.concealment_rate",
         clean.concealment_rate, 0.01));
 
-    // Heavy loss must be visible in the loss accounting, not silently eaten.
     EXPECT_GT(heavy.concealment_events, 0u);
     EXPECT_GT(heavy.packets_lost, 0);
 }

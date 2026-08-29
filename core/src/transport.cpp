@@ -31,7 +31,7 @@ const char* to_string(TransportConnectionState state)
     return "closed";
 }
 
-} // namespace
+}
 
 Transport::~Transport()
 {
@@ -50,9 +50,6 @@ utils::Expected<void, TransportError> Transport::connect(
         rtc::WebSocket::Configuration config;
         config.pingInterval = std::chrono::seconds(15);
         config.maxOutstandingPings = 2;
-        // libdatachannel's MbedTLS backend (Windows) verifies wss peers only
-        // against an explicitly supplied chain; backends that read the system
-        // trust store themselves report no bundle here.
         if (auto ca_bundle = utils::system_ca_bundle_pem()) {
             config.caCertificatePemFile = std::move(*ca_bundle);
         }

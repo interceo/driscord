@@ -1,9 +1,4 @@
 #!/usr/bin/env bash
-# Format C/C++ source files with clang-format.
-#
-# Usage:
-#   ./scripts/format.sh          # format all tracked files
-#   ./scripts/format.sh --check  # dry-run, exit 1 on diff (used by pre-commit)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

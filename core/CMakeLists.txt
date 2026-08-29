@@ -7,10 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(FetchContent)
 
-# libdatachannel is declared in the root CMakeLists.txt — it is shared with the
-# signaling server, which links it to terminate client PeerConnections (SFU).
 
-# --- miniaudio (header-only) ---
 FetchContent_Declare(
     miniaudio
     GIT_REPOSITORY https://github.com/mackron/miniaudio.git
@@ -20,11 +17,9 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(miniaudio)
 
-# miniaudio interface library
 add_library(miniaudio_lib INTERFACE)
 target_include_directories(miniaudio_lib INTERFACE ${miniaudio_SOURCE_DIR})
 
-# --- platform-specific system loopback capture ---
 if(APPLE)
     set(SYSTEM_AUDIO_SOURCES src/audio/capture/system_audio_capture_mac.mm)
     set_source_files_properties(src/audio/capture/system_audio_capture_mac.mm PROPERTIES
@@ -37,7 +32,6 @@ elseif(UNIX)
     set(SYSTEM_AUDIO_SOURCES src/audio/capture/system_audio_capture_linux.cpp)
 endif()
 
-# --- driscord_core executable ---
 add_library(driscord_core STATIC
     src/driscord_core.cpp
     src/webrtc/google_webrtc_client.cpp
@@ -49,8 +43,6 @@ add_library(driscord_core STATIC
     ${SYSTEM_AUDIO_SOURCES}
 )
 
-# The backend remains an ABI/PIMPL boundary: no Google WebRTC type reaches the
-# public DriscordCore or Qt headers.
 add_library(driscord_webrtc_backend STATIC
     src/webrtc/google_webrtc_audio_devices.cpp
     src/webrtc/google_webrtc_runtime.cpp
@@ -78,19 +70,11 @@ target_include_directories(driscord_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src/utils
 )
 
-# PRIVATE: webrtc/google_webrtc_pcm_playout.hpp needs boost/lockfree, and that
-# header is internal — no public header of driscord_core exposes Boost. A
-# distribution that keeps Boost in /usr/include hides the missing link; a build
-# image that keeps it in /opt does not.
 target_link_libraries(driscord_core PRIVATE
     miniaudio_lib
     driscord_webrtc_backend
     Boost::boost
 )
-# PUBLIC: these headers are included by driscord_core's public .hpp files,
-# so consumers need their include paths too.
-#   config.hpp       → fmt/compile.h, fmt/format.h
-#   transport.hpp    → rtc/rtc.hpp, nlohmann/json.hpp
 target_link_libraries(driscord_core PUBLIC
     driscord_protocol
     ${DRISCORD_LIBDATACHANNEL_TARGET}
@@ -108,7 +92,6 @@ if(APPLE)
         ${COREFOUNDATION_FRAMEWORK}
     )
 elseif(WIN32)
-    # crypt32: utils/system_ca_bundle.cpp serialises the ROOT store to PEM.
     target_link_libraries(driscord_core PRIVATE
         ole32 ksuser mmdevapi crypt32
     )

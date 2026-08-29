@@ -93,9 +93,29 @@ Qt6/QML links `driscord_core`. C++ ↔ QML bridging lives in
 `client-qt/src/app/DriscordBridge.*`. Watched streams are a set/list, not a
 single peer. Decoded video is push-driven by WebRTC sinks.
 
+Self-update lives in `client-qt/src/update/`: `UpdateManager` fetches the
+static channel's `latest.json` + `.minisig`, verifies the minisign signature
+(Ed25519 via the WebRTC archive's BoringSSL, headers via
+`driscord::boringssl_headers` only in .cpp files) with the compiled-in trusted
+key list before parsing, checks sha256, and applies on explicit user action:
+on Linux the artifact is a single AppImage swapped in place
+(`install_swap::applyImageFile`), on Windows the zip is extracted with the
+system tar and swapped per file. The API is not involved; release presets bake
+the production endpoints and dev builds may override the channel via
+`config.json`.
+
+The Linux release package is an AppImage: the CPack staging doubles as the
+AppDir (launcher installed again as `AppRun`), `cmake/VerifyPackage.cmake`
+gates the staged tree (required + forbidden lists mirror the deploy prune in
+`client-qt/CMakeLists.txt`), then `cmake/PackageAppImage.cmake` (CPack
+External) runs mksquashfs and prepends the pinned type-2 runtime
+(`DRISCORD_APPIMAGE_RUNTIME`). Do not re-add the pruned Qt bloat (extra
+QuickControls2 styles, QtTest, EglFS, qmltooling, Qt5Compat) — the verify
+scripts fail the package if it reappears.
+
 ### API (`backend/api/`)
 
-FastAPI/PostgreSQL service for auth, channels, invites and updates. Runtime
+FastAPI/PostgreSQL service for auth, channels and invites. Runtime
 configuration is in `backend/api/.env`.
 
 ## Testing

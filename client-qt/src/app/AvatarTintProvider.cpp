@@ -38,9 +38,6 @@ void AvatarTintProvider::prefetch(const QString& url)
         if (reply->error() == QNetworkReply::NoError) {
             QImage img;
             if (img.loadFromData(reply->readAll())) {
-                // Downscale to 1×1 with smooth (bilinear) transformation —
-                // produces a single pixel that approximates the avatar's
-                // average color.
                 QImage one = img.scaled(1, 1, Qt::IgnoreAspectRatio,
                     Qt::SmoothTransformation);
                 QColor color(one.pixel(0, 0));

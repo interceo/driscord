@@ -1,10 +1,5 @@
 name: Windows
 
-# Cross-build gate for the Windows x64 client on the driscord-win-builder
-# pool (clang-cl + MSVC sysroot + Qt msvc2019_64 + windows WebRTC SDK, all
-# from the supply store). Runs the same workflow preset the release-builder
-# uses for the client-windows bundle, so a green run here means the release
-# bundle will build too. Tests need a Windows runtime and stay out.
 on:
   push:
     branches: [main]
@@ -28,10 +23,6 @@ jobs:
       - name: Checkout exact event commit
         run: forgejo-checkout
 
-      # Cross-built test binaries run through Wine on this same pool
-      # (CMAKE_CROSSCOMPILING_EMULATOR in the preset). An interim gate until a
-      # real Windows runtime exists: unit tier only, media/integration tiers
-      # follow as they prove Wine-stable.
       - name: Cross-built tests under Wine
         run: cmake --workflow --preset windows-tests
 

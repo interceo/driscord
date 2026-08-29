@@ -12,8 +12,6 @@ class UserResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# Includes private fields (email). Returned only from /users/me to the
-# authenticated owner — never expose this from public lookups.
 class MeResponse(BaseModel):
     id: int
     username: str

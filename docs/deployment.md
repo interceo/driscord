@@ -22,8 +22,8 @@ cd backend/api
 .venv/bin/uvicorn main:app --host 0.0.0.0 --port 9002 --workers 1
 ```
 
-Несколько workers/экземпляров требуют общего файлового хранилища для аватаров и
-обновлений. Перед API стоит поставить reverse proxy, TLS, лимиты тела запроса и
+Несколько workers/экземпляров требуют общего файлового хранилища для аватаров.
+Перед API стоит поставить reverse proxy, TLS, лимиты тела запроса и
 резервное копирование PostgreSQL плюс `DATA_DIR`.
 
 В Kubernetes `DATA_DIR` обязательно должен указывать на смонтированный PVC, а
@@ -110,7 +110,8 @@ DRISCORD_ICE_STUN_URLS=stun:stun.l.google.com:19302 \
 DTLS-сертификат провижнить не нужно: libdatachannel генерирует самоподписанный
 при установлении соединения, его отпечаток передаётся в SDP.
 
-Endpoint'ы клиента задаются при configure:
+Endpoint'ы клиента задаются при configure (пресеты `linux-release`/
+`windows-release` уже несут продовые значения):
 
 ```bash
 cmake --preset linux-release \
@@ -119,6 +120,12 @@ cmake --preset linux-release \
 cmake --build --preset linux-release
 cpack --preset linux-release
 ```
+
+Linux-артефакт — одиночный `driscord-client-<версия>-linux-x86_64.AppImage`
+(CPack External: staged-дерево проверяется `cmake/VerifyPackage.cmake`, затем
+`cmake/PackageAppImage.cmake` собирает образ — нужен `mksquashfs` и статический
+type-2 рантайм в `DRISCORD_APPIMAGE_RUNTIME`, по умолчанию
+`.cache/appimage-runtime-x86_64`). Windows-артефакт — портативный zip.
 
 Пользовательский `config.json` хранит настройки приложения (`screen_fps`) и при
 необходимости клиентские `stun_servers`/`turn_servers`; адреса API и signaling

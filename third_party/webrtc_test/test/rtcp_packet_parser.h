@@ -37,8 +37,6 @@
 
 namespace webrtc {
 namespace test {
-// Parse RTCP packet of given type. Assumes RTCP header is valid and that there
-// is excatly one packet of correct type in the buffer.
 template <typename Packet>
 bool ParseSinglePacket(const uint8_t* buffer, size_t size, Packet* packet) {
   rtcp::CommonHeader header;
@@ -46,7 +44,6 @@ bool ParseSinglePacket(const uint8_t* buffer, size_t size, Packet* packet) {
   RTC_CHECK_EQ(size, header.NextPacket() - buffer);
   return packet->Parse(header);
 }
-// Same function, but takes raw buffer as single argument instead of pair.
 template <typename Packet>
 bool ParseSinglePacket(std::span<const uint8_t> buffer, Packet* packet) {
   return ParseSinglePacket(buffer.data(), buffer.size(), packet);
@@ -54,7 +51,6 @@ bool ParseSinglePacket(std::span<const uint8_t> buffer, Packet* packet) {
 
 class RtcpPacketParser {
  public:
-  // Keeps last parsed packet, count number of parsed packets of given type.
   template <typename TypedRtcpPacket>
   class PacketCounter : public TypedRtcpPacket {
    public:
@@ -67,7 +63,7 @@ class RtcpPacketParser {
       const bool result = TypedRtcpPacket::Parse(header);
       if (result) {
         ++num_packets_;
-        if (*sender_ssrc == 0)  // Use first sender ssrc in compound packet.
+        if (*sender_ssrc == 0)
           *sender_ssrc = TypedRtcpPacket::sender_ssrc();
       }
       return result;
@@ -126,6 +122,6 @@ class RtcpPacketParser {
   size_t processed_rtcp_packets_ = 0;
 };
 
-}  // namespace test
-}  // namespace webrtc
-#endif  // TEST_RTCP_PACKET_PARSER_H_
+}
+}
+#endif

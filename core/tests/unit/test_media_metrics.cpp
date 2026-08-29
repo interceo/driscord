@@ -71,8 +71,6 @@ TEST(HarmonicFramerate, SingleLongGapCollapsesTheValue)
     video.total_inter_frame_delay_seconds = kFrames * kFrameDelay + 2.0;
     video.total_squared_inter_frame_delay_seconds
         = kFrames * kFrameDelay * kFrameDelay + 4.0;
-    // ~12 s of video, one 2 s freeze: harmonic fps must fall far below the
-    // arithmetic 300 frames / 12 s = 25 fps.
     EXPECT_LT(test_util::harmonic_framerate(video), 5.0);
     VideoReceiveStats empty;
     EXPECT_EQ(test_util::harmonic_framerate(empty), 0.0);
@@ -96,7 +94,6 @@ TEST(PlayoutSkew, RequiresBothTracksToHavePlayedOut)
     video.estimated_playout_timestamp_ms = 970.0;
     const auto skew = test_util::playout_skew_ms(audio, video);
     ASSERT_TRUE(skew.has_value());
-    // Positive: audio ahead of video.
     EXPECT_DOUBLE_EQ(*skew, 30.0);
 }
 
@@ -106,8 +103,6 @@ TEST(RepairRatio, RecoveredShareWithRfc3550Quirks)
     EXPECT_DOUBLE_EQ(test_util::repair_ratio(rtp, 0), 1.0);
     rtp.retransmitted_packets_received = 50;
     EXPECT_DOUBLE_EQ(test_util::repair_ratio(rtp, 50), 0.5);
-    // Negative cumulative loss (double-counted retransmissions) reads as
-    // fully repaired, not as a division blow-up.
     EXPECT_DOUBLE_EQ(test_util::repair_ratio(rtp, -3), 1.0);
 }
 
@@ -172,4 +167,4 @@ TEST(SampleStats, CollectsRequestedCountAndStopsOnFailure)
     EXPECT_EQ(partial, (std::vector<int> { 0 }));
 }
 
-} // namespace
+}

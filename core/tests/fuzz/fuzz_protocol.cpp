@@ -1,9 +1,3 @@
-// Fuzzes the shared signaling wire format: parse -> encode -> parse.
-//
-// Anything the parser accepts must survive its own encoder — a message that
-// round-trips into a parse error means the two halves of the protocol have
-// drifted, which is exactly the bug class that shows up as "the server
-// understood the client but not itself".
 
 #include "signaling_protocol.hpp"
 

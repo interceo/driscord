@@ -32,7 +32,6 @@ Rectangle {
             }
         }
 
-        // Add server
         Rectangle {
             width: 48; height: 48; radius: 24
             color: addArea.containsMouse ? "#3ba55c" : "#313338"

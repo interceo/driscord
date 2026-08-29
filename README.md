@@ -26,7 +26,7 @@
   `voice` и `screen`. Он не декодирует медиа, а переназначает RTP-пакеты между
   стабильными subscriber slots, обслуживает hop-local RTCP/NACK и посылает PLI
   screen publisher при необходимости ключевого кадра.
-- **API-сервер** — FastAPI + PostgreSQL: регистрация/логин (JWT), серверы, каналы, инвайты, обновления.
+- **API-сервер** — FastAPI + PostgreSQL: регистрация/логин (JWT), серверы, каналы, инвайты.
 - **Ядро (C++20)** — захват, кодирование, транспорт; собирается в статическую либу `driscord_core`.
 - **UI-клиент** — Qt6/QML, линкуется с `driscord_core` напрямую.
 
@@ -151,7 +151,6 @@ nixpkgs cc-wrapper в чистый Chromium clang, без которой WebRTC 
   - Нужен настоящий Alembic/PostgreSQL migration pipeline вместо create_all и ручных ALTER.
   - Refresh token хранится открыто в QSettings, не ротируется и не отзывается.
   - JWT в query string WebSocket может попадать в proxy-логи; лучше короткоживущий media-ticket.
-  - Обновления всё ещё не подписаны криптографически.
   - /presence и /media_stats недостаточно ограничены по ролям/комнатам.
   - Зависимости и контейнерные образы требуют lock-файлов, hash/commit/digest pinning.
   - Крупные монолиты вроде google_webrtc_client.cpp, ws_server.cpp и больших QML-панелей заметно мешают изолированному тестированию.

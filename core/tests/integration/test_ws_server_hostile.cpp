@@ -1,10 +1,3 @@
-// Hostile and malformed input against the live WebSocket server.
-//
-// Everything here talks raw Beast to the real listener: garbage frames,
-// oversized messages, half-open sockets, hostile usernames, wrong HTTP verbs,
-// malformed SDP. The invariants are always the same — the server must not
-// crash, the room must keep working for well-behaved peers, and every JSON
-// endpoint must keep producing valid, correctly escaped JSON.
 
 #include "signaling_test_fixture.hpp"
 #include "utils/log.hpp"
@@ -40,8 +33,6 @@ struct SuppressLogs {
 };
 const SuppressLogs suppress_logs_on_startup;
 
-// Synchronous WebSocket client speaking straight Beast, so tests can send
-// byte-exact garbage that a real client library would refuse to produce.
 class RawWsClient {
 public:
     RawWsClient(unsigned short port, const std::string& target)
@@ -62,8 +53,6 @@ public:
         return beast::buffers_to_string(buffer.data());
     }
 
-    // Reads until a message containing `needle` arrives or the connection
-    // drops; empty result means the connection closed first.
     std::string read_until(const std::string& needle)
     {
         try {
@@ -78,7 +67,6 @@ public:
         return { };
     }
 
-    // Kills the TCP connection without a WebSocket close handshake.
     void abort()
     {
         boost::system::error_code ignored;
@@ -97,8 +85,6 @@ std::string ws_target(int channel, const std::string& username)
     return "/channels/" + std::to_string(channel) + "?u=" + username;
 }
 
-// Wraps an arbitrary SDP body into a valid offer JSON message so the server
-// parses the envelope and hands the SDP straight to MediaConnections.
 std::string offer_with_sdp(const std::string& sdp, const char* connection)
 {
     const nlohmann::json message {
@@ -121,9 +107,9 @@ TEST_F(WsServerHostileTest, GarbageFramesDoNotKillTheSession)
 
     const std::vector<std::string> garbage {
         "definitely not json",
-        R"({"type":"offer","sdp":)", // truncated JSON
+        R"({"type":"offer","sdp":)",
         R"({"type":"bogus_message_type"})",
-        R"({"type":"offer","sdp":"v=0"})", // missing connection
+        R"({"type":"offer","sdp":"v=0"})",
         R"({"type":"offer","sdp":"v=0","connection":"legacy"})",
         "{}",
         "[]",
@@ -134,8 +120,6 @@ TEST_F(WsServerHostileTest, GarbageFramesDoNotKillTheSession)
         alice.send(frame);
     }
 
-    // The session and the room must both still work: a well-formed join from
-    // a second peer is announced to the first one.
     RawWsClient bob(fixture_.port(), ws_target(1, "bob"));
     ASSERT_FALSE(bob.read_until("welcome").empty());
     EXPECT_FALSE(alice.read_until("peer_joined").empty())
@@ -148,16 +132,12 @@ TEST_F(WsServerHostileTest, OversizedFrameIsSurvivable)
     RawWsClient alice(fixture_.port(), ws_target(1, "alice"));
     ASSERT_FALSE(alice.read_until("welcome").empty());
 
-    // 8 MiB of almost-JSON in one frame. The server may drop the sender —
-    // that is a policy decision — but it must neither crash nor take the
-    // room down with it.
     std::string huge = R"({"type":"offer","sdp":")";
     huge.append(8 * 1024 * 1024, 'a');
     huge += R"(","connection":"voice"})";
     try {
         alice.send(huge);
     } catch (const std::exception&) {
-        // The server closing mid-write is an acceptable outcome.
     }
 
     RawWsClient bob(fixture_.port(), ws_target(1, "bob"));
@@ -167,11 +147,11 @@ TEST_F(WsServerHostileTest, OversizedFrameIsSurvivable)
 TEST_F(WsServerHostileTest, HostileUsernamesAreEscapedEverywhere)
 {
     const std::vector<std::string> hostile {
-        "quote%22inject", // decodes to a raw double quote
-        "back%5Cslash", // raw backslash
-        "ctrl%01%02%1F", // C0 control characters
-        "%3Cscript%3Ealert(1)%3C%2Fscript%3E", // HTML
-        std::string(2048, 'x'), // very long
+        "quote%22inject",
+        "back%5Cslash",
+        "ctrl%01%02%1F",
+        "%3Cscript%3Ealert(1)%3C%2Fscript%3E",
+        std::string(2048, 'x'),
     };
     std::vector<std::unique_ptr<RawWsClient>> clients;
     for (const auto& name : hostile) {
@@ -182,7 +162,6 @@ TEST_F(WsServerHostileTest, HostileUsernamesAreEscapedEverywhere)
 
     const auto [status, body] = fixture_.http_get("/presence");
     ASSERT_EQ(status, 200u);
-    // If username escaping is wrong anywhere, this parse is what breaks.
     const auto presence = nlohmann::json::parse(body, nullptr, false);
     ASSERT_FALSE(presence.is_discarded())
         << "presence JSON corrupted by a hostile username: " << body;
@@ -202,8 +181,6 @@ TEST_F(WsServerHostileTest, AbortMidSignalingLeavesTheRoomConsistent)
         RawWsClient bob(fixture_.port(), ws_target(1, "bob"));
         ASSERT_FALSE(bob.read_until("welcome").empty());
         ASSERT_FALSE(alice.read_until("peer_joined").empty());
-        // Bob starts an offer and then the TCP connection dies mid-session,
-        // with no close handshake.
         bob.send(R"({"type":"offer","sdp":"v=0)");
         bob.abort();
     }
@@ -218,27 +195,20 @@ TEST_F(WsServerHostileTest, HostileSdpIsRejectedAndTheRoomKeepsWorking)
     RawWsClient alice(fixture_.port(), ws_target(1, "alice"));
     ASSERT_FALSE(alice.read_until("welcome").empty());
 
-    // Each of these is a well-formed offer envelope carrying SDP that the
-    // libdatachannel parser inside MediaConnections::accept_offer must reject
-    // or survive without taking the process down.
     const std::string huge_mid = "a=mid:" + std::string(64 * 1024, 'a');
     const std::vector<std::string> hostile_sdp {
-        "", // empty
-        "v=0", // header only
+        "",
+        "v=0",
         "not sdp at all\r\nrandom bytes",
-        "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n", // no m= line
-        // Duplicate MIDs.
+        "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n",
         "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"
         "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=mid:0\r\n"
         "m=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:0\r\n",
-        // Payload type with no rtpmap.
         "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"
         "m=audio 9 UDP/TLS/RTP/SAVPF 200\r\na=mid:0\r\n",
-        // Broken fingerprint.
         "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"
         "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=mid:0\r\n"
         "a=fingerprint:sha-256 not:a:real:fingerprint\r\n",
-        // Enormous single attribute line.
         "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"
         "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n"
             + huge_mid + "\r\n",
@@ -247,7 +217,6 @@ TEST_F(WsServerHostileTest, HostileSdpIsRejectedAndTheRoomKeepsWorking)
         alice.send(offer_with_sdp(sdp, "voice"));
         alice.send(offer_with_sdp(sdp, "screen"));
     }
-    // A candidate arriving before any usable offer.
     alice.send(
         R"({"type":"candidate","candidate":"garbage","sdpMid":"0",)"
         R"("connection":"voice"})");
@@ -260,12 +229,10 @@ TEST_F(WsServerHostileTest, HostileSdpIsRejectedAndTheRoomKeepsWorking)
 
 TEST_F(WsServerHostileTest, HttpSurfaceRejectsWrongMethodsAndPaths)
 {
-    // Unknown paths.
     EXPECT_EQ(fixture_.http_get("/nope").first, 404u);
     EXPECT_EQ(fixture_.http_get("/channels/1").first, 404u);
     EXPECT_EQ(fixture_.http_get("/../etc/passwd").first, 404u);
 
-    // Non-GET verb against a valid path, raw Beast.
     boost::asio::io_context io;
     tcp::socket socket(io);
     socket.connect(tcp::endpoint(
@@ -293,8 +260,6 @@ TEST(WsServerLifecycle, StartStopStormWithLiveSessionsDoesNotCrash)
             clients.push_back(std::make_unique<RawWsClient>(
                 fixture->port(), ws_target(1, "peer" + std::to_string(i))));
         }
-        // Destroy the server while every client is still connected and one of
-        // them is mid-message.
         clients.front()->send(R"({"type":"offer","sdp":"v=0)");
         fixture.reset();
         for (auto& client : clients) {
@@ -304,15 +269,10 @@ TEST(WsServerLifecycle, StartStopStormWithLiveSessionsDoesNotCrash)
     SUCCEED();
 }
 
-// The storm above only hits the accept-vs-stop race probabilistically; this
-// drives it deterministically through the same seam. A registration arriving
-// after stop() emptied the rooms must be refused — inserting would re-create
-// the room and pin the Session <-> server shared_ptr cycle until process exit
-// (caught as an LSan indirect-leak cluster in CI).
 TEST(WsServerLifecycle, RegistrationAfterStopIsRefused)
 {
     boost::asio::io_context io;
-    auto server = std::make_shared<driscord::WebSocketServer>(io, /*port=*/0);
+    auto server = std::make_shared<driscord::WebSocketServer>(io, 0);
     server->stop();
 
     const auto welcome = server->register_and_build_welcome(
@@ -322,4 +282,4 @@ TEST(WsServerLifecycle, RegistrationAfterStopIsRefused)
     EXPECT_EQ(server->active_sessions(), 0u);
 }
 
-} // namespace
+}

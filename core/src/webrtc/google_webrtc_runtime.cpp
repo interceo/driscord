@@ -188,7 +188,7 @@ namespace {
         return thread;
     }
 
-} // namespace
+}
 
 GoogleWebRtcRuntime::Impl::Impl(const GoogleWebRtcRuntimeConfig& config)
     : network_thread(make_thread("driscord-webrtc-network", true))
@@ -225,8 +225,6 @@ GoogleWebRtcRuntime::Impl::Impl(const GoogleWebRtcRuntimeConfig& config)
         }
         audio_device = dependencies.adm;
     } else {
-        // Create the platform ADM on WebRTC's worker thread: its Linux backend
-        // is sequence-bound, and the voice engine also controls it there.
         audio_device = worker_thread->BlockingCall([&dependencies] {
             return webrtc::CreateAudioDeviceModule(
                 *dependencies.env,
@@ -236,11 +234,6 @@ GoogleWebRtcRuntime::Impl::Impl(const GoogleWebRtcRuntimeConfig& config)
             throw std::runtime_error(
                 "Google WebRTC platform audio device creation failed");
         }
-        // Probe Init() here, on the same worker thread, before the ADM
-        // reaches the voice engine: adm_helpers.cc wraps this very call in a
-        // fatal RTC_CHECK, so on a machine without a working audio server the
-        // first session start would abort the whole process. Init() is
-        // idempotent — the engine's later call just returns 0 again.
         const auto init_result = worker_thread->BlockingCall(
             [this] { return audio_device->Init(); });
         if (init_result != 0) {
@@ -301,7 +294,6 @@ bool GoogleWebRtcRuntime::Impl::set_audio_device(
 
 GoogleWebRtcRuntime::Impl::~Impl()
 {
-    // Factory must be released while all three threads are still running.
     factory = nullptr;
     if (worker_thread) {
         worker_thread->BlockingCall([this] { audio_device = nullptr; });
@@ -365,4 +357,4 @@ bool GoogleWebRtcRuntime::set_playout_device(std::string_view id)
     return impl_ && impl_->set_audio_device(false, id);
 }
 
-} // namespace driscord::media
+}

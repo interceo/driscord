@@ -48,7 +48,7 @@ namespace {
         out[1] = static_cast<uint8_t>(value >> 8);
     }
 
-} // namespace
+}
 
 bool Y4mWriter::open(const std::filesystem::path& path,
     int width,
@@ -70,8 +70,6 @@ bool Y4mWriter::open(const std::filesystem::path& path,
     width_ = width;
     height_ = height;
     frames_ = 0;
-    // C420mpeg2 (chroma sited between lines) matches what the decode path
-    // hands out; the exact siting tag does not affect plane-wise metrics.
     if (std::fprintf(file_, "YUV4MPEG2 W%d H%d F%d:%d Ip A1:1 C420mpeg2\n",
             width, height, fps_numerator, fps_denominator)
         < 0) {
@@ -132,17 +130,17 @@ bool WavWriter::open(const std::filesystem::path& path,
     const uint16_t block_align = static_cast<uint16_t>(channels * 2u);
     std::array<uint8_t, 44> header { };
     std::memcpy(header.data(), "RIFF", 4);
-    put_u32_le(header.data() + 4, 36); // patched on close
+    put_u32_le(header.data() + 4, 36);
     std::memcpy(header.data() + 8, "WAVEfmt ", 8);
-    put_u32_le(header.data() + 16, 16); // PCM fmt chunk size
-    put_u16_le(header.data() + 20, 1); // PCM
+    put_u32_le(header.data() + 16, 16);
+    put_u16_le(header.data() + 20, 1);
     put_u16_le(header.data() + 22, channels);
     put_u32_le(header.data() + 24, rate);
     put_u32_le(header.data() + 28, rate * block_align);
     put_u16_le(header.data() + 32, block_align);
-    put_u16_le(header.data() + 34, 16); // bits per sample
+    put_u16_le(header.data() + 34, 16);
     std::memcpy(header.data() + 36, "data", 4);
-    put_u32_le(header.data() + 40, 0); // patched on close
+    put_u32_le(header.data() + 40, 0);
     if (std::fwrite(header.data(), 1, header.size(), file_) != header.size()) {
         close();
         return false;
@@ -155,9 +153,6 @@ bool WavWriter::write(std::span<const int16_t> interleaved_samples)
     if (file_ == nullptr) {
         return false;
     }
-    // Sample bytes go out little-endian; every target this test tier runs on
-    // (Linux x86_64 and the Wine x64 gate) is little-endian, so the in-memory
-    // layout is already the wire layout.
     const size_t bytes = interleaved_samples.size() * sizeof(int16_t);
     if (std::fwrite(interleaved_samples.data(), 1, bytes, file_) != bytes) {
         close();
@@ -186,4 +181,4 @@ void WavWriter::close()
     file_ = nullptr;
 }
 
-} // namespace test_util
+}

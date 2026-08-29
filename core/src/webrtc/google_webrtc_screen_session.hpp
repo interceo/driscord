@@ -32,8 +32,6 @@ struct DesktopCaptureThumbnail {
 };
 
 struct ScreenSessionConfig {
-    // Each slot is a recvonly video/audio pair. Both tracks retain their mids
-    // when the SFU reassigns a different publisher to that slot.
     size_t remote_stream_slots = 4;
     bool sharing_enabled = false;
     bool system_audio_enabled = false;
@@ -42,11 +40,6 @@ struct ScreenSessionConfig {
     int max_system_audio_bitrate_bps = 128'000;
 };
 
-// Decoded frame as the three I420 planes the decoder produced. Pointers are
-// borrowed and valid only for the duration of the callback; consumers that
-// keep the frame (for rendering on another thread) must copy the planes.
-// Handing out planes instead of RGBA keeps the decoder thread free of a
-// per-frame colour conversion — YUV->RGB happens on the GPU at render time.
 struct DecodedVideoFrameView {
     const uint8_t* y = nullptr;
     const uint8_t* u = nullptr;
@@ -58,7 +51,6 @@ struct DecodedVideoFrameView {
     int height = 0;
     int64_t timestamp_us = 0;
 
-    // Chroma plane dimensions (4:2:0).
     [[nodiscard]] int chroma_width() const noexcept
     {
         return (width + 1) / 2;
@@ -83,9 +75,7 @@ struct ScreenInboundRtpStats {
     uint32_t frames_dropped = 0;
     uint32_t key_frames_decoded = 0;
     RtpReceiveStats rtp;
-    // Populated for audio tracks only.
     AudioReceiveStats audio;
-    // Populated for video tracks only.
     VideoReceiveStats video_playback;
 };
 
@@ -96,12 +86,9 @@ struct ScreenSessionStats {
     uint64_t audio_bytes_sent = 0;
     uint32_t video_frames_encoded = 0;
     uint32_t video_key_frames_encoded = 0;
-    // Encoder target from the outbound video stream; negative until known.
     double video_target_bitrate_bps = -1.0;
     QualityLimitation video_quality_limitation = QualityLimitation::None;
     double video_quality_limitation_bandwidth_seconds = 0.0;
-    // Congestion-controller estimate on the nominated pair; negative until
-    // bandwidth estimation has produced one.
     double available_outgoing_bitrate_bps = -1.0;
     std::vector<ScreenInboundRtpStats> inbound;
 };
@@ -122,10 +109,6 @@ struct ScreenSessionCallbacks {
     std::function<void(std::string message)> on_error;
 };
 
-// Owns one screen PeerConnection: a local screen-video/system-audio pair and a
-// bounded pool of recvonly pairs. Capture frames enter a native WebRTC
-// VideoTrackSource; encoded packetization, jitter buffering and decode remain
-// Google WebRTC responsibilities.
 class GoogleWebRtcScreenSession final {
 public:
     static constexpr size_t kMaxRemoteStreamSlots = 16;
@@ -154,16 +137,12 @@ public:
     bool set_remote_audio_volume(std::string_view mid, double volume);
     bool get_stats(std::function<void(ScreenSessionStats)> callback);
 
-    // Push path used by deterministic tests and by platform capture bridges.
-    // The source copies/converts the frame before returning.
     [[nodiscard]] bool submit_bgra_frame(std::span<const uint8_t> bgra,
         int width,
         int height,
         int stride,
         int64_t timestamp_us);
 
-    // Native Google WebRTC DesktopCapturer path. Enumeration is synchronous;
-    // capture itself runs on a dedicated stoppable thread.
     [[nodiscard]] std::vector<DesktopCaptureSource> desktop_sources(
         DesktopCaptureKind kind) const;
     [[nodiscard]] static std::vector<DesktopCaptureSource>
@@ -185,4 +164,4 @@ private:
     std::shared_ptr<Impl> impl_;
 };
 
-} // namespace driscord::media
+}

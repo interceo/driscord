@@ -1,10 +1,5 @@
 #pragma once
 
-// Internal helper shared by the voice and screen stats parsers: lifts
-// RTCStatsReport rows into the plain value groups declared in
-// google_webrtc_media_types.hpp. Include only from adapter .cpp translation
-// units — WebRTC types must not reach public headers.
-
 #include "webrtc/google_webrtc_media_types.hpp"
 
 #include "api/stats/rtcstats_objects.h"
@@ -87,4 +82,4 @@ inline QualityLimitation lift_quality_limitation(
     return QualityLimitation::Other;
 }
 
-} // namespace driscord::media::detail
+}

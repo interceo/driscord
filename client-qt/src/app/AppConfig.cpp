@@ -8,8 +8,6 @@
 
 static QString findConfigFile()
 {
-    // User settings belong to the platform config directory so they survive
-    // replacing an unpacked application release.
 #ifdef Q_OS_WIN
     QString appData = qEnvironmentVariable("LOCALAPPDATA");
     if (!appData.isEmpty()) {
@@ -29,8 +27,6 @@ static QString findConfigFile()
     }
 #endif
 
-    // A working-directory file remains useful for local development and
-    // portable, explicitly user-managed installations.
     for (const auto* name : { "config.json", "driscord.json" }) {
         QString p = QDir::currentPath() + "/" + QLatin1String(name);
         if (QFile::exists(p)) {
@@ -64,8 +60,6 @@ AppConfig AppConfig::load()
             ? configuredFps
             : 60;
     }
-    // Accepted as either a bare URL string or an object carrying credentials.
-    // "stun_servers" is the same list; TURN entries simply add credentials.
     QVector<IceServerSetting> configured;
     for (const auto* key : { "turn_servers", "stun_servers" }) {
         for (const auto value : obj[QLatin1String(key)].toArray()) {
@@ -86,14 +80,16 @@ AppConfig AppConfig::load()
             configured.append(server);
         }
     }
-    // ICE infrastructure is explicit configuration. Without this list the
-    // client uses host candidates only and contacts no third-party relay.
     if (!configured.isEmpty()) {
         cfg.iceServers = configured;
     }
     for (const auto& server : std::as_const(cfg.iceServers)) {
         qInfo().noquote() << "[config] ICE server" << server.url;
     }
+
+    cfg.updateUrl = obj["update_url"].toString();
+    cfg.updateChannel = obj["update_channel"].toString();
+    cfg.updatePublicKey = obj["update_public_key"].toString();
 
     return cfg;
 }

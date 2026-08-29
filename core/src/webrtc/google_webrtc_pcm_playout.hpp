@@ -8,10 +8,6 @@
 #include <cstdint>
 #include <span>
 
-// Small hardware boundary for the custom screen-audio ADM. Google WebRTC
-// remains responsible for decode, NetEq and mixing; this object only transfers
-// its already-mixed 48-kHz stereo PCM from the WebRTC thread to miniaudio's
-// realtime callback.
 class GoogleWebRtcPcmPlayout final {
 public:
     static constexpr int kSampleRate = 48'000;
@@ -40,8 +36,6 @@ private:
         ma_uint32 frame_count);
     void render(int16_t* output, size_t samples) noexcept;
 
-    // Two seconds is enough to absorb scheduling stalls but remains bounded.
-    // Whole 10-ms frames are dropped before enqueue when this queue is full.
     boost::lockfree::spsc_queue<int16_t,
         boost::lockfree::capacity<kSampleRate * kChannels * 2>>
         queue_;

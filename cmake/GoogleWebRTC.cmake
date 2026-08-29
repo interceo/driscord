@@ -1,6 +1,3 @@
-# Google WebRTC is built by GN/Ninja, not by CMake.  This module exposes the
-# pinned, complete static archive as a normal CMake target without leaking its
-# filesystem layout into the rest of the project.
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     set(_driscord_webrtc_windows TRUE)
@@ -44,11 +41,6 @@ if(EXISTS
     set(_driscord_webrtc_default_source
         "${CMAKE_SOURCE_DIR}/.cache/${_driscord_webrtc_sdk_dir}/src")
 endif()
-# The SDK does not have to live next to the checkout. The CI image bakes it in
-# and points DRISCORD_WEBRTC_SDK_ROOT at it — a CI workspace is a fresh clone
-# with no .cache/ — and a developer can share one SDK between worktrees the same
-# way. An explicit -DDRISCORD_WEBRTC_SOURCE_DIR still wins: the cache entry
-# below is only initialised when it is not already set.
 if(DEFINED ENV{DRISCORD_WEBRTC_SDK_ROOT} AND EXISTS
     "$ENV{DRISCORD_WEBRTC_SDK_ROOT}/src/api/peer_connection_interface.h")
     set(_driscord_webrtc_default_source "$ENV{DRISCORD_WEBRTC_SDK_ROOT}/src")
@@ -81,15 +73,26 @@ if(NOT _driscord_webrtc_windows)
     find_program(DRISCORD_LLD_LINKER ld.lld REQUIRED)
 endif()
 
-# WebRTC's public headers include Abseil as "absl/..." and libyuv as
-# "libyuv/...", which the GN build resolves through its own -I flags on those
-# third_party directories. Consumers of the archive get no such flags, so the
-# same directories have to travel with the imported target.
 set(_driscord_webrtc_include_dirs
     "${DRISCORD_WEBRTC_SOURCE_DIR}"
     "${DRISCORD_WEBRTC_SOURCE_DIR}/third_party/abseil-cpp"
     "${DRISCORD_WEBRTC_SOURCE_DIR}/third_party/libyuv/include"
     "${DRISCORD_WEBRTC_OUT_DIR}/gen")
+
+set(_driscord_boringssl_include
+    "${DRISCORD_WEBRTC_SOURCE_DIR}/third_party/boringssl/src/include")
+if(NOT EXISTS "${_driscord_boringssl_include}/openssl/curve25519.h")
+    message(FATAL_ERROR
+        "BoringSSL headers are missing at ${_driscord_boringssl_include}. "
+        "The pinned Google WebRTC checkout is expected to bundle them; re-run "
+        "scripts/build_google_webrtc.sh.")
+endif()
+add_library(driscord_boringssl_headers INTERFACE IMPORTED GLOBAL)
+add_library(driscord::boringssl_headers ALIAS driscord_boringssl_headers)
+set_target_properties(driscord_boringssl_headers PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${_driscord_boringssl_include}"
+    INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_driscord_boringssl_include}")
+unset(_driscord_boringssl_include)
 
 add_library(driscord_google_webrtc STATIC IMPORTED GLOBAL)
 add_library(driscord::google_webrtc ALIAS driscord_google_webrtc)
@@ -102,9 +105,6 @@ set_target_properties(driscord_google_webrtc PROPERTIES
 )
 
 if(_driscord_webrtc_windows)
-    # GN compiles the archive's compiler-rt intrinsics against Chromium's
-    # clang package; the SDK export carries them so a consumer's clang does
-    # not need to ship Windows builtins of its own.
     set(_driscord_webrtc_builtins
         "${DRISCORD_WEBRTC_OUT_DIR}/obj/clang_rt.builtins-x86_64.lib")
     if(NOT EXISTS "${_driscord_webrtc_builtins}")
@@ -115,36 +115,18 @@ if(_driscord_webrtc_windows)
             "library into the SDK.")
     endif()
     set_target_properties(driscord_google_webrtc PROPERTIES
-        # Part of the public header ABI, exactly like WEBRTC_USE_X11 below:
-        # WEBRTC_WIN selects the platform members of types such as
-        # DesktopCaptureOptions.
         INTERFACE_COMPILE_DEFINITIONS
             "WEBRTC_WIN;NOMINMAX;WIN32_LEAN_AND_MEAN"
-        # The system libraries GN records for //:webrtc (gn desc ... libs);
-        # DEFAULTLIB directives embedded in the archive add the CRT and a few
-        # more on top.
         INTERFACE_LINK_LIBRARIES
             "Threads::Threads;${_driscord_webrtc_builtins};crypt32;iphlpapi;secur32;winmm;ole32;oleaut32;strmiids;user32;dmoguids;wmcodecdspuuid;amstrmid;msdmo;d3d11;dxgi;shcore;dwmapi"
     )
     unset(_driscord_webrtc_builtins)
 else()
     set_target_properties(driscord_google_webrtc PROPERTIES
-        # These definitions are part of the public header ABI, not merely build
-        # switches. In particular DesktopCaptureOptions conditionally contains
-        # an x_display_ member; omitting WEBRTC_USE_X11 in consumers makes its
-        # by-value CreateDefault() return overwrite the caller's stack object.
         INTERFACE_COMPILE_DEFINITIONS
             "WEBRTC_LINUX;WEBRTC_POSIX;WEBRTC_USE_X11"
-        # DesktopCapturer is part of the same archive. Its Linux implementation
-        # uses these X11 extensions; listing them on the imported target keeps
-        # all consumers (including headless tests that only inject frames)
-        # linkable.
         INTERFACE_LINK_LIBRARIES
             "Threads::Threads;X11::X11;${X11_Xcomposite_LIB};${X11_Xdamage_LIB};${X11_Xext_LIB};${X11_Xfixes_LIB};${X11_Xrandr_LIB};${X11_Xtst_LIB};${CMAKE_DL_LIBS}"
-        # The pinned archive is produced by Chromium's current Clang. GNU ld
-        # does not understand every section emitted by that toolchain;
-        # matching it with LLVM lld also makes the very large static link
-        # substantially faster.
         INTERFACE_LINK_OPTIONS "-fuse-ld=lld"
     )
 endif()

@@ -50,7 +50,7 @@ rtc::binary rtp_packet(uint16_t sequence, uint32_t timestamp)
         0xaa, 0xbb, 0xcc, 0xdd, 0x01 });
 }
 
-} // namespace
+}
 
 TEST(RtpHeaderRewrite, RewritesSsrcAndClearsOneByteMidOnly)
 {

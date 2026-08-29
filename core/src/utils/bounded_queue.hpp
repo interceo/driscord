@@ -49,4 +49,4 @@ private:
     std::deque<T> items_;
 };
 
-} // namespace utils
+}

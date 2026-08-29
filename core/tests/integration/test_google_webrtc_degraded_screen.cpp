@@ -22,11 +22,6 @@
 #include <utility>
 #include <vector>
 
-// Reference-free degradation ladder for screen video: one publisher pushes a
-// synthetic 320x180@30fps pattern to one watcher at increasing
-// Gilbert–Elliott loss. Monotonicity across the rungs is the primary gate;
-// the clean rung carries the absolute freeze tripwire.
-
 namespace {
 
 using test_util::EventCollector;
@@ -229,9 +224,6 @@ ScreenRungMetrics run_screen_rung(driscord::sfu::RtpFaultConfig faults,
     const auto epoch = std::chrono::steady_clock::now().time_since_epoch();
     const int64_t start_us
         = std::chrono::duration_cast<std::chrono::microseconds>(epoch).count();
-    // Feed until the watcher clears the floor: the encoder legitimately drops
-    // frames while ramping, so a fixed submission count would gate on encoder
-    // efficiency. The cap only bounds the failure path.
     for (size_t frame = 0;
         frame < max_feed_frames
         && (frame < 30 || !decoded.reached(decoded_frame_floor));
@@ -283,15 +275,12 @@ ScreenRungMetrics run_screen_rung(driscord::sfu::RtpFaultConfig faults,
     return metrics;
 }
 
-} // namespace
+}
 
 TEST(GoogleWebRtcDegradedScreen, LossLadderDegradesMonotonically)
 {
-    // Deterministic Gilbert–Elliott rungs, mean burst of 4 packets, fixed
-    // seed. Each rung is a fresh in-process SFU. Video packets are larger and
-    // more numerous than voice, so the same mean loss bites harder.
     const auto clean = run_screen_rung(driscord::sfu::RtpFaultConfig { },
-        /*decoded_frame_floor=*/90, /*max_feed_frames=*/300);
+        90, 300);
     const auto light = run_screen_rung(
         driscord::sfu::RtpFaultConfig {
             .burst = test_util::burst_loss(0.02, 4.0, 23),
@@ -307,19 +296,14 @@ TEST(GoogleWebRtcDegradedScreen, LossLadderDegradesMonotonically)
     EXPECT_EQ(light.errors, 0u);
     EXPECT_EQ(heavy.errors, 0u);
 
-    // Decode kept making progress on every rung: NACK/PLI recovery works
-    // under bursty loss instead of stalling the decoder.
     EXPECT_GT(clean.frames_decoded, 0u);
     EXPECT_GT(light.frames_decoded, 0u);
     EXPECT_GT(heavy.frames_decoded, 0u);
 
-    // New stats fields carry real data.
     EXPECT_GT(clean.frames_received, 0u);
     EXPECT_GT(clean.estimated_playout_timestamp_ms, 0.0);
     EXPECT_GT(clean.publisher_frames_encoded, 0u);
 
-    // Monotonicity: more injected loss must never lose fewer packets or
-    // trigger fewer recovery requests.
     EXPECT_LE(std::max<int64_t>(clean.packets_lost, 0),
         std::max<int64_t>(heavy.packets_lost, 0));
     EXPECT_LE(clean.pli_count, heavy.pli_count);
@@ -327,8 +311,6 @@ TEST(GoogleWebRtcDegradedScreen, LossLadderDegradesMonotonically)
         heavy.total_freezes_duration_seconds + 1e-9);
     EXPECT_GT(heavy.packets_lost, 0);
 
-    // Absolute tripwire on the clean rung only: an unimpaired loopback link
-    // must not freeze.
     EXPECT_TRUE(test_util::gate_le("screen.clean.freeze_count",
         clean.freeze_count, 0.0));
     EXPECT_TRUE(test_util::gate_le("screen.clean.frames_dropped_ratio",

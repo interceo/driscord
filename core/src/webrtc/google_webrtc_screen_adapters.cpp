@@ -123,8 +123,6 @@ bool DesktopVideoSource::submit_bgra(std::span<const uint8_t> bgra,
     if (!input) {
         return false;
     }
-    // libyuv's ARGB name denotes the register word; on little-endian desktop
-    // platforms its byte layout is exactly the BGRA emitted by DesktopFrame.
     if (libyuv::ARGBToI420(bgra.data(), stride, input->MutableDataY(),
             input->StrideY(), input->MutableDataU(), input->StrideU(),
             input->MutableDataV(), input->StrideV(), width, height)
@@ -315,10 +313,6 @@ bool DesktopVideoSource::start_capture(DesktopCaptureKind kind,
                     auto deadline = std::chrono::steady_clock::now();
                     while (!stop.stop_requested() && !capture_failed_) {
                         capturer->CaptureFrame();
-                        // A capture slower than the frame interval must not put
-                        // the loop into permanent catch-up: without the clamp
-                        // the deadline stays in the past and every subsequent
-                        // frame is taken back-to-back at 100% of a core.
                         deadline = std::max(deadline + interval,
                             std::chrono::steady_clock::now());
                         std::this_thread::sleep_until(deadline);
@@ -393,9 +387,6 @@ void DecodedVideoSink::OnFrame(const webrtc::VideoFrame& frame)
     if (!callback_) {
         return;
     }
-    // ToI420 is a no-op for the decoder's native output; the buffer keeps the
-    // planes alive for the duration of the callback. No conversion, no lock:
-    // the consumer copies (or uploads) what it needs.
     auto i420 = frame.video_frame_buffer()->ToI420();
     if (!i420 || i420->width() <= 0 || i420->height() <= 0) {
         return;
@@ -720,4 +711,4 @@ ScreenSessionStats parse_screen_stats(const webrtc::RTCStatsReport& report)
     return result;
 }
 
-} // namespace driscord::media::detail
+}

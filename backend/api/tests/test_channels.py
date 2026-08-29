@@ -161,7 +161,6 @@ async def test_delete_server_cascades_channels(client, auth_headers):
     r = await client.delete(f"/servers/{s['id']}", headers=h)
     assert r.status_code == 204
 
-    # Channel should be gone too (server 404 wraps it)
     r = await client.get(f"/servers/{s['id']}/channels/{c['id']}", headers=h)
     assert r.status_code == 404
 

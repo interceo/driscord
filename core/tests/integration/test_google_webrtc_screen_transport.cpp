@@ -47,10 +47,6 @@ public:
             || frame.u == nullptr || frame.v == nullptr) {
             return;
         }
-        // Non-black content shows up as luma above the video black level;
-        // publisher identity shows up in chroma: for BT.601,
-        // V - U ~= 0.587 R - 0.077 G - 0.510 B, so a red frame scores high
-        // positive and a blue frame negative.
         size_t colored = 0;
         for (int row = 0; row < frame.height; ++row) {
             const uint8_t* line = frame.y + static_cast<size_t>(row) * static_cast<size_t>(frame.y_stride);
@@ -135,8 +131,6 @@ public:
         uint64_t v_sum = 0;
         size_t sampled_pixels = 0;
 
-        // Mean chroma difference; positive = red-dominant content,
-        // negative/low = blue-dominant. Roughly 0.55x the old RGB R-B metric.
         [[nodiscard]] double v_minus_u() const
         {
             return sampled_pixels == 0
@@ -181,7 +175,7 @@ std::vector<uint8_t> make_bgra_frame(
     return result;
 }
 
-} // namespace
+}
 
 TEST_F(GoogleWebRtcScreenTransportTest,
     RoutesAndDecodesTwoPairedScreenStreams)
@@ -364,11 +358,6 @@ TEST_F(GoogleWebRtcScreenTransportTest,
     const int64_t start_us = std::chrono::duration_cast<std::chrono::microseconds>(epoch).count();
     size_t first_accepted = 0;
     size_t second_accepted = 0;
-    // Feed until both mids clear the goodput floor below, so the floor is
-    // checked against a continuously fed pipeline: the encoder legitimately
-    // drops frames while ramping up, so a fixed submission count would tie
-    // the floor to encoder efficiency. The 300-frame cap (~10 s) only bounds
-    // the failure path.
     for (size_t frame = 0;
         frame < 300
         && (frame < 30 || !decoded_video.has_active_mids(2, 30));
@@ -385,9 +374,6 @@ TEST_F(GoogleWebRtcScreenTransportTest,
 
     EXPECT_GT(first_accepted, 0u);
     EXPECT_GT(second_accepted, 0u);
-    // Goodput floor: 30 decoded frames per mid (~1 s of 30 fps video) out of
-    // at most 120 submitted, with the 1-in-37 drop recovered via NACK/PLI. A
-    // pipeline that only ever delivers the first keyframe fails here.
     ASSERT_TRUE(decoded_video.wait_for_active_mids(2, 30))
         << "decoded video goodput stayed under 30 frames per mid";
     const auto observations = decoded_video.snapshot();
@@ -402,8 +388,6 @@ TEST_F(GoogleWebRtcScreenTransportTest,
         for (const auto& [publisher, mids] : mids_by_publisher) {
             if (mids.contains(mid)) {
                 video_publishers.insert(publisher);
-                // Expected means from make_bgra_frame: seed 31 (red-heavy)
-                // scores V-U ~= +85, seed 113 (blue-heavy) ~= +15.
                 if (publisher == first_transport.local_id()) {
                     EXPECT_GT(observation.v_minus_u(), 60.0)
                         << "first publisher decoded on wrong mid " << mid;
@@ -416,9 +400,6 @@ TEST_F(GoogleWebRtcScreenTransportTest,
     }
     EXPECT_EQ(video_publishers, expected_publishers);
 
-    // Replacing a publisher's Google PeerConnection on the same signaling
-    // session must preserve the listener's stable output slot while rebasing
-    // the new upstream RTP timeline and refreshing the PLI target.
     std::string first_video_mid;
     for (const auto& [mid, observation] : observations) {
         if (observation.frames >= 3
@@ -480,7 +461,6 @@ TEST_F(GoogleWebRtcScreenTransportTest,
     EXPECT_GT(first_stats.snapshot().front().video_bytes_sent, 0u);
     EXPECT_GT(second_stats.snapshot().front().video_packets_sent, 0u);
     EXPECT_GT(second_stats.snapshot().front().video_bytes_sent, 0u);
-    // The lifted outbound encoder counters carry real data.
     EXPECT_GT(first_stats.snapshot().front().video_frames_encoded, 0u);
     EXPECT_GT(second_stats.snapshot().front().video_frames_encoded, 0u);
 
@@ -499,7 +479,6 @@ TEST_F(GoogleWebRtcScreenTransportTest,
         }
     }
     EXPECT_GT(packets_lost, 0);
-    // The lifted inbound video counters carry real data.
     EXPECT_GT(frames_received, 0u);
     for (const auto& [mid, observation] : observations) {
         if (observation.frames >= 3) {
@@ -531,11 +510,6 @@ TEST_F(GoogleWebRtcScreenTransportTest,
     EXPECT_EQ(second_publisher_tracks, 2u);
     EXPECT_TRUE(errors.snapshot().empty());
 
-    // Replacing a publisher (first_screen->close() + fresh session above) makes
-    // the SFU request a keyframe from the new upstream so the listener's stable
-    // slot recovers with an IDR — the ScreenRouter PLI path. Assert it actually
-    // fired: the media_stats counter must be non-zero, not merely present.
-    // (The server runs anonymously here, so the read-only endpoint is open.)
     const auto [stats_status, stats_body] = server.http_get("/media_stats");
     ASSERT_EQ(stats_status, 200u);
     const auto stats = nlohmann::json::parse(stats_body, nullptr, false);

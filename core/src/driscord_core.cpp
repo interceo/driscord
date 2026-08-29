@@ -50,8 +50,6 @@ DriscordCore::DriscordCore(std::vector<IceServer> ice_servers)
         }
     });
     transport.on_streaming_stopped([this](const std::string& id) {
-        // Not remove_peer: the peer is still in the room, and their volume and
-        // mute are the local user's settings for that person.
         media_->peer_stopped_streaming(id);
         std::scoped_lock lock(cb_mtx_);
         if (on_streaming_stopped_cb_) {

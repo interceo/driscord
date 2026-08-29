@@ -9,9 +9,6 @@ Item {
     property bool isLogin: true
 
     function utf8Length(value) {
-        // encodeURIComponent represents every non-ASCII UTF-8 byte as %XX.
-        // Counting those triplets as one keeps the client-side limit aligned
-        // with bcrypt's 72-byte input limit enforced by the API.
         return encodeURIComponent(value).replace(/%[0-9A-F]{2}/gi, "x").length
     }
 

@@ -1,29 +1,4 @@
 #!/usr/bin/env bash
-# Cross-checks the in-process libyuv PSNR/SSIM numbers against stock ffmpeg
-# filters, using the frame-aligned Y4M pairs the quality tests write when
-# DRISCORD_MEDIA_DUMP_DIR is set:
-#
-#   DRISCORD_MEDIA_DUMP_DIR=/tmp/driscord-dumps \
-#       ctest --test-dir .builds/core-tests -R screen_quality
-#   scripts/media_metrics_crosscheck.sh /tmp/driscord-dumps
-#
-# The *.ref.y4m/*.recv.y4m pairs contain exactly the frames the
-# VideoQualityAccumulator compared, in comparison order, so ffmpeg's
-# positional filters see aligned streams — the alignment ffmpeg cannot do by
-# itself is already baked in by the frame markers. Per-frame logs land next
-# to the pairs as *.psnr.log / *.ssim.log.
-#
-# Implementation notes for reading the numbers side by side:
-#   - ffmpeg "average" PSNR and libyuv I420Psnr both divide the summed
-#     squared error of all three planes by the total sample count; the test
-#     additionally caps PSNR at 48 dB (kPsnrCapDb), so compare
-#     min(ffmpeg, 48) against the gate value.
-#   - SSIM implementations differ by design (window layout and plane
-#     weighting), so expect a small systematic offset, not equality; the
-#     per-plane Y value is the closest apples-to-apples comparison.
-#
-# WAV dumps (*.ref.wav / *.rendered.wav) get an EBU R128 loudness summary as
-# a sanity check; MOS-grade audio scoring is ViSQOL's job (phase 7).
 set -euo pipefail
 
 DUMP_DIR="${1:-${DRISCORD_MEDIA_DUMP_DIR:-}}"
@@ -52,7 +27,6 @@ for ref in "$DUMP_DIR"/*.ref.y4m; do
     fi
     found=1
     echo "== video: $label"
-    # The received stream is the distorted "main" input, the reference second.
     ffmpeg -hide_banner -nostats \
         -i "$recv" -i "$ref" \
         -lavfi "psnr=stats_file='$DUMP_DIR/$label.psnr.log'" \

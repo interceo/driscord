@@ -7,10 +7,6 @@
 
 class QNetworkAccessManager;
 
-// Computes and caches a single representative color for each avatar URL by
-// fetching the image once and downscaling it to 1×1 with smooth filtering.
-// QML reads `colorFor(url)` synchronously (returns invalid QColor until ready)
-// and listens for `colorReady(url, color)` to refresh its bindings.
 class AvatarTintProvider : public QObject {
     Q_OBJECT
 public:

@@ -77,8 +77,6 @@ async def test_get_user_by_id_hides_private_fields(client, auth_headers):
 
 
 async def test_avatar_download_stays_public(client, auth_headers, tmp_path, monkeypatch):
-    # The QML Image element fetches this URL without an Authorization header;
-    # locking it down would break every avatar in the client.
     from config import settings
 
     monkeypatch.setattr(settings, "data_dir", tmp_path)

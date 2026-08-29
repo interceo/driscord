@@ -26,6 +26,11 @@ Dialog {
             outputDeviceModel, bridge.currentOutputDevice())
     }
 
+    function openAdvanced() {
+        navList.currentIndex = 2
+        open()
+    }
+
     onOpened: {
         audioDeviceStatus = ""
         refreshAudioDevices()
@@ -48,7 +53,6 @@ Dialog {
     RowLayout {
         anchors.fill: parent; spacing: 0
 
-        // Nav
         Rectangle {
             Layout.preferredWidth: 180; Layout.fillHeight: true
             color: "#2b2d31"
@@ -85,7 +89,6 @@ Dialog {
 
                 Item { Layout.fillHeight: true }
 
-                // Logout — same hover treatment, red text.
                 Rectangle {
                     id: logoutItem
                     Layout.fillWidth: true; Layout.leftMargin: 8; Layout.rightMargin: 8
@@ -106,16 +109,13 @@ Dialog {
                 }
             }
 
-            // Hidden ListView just for currentIndex tracking
             ListView { id: navList; model: 3; visible: false; currentIndex: 0 }
         }
 
-        // Content
         StackLayout {
             Layout.fillWidth: true; Layout.fillHeight: true
             currentIndex: navList.currentIndex
 
-            // My Account — Discord-styled card with banner, profile header, and edit rows.
             ScrollView {
                 id: myAccountScroll
                 clip: true
@@ -125,7 +125,6 @@ Dialog {
                     x: 16; width: myAccountScroll.availableWidth - 32; spacing: 0
                     Item { implicitHeight: 16 }
 
-                    // ---- Outer card with banner + body ----
                     Rectangle {
                         Layout.fillWidth: true
                         radius: 8
@@ -137,13 +136,11 @@ Dialog {
                             anchors.fill: parent
                             spacing: 0
 
-                            // Banner strip
                             Rectangle {
                                 Layout.fillWidth: true
                                 Layout.preferredHeight: 80
                                 color: "#5865f2"
                                 radius: 8
-                                // Square the bottom corners visually so the banner attaches to the body.
                                 Rectangle {
                                     anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
                                     height: parent.radius
@@ -151,12 +148,10 @@ Dialog {
                                 }
                             }
 
-                            // Profile header: avatar overlaps the banner, name on the right.
                             Item {
                                 Layout.fillWidth: true
                                 implicitHeight: 72
 
-                                // Avatar (clickable to change), overlapping the banner above.
                                 Rectangle {
                                     id: avatarHolder
                                     width: 88; height: 88
@@ -200,7 +195,6 @@ Dialog {
                                 }
                             }
 
-                            // Inner rows card.
                             Rectangle {
                                 Layout.fillWidth: true
                                 Layout.leftMargin: 16
@@ -209,7 +203,6 @@ Dialog {
                                 Layout.topMargin: 8
                                 radius: 8
                                 color: "#2b2d31"
-                                // +32 covers the inner ColumnLayout's top+bottom margins.
                                 implicitHeight: rowsCol.implicitHeight + 32
 
                                 ColumnLayout {
@@ -218,7 +211,6 @@ Dialog {
                                     anchors.margins: 16
                                     spacing: 12
 
-                                    // ----- Display name row -----
                                     RowLayout {
                                         Layout.fillWidth: true
                                         spacing: 12
@@ -237,7 +229,6 @@ Dialog {
                                                 color: "#b5bac1"; font.pixelSize: 13
                                                 visible: !displayNameEditor.editing
                                             }
-                                            // Inline editor
                                             RowLayout {
                                                 id: displayNameEditor
                                                 property bool editing: false
@@ -253,7 +244,6 @@ Dialog {
                                                     color: "white"; placeholderTextColor: "#72767d"
                                                     leftPadding: 10
                                                 }
-                                                // Save
                                                 Rectangle {
                                                     radius: 4
                                                     color: saveArea.containsMouse ? "#4752c4" : "#5865f2"
@@ -276,7 +266,6 @@ Dialog {
                                                         }
                                                     }
                                                 }
-                                                // Cancel
                                                 Rectangle {
                                                     radius: 4
                                                     color: cancelArea.containsMouse ? "#4e5058" : "transparent"
@@ -299,7 +288,6 @@ Dialog {
                                             }
                                         }
 
-                                        // Change button — hidden while editing.
                                         Rectangle {
                                             visible: !displayNameEditor.editing
                                             Layout.preferredHeight: 32
@@ -328,7 +316,6 @@ Dialog {
 
                                     Rectangle { Layout.fillWidth: true; height: 1; color: "#3f4147" }
 
-                                    // ----- Username row (read-only for now) -----
                                     RowLayout {
                                         Layout.fillWidth: true
                                         spacing: 12
@@ -349,7 +336,6 @@ Dialog {
 
                                     Rectangle { Layout.fillWidth: true; height: 1; color: "#3f4147" }
 
-                                    // ----- Email row -----
                                     RowLayout {
                                         Layout.fillWidth: true
                                         spacing: 12
@@ -403,7 +389,6 @@ Dialog {
                 }
             }
 
-            // Audio — card-styled to match My Account.
             ScrollView {
                 id: audioScroll
                 clip: true
@@ -429,7 +414,6 @@ Dialog {
                             anchors { left: parent.left; right: parent.right; top: parent.top; margins: 16 }
                             spacing: 16
 
-                            // Devices: Input + Output side-by-side via a 2-column grid.
                             GridLayout {
                                 Layout.fillWidth: true
                                 columns: 2
@@ -533,7 +517,6 @@ Dialog {
                                 }
                             }
 
-                            // Master volume — full-width below the device row.
                             ColumnLayout {
                                 Layout.fillWidth: true
                                 Layout.topMargin: 4
@@ -579,7 +562,6 @@ Dialog {
                         }
                     }
 
-                    // Primary Apply button (Discord blue)
                     RowLayout {
                         Layout.fillWidth: true
                         Text {
@@ -626,7 +608,6 @@ Dialog {
                 }
             }
 
-            // Advanced — card-styled placeholder.
             ScrollView {
                 id: advancedScroll
                 clip: true
@@ -643,13 +624,144 @@ Dialog {
 
                     Rectangle {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 64
+                        implicitHeight: updateColumn.implicitHeight + 32
                         radius: 8
                         color: "#2b2d31"
-                        Text {
-                            anchors.centerIn: parent
-                            text: qsTr("No advanced settings yet.")
-                            color: "#b5bac1"; font.pixelSize: 13
+
+                        ColumnLayout {
+                            id: updateColumn
+                            anchors { fill: parent; margins: 16 }
+                            spacing: 10
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Text {
+                                    text: qsTr("Updates")
+                                    color: "white"
+                                    font { pixelSize: 14; bold: true }
+                                }
+                                Item { Layout.fillWidth: true }
+                                Text {
+                                    text: qsTr("Version %1")
+                                        .arg(updateManager.currentVersion)
+                                    color: "#949ba4"; font.pixelSize: 12
+                                }
+                            }
+
+                            Text {
+                                id: updateStatus
+                                Layout.fillWidth: true
+                                wrapMode: Text.Wrap
+                                font.pixelSize: 13
+                                visible: text.length > 0
+                                color: {
+                                    switch (updateManager.state) {
+                                    case "error": return "#f23f42"
+                                    case "upToDate":
+                                    case "updateAvailable":
+                                    case "readyToApply": return "#23a559"
+                                    default: return "#b5bac1"
+                                    }
+                                }
+                                text: {
+                                    switch (updateManager.state) {
+                                    case "disabled":
+                                        return qsTr("Updates are disabled in this build.")
+                                    case "checking":
+                                        return qsTr("Checking for updates…")
+                                    case "upToDate":
+                                        return qsTr("You are up to date.")
+                                    case "updateAvailable":
+                                        return qsTr("Version %1 is available.")
+                                            .arg(updateManager.latestVersion)
+                                    case "downloading":
+                                        return qsTr("Downloading %1… %2%")
+                                            .arg(updateManager.latestVersion)
+                                            .arg(Math.round(updateManager.downloadProgress * 100))
+                                    case "verifying":
+                                        return qsTr("Verifying the download…")
+                                    case "extracting":
+                                        return qsTr("Unpacking the update…")
+                                    case "readyToApply":
+                                        return updateManager.canApply
+                                            ? qsTr("Version %1 is ready to install.")
+                                                .arg(updateManager.latestVersion)
+                                            : updateManager.applyHint
+                                    case "applying":
+                                        return qsTr("Installing…")
+                                    case "error":
+                                        return updateManager.errorText
+                                    default:
+                                        return ""
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                implicitHeight: 4
+                                radius: 2
+                                color: "#1e1f22"
+                                visible: updateManager.state === "downloading"
+                                Rectangle {
+                                    anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
+                                    width: parent.width * updateManager.downloadProgress
+                                    radius: 2
+                                    color: "#5865f2"
+                                }
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Item { Layout.fillWidth: true }
+                                Rectangle {
+                                    id: updateBtn
+                                    visible: updateManager.state !== "disabled"
+                                    property bool busy: ["checking", "downloading",
+                                        "verifying", "extracting", "applying"]
+                                        .indexOf(updateManager.state) >= 0
+                                    property string label: {
+                                        if (updateManager.state === "updateAvailable")
+                                            return qsTr("Download update %1")
+                                                .arg(updateManager.latestVersion)
+                                        if (updateManager.state === "readyToApply"
+                                                && updateManager.canApply)
+                                            return qsTr("Restart && install")
+                                        return qsTr("Check for updates")
+                                    }
+                                    Layout.preferredHeight: 36
+                                    Layout.preferredWidth: updateBtnText.implicitWidth + 32
+                                    radius: 4
+                                    opacity: busy ? 0.5 : 1.0
+                                    color: updateBtnArea.containsMouse && !busy
+                                        ? "#4752c4" : "#5865f2"
+                                    Text {
+                                        id: updateBtnText
+                                        anchors.centerIn: parent
+                                        text: updateBtn.label
+                                        color: "white"
+                                        font { pixelSize: 13; bold: true }
+                                    }
+                                    MouseArea {
+                                        id: updateBtnArea
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: updateBtn.busy
+                                            ? Qt.ArrowCursor : Qt.PointingHandCursor
+                                        onClicked: {
+                                            if (updateBtn.busy)
+                                                return
+                                            if (updateManager.state === "updateAvailable")
+                                                updateManager.downloadUpdate()
+                                            else if (updateManager.state === "readyToApply"
+                                                     && updateManager.canApply)
+                                                updateManager.applyAndRestart()
+                                            else
+                                                updateManager.checkForUpdates()
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
 

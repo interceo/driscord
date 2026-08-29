@@ -11,9 +11,6 @@
 
 #include "log.hpp"
 
-// ---------------------------------------------------------------------------
-// Custom deleters for PulseAudio resources
-// ---------------------------------------------------------------------------
 struct PaMainloopDeleter {
     void operator()(pa_mainloop* ml) const noexcept { pa_mainloop_free(ml); }
 };
@@ -36,8 +33,6 @@ using PaContextPtr = std::unique_ptr<pa_context, PaContextDeleter>;
 using PaOperationPtr = std::unique_ptr<pa_operation, PaOperationDeleter>;
 using PaSimplePtr = std::unique_ptr<pa_simple, PaSimpleDeleter>;
 
-// ---------------------------------------------------------------------------
-
 class SystemAudioCaptureLinux : public SystemAudioCapture {
 public:
     ~SystemAudioCaptureLinux() override { stop(); }
@@ -55,16 +50,13 @@ public:
         spec.rate = kSampleRate;
         spec.channels = kChannels;
 
-        constexpr uint32_t kFragFrames = kFramesPerRead; // 20 ms @ 48 kHz
+        constexpr uint32_t kFragFrames = kFramesPerRead;
         constexpr uint32_t kFragBytes = kFragFrames * kChannels * sizeof(float);
 
         pa_buffer_attr attr { };
         attr.maxlength = kFragBytes * 4;
         attr.fragsize = kFragBytes;
 
-        // list_sinks() reports playback devices; their monitor source is the
-        // sink name with ".monitor" appended, which is what PulseAudio and
-        // PipeWire's Pulse layer both expose.
         const std::string source = target_id.empty()
             ? std::string("@DEFAULT_MONITOR@")
             : target_id + ".monitor";
@@ -124,8 +116,6 @@ private:
     std::thread thread_;
 };
 
-// ---------------------------------------------------------------------------
-
 bool SystemAudioCapture::available()
 {
     pa_sample_spec spec { };
@@ -149,11 +139,6 @@ std::unique_ptr<SystemAudioCapture> SystemAudioCapture::create()
     return std::make_unique<SystemAudioCaptureLinux>();
 }
 
-// ---------------------------------------------------------------------------
-// Shared helper: creates a mainloop+context, waits for READY, issues one
-// PA operation via |issue_op|, runs until it completes.
-// Returns false if setup or the operation fails.
-// ---------------------------------------------------------------------------
 template <typename F>
 static bool pa_enumerate(const char* ctx_name, F&& issue_op)
 {
@@ -201,8 +186,6 @@ static bool pa_enumerate(const char* ctx_name, F&& issue_op)
     return true;
 }
 
-// ---------------------------------------------------------------------------
-
 std::vector<AudioCaptureTarget> SystemAudioCapture::list_sinks()
 {
     std::vector<AudioCaptureTarget> targets;
@@ -216,7 +199,6 @@ std::vector<AudioCaptureTarget> SystemAudioCapture::list_sinks()
             LOG_ERROR() << "pa_sink_info is NULL (is_last not set)";
             return;
         }
-        // Only include sinks that have a monitor source
         if (i->monitor_source == PA_INVALID_INDEX) {
             return;
         }
@@ -231,4 +213,4 @@ std::vector<AudioCaptureTarget> SystemAudioCapture::list_sinks()
     return targets;
 }
 
-#endif // __linux__
+#endif

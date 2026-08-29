@@ -9,8 +9,6 @@ AvatarUrl = Annotated[str | None, BeforeValidator(available_avatar_url)]
 
 
 def _bcrypt_sized(value: str) -> str:
-    # bcrypt compares only its first 72 input bytes. Silently accepting more
-    # would make distinct Unicode passwords authenticate as the same secret.
     if len(value.encode("utf-8")) > 72:
         raise ValueError("password must be at most 72 UTF-8 bytes")
     return value

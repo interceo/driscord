@@ -2,6 +2,7 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQuickStyle>
 #include <QTimer>
 #include <rtc/rtc.hpp>
 
@@ -20,8 +21,56 @@
 #include "app/ThumbnailProvider.h"
 #include "driscord/client_build_config.hpp"
 #include "driscord/version.hpp"
+#include "update/UpdateManager.h"
+
+#include <QStandardPaths>
 
 namespace {
+
+UpdateManagerConfig makeUpdateConfig(const AppConfig& cfg)
+{
+    UpdateManagerConfig update;
+    update.baseUrl = QString::fromUtf8(driscord::kUpdateBaseUrl);
+    update.channel = QString::fromUtf8(driscord::kUpdateChannel);
+#ifdef Q_OS_WIN
+    update.pathTarget = QStringLiteral("windows-amd64");
+    update.manifestTarget = QStringLiteral("windows/amd64");
+    update.archiveSuffix = QStringLiteral(".zip");
+#else
+    update.pathTarget = QStringLiteral("linux-amd64");
+    update.manifestTarget = QStringLiteral("linux/amd64");
+    update.archiveSuffix = QStringLiteral(".AppImage");
+    update.singleFileArtifact = true;
+#endif
+    update.currentVersionCore = QString::fromUtf8(driscord::kVersionCore);
+    update.currentVersionDisplay = QString::fromUtf8(driscord::kVersion);
+    if (auto key = minisign::parsePublicKey(QByteArrayLiteral(
+            "RWQRKanqjc6QBQqzMopoiyl0ZJ0I7X5dwnEx1JSOO9gjgEyo4EIWboYw"))) {
+        update.trustedKeys.append(*key);
+    }
+    update.allowAutomaticChecks = driscord::kReleaseVersion;
+    if (!driscord::kReleaseVersion) {
+        if (!cfg.updateUrl.isEmpty())
+            update.baseUrl = cfg.updateUrl;
+        if (!cfg.updateChannel.isEmpty())
+            update.channel = cfg.updateChannel;
+        if (!cfg.updatePublicKey.isEmpty()) {
+            if (auto key
+                = minisign::parsePublicKey(cfg.updatePublicKey.toUtf8())) {
+                update.trustedKeys = { *key };
+            }
+        }
+        if (!cfg.updateUrl.isEmpty())
+            update.allowAutomaticChecks = true;
+    }
+    update.layout = detectInstallLayout(
+        QCoreApplication::applicationFilePath(),
+        qEnvironmentVariable("APPIMAGE"));
+    update.fallbackStagingDir
+        = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+        + QStringLiteral("/updates");
+    return update;
+}
 
 int handleEarlyArguments(int argc, char* argv[])
 {
@@ -46,25 +95,20 @@ int handleEarlyArguments(int argc, char* argv[])
     return -1;
 }
 
-} // namespace
+}
 
 int main(int argc, char* argv[])
 {
     if (const int earlyExitCode = handleEarlyArguments(argc, argv); earlyExitCode >= 0)
         return earlyExitCode;
 
-    // Honor exact OS scale factors (incl. fractional like 1.25/1.5/1.75) so the
-    // UI is the same physical size on FullHD@100% as on 4K@200%. Must be set
-    // before QGuiApplication is constructed.
     QGuiApplication::setHighDpiScaleFactorRoundingPolicy(
         Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
 
     int rc = 0;
-    // Scoped so the application — and with it DriscordBridge, DriscordCore and
-    // the Transport's PeerConnection — is fully destroyed before rtc::Cleanup()
-    // joins libdatachannel's thread pool below.
     {
         QGuiApplication app(argc, argv);
+        QQuickStyle::setStyle("Basic");
         app.setApplicationName("Driscord");
         app.setApplicationVersion(QString::fromLatin1(driscord::kVersion));
         app.setOrganizationName("driscord");
@@ -86,6 +130,7 @@ int main(int argc, char* argv[])
         auto* avatarTint = new AvatarTintProvider(&app);
         auto* appState = new AppState(authManager, serverRepo, userRepo, bridge,
             signalingUrl, apiBaseUrl, &app);
+        auto* updateManager = new UpdateManager(makeUpdateConfig(cfg), &app);
 
         bridge->setThumbnailProvider(thumbProvider);
 
@@ -95,29 +140,23 @@ int main(int argc, char* argv[])
         engine.rootContext()->setContextProperty("authManager", authManager);
         engine.rootContext()->setContextProperty("bridge", bridge);
         engine.rootContext()->setContextProperty("avatarTint", avatarTint);
+        engine.rootContext()->setContextProperty("updateManager", updateManager);
         engine.rootContext()->setContextProperty(
             "defaultScreenFps", cfg.screenFps);
 
         QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app, []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);
         engine.loadFromModule("driscord", "Main");
 
-        // Release smoke jobs exercise the real installed binary, Qt platform
-        // plugin and QML module graph without requiring credentials or a
-        // display. A failed root object still wins through the queued -1 exit.
         if (smokeTest && !engine.rootObjects().isEmpty())
             QTimer::singleShot(0, &app, &QCoreApplication::quit);
+        if (!smokeTest)
+            updateManager->startBackgroundTasks();
 
         rc = app.exec();
 
-        // The QML engine owns the image providers and is destroyed at the end
-        // of this scope, before `app` destroys the bridge. Media threads are
-        // still delivering frames into those providers until this call, so the
-        // core has to be torn down first.
         bridge->shutdown();
     }
 
-    // Joins libdatachannel's thread pool while the runtime is still alive;
-    // without it, its static teardown races the process exit.
     rtc::Cleanup().wait();
     return rc;
 }

@@ -46,10 +46,6 @@ driscord::PeerId generate_id()
     return driscord::PeerId { ss.str() };
 }
 
-// Extracts the room identifier from a WebSocket upgrade request target.
-// "/channels/42"      → "42"
-// "/channels/42?x=1"  → "42"
-// anything else       → "default"
 driscord::RoomId parse_room_id(std::string_view target)
 {
     constexpr std::string_view kPrefix = "/channels/";
@@ -70,7 +66,6 @@ driscord::RoomId parse_room_id(std::string_view target)
     return driscord::RoomId { "default" };
 }
 
-// Decode percent-escapes and '+' in a URL query value.
 std::string url_decode(std::string_view s)
 {
     std::string out;
@@ -104,8 +99,6 @@ std::string url_decode(std::string_view s)
     return out;
 }
 
-// Extract the value of a query parameter from a request target.
-// parse_query_param("/channels/42?u=alice&x=1", "u") → "alice"
 std::string parse_query_param(std::string_view target, std::string_view key)
 {
     auto q = target.find('?');
@@ -129,7 +122,7 @@ std::string parse_query_param(std::string_view target, std::string_view key)
 constexpr size_t kMaxMessageSize = 256U * 1024U;
 constexpr size_t kMaxWriteQueueSize = 128;
 
-} // namespace
+}
 
 namespace driscord {
 
@@ -142,9 +135,6 @@ public:
     {
     }
 
-    // Tears the PeerConnection down on whichever thread drops the last
-    // reference, in case the session went away through an error path that
-    // never reached on_close().
     ~Session() { close_media_connections(); }
 
     const driscord::PeerId& id() const { return id_; }
@@ -192,16 +182,12 @@ public:
             }));
         ws_.read_message_max(kMaxMessageSize);
 
-        // Read the HTTP upgrade request first so we can extract the URL path
-        // (which carries the channel/room ID) before accepting the WebSocket.
         auto req = std::make_shared<http::request<http::string_body>>();
         http::async_read(ws_.next_layer(), buffer_, *req,
             beast::bind_front_handler(&Session::on_http_read, shared_from_this(),
                 req));
     }
 
-    // send() may be called from any thread. Protected by write_mutex_ and
-    // posts the actual write onto this session's strand.
     void send(std::shared_ptr<std::string> msg)
     {
         enqueue({ std::move(msg), true });
@@ -246,9 +232,6 @@ private:
                 [self = shared_from_this()]() { self->do_write(); });
         }
     }
-    // Called after we've read the HTTP upgrade request. Either responds to a
-    // plain HTTP GET (currently only /presence) or extracts the room_id from
-    // the request target and completes the WebSocket handshake.
     void on_http_read(std::shared_ptr<http::request<http::string_body>> req,
         beast::error_code ec,
         std::size_t)
@@ -258,7 +241,6 @@ private:
             return;
         }
 
-        // Plain HTTP request (no Upgrade: websocket header) → presence endpoint.
         if (!websocket::is_upgrade(*req)) {
             handle_http_request(std::move(req));
             return;
@@ -274,9 +256,6 @@ private:
             return;
         }
 
-        // Media for a private channel must not be reachable by anyone who can
-        // guess its id, so the upgrade is answered only after the API confirms
-        // the token and the membership behind it.
         const auto self = shared_from_this();
         authenticator->authorize_channel(bearer_token(*req), room_id_.value,
             [self, req](std::optional<ApiAuthenticator::Identity> identity) {
@@ -295,9 +274,6 @@ private:
             });
     }
 
-    // Bearer token from the Authorization header, falling back to the `t`
-    // query parameter because a WebSocket handshake from QML cannot set
-    // headers.
     static std::string bearer_token(
         const http::request<http::string_body>& req)
     {
@@ -328,8 +304,6 @@ private:
                 ? target
                 : target.substr(0, path_end) };
 
-        // Liveness/readiness probes have no credentials and must not be able
-        // to enumerate anything, so they get their own contentless endpoint.
         if (req->method() == http::verb::get && path == "/health") {
             send_http_json(req, R"({"status":"ok"})");
             return;
@@ -346,8 +320,6 @@ private:
             send_http_json(req, snapshot_json(path));
             return;
         }
-        // These endpoints enumerate who is in which room, so they answer to the
-        // same tokens as the WebSocket does.
         const auto self = shared_from_this();
         authenticator->authorize_user(bearer_token(*req),
             [self, req, path](std::optional<ApiAuthenticator::Identity> identity) {
@@ -418,7 +390,6 @@ private:
             });
     }
 
-    // Runs on the session's strand.
     void do_write()
     {
         OutboundMessage msg;
@@ -435,15 +406,11 @@ private:
             beast::bind_front_handler(&Session::on_write, shared_from_this()));
     }
 
-    // Runs on the session's strand (async_write completion handler).
     void on_write(beast::error_code ec, std::size_t)
     {
         if (ec) {
             LOG_ERROR() << "write error [" << id_.value << "]: "
                         << ec.message();
-            // The peer is gone even if the read half has not noticed yet;
-            // without this the room and both routers keep the session (and its
-            // slots) until a read error eventually arrives.
             on_close();
             return;
         }
@@ -470,8 +437,6 @@ private:
         auto welcome = server_->register_and_build_welcome(id_, room_id_,
             shared_from_this());
         if (!welcome) {
-            // The server is shutting down; dropping the last reference closes
-            // the socket without joining the room.
             LOG_INFO() << "session " << id_.value
                        << " refused: server stopping";
             return;
@@ -517,9 +482,6 @@ private:
         std::visit([this](auto&& message) {
             using T = std::decay_t<decltype(message)>;
 
-            // SDP/ICE are addressed to the server itself — it terminates the
-            // PeerConnection, so these are consumed here and never forwarded
-            // to other clients.
             if constexpr (std::is_same_v<T, signaling::Offer>) {
                 std::shared_ptr<MediaConnections> connections;
                 {
@@ -587,13 +549,9 @@ private:
     std::mutex write_mutex_;
     utils::BoundedQueue<OutboundMessage> write_queue_ { kMaxWriteQueueSize };
 
-    // Guards only the ownership hand-off during shutdown. MediaConnections
-    // protects the independent voice/screen PeerConnections internally.
     std::mutex media_mutex_;
     std::shared_ptr<MediaConnections> media_connections_;
 };
-
-// --- WebSocketServer ---------------------------------------------------------
 
 WebSocketServer::WebSocketServer(boost::asio::io_context& io_context,
     unsigned short port,
@@ -604,7 +562,6 @@ WebSocketServer::WebSocketServer(boost::asio::io_context& io_context,
     , fault_config_(fault_config)
     , authenticator_(std::move(authenticator))
 {
-    // Pinning the UDP range keeps firewall/Docker port-forwarding tractable.
     auto env_port = [](const char* name, uint16_t fallback) -> uint16_t {
         if (const char* v = std::getenv(name)) {
             try {
@@ -633,15 +590,6 @@ WebSocketServer::WebSocketServer(boost::asio::io_context& io_context,
     LOG_INFO() << "ICE UDP port range: " << rtc_config_.portRangeBegin << "-"
                << rtc_config_.portRangeEnd;
 
-    // Host candidates carry whatever address the SFU's own interfaces have.
-    // Under Docker bridge networking that is the container address and behind
-    // a home router it is a LAN address, neither of which a remote client can
-    // reach, so host candidates alone only work when a public address sits
-    // directly on the interface. STUN is what lets the SFU learn its
-    // server-reflexive candidate; TURN URLs are accepted here as well.
-    //
-    // Set DRISCORD_ICE_STUN_URLS to a private STUN/TURN deployment to avoid
-    // the public default, or to "none" to advertise host candidates only.
     rtc_config_.iceServers = [] {
         std::vector<rtc::IceServer> servers;
         const char* raw = std::getenv("DRISCORD_ICE_STUN_URLS");
@@ -695,19 +643,12 @@ void WebSocketServer::run()
 
 void WebSocketServer::stop()
 {
-    // Close the acceptor on its own executor. do_accept() re-arms it from the
-    // io_context thread, and basic_socket_acceptor is not thread-safe, so
-    // closing it straight from a caller on another thread races that re-arm
-    // and can fault inside the reactor.
     stopping_ = true;
     boost::asio::post(acceptor_.get_executor(), [this] {
         boost::system::error_code ec;
         (void)acceptor_.close(ec);
     });
 
-    // Take the sessions out first, then tear their PeerConnections down before
-    // dropping the references, so Beast objects cannot be destroyed later on
-    // a libdatachannel callback thread after the io_context is gone.
     std::vector<std::shared_ptr<Session>> sessions;
     std::vector<std::shared_ptr<VoiceRouter>> voice_routers;
     std::vector<std::shared_ptr<ScreenRouter>> screen_routers;
@@ -758,9 +699,6 @@ std::optional<std::string> WebSocketServer::register_and_build_welcome(
     {
         std::scoped_lock lk(rooms_mutex_);
 
-        // stop() sets stopping_ before emptying rooms_ under this mutex, so a
-        // session whose accept completes concurrently with shutdown must not
-        // re-create its room here: nothing would ever clear that entry again.
         if (stopping_) {
             return std::nullopt;
         }
@@ -824,8 +762,6 @@ std::string WebSocketServer::presence_json() const
 
 std::string WebSocketServer::media_stats_json() const
 {
-    // Routers are reference-counted and snapshot themselves, so the room map
-    // is released before asking them anything.
     struct RoomRouters {
         size_t sessions = 0;
         size_t streaming_peers = 0;
@@ -914,7 +850,6 @@ void WebSocketServer::unregister_session(const driscord::PeerId& id,
         for (auto& [_, session] : room.sessions) {
             remaining.push_back(session);
         }
-        // Remove empty rooms to avoid unbounded map growth.
         if (room.sessions.empty()) {
             rooms_.erase(rit);
         }
@@ -1065,9 +1000,6 @@ void WebSocketServer::add_streaming_peer(const driscord::PeerId& id,
     std::shared_ptr<ScreenRouter> router;
     {
         std::scoped_lock lk(rooms_mutex_);
-        // find, not operator[]: a peer only streams in a room it already joined, so
-        // the room exists. Using operator[] here would let a stray call resurrect an
-        // empty Room that unregister_session (keyed on live sessions) never reaps.
         auto rit = rooms_.find(room_id);
         if (rit != rooms_.end()) {
             rit->second.streaming_peers.insert(id);
@@ -1105,8 +1037,6 @@ void WebSocketServer::add_video_watcher(const driscord::PeerId& id,
     std::optional<signaling::WatchRejectReason> rejection;
     {
         std::scoped_lock lk(rooms_mutex_);
-        // See add_streaming_peer: find, not operator[], so a watch_start can't
-        // conjure an empty room that never gets cleaned up.
         auto rit = rooms_.find(room_id);
         if (rit != rooms_.end()) {
             const auto watcher = rit->second.sessions.find(id);
@@ -1182,4 +1112,4 @@ void WebSocketServer::do_accept()
         });
 }
 
-} // namespace driscord
+}

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Driscord
+Exec=driscord
+Icon=driscord
+Categories=Network;InstantMessaging;
+Terminal=false

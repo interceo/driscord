@@ -12,11 +12,9 @@ class DriscordBridge;
 class AppState : public QObject {
     Q_OBJECT
 
-    // Auth / Profile
     Q_PROPERTY(QVariantMap userProfile READ userProfile NOTIFY userProfileChanged)
     Q_PROPERTY(QString apiError READ apiError WRITE setApiError NOTIFY apiErrorChanged)
 
-    // Servers & Channels
     Q_PROPERTY(QVariantList servers READ servers NOTIFY serversChanged)
     Q_PROPERTY(int selectedServerId READ selectedServerId NOTIFY selectedServerChanged)
     Q_PROPERTY(QVariantList channels READ channels NOTIFY channelsChanged)
@@ -24,23 +22,18 @@ class AppState : public QObject {
     Q_PROPERTY(QVariantList users READ users NOTIFY usersChanged)
     Q_PROPERTY(bool canManageSelectedServer READ canManageSelectedServer NOTIFY selectedServerChanged)
 
-    // Peers / Connection
     Q_PROPERTY(QVariantList peers READ peers NOTIFY peersChanged)
     Q_PROPERTY(bool connected READ connected NOTIFY connectionChanged)
     Q_PROPERTY(QString connectionState READ connectionState NOTIFY connectionChanged)
     Q_PROPERTY(QString localId READ localId NOTIFY connectionChanged)
 
-    // Audio
     Q_PROPERTY(bool muted READ muted NOTIFY audioStateChanged)
     Q_PROPERTY(bool deafened READ deafened NOTIFY audioStateChanged)
 
-    // Screen sharing
     Q_PROPERTY(bool sharing READ sharing NOTIFY sharingChanged)
     Q_PROPERTY(QVariantList streamingPeers READ streamingPeers NOTIFY streamingPeersChanged)
     Q_PROPERTY(QStringList watchedPeerIds READ watchedPeerIds NOTIFY watchedStreamsChanged)
 
-    // Voice/transport stats (polled while connected). RTT is measured to the
-    // SFU: there is no direct peer connection to measure against.
     Q_PROPERTY(int avgRttMs READ avgRttMs NOTIFY connectionStatsChanged)
     Q_PROPERTY(int lastRttMs READ lastRttMs NOTIFY connectionStatsChanged)
     Q_PROPERTY(QVariantList rttHistory READ rttHistory NOTIFY connectionStatsChanged)
@@ -150,14 +143,14 @@ private:
     QVariantList m_peers;
     QVariantList m_streamingPeers;
 
-    QString m_connectionState = QStringLiteral("disconnected"); // disconnected | connecting | connected
+    QString m_connectionState = QStringLiteral("disconnected");
     QTimer* m_statsTimer = nullptr;
     int m_avgRttMs = -1;
     int m_lastRttMs = -1;
     int m_packetsLost = 0;
     int m_remoteVoiceTracks = 0;
     QStringList m_watchedPeerIds;
-    QVariantList m_rttHistory; // each entry: {"t": ms, "rtt": int}
+    QVariantList m_rttHistory;
     QString m_signalingUrl;
     QString m_apiBaseUrl;
 };

@@ -36,7 +36,6 @@ public:
     {
     }
 
-    // --- error constructor ---
     Expected(Unexpected<E> err)
         : storage_(std::in_place_index<1>, std::move(err.error))
     {
@@ -98,4 +97,4 @@ private:
     std::optional<E> error_;
 };
 
-} // namespace utils
+}

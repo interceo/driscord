@@ -53,12 +53,8 @@ bool has_feedback(const rtc::Description::Media& description,
     return std::find(feedback.begin(), feedback.end(), name) != feedback.end();
 }
 
-} // namespace
+}
 
-// A payload type listed in the m= line but never described by a=rtpmap is
-// legal SDP. libdatachannel throws when asked for the missing map, so every
-// lookup here has to tolerate it — the noexcept helpers used to abort the whole
-// server on a remote peer's offer.
 TEST(SfuMediaUtils, ToleratesPayloadTypesWithoutRtpMap)
 {
     rtc::Description::Media audio("audio 9 UDP/TLS/RTP/SAVPF 0 111", "voice");
@@ -100,7 +96,6 @@ TEST(SfuMediaUtils, ForwardingPolicyDropsUnproxyableFeedbackOnly)
 
     EXPECT_FALSE(has_feedback(video, 96, "transport-cc"));
     EXPECT_FALSE(has_feedback(video, 96, "goog-remb"));
-    // Hop-local repair stays: NACK and PLI are answered by the SFU itself.
     EXPECT_TRUE(has_feedback(video, 96, "nack"));
     EXPECT_TRUE(has_feedback(video, 96, "nack pli"));
 }
@@ -120,8 +115,6 @@ TEST(SfuMediaUtils, ForwardingPolicyRemovesTransportWideCcExtension)
     EXPECT_TRUE(has_feedback(audio, 111, "nack"));
 }
 
-// The mid extension id is what the rewriter uses to blank the publisher's mid
-// out of forwarded packets; losing it would leak the wrong mid downstream.
 TEST(SfuMediaUtils, FindsTheMidExtensionId)
 {
     auto audio = opus_audio();

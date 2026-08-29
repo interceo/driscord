@@ -1,15 +1,5 @@
 #pragma once
 
-// Minimal in-process HTTP/1.1 server over QTcpServer, driven entirely by the
-// test's own event loop, so ApiClient/AuthManager are exercised against real
-// sockets instead of mocked replies. Responses are scripted per request in
-// arrival order; every response carries "Connection: close" so each request
-// arrives on its own connection and the script order stays deterministic.
-//
-// Failure knobs mirror the C++ FakeApiServer conventions: an abrupt close
-// without a response and a delayed response (for in-flight cancellation
-// races). Anything not scripted is answered 200 {}.
-
 #include <QByteArray>
 #include <QList>
 #include <QMap>
@@ -24,7 +14,6 @@ namespace test_support {
 struct HttpRequest {
     QByteArray method;
     QByteArray path;
-    // Keys lower-cased; values as sent.
     QMap<QByteArray, QByteArray> headers;
     QByteArray body;
 };
@@ -33,9 +22,7 @@ struct HttpResponse {
     int status = 200;
     QByteArray body = "{}";
     QByteArray contentType = "application/json";
-    // Record the request, then reset the connection without answering.
     bool closeWithoutResponse = false;
-    // Hold the answer back; the request is recorded immediately.
     int delayMs = 0;
 };
 
@@ -127,4 +114,4 @@ private:
     QList<HttpRequest> requests_;
 };
 
-} // namespace test_support
+}

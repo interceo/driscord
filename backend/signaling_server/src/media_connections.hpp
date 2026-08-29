@@ -11,9 +11,6 @@
 
 namespace driscord {
 
-// Owns the independent voice/screen PeerConnections terminated by the SFU.
-// WebSocket Session only dispatches signaling into this object; RTP routing
-// and track lifecycle stay out of the already busy HTTP/WebSocket class.
 class MediaConnections final {
 public:
     using SignalSender = std::function<void(std::string)>;
@@ -41,4 +38,4 @@ private:
     std::shared_ptr<Impl> impl_;
 };
 
-} // namespace driscord
+}

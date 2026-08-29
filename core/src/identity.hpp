@@ -24,7 +24,7 @@ struct Username {
     friend bool operator==(const Username&, const Username&) = default;
 };
 
-} // namespace driscord
+}
 
 template <>
 struct std::hash<driscord::PeerId> {

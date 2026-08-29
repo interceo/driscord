@@ -25,7 +25,6 @@ async def list_users(
     return result.scalars().all()
 
 
-# Must be declared before /{user_id} so FastAPI doesn't route "me" as an id.
 @router.get("/me", response_model=MeResponse)
 async def get_me(current_user: User = Depends(get_current_user)):
     return current_user
@@ -57,9 +56,6 @@ async def lookup_user(
     return user
 
 
-# Deliberately unauthenticated: the Qt client hands this URL straight to a QML
-# Image element, which cannot attach an Authorization header. Avatars are the
-# only public user field; everything else requires a token.
 @router.get("/{user_id}/avatar")
 async def get_avatar(
     user_id: int,

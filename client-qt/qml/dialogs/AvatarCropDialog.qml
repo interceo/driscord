@@ -19,7 +19,7 @@ Dialog {
     }
 
     property string imagePath: ""
-    property string initialUrl: ""   // existing avatar URL shown before user picks a file
+    property string initialUrl: ""
     property real   cropScale: 1.0
     property real   offsetX: 0
     property real   offsetY: 0
@@ -50,7 +50,6 @@ Dialog {
             onClicked: filePicker.open()
         }
 
-        // Visible preview: full image + semi-transparent overlay with circular cutout
         Item {
             id: previewArea
             Layout.alignment: Qt.AlignHCenter
@@ -104,7 +103,6 @@ Dialog {
                 }
             }
 
-            // Semi-transparent dark overlay with circular cutout
             Canvas {
                 anchors.fill: parent
                 Component.onCompleted: requestPaint()

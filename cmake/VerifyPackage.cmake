@@ -1,6 +1,3 @@
-# Validate the staged component tree before CPack creates the archive. Keeping
-# the complete gate here makes a failure prevent artifact creation; CPack post
-# scripts run too late to provide that guarantee.
 
 if(NOT DEFINED CPACK_TEMPORARY_INSTALL_DIRECTORY
         OR CPACK_TEMPORARY_INSTALL_DIRECTORY STREQUAL "")
@@ -26,9 +23,14 @@ get_filename_component(_driscord_package_root "${_driscord_bin_dir}" DIRECTORY)
 
 set(_driscord_required_paths
     "driscord"
+    "AppRun"
+    "driscord.desktop"
+    "driscord.svg"
+    ".DirIcon"
     "README.txt"
     "lib/libQt6Widgets.so.6"
-    "lib/libQt6Core5Compat.so.6"
+    "lib/libQt6QuickEffects.so.6"
+    "qml/QtQuick/Effects/qmldir"
     "plugins/platforms/libqoffscreen.so"
     "plugins/platforms/libqminimal.so")
 foreach(_driscord_relative_path IN LISTS _driscord_required_paths)
@@ -45,10 +47,37 @@ if(NOT _driscord_datachannel_libraries)
     message(FATAL_ERROR "Required runtime artifact is missing: lib/libdatachannel.so*")
 endif()
 
-foreach(_driscord_forbidden_path IN ITEMS config.json include lib/cmake)
+foreach(_driscord_forbidden_path IN ITEMS
+        config.json
+        include
+        lib/cmake
+        plugins/qmltooling
+        plugins/egldeviceintegrations
+        plugins/multimedia/libgstreamermediaplugin.so
+        qml/Qt5Compat
+        qml/QtTest
+        qml/QtQuick/Controls/Fusion
+        qml/QtQuick/Controls/Imagine
+        qml/QtQuick/Controls/Material
+        qml/QtQuick/Controls/Universal
+        lib/libQt6Core5Compat.so.6
+        lib/libQt6ShaderTools.so.6
+        lib/libQt6Test.so.6
+        lib/libQt6QuickTest.so.6
+        lib/libQt6EglFSDeviceIntegration.so.6
+        lib/libQt6EglFsKmsSupport.so.6
+        lib/libQt6EglFsKmsGbmSupport.so.6
+        lib/libQt6QuickControls2Fusion.so.6
+        lib/libQt6QuickControls2FusionStyleImpl.so.6
+        lib/libQt6QuickControls2Imagine.so.6
+        lib/libQt6QuickControls2ImagineStyleImpl.so.6
+        lib/libQt6QuickControls2Material.so.6
+        lib/libQt6QuickControls2MaterialStyleImpl.so.6
+        lib/libQt6QuickControls2Universal.so.6
+        lib/libQt6QuickControls2UniversalStyleImpl.so.6)
     if(EXISTS "${_driscord_package_root}/${_driscord_forbidden_path}")
         message(FATAL_ERROR
-            "Development files leaked into Runtime component: "
+            "Forbidden artifact in Runtime component: "
             "${_driscord_forbidden_path}")
     endif()
 endforeach()
@@ -128,8 +157,6 @@ endif()
 if(_driscord_ldd_output MATCHES "not found")
     message(FATAL_ERROR "Unresolved dependency in package: ${_driscord_ldd_output}")
 endif()
-# Resolutions through $ORIGIN legitimately contain the staging path. Remove
-# that prefix before checking whether anything resolves back to the build host.
 string(REPLACE "${_driscord_package_root}" "<PACKAGE>"
     _driscord_external_ldd_output "${_driscord_ldd_output}")
 if(_driscord_external_ldd_output MATCHES

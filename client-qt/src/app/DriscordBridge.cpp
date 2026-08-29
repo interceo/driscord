@@ -77,8 +77,6 @@ DriscordBridge::DriscordBridge(
         });
     m_core->set_on_frame([this](const std::string& id,
                              const DriscordCore::VideoFrameView& f) {
-        // Decoder thread. One copy of the planes into a mappable QVideoFrame;
-        // colour conversion is the render shader's job.
         QMutexLocker lock(&m_sinkMutex);
         const QList<QVideoSink*> sinks
             = m_videoSinks.value(QString::fromStdString(id));
@@ -109,15 +107,12 @@ DriscordBridge::DriscordBridge(
             }
         }
         frame.unmap();
-        // Tile and expanded view can watch the same peer at once; QVideoFrame
-        // is implicitly shared, so the extra sinks are free.
         for (QVideoSink* sink : sinks)
             sink->setVideoFrame(frame);
     });
     m_core->set_on_frame_removed([this](const std::string& id) {
         QString qid = QString::fromStdString(id);
         {
-            // Clear the last picture so a re-watch does not flash stale video.
             QMutexLocker lock(&m_sinkMutex);
             for (QVideoSink* sink : m_videoSinks.value(qid))
                 sink->setVideoFrame(QVideoFrame());
@@ -135,8 +130,6 @@ void DriscordBridge::shutdown()
 {
     if (!m_core)
         return;
-    // Order matters: the media threads must stop delivering frames before the
-    // providers they write into can go away.
     ++m_audioGeneration;
     m_audioPool.waitForDone();
     m_thumbnailPool.waitForDone();
@@ -163,7 +156,6 @@ void DriscordBridge::registerVideoSink(const QString& peerId, QVideoSink* sink)
         if (!sinks.contains(sink))
             sinks.append(sink);
     }
-    // Safety net for QML teardown orders that skip unregisterVideoSink.
     QObject::connect(sink, &QObject::destroyed, this, [this, peerId, sink] {
         QMutexLocker lock(&m_sinkMutex);
         const auto found = m_videoSinks.find(peerId);
@@ -216,8 +208,6 @@ void DriscordBridge::requestThumbnail(const QString& targetJson, int maxW, int m
     });
 }
 
-// -- Transport --
-
 void DriscordBridge::connect(const QString& serverUrl,
     const QString& username,
     const QString& accessToken)
@@ -225,9 +215,6 @@ void DriscordBridge::connect(const QString& serverUrl,
     QString url = serverUrl;
     url += (url.contains('?') ? '&' : '?');
     url += "u=" + QString::fromUtf8(QUrl::toPercentEncoding(username));
-    // The signaling server checks channel membership with this token. It is
-    // ignored by a server running in anonymous mode, which then falls back to
-    // the username above.
     if (!accessToken.isEmpty()) {
         url += "&t=" + QString::fromUtf8(QUrl::toPercentEncoding(accessToken));
     }
@@ -242,10 +229,6 @@ QString DriscordBridge::voiceStatsJson() const
     return QString::fromStdString(m_core->voice_stats_json());
 }
 
-// -- Audio --
-
-// Native ADM initialization may query the platform audio stack, so keep it
-// off the Qt event loop.
 void DriscordBridge::audioStart()
 {
     const auto generation = ++m_audioGeneration;
@@ -323,8 +306,6 @@ void DriscordBridge::setPeerVolume(const QString& id, float v) { m_core->audio_s
 float DriscordBridge::peerVolume(const QString& id) const { return m_core->audio_peer_volume(id.toStdString()); }
 void DriscordBridge::setPeerMuted(const QString& id, bool m) { m_core->audio_set_peer_muted(id.toStdString(), m); }
 bool DriscordBridge::peerMuted(const QString& id) const { return m_core->audio_peer_muted(id.toStdString()); }
-
-// -- Screen / Video --
 
 void DriscordBridge::initScreenSession()
 {

@@ -136,7 +136,7 @@ std::vector<int16_t> make_tone_frame(double frequency_hz,
     return result;
 }
 
-} // namespace
+}
 
 TEST(GoogleWebRtcTransport, ReportsAnInitialConnectionFailure)
 {
@@ -158,10 +158,6 @@ TEST(GoogleWebRtcTransport, ReportsAnInitialConnectionFailure)
 
 TEST_F(GoogleWebRtcTransportTest, VoiceConnectsToLibdatachannelSfu)
 {
-    // Deliberately the platform-ADM path, not an injected device: on a
-    // machine without a working audio server this exercises the dummy-device
-    // fallback (DRISCORD-9) — the session must still negotiate and connect.
-    // The decode tests below keep injected audio for deterministic PCM.
     driscord::media::GoogleWebRtcRuntime runtime;
     Transport transport;
     Waiter connected;
@@ -334,9 +330,6 @@ TEST_F(GoogleWebRtcTransportTest, VoiceSlotsBindThreeParticipantsIndependently)
     assert_bindings(second_bindings, { first_id, third_id });
     assert_bindings(third_bindings, { first_id, second_id });
 
-    // Recreating the client PeerConnection while keeping the signaling
-    // session replaces server-side tracks. The stable subscriber slot must be
-    // rebound to the new RTP source rather than retaining the old timeline.
     third_voice->close();
     third_voice = make_voice(third_transport, third_connected);
     ASSERT_TRUE(third_voice->start());
@@ -345,7 +338,6 @@ TEST_F(GoogleWebRtcTransportTest, VoiceSlotsBindThreeParticipantsIndependently)
     EXPECT_EQ(first_bindings.snapshot().back().second, third_id);
     EXPECT_EQ(second_bindings.snapshot().back().second, third_id);
 
-    // Churn must clear the exact slot before it can be reused by a later peer.
     third_voice->close();
     third_transport.disconnect();
     ASSERT_TRUE(first_bindings.wait_for_count(
@@ -524,8 +516,6 @@ TEST_F(GoogleWebRtcTransportTest, RoutesAndDecodesTwoConcurrentPcmSources)
     }
     ASSERT_EQ(bound_publishers, expected_publishers);
 
-    // The official clocked TestAudioDeviceModule consumes one queued frame per
-    // 10 ms, so feeding ahead avoids scheduler-dependent sleeps in the test.
     for (size_t frame = 0; frame < 250; ++frame) {
         ASSERT_TRUE(first_runtime.submit_recorded_audio_10ms(
             make_tone_frame(440.0, frame)));
@@ -533,13 +523,6 @@ TEST_F(GoogleWebRtcTransportTest, RoutesAndDecodesTwoConcurrentPcmSources)
             make_tone_frame(880.0, frame)));
     }
 
-    // Goodput floor: each publisher injected 250 frames (2.5 s) of tone, and
-    // the 1-in-11 post-SRTP drop is recovered by NACK, so the listener must
-    // decode well over half of it per mid — "some frames arrived" is not
-    // "audio flows". The per-mid asserts below run on this rich window on
-    // purpose: sampling after the first few frames put the loss-concealed
-    // ramp-in in charge of the zero-crossing frequency estimate, which made
-    // the tone check flake.
     ASSERT_TRUE(decoded_audio.wait_for_active_mids(2, 150))
         << "decoded audio goodput stayed under 150/250 frames per mid";
     const auto observations = decoded_audio.snapshot();
@@ -592,8 +575,6 @@ TEST_F(GoogleWebRtcTransportTest, RoutesAndDecodesTwoConcurrentPcmSources)
         }
     }
     EXPECT_GT(packets_lost, 0);
-    // The lifted NetEq fields carry real data: cumulative counters, so no
-    // race against the tone having drained by the time stats are polled.
     EXPECT_GT(total_samples_received, 0u);
     EXPECT_GT(total_audio_energy, 0.0);
     for (const auto& [mid, peer] : peer_by_mid) {

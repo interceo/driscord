@@ -1,8 +1,6 @@
 import QtQuick
 import QtQuick.Controls
 
-// Round-rect icon button with a dark hover surface (no white flash from the
-// default Qt Controls style). Drop-in replacement for ToolButton for icons.
 ToolButton {
     id: root
     property color iconColor: "#dcddde"

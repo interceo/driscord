@@ -12,30 +12,22 @@
 
 class GoogleWebRtcClient;
 
-// One STUN or TURN server as the user configures it. A plain value type so the
-// media stack's types stay behind GoogleWebRtcClient.
 struct IceServer {
     std::string url;
     std::string username;
     std::string password;
 };
 
-// Business/API boundary used by the Qt client. Media implementation details
-// stay behind GoogleWebRtcClient and native Google WebRTC tracks.
 class DriscordCore {
 public:
     using StringCb = std::function<void(const std::string&)>;
     using WatchRejectedCb = std::function<void(
         const std::string&, signaling::WatchRejectReason)>;
-    // Borrowed I420 planes from the decoder thread (no WebRTC types leak:
-    // the view is a plain struct). Consumers copy/upload before returning.
     using VideoFrameView = driscord::media::DecodedVideoFrameView;
     using FrameCb = std::function<void(const std::string&, const VideoFrameView&)>;
 
     Transport transport;
 
-    // Without ICE servers the client offers host candidates only, which
-    // reaches an SFU just when a routable address sits on its interface.
     explicit DriscordCore(std::vector<IceServer> ice_servers = { });
     ~DriscordCore();
 
@@ -70,15 +62,11 @@ public:
     [[nodiscard]] std::string audio_output_devices_json() const;
     [[nodiscard]] bool audio_set_input_device(const std::string& id);
     [[nodiscard]] bool audio_set_output_device(const std::string& id);
-    // False when no working audio device was available and the media stack
-    // fell back to a silent dummy: sessions connect and negotiate audio, but
-    // the user is neither heard nor hears anyone. Surface this in the UI.
     [[nodiscard]] bool audio_device_available() const;
     void audio_set_peer_volume(const std::string& peer, float volume);
     [[nodiscard]] float audio_peer_volume(const std::string& peer) const;
     void audio_set_peer_muted(const std::string& peer, bool muted);
     [[nodiscard]] bool audio_peer_muted(const std::string& peer) const;
-    // Voice transport counters and the round trip to the SFU, as JSON.
     [[nodiscard]] std::string voice_stats_json() const;
 
     [[nodiscard]] std::string capture_audio_list_targets_json() const;
@@ -94,8 +82,6 @@ public:
         int max_width,
         int max_height);
 
-    // `audio_target` is a playback device id from
-    // capture_audio_list_targets_json(); empty means the default sink.
     [[nodiscard]] bool screen_start_sharing(const std::string& target_json,
         int max_width,
         int max_height,

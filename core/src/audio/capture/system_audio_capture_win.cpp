@@ -81,7 +81,7 @@ private:
     IUnknown* activated_ = nullptr;
 };
 
-#endif // DRIST_HAS_PROCESS_LOOPBACK
+#endif
 
 class SystemAudioCaptureWin : public SystemAudioCapture {
 public:
@@ -93,8 +93,6 @@ public:
             return true;
         }
 
-        // Loopback source selection is Linux-only so far; this backend
-        // always captures the default render endpoint.
         (void)target_id;
         callback_ = std::move(cb);
 
@@ -263,7 +261,7 @@ private:
         desired.nBlockAlign = desired.nChannels * desired.wBitsPerSample / 8;
         desired.nAvgBytesPerSec = desired.nSamplesPerSec * desired.nBlockAlign;
 
-        REFERENCE_TIME duration = 200000; // 20ms
+        REFERENCE_TIME duration = 200000;
         HRESULT hr = audio_client_->Initialize(
             AUDCLNT_SHAREMODE_SHARED,
             extra_flags | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY,
@@ -358,8 +356,6 @@ bool SystemAudioCapture::available()
     return true;
 }
 
-// WASAPI loopback always captures the default render endpoint — no sink
-// selection is exposed to the caller on Windows.
 std::vector<AudioCaptureTarget> SystemAudioCapture::list_sinks()
 {
     return { };
@@ -370,4 +366,4 @@ std::unique_ptr<SystemAudioCapture> SystemAudioCapture::create()
     return std::make_unique<SystemAudioCaptureWin>();
 }
 
-#endif // _WIN32
+#endif
