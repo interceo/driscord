@@ -1,4 +1,4 @@
-ARG BUILDER_IMAGE=registry.registry.svc.cluster.local:5000/driscord-ci@sha256:e4ddaf831566878e99074a519e5e86c3286a973ef5a6c33ac01cee4bd9bf1ead
+ARG BUILDER_IMAGE=registry.registry.svc.cluster.local:5000/driscord-ci@sha256:fec1fd5e1ca1e834914076b4306770a7c26ec2cd3f4105425e82eb040fa833a5
 ARG RUNTIME_IMAGE=registry.registry.svc.cluster.local:5000/driscord-signaling-runtime-base@sha256:16e979f564e55402f66834606a5cb7531ea9b3a67fafe0ef551a3c39648ad15e
 
 FROM ${BUILDER_IMAGE} AS builder
