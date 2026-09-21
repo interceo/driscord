@@ -48,6 +48,7 @@ add_library(driscord_core STATIC
     src/webrtc/google_webrtc_screen_stats.cpp
     src/transport.cpp
     src/utils/ma_device.cpp
+    src/utils/proxy_config.cpp
     src/utils/system_ca_bundle.cpp
     ${SYSTEM_AUDIO_SOURCES}
 )

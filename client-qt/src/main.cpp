@@ -1,4 +1,5 @@
 #include <QCoreApplication>
+#include <QDebug>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -18,6 +19,7 @@
 #include "app/AppState.h"
 #include "app/AvatarTintProvider.h"
 #include "app/DriscordBridge.h"
+#include "app/NetworkProxy.h"
 #include "app/ThumbnailProvider.h"
 #include "driscord/client_build_config.hpp"
 #include "driscord/version.hpp"
@@ -117,6 +119,14 @@ int main(int argc, char* argv[])
         AppConfig cfg = AppConfig::load();
         const QString signalingUrl = QString::fromUtf8(driscord::kSignalingUrl);
         const QString apiBaseUrl = QString::fromUtf8(driscord::kApiBaseUrl);
+
+        if (const QString proxy = network_proxy::installFromEnvironment(apiBaseUrl);
+            !proxy.isEmpty()) {
+            qInfo().noquote()
+                << "[proxy]" << proxy
+                << "- signaling and HTTP only; ICE and SRTP are UDP and do not "
+                   "traverse it";
+        }
 
         auto* apiClient = new ApiClient(&app);
         apiClient->setBaseUrl(apiBaseUrl);

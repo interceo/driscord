@@ -10,6 +10,7 @@ set(CLIENT_SOURCES
     src/app/AppConfig.cpp
     src/app/AvatarTintProvider.cpp
     src/app/DriscordBridge.cpp
+    src/app/NetworkProxy.cpp
     src/api/ApiClient.cpp
     src/api/AuthManager.cpp
     src/api/SessionStore.cpp

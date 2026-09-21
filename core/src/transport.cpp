@@ -2,6 +2,7 @@
 
 #include "log.hpp"
 #include "match.hpp"
+#include "proxy_config.hpp"
 #include "system_ca_bundle.hpp"
 
 #include <chrono>
@@ -52,6 +53,28 @@ utils::Expected<void, TransportError> Transport::connect(
         config.maxOutstandingPings = 2;
         if (auto ca_bundle = utils::system_ca_bundle_pem()) {
             config.caCertificatePemFile = std::move(*ca_bundle);
+        }
+        if (auto proxy = utils::proxy_for_url(ws_url)) {
+            // libdatachannel tunnels the WebSocket with HTTP CONNECT and has
+            // no SOCKS or proxy-authentication support, so anything else is
+            // refused loudly rather than bypassed without the operator
+            // noticing they are no longer behind the proxy they asked for.
+            if (proxy->scheme != utils::ProxyConfig::Scheme::Http) {
+                LOG_ERROR() << "Transport: signaling needs an http proxy, got "
+                            << proxy->url();
+                update_state(TransportConnectionState::Failed);
+                return utils::Unexpected(TransportError::WebSocketCreateFailed);
+            }
+            if (proxy->authenticated()) {
+                LOG_ERROR() << "Transport: proxy authentication is not "
+                               "supported by libdatachannel: "
+                            << proxy->url();
+                update_state(TransportConnectionState::Failed);
+                return utils::Unexpected(TransportError::WebSocketCreateFailed);
+            }
+            LOG_INFO() << "Transport: signaling through proxy " << proxy->url();
+            config.proxyServer = rtc::ProxyServer(
+                rtc::ProxyServer::Type::Http, proxy->host, proxy->port);
         }
         ws = std::make_shared<rtc::WebSocket>(config);
     } catch (const std::exception& exception) {
