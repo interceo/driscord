@@ -311,6 +311,21 @@ if(WIN32 AND DRISCORD_ENABLE_PACKAGING)
     endforeach()
     unset(_driscord_win_qml_module)
 
+    # QtQuick/Controls is copied whole, so the styles the client never loads
+    # come along with it. They have to go before the import walk below: it
+    # globs qml/*.dll and would otherwise pull each style's implementation
+    # DLL into the package as a dependency. cmake/VerifyPackageWindows.cmake
+    # fails the package if either the directories or those DLLs survive.
+    install(CODE [[
+        foreach(_driscord_pruned_dir IN ITEMS
+                qml/QtQuick/Controls/Fusion
+                qml/QtQuick/Controls/Imagine
+                qml/QtQuick/Controls/Material
+                qml/QtQuick/Controls/Universal)
+            file(REMOVE_RECURSE "${CMAKE_INSTALL_PREFIX}/${_driscord_pruned_dir}")
+        endforeach()
+    ]] COMPONENT Runtime)
+
     install(CODE "set(DRISCORD_QT_BIN_DIR \"${_driscord_qt_bin_dir}\")"
         COMPONENT Runtime)
     install(CODE "set(DRISCORD_MSVC_REDIST_DIR \"${_driscord_redist_dir}\")"
