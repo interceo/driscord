@@ -1,0 +1,9 @@
+# LeakSanitizer suppressions for the sanitized core gate.
+#
+# miniaudio probes backends in priority order and dlopen()s each candidate.
+# On a headless box PulseAudio and ALSA both fail, so it reaches JACK: libjack
+# runs its C++ static initialisers, miniaudio dlclose()s it once the probe
+# fails, and the module is gone by the time LeakSanitizer walks the heap. The
+# allocation is JACK's own and unreachable from any code we own, so it cannot
+# be freed from here -- only hidden. Nothing in driscord calls into JACK.
+leak:ma_context_init__jack

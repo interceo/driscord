@@ -8,11 +8,20 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(FetchContent)
 
 
+# The PulseAudio backend leaks its pa_context whenever the library loads but
+# the connection fails -- a headless CI box with no sound server, which is
+# where the nightly ASan gate runs. miniaudio then falls back to the null
+# backend and the orphaned context trips LeakSanitizer.
 FetchContent_Declare(
     miniaudio
     GIT_REPOSITORY https://github.com/mackron/miniaudio.git
     GIT_TAG        0.11.21
     GIT_SHALLOW    TRUE
+    PATCH_COMMAND
+        "${CMAKE_COMMAND}"
+        "-DSOURCE_DIR=<SOURCE_DIR>"
+        "-DPATCH_FILE=${CMAKE_SOURCE_DIR}/third_party/patches/miniaudio-pulse-context-leak.patch"
+        -P "${CMAKE_SOURCE_DIR}/cmake/ApplyGitPatch.cmake"
 )
 
 FetchContent_MakeAvailable(miniaudio)

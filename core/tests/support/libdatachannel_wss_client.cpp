@@ -31,11 +31,6 @@ int main(int argc, char** argv)
         [](rtc::LogLevel level, std::string message) {
             std::cerr << level << ": " << message << '\n';
         });
-    rtc::WebSocket::Configuration config;
-    config.disableTlsVerification = true;
-    config.pingInterval = std::chrono::milliseconds::zero();
-    rtc::WebSocket socket(config);
-
     auto finish = [&](bool ok, std::string message = { }) {
         if (finished.exchange(true)) {
             return;
@@ -47,6 +42,15 @@ int main(int argc, char** argv)
         }
         changed.notify_one();
     };
+
+    // The socket is declared after everything its callbacks capture: closing
+    // the transports from ~WebSocket still runs onClosed, and locals die in
+    // reverse declaration order, so a socket declared earlier would call a
+    // finish whose frame is already gone.
+    rtc::WebSocket::Configuration config;
+    config.disableTlsVerification = true;
+    config.pingInterval = std::chrono::milliseconds::zero();
+    rtc::WebSocket socket(config);
 
     socket.onOpen([&] {
         const std::string prefix = R"({"type":"probe","padding":")";

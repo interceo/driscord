@@ -255,9 +255,10 @@
       "filter": { "exclude": { "label": "soak" } },
       "environment": {
         "ASAN_OPTIONS": "detect_container_overflow=0",
-        "UBSAN_OPTIONS": "print_stacktrace=1"
+        "UBSAN_OPTIONS": "print_stacktrace=1",
+        "LSAN_OPTIONS": "suppressions=${sourceDir}/core/tests/lsan.supp"
       },
-      "description": "detect_container_overflow is off because the pinned libwebrtc.a is built without ASan; instrumented code inspecting its containers would raise false positives."
+      "description": "detect_container_overflow is off because the pinned libwebrtc.a is built without ASan; instrumented code inspecting its containers would raise false positives. The LeakSanitizer suppressions cover miniaudio's dlopen-based backend probing, which cannot free what a dlclose'd module allocated."
     },
     {
       "name": "coverage",
