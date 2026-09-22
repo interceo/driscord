@@ -16,7 +16,7 @@ InstallLayout detectInstallLayout(const QString& exePath,
         return { };
     }
 
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN)
     const QFileInfo exe(exePath);
     const QDir exeDir = exe.absoluteDir();
     if (exe.fileName() == QLatin1String("driscord_client.exe")
@@ -24,6 +24,18 @@ InstallLayout detectInstallLayout(const QString& exePath,
         && QFileInfo(exeDir.filePath(QStringLiteral("plugins"))).isDir()) {
         return { InstallLayout::Kind::WindowsFlat, true,
             exeDir.absolutePath(), exe.absoluteFilePath(), { } };
+    }
+#elif defined(Q_OS_MACOS)
+    // .../Driscord.app/Contents/MacOS/driscord_client — the root is the
+    // directory holding the bundle, never the bundle itself: staging an update
+    // inside .app would invalidate its signature.
+    const QFileInfo exe(exePath);
+    QDir dir = exe.absoluteDir();
+    if (dir.dirName() == QLatin1String("MacOS") && dir.cdUp()
+        && dir.dirName() == QLatin1String("Contents") && dir.cdUp()
+        && dir.dirName().endsWith(QLatin1String(".app")) && dir.cdUp()) {
+        return { InstallLayout::Kind::MacBundle, true, dir.absolutePath(),
+            exe.absoluteFilePath(), { } };
     }
 #else
     Q_UNUSED(exePath);

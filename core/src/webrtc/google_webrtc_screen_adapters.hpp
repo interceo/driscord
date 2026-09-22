@@ -68,7 +68,10 @@ private:
 
     const ErrorCallback on_error_;
     std::mutex capture_mutex_;
-    std::jthread capture_thread_;
+    // Not a jthread: libc++ in the macOS SDK keeps jthread and stop_token
+    // behind _LIBCPP_ENABLE_EXPERIMENTAL, so the loop carries its own flag.
+    std::thread capture_thread_;
+    std::atomic<bool> capture_stop_ { false };
     std::atomic<bool> capture_failed_ { false };
     std::atomic<int> max_width_ { 0 };
     std::atomic<int> max_height_ { 0 };

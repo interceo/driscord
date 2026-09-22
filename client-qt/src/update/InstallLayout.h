@@ -4,7 +4,8 @@
 struct InstallLayout {
     enum class Kind { None,
         WindowsFlat,
-        AppImage };
+        AppImage,
+        MacBundle };
 
     Kind kind = Kind::None;
     bool portable = false;

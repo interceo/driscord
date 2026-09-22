@@ -416,9 +416,12 @@ void UpdateManager::beginExtraction(const QString& archivePath)
 
 void UpdateManager::onExtractionFinished(const QString& payloadDir)
 {
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN)
     const QString probe
         = payloadDir + QStringLiteral("/driscord_client.exe");
+#elif defined(Q_OS_MACOS)
+    const QString probe = payloadDir
+        + QStringLiteral("/Driscord.app/Contents/MacOS/driscord_client");
 #else
     const QString probe
         = payloadDir + QStringLiteral("/bin/driscord_client");

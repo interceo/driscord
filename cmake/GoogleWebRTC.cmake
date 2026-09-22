@@ -1,21 +1,27 @@
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
-    set(_driscord_webrtc_windows TRUE)
+    set(_driscord_webrtc_platform "windows")
+    set(_driscord_webrtc_processors "^(x86_64|amd64)$")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    set(_driscord_webrtc_windows FALSE)
+    set(_driscord_webrtc_platform "linux")
+    set(_driscord_webrtc_processors "^(x86_64|amd64)$")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    set(_driscord_webrtc_platform "mac")
+    set(_driscord_webrtc_processors "^(arm64|aarch64)$")
 else()
     message(FATAL_ERROR
         "The pinned Google WebRTC artifact is configured for Linux and "
-        "Windows x86_64 only.")
+        "Windows x86_64 and macOS arm64 only.")
 endif()
 
 string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" _driscord_system_processor)
-if(NOT _driscord_system_processor MATCHES "^(x86_64|amd64)$")
+if(NOT _driscord_system_processor MATCHES "${_driscord_webrtc_processors}")
     message(FATAL_ERROR
-        "The pinned Google WebRTC artifact is built for x86_64, but "
-        "CMAKE_SYSTEM_PROCESSOR is '${CMAKE_SYSTEM_PROCESSOR}'.")
+        "The pinned Google WebRTC artifact for ${_driscord_webrtc_platform} "
+        "does not cover CMAKE_SYSTEM_PROCESSOR '${CMAKE_SYSTEM_PROCESSOR}'.")
 endif()
 unset(_driscord_system_processor)
+unset(_driscord_webrtc_processors)
 
 if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     message(FATAL_ERROR
@@ -24,10 +30,14 @@ if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         "when DRISCORD_USE_GOOGLE_WEBRTC=ON.")
 endif()
 
-if(_driscord_webrtc_windows)
+if(_driscord_webrtc_platform STREQUAL "windows")
     set(_driscord_webrtc_sdk_dir "google-webrtc-sdk-win")
     set(_driscord_webrtc_out_name "driscord-release-win")
     set(_driscord_webrtc_archive_name "webrtc.lib")
+elseif(_driscord_webrtc_platform STREQUAL "mac")
+    set(_driscord_webrtc_sdk_dir "google-webrtc-sdk-mac")
+    set(_driscord_webrtc_out_name "driscord-release-mac")
+    set(_driscord_webrtc_archive_name "libwebrtc.a")
 else()
     set(_driscord_webrtc_sdk_dir "google-webrtc-sdk")
     set(_driscord_webrtc_out_name "driscord-release")
@@ -68,9 +78,11 @@ if(NOT EXISTS "${_driscord_webrtc_archive}")
 endif()
 
 find_package(Threads REQUIRED)
-if(NOT _driscord_webrtc_windows)
+if(_driscord_webrtc_platform STREQUAL "linux")
     find_package(X11 REQUIRED)
     find_program(DRISCORD_LLD_LINKER ld.lld REQUIRED)
+elseif(_driscord_webrtc_platform STREQUAL "mac")
+    find_program(DRISCORD_LLD_LINKER ld64.lld REQUIRED)
 endif()
 
 set(_driscord_webrtc_include_dirs
@@ -104,7 +116,7 @@ set_target_properties(driscord_google_webrtc PROPERTIES
         "${_driscord_webrtc_include_dirs}"
 )
 
-if(_driscord_webrtc_windows)
+if(_driscord_webrtc_platform STREQUAL "windows")
     set(_driscord_webrtc_builtins
         "${DRISCORD_WEBRTC_OUT_DIR}/obj/clang_rt.builtins-x86_64.lib")
     if(NOT EXISTS "${_driscord_webrtc_builtins}")
@@ -121,6 +133,27 @@ if(_driscord_webrtc_windows)
             "Threads::Threads;${_driscord_webrtc_builtins};crypt32;iphlpapi;secur32;winmm;ole32;oleaut32;strmiids;user32;dmoguids;wmcodecdspuuid;amstrmid;msdmo;d3d11;dxgi;shcore;dwmapi"
     )
     unset(_driscord_webrtc_builtins)
+elseif(_driscord_webrtc_platform STREQUAL "mac")
+    # The archive is built by Chromium's clang, whose darwin compiler-rt is not
+    # part of a distribution LLVM package; the SDK export carries it along.
+    set(_driscord_webrtc_builtins
+        "${DRISCORD_WEBRTC_OUT_DIR}/obj/libclang_rt.osx.a")
+    if(NOT EXISTS "${_driscord_webrtc_builtins}")
+        message(FATAL_ERROR
+            "libclang_rt.osx.a is missing next to the WebRTC archive. Re-run "
+            "scripts/build_google_webrtc.sh (DRISCORD_WEBRTC_TARGET=mac); it "
+            "exports the runtime library into the SDK.")
+    endif()
+    # The framework set mirrors `gn desc //:webrtc frameworks`; ScreenCaptureKit
+    # is weak there because WebRTC resolves it at runtime behind @available.
+    set_target_properties(driscord_google_webrtc PROPERTIES
+        INTERFACE_COMPILE_DEFINITIONS
+            "WEBRTC_MAC;WEBRTC_POSIX"
+        INTERFACE_LINK_LIBRARIES
+            "Threads::Threads;${_driscord_webrtc_builtins};-framework AppKit;-framework ApplicationServices;-framework AudioToolbox;-framework AVFoundation;-framework CoreAudio;-framework CoreGraphics;-framework CoreMedia;-framework CoreVideo;-framework Foundation;-framework IOKit;-framework IOSurface;-weak_framework ScreenCaptureKit"
+        INTERFACE_LINK_OPTIONS "-fuse-ld=lld"
+    )
+    unset(_driscord_webrtc_builtins)
 else()
     set_target_properties(driscord_google_webrtc PROPERTIES
         INTERFACE_COMPILE_DEFINITIONS
@@ -135,5 +168,5 @@ unset(_driscord_webrtc_archive)
 unset(_driscord_webrtc_archive_name)
 unset(_driscord_webrtc_default_source)
 unset(_driscord_webrtc_out_name)
+unset(_driscord_webrtc_platform)
 unset(_driscord_webrtc_sdk_dir)
-unset(_driscord_webrtc_windows)

@@ -281,12 +281,13 @@ bool DesktopVideoSource::start_capture(DesktopCaptureKind kind,
     max_width_ = max_width;
     max_height_ = max_height;
     capture_failed_ = false;
+    capture_stop_ = false;
     auto ready = std::make_shared<std::promise<bool>>();
     auto ready_result = ready->get_future();
     {
         std::scoped_lock lock(capture_mutex_);
-        capture_thread_ = std::jthread(
-            [this, kind, native_id, max_fps, ready](std::stop_token stop) {
+        capture_thread_ = std::thread(
+            [this, kind, native_id, max_fps, ready]() {
                 bool ready_signaled = false;
                 auto signal_ready = [&ready, &ready_signaled](bool value) {
                     if (!ready_signaled) {
@@ -311,7 +312,7 @@ bool DesktopVideoSource::start_capture(DesktopCaptureKind kind,
                     signal_ready(true);
                     const auto interval = std::chrono::microseconds(1'000'000 / max_fps);
                     auto deadline = std::chrono::steady_clock::now();
-                    while (!stop.stop_requested() && !capture_failed_) {
+                    while (!capture_stop_ && !capture_failed_) {
                         capturer->CaptureFrame();
                         deadline = std::max(deadline + interval,
                             std::chrono::steady_clock::now());
@@ -336,13 +337,13 @@ bool DesktopVideoSource::start_capture(DesktopCaptureKind kind,
 
 void DesktopVideoSource::stop_capture() noexcept
 {
-    std::jthread old;
+    std::thread old;
     {
         std::scoped_lock lock(capture_mutex_);
+        capture_stop_ = true;
         old = std::move(capture_thread_);
     }
     if (old.joinable()) {
-        old.request_stop();
         old.join();
     }
     max_width_ = 0;

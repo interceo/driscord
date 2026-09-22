@@ -58,7 +58,7 @@
       "name": "core-tests-asan",
       "inherits": "core-tests",
       "displayName": "Core + server tests under ASan/UBSan",
-      "description": "Nightly configuration. libwebrtc.a is not instrumented, hence the container-overflow suppression in the test preset.",
+      "description": "Nightly configuration. libwebrtc.a is neither instrumented nor built with RTTI, hence the container-overflow suppression in the test preset and the disabled vptr check in the root CMakeLists.",
       "cacheVariables": { "DRISCORD_SANITIZE": "address,undefined" }
     },
     {
@@ -144,6 +144,41 @@
       }
     },
     {
+      "name": "base-macos",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/.builds/$env{DRISCORD_BUILD_TAG}${presetName}",
+      "warnings": { "dev": false },
+      "toolchainFile": "${sourceDir}/cmake/toolchain/macos-clang.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "CMAKE_PREFIX_PATH": "$env{DRISCORD_QT_MAC_ROOT}",
+        "QT_HOST_PATH": "$env{QT_HOST_PATH}",
+        "BUILD_CORE": "ON",
+        "BUILD_SERVER": "OFF",
+        "BUILD_TESTS": "OFF",
+        "BUILD_QT_CLIENT": "ON"
+      },
+      "description": "Cross build to macOS arm64: clang/ld64.lld/llvm-* from PATH against DRISCORD_MACOS_SDK (see cmake/toolchain/macos-clang.cmake). Deliberately not inheriting base — the toolchain file pins the compilers, the sysroot and the deployment target. Inputs from the environment, like every other preset: DRISCORD_MACOS_SDK (an extracted MacOSX<version>.sdk, 15 or newer for ScreenCaptureKit), DRISCORD_QT_MAC_ROOT (Qt macos kit), QT_HOST_PATH (Linux Qt of the same version for moc/rcc/qmlcachegen), BOOST_ROOT, DRISCORD_WEBRTC_SDK_ROOT (mac SDK export). The server does not build for macOS, and no test tier runs here: nothing emulates a Mach-O userland the way Wine covers the Windows one."
+    },
+    {
+      "name": "client-macos",
+      "inherits": "base-macos",
+      "displayName": "Qt/QML client (macOS arm64 cross)"
+    },
+    {
+      "name": "macos-release",
+      "inherits": "client-macos",
+      "displayName": "Portable macOS client package",
+      "description": "Cross-builds and packages the client as a zip holding Driscord.app: curated Qt plugin/QML deploy plus a Mach-O closure that copies the frameworks the bundle reaches and thins them to arm64. Nothing is re-signed; the build host cannot sign, so every binary keeps the signature it arrived with. Bakes the production endpoints: release bundles are what the update channel serves.",
+      "cacheVariables": {
+        "DRISCORD_ENABLE_PACKAGING": "ON",
+        "DRISCORD_CLIENT_API_URL": "https://driscord.homelab.ceooptimizator.tech",
+        "DRISCORD_CLIENT_SIGNALING_URL": "wss://driscord.homelab.ceooptimizator.tech"
+      }
+    },
+    {
       "name": "server-debug",
       "inherits": "server",
       "displayName": "Signaling server (debug)",
@@ -193,6 +228,16 @@
       "configurePreset": "windows-tests"
     },
     {
+      "name": "client-macos",
+      "configurePreset": "client-macos",
+      "targets": ["driscord_client"]
+    },
+    {
+      "name": "macos-release",
+      "configurePreset": "macos-release",
+      "targets": ["driscord_client"]
+    },
+    {
       "name": "server-debug",
       "configurePreset": "server-debug",
       "targets": ["driscord_server"]
@@ -212,6 +257,11 @@
     {
       "name": "windows-release",
       "configurePreset": "windows-release",
+      "generators": ["ZIP"]
+    },
+    {
+      "name": "macos-release",
+      "configurePreset": "macos-release",
       "generators": ["ZIP"]
     }
   ],
@@ -345,6 +395,21 @@
       "steps": [
         { "type": "configure", "name": "client-windows" },
         { "type": "build", "name": "client-windows" }
+      ]
+    },
+    {
+      "name": "client-macos",
+      "steps": [
+        { "type": "configure", "name": "client-macos" },
+        { "type": "build", "name": "client-macos" }
+      ]
+    },
+    {
+      "name": "macos-release",
+      "steps": [
+        { "type": "configure", "name": "macos-release" },
+        { "type": "build", "name": "macos-release" },
+        { "type": "package", "name": "macos-release" }
       ]
     },
     {

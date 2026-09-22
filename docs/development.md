@@ -13,7 +13,8 @@ API нужны Python 3 и PostgreSQL. Часть C++-зависимостей C
 ./scripts/build_google_webrtc.sh
 ```
 
-Артефакт пока Linux-only; Windows/macOS core build намеренно отключён.
+Нативно артефакт собирается для Linux x86_64; Windows x64 и macOS arm64 —
+кросс-сборкой с того же хоста (`DRISCORD_WEBRTC_TARGET=windows|mac`).
 
 ## PostgreSQL и API
 

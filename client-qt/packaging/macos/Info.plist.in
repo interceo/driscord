@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Driscord</string>
+	<key>CFBundleExecutable</key>
+	<string>driscord_client</string>
+	<key>CFBundleIconFile</key>
+	<string>driscord</string>
+	<key>CFBundleIdentifier</key>
+	<string>tech.ceooptimizator.driscord</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>Driscord</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@DRISCORD_VERSION_CORE@</string>
+	<key>CFBundleVersion</key>
+	<string>@DRISCORD_VERSION_CORE@</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.social-networking</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>@CMAKE_OSX_DEPLOYMENT_TARGET@</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Driscord sends your microphone to the voice channel you join.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Driscord shares system audio together with your screen when you ask it to.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Driscord streams the screen or window you choose to share.</string>
+</dict>
+</plist>

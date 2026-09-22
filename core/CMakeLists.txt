@@ -93,14 +93,18 @@ target_link_libraries(driscord_core PUBLIC
 )
 
 if(APPLE)
-    find_library(AUDIOTOOLBOX_FRAMEWORK AudioToolbox REQUIRED)
-    find_library(COREAUDIO_FRAMEWORK CoreAudio REQUIRED)
-    find_library(COREFOUNDATION_FRAMEWORK CoreFoundation REQUIRED)
-    target_link_libraries(driscord_core PRIVATE
-        ${AUDIOTOOLBOX_FRAMEWORK}
-        ${COREAUDIO_FRAMEWORK}
-        ${COREFOUNDATION_FRAMEWORK}
-    )
+    # AudioToolbox/CoreAudio/CoreFoundation carry the miniaudio device path,
+    # ScreenCaptureKit/CoreMedia/Foundation the system-audio capture adapter,
+    # and Security the system trust store the Mbed TLS backend needs.
+    foreach(_driscord_mac_framework
+            AudioToolbox CoreAudio CoreFoundation CoreMedia Foundation
+            ScreenCaptureKit Security)
+        find_library(DRISCORD_${_driscord_mac_framework}_FRAMEWORK
+            ${_driscord_mac_framework} REQUIRED)
+        target_link_libraries(driscord_core PRIVATE
+            ${DRISCORD_${_driscord_mac_framework}_FRAMEWORK})
+    endforeach()
+    unset(_driscord_mac_framework)
 elseif(WIN32)
     target_link_libraries(driscord_core PRIVATE
         ole32 ksuser mmdevapi crypt32

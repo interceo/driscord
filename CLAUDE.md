@@ -30,7 +30,12 @@ sysroot (`DRISCORD_MSVC_SYSROOT`, xwin layout — see
 `cmake/toolchain/windows-clang-cl.cmake`). The `client-windows` and
 `windows-release` presets additionally read `DRISCORD_QT_WIN_ROOT` (Qt
 msvc2019_64), `QT_HOST_PATH` (Linux Qt of the same version) and, for
-packaging, `DRISCORD_MSVC_REDIST_DIR`. Do not restore the deleted MinGW or
+packaging, `DRISCORD_MSVC_REDIST_DIR`. macOS arm64 is cross-compiled the same
+way with `DRISCORD_WEBRTC_TARGET=mac` and an extracted `MacOSX<ver>.sdk`
+(`DRISCORD_MACOS_SDK`, 15 or newer); the `client-macos` and `macos-release`
+presets read `DRISCORD_QT_MAC_ROOT` (Qt macos kit) and `QT_HOST_PATH`, with
+clang/ld64.lld/llvm-lipo/llvm-otool on PATH (see
+`cmake/toolchain/macos-clang.cmake`). Do not restore the deleted MinGW or
 legacy benchmark paths as fake compatibility.
 
 Outputs:
@@ -100,7 +105,9 @@ static channel's `latest.json` + `.minisig`, verifies the minisign signature
 key list before parsing, checks sha256, and applies on explicit user action:
 on Linux the artifact is a single AppImage swapped in place
 (`install_swap::applyImageFile`), on Windows the zip is extracted with the
-system tar and swapped per file. The API is not involved; release presets bake
+system tar and swapped per file, and on macOS the zip holds `Driscord.app`
+alone, extracted by the system (bsd)tar and swapped into the directory that
+holds the bundle. The API is not involved; release presets bake
 the production endpoints and dev builds may override the channel via
 `config.json`.
 
@@ -178,4 +185,14 @@ public Qt/DriscordCore headers.
   under Wine and joins CI once the four Wine-sensitive tests stabilise
   (DRISCORD-15). Remaining Windows debt: a real Windows-VM runner for
   WASAPI/capture/D3D coverage and Authenticode signing. MinGW stays off the
-  table. macOS remains unplanned.
+  table.
+- macOS arm64 is cross-built the same way: `macos-release` lays out
+  `Driscord.app` by hand (macdeployqt cannot run here), copies the Qt
+  frameworks/dylibs the Mach-O closure reaches, thins them to arm64 and never
+  rewrites a load command — every binary keeps the signature it arrived with
+  (Qt's own, or the linker's ad-hoc one; install-time rpath rewrites would
+  break it, so the bundle rpath is linked in). `cmake/VerifyPackageMacos.cmake`
+  gates the tree. The `driscord-mac-builder` profile builds it in CI and the
+  release-builder ships `client-macos`. Remaining debt: Developer ID signing +
+  notarization (users clear the quarantine flag until then) and a real macOS
+  runner for capture/playout coverage; no test tier runs on this target.

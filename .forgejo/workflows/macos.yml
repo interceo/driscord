@@ -1,0 +1,27 @@
+name: macOS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  cross-build:
+    name: Cross-build and package
+    runs-on: driscord-mac-builder
+    timeout-minutes: 60
+    env:
+      FORGEJO_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout exact event commit
+        run: forgejo-checkout
+
+      - name: macOS client package
+        run: cmake --workflow --preset macos-release

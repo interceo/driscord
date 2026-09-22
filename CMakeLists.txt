@@ -37,6 +37,18 @@ elseif(DRISCORD_SANITIZE)
     add_compile_options(-fsanitize=${DRISCORD_SANITIZE}
         -fno-sanitize-recover=undefined -fno-omit-frame-pointer)
     add_link_options(-fsanitize=${DRISCORD_SANITIZE})
+    if(BUILD_CORE)
+        # The vptr check reads the type_info a vtable points at, so it only
+        # works when every translation unit emitting a vtable has RTTI. The
+        # pinned libwebrtc.a is built without it and so is driscord_core, and
+        # clang answers that by silently dropping vptr in exactly those units
+        # rather than failing the build. What is left instrumented is the test
+        # code, which then reports every call through a vtable those units
+        # emitted -- including weak stdlib template vtables the linker happens
+        # to take from them -- as an invalid vptr. Turn the check off wherever
+        # the core is in the link; ASan and the rest of UBSan stay on.
+        add_compile_options(-fno-sanitize=vptr)
+    endif()
 endif()
 
 if(DRISCORD_COVERAGE)
@@ -92,7 +104,16 @@ if(BUILD_SERVER AND DRISCORD_ENABLE_RTP_MEDIA)
 else()
     set(NO_MEDIA ON CACHE BOOL "" FORCE)
 endif()
-if(BUILD_CORE AND WIN32)
+# Linux needs libdatachannel as a GnuTLS DSO so its symbols cannot interpose
+# BoringSSL's, because ELF resolves symbols across the whole process. PE and
+# Mach-O both resolve per module, so those two link a static Mbed TLS instead
+# and skip the DSO entirely.
+if(BUILD_CORE AND (WIN32 OR APPLE))
+    set(_driscord_mbedtls_backend TRUE)
+else()
+    set(_driscord_mbedtls_backend FALSE)
+endif()
+if(_driscord_mbedtls_backend)
     set(USE_GNUTLS OFF CACHE BOOL "Use GnuTLS instead of OpenSSL" FORCE)
     set(USE_MBEDTLS ON CACHE BOOL "Use Mbed TLS instead of OpenSSL" FORCE)
     unset(OPENSSL CACHE)
@@ -109,10 +130,16 @@ if(BUILD_CORE AND WIN32)
         GIT_SHALLOW    TRUE
     )
     FetchContent_MakeAvailable(mbedtls)
+    # Mbed TLS does not export the targets libdatachannel and libSRTP look for,
+    # so they are declared here against the archives it just built.
+    set(_driscord_mbed_dir "${mbedtls_BINARY_DIR}/library")
+    set(_driscord_mbed_pre "${CMAKE_STATIC_LIBRARY_PREFIX}")
+    set(_driscord_mbed_ext "${CMAKE_STATIC_LIBRARY_SUFFIX}")
     if(NOT TARGET MbedTLS::MbedTLS)
         add_library(MbedTLS::MbedTLS UNKNOWN IMPORTED GLOBAL)
         set_target_properties(MbedTLS::MbedTLS PROPERTIES
-            IMPORTED_LOCATION "${mbedtls_BINARY_DIR}/library/mbedtls.lib"
+            IMPORTED_LOCATION
+                "${_driscord_mbed_dir}/${_driscord_mbed_pre}mbedtls${_driscord_mbed_ext}"
             INTERFACE_INCLUDE_DIRECTORIES "${mbedtls_SOURCE_DIR}/include"
             INTERFACE_COMPILE_DEFINITIONS
                 "MBEDTLS_USER_CONFIG_FILE=\"${CMAKE_SOURCE_DIR}/cmake/mbedtls_user_config.h\""
@@ -127,7 +154,7 @@ if(BUILD_CORE AND WIN32)
             set_target_properties(MbedTLS::Mbed${_driscord_mbed_component}
                 PROPERTIES
                 IMPORTED_LOCATION
-                    "${mbedtls_BINARY_DIR}/library/${_driscord_mbed_lib}.lib"
+                    "${_driscord_mbed_dir}/${_driscord_mbed_pre}${_driscord_mbed_lib}${_driscord_mbed_ext}"
                 INTERFACE_INCLUDE_DIRECTORIES "${mbedtls_SOURCE_DIR}/include")
         endif()
     endforeach()
@@ -135,12 +162,18 @@ if(BUILD_CORE AND WIN32)
     unset(_driscord_mbed_lib)
     set(MbedTLS_INCLUDE_DIR "${mbedtls_SOURCE_DIR}/include"
         CACHE PATH "" FORCE)
-    set(MbedTLS_LIBRARY "${mbedtls_BINARY_DIR}/library/mbedtls.lib"
+    set(MbedTLS_LIBRARY
+        "${_driscord_mbed_dir}/${_driscord_mbed_pre}mbedtls${_driscord_mbed_ext}"
         CACHE FILEPATH "" FORCE)
-    set(MbedX509_LIBRARY "${mbedtls_BINARY_DIR}/library/mbedx509.lib"
+    set(MbedX509_LIBRARY
+        "${_driscord_mbed_dir}/${_driscord_mbed_pre}mbedx509${_driscord_mbed_ext}"
         CACHE FILEPATH "" FORCE)
-    set(MbedCrypto_LIBRARY "${mbedtls_BINARY_DIR}/library/mbedcrypto.lib"
+    set(MbedCrypto_LIBRARY
+        "${_driscord_mbed_dir}/${_driscord_mbed_pre}mbedcrypto${_driscord_mbed_ext}"
         CACHE FILEPATH "" FORCE)
+    unset(_driscord_mbed_dir)
+    unset(_driscord_mbed_pre)
+    unset(_driscord_mbed_ext)
 elseif(BUILD_CORE)
     set(USE_GNUTLS ON CACHE BOOL "Use GnuTLS instead of OpenSSL" FORCE)
     set(USE_MBEDTLS OFF CACHE BOOL "Use Mbed TLS instead of OpenSSL" FORCE)
@@ -174,12 +207,12 @@ FetchContent_Declare(
         "-DPATCH_FILE=${CMAKE_SOURCE_DIR}/third_party/patches/libdatachannel-gnutls-partial-write.patch"
         -P "${CMAKE_SOURCE_DIR}/cmake/ApplyGitPatch.cmake"
 )
-if(BUILD_CORE AND NOT WIN32)
+if(BUILD_CORE AND NOT _driscord_mbedtls_backend)
     set(_driscord_saved_build_shared_libs "${BUILD_SHARED_LIBS}")
     set(BUILD_SHARED_LIBS ON)
 endif()
 FetchContent_MakeAvailable(libdatachannel)
-if(BUILD_CORE AND NOT WIN32)
+if(BUILD_CORE AND NOT _driscord_mbedtls_backend)
     set(BUILD_SHARED_LIBS "${_driscord_saved_build_shared_libs}")
     unset(_driscord_saved_build_shared_libs)
     set(DRISCORD_LIBDATACHANNEL_TARGET datachannel)
@@ -194,9 +227,10 @@ if(TARGET datachannel AND NOT DRISCORD_LIBDATACHANNEL_TARGET STREQUAL "datachann
     set_target_properties(datachannel PROPERTIES EXCLUDE_FROM_ALL TRUE)
 endif()
 
-if(WIN32 AND TARGET datachannel-static AND TARGET mbedtls)
+if(_driscord_mbedtls_backend AND TARGET datachannel-static AND TARGET mbedtls)
     add_dependencies(datachannel-static mbedtls)
 endif()
+unset(_driscord_mbedtls_backend)
 
 find_package(Boost 1.89 REQUIRED)
 
@@ -293,10 +327,13 @@ if(DRISCORD_ENABLE_PACKAGING)
             "DRISCORD_ENABLE_PACKAGING requires BUILD_QT_CLIENT=ON")
     endif()
     string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" _driscord_package_processor)
-    if(NOT CMAKE_SYSTEM_NAME MATCHES "^(Linux|Windows)$"
-        OR NOT _driscord_package_processor MATCHES "^(x86_64|amd64)$")
+    if(NOT (CMAKE_SYSTEM_NAME MATCHES "^(Linux|Windows)$"
+                AND _driscord_package_processor MATCHES "^(x86_64|amd64)$")
+            AND NOT (CMAKE_SYSTEM_NAME STREQUAL "Darwin"
+                AND _driscord_package_processor MATCHES "^(arm64|aarch64)$"))
         message(FATAL_ERROR
-            "The release package supports Linux and Windows x86_64 only")
+            "The release package supports Linux and Windows x86_64 and "
+            "macOS arm64 only")
     endif()
     unset(_driscord_package_processor)
 
@@ -314,6 +351,19 @@ if(DRISCORD_ENABLE_PACKAGING)
             "driscord-client-${DRISCORD_VERSION_DISPLAY}-windows-x86_64")
         set(_driscord_verify_script
             "${CMAKE_SOURCE_DIR}/cmake/VerifyPackageWindows.cmake")
+    elseif(APPLE)
+        # A zip rather than a disk image: building an HFS+/APFS image needs
+        # tooling this host does not have, the archive keeps the framework
+        # symlinks, and the updater extracts it with the system tar exactly
+        # like the Windows one. It holds Driscord.app and nothing else, so
+        # unpacking it into /Applications adds nothing beside the bundle.
+        set(CPACK_GENERATOR "ZIP")
+        set(_driscord_package_basename
+            "driscord-client-${DRISCORD_VERSION_DISPLAY}-macos-arm64")
+        set(_driscord_verify_script
+            "${CMAKE_SOURCE_DIR}/cmake/VerifyPackageMacos.cmake")
+        set(CPACK_DRISCORD_LIPO "${DRISCORD_LIPO}")
+        set(CPACK_DRISCORD_OTOOL "${DRISCORD_OTOOL}")
     else()
         set(CPACK_GENERATOR "External")
         set(_driscord_package_basename

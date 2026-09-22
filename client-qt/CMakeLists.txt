@@ -423,6 +423,147 @@ if(WIN32 AND DRISCORD_ENABLE_PACKAGING)
     unset(_driscord_redist_dir)
 endif()
 
+if(APPLE AND DRISCORD_ENABLE_PACKAGING)
+    find_package(Qt6 REQUIRED COMPONENTS Svg)
+
+    foreach(_driscord_qt_var QT6_INSTALL_PREFIX QT6_INSTALL_QML QT6_INSTALL_LIBS)
+        if("${${_driscord_qt_var}}" STREQUAL "")
+            message(FATAL_ERROR "${_driscord_qt_var} is not provided by Qt6")
+        endif()
+    endforeach()
+    foreach(_driscord_tool DRISCORD_OTOOL DRISCORD_LIPO)
+        if(NOT ${_driscord_tool})
+            message(FATAL_ERROR
+                "macOS packaging needs ${_driscord_tool} "
+                "(see cmake/toolchain/macos-clang.cmake)")
+        endif()
+    endforeach()
+    set(_driscord_qt_qml_dir "${QT6_INSTALL_PREFIX}/${QT6_INSTALL_QML}")
+    set(_driscord_qt_lib_dir "${QT6_INSTALL_PREFIX}/${QT6_INSTALL_LIBS}")
+    set(_driscord_app "Driscord.app/Contents")
+
+    # The bundle is laid out by hand, like the Windows tree, because
+    # macdeployqt is a Mach-O tool that cannot run on the build host. The run
+    # path is linked in rather than rewritten at install time: install_name_tool
+    # would invalidate the linker's ad-hoc signature, without which arm64 macOS
+    # refuses to start the binary.
+    set_target_properties(driscord_client PROPERTIES
+        MACOSX_BUNDLE FALSE
+        BUILD_WITH_INSTALL_RPATH TRUE
+        INSTALL_RPATH "@executable_path/../Frameworks")
+
+    install(TARGETS driscord_client
+        RUNTIME DESTINATION "${_driscord_app}/MacOS"
+        COMPONENT Runtime)
+
+    configure_file(packaging/macos/Info.plist.in
+        "${CMAKE_CURRENT_BINARY_DIR}/packaging/Info.plist" @ONLY)
+    file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/packaging/PkgInfo"
+        CONTENT "APPL????" NEWLINE_STYLE UNIX)
+    install(FILES
+            "${CMAKE_CURRENT_BINARY_DIR}/packaging/Info.plist"
+            "${CMAKE_CURRENT_BINARY_DIR}/packaging/PkgInfo"
+        DESTINATION "${_driscord_app}" COMPONENT Runtime)
+    install(FILES packaging/macos/driscord.icns
+        DESTINATION "${_driscord_app}/Resources" COMPONENT Runtime)
+
+    # Inside a bundle Qt resolves qt.conf from Contents/Resources and takes
+    # Contents as the prefix.
+    file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/packaging/qt.conf"
+        CONTENT "[Paths]\nPlugins = PlugIns\nQmlImports = Resources/qml\n"
+        NEWLINE_STYLE UNIX)
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/packaging/qt.conf"
+        DESTINATION "${_driscord_app}/Resources" COMPONENT Runtime)
+
+    set(_driscord_mac_plugins
+        Qt6::QCocoaIntegrationPlugin
+        Qt6::QMacStylePlugin
+        Qt6::QSvgIconPlugin
+        Qt6::QSvgPlugin
+        Qt6::QJpegPlugin
+        Qt6::QICOPlugin
+        Qt6::QGifPlugin
+        Qt6::QSecureTransportBackendPlugin
+        Qt6::QFFmpegMediaPlugin
+        Qt6::QDarwinMediaPlugin)
+    foreach(_driscord_mac_plugin IN LISTS _driscord_mac_plugins)
+        if(NOT TARGET ${_driscord_mac_plugin})
+            message(FATAL_ERROR
+                "Required Qt plugin target is unavailable: "
+                "${_driscord_mac_plugin}")
+        endif()
+        get_target_property(_driscord_mac_plugin_type
+            ${_driscord_mac_plugin} QT_PLUGIN_TYPE)
+        if(NOT _driscord_mac_plugin_type)
+            message(FATAL_ERROR
+                "${_driscord_mac_plugin} does not declare QT_PLUGIN_TYPE")
+        endif()
+        install(IMPORTED_RUNTIME_ARTIFACTS ${_driscord_mac_plugin}
+            LIBRARY DESTINATION
+                "${_driscord_app}/PlugIns/${_driscord_mac_plugin_type}"
+            COMPONENT Runtime)
+    endforeach()
+    unset(_driscord_mac_plugin)
+    unset(_driscord_mac_plugin_type)
+
+    set(_driscord_mac_qml_modules
+        Qt/labs/folderlistmodel
+        QtMultimedia
+        QtQml
+        QtQml/Base
+        QtQml/Models
+        QtQml/WorkerScript
+        QtQuick
+        QtQuick/Controls
+        QtQuick/Controls/Basic
+        QtQuick/Controls/Basic/impl
+        QtQuick/Controls/macOS
+        QtQuick/Controls/impl
+        QtQuick/Dialogs
+        QtQuick/Dialogs/quickimpl
+        QtQuick/Effects
+        QtQuick/Layouts
+        QtQuick/NativeStyle
+        QtQuick/Shapes
+        QtQuick/Templates
+        QtQuick/Window)
+    foreach(_driscord_mac_qml_module IN LISTS _driscord_mac_qml_modules)
+        if(NOT EXISTS "${_driscord_qt_qml_dir}/${_driscord_mac_qml_module}/qmldir")
+            message(FATAL_ERROR
+                "QML module is missing from the macOS Qt kit: "
+                "${_driscord_mac_qml_module}")
+        endif()
+        install(DIRECTORY "${_driscord_qt_qml_dir}/${_driscord_mac_qml_module}/"
+            DESTINATION "${_driscord_app}/Resources/qml/${_driscord_mac_qml_module}"
+            COMPONENT Runtime
+            PATTERN "*.dSYM" EXCLUDE)
+    endforeach()
+    unset(_driscord_mac_qml_module)
+
+    # Same reason as on Windows: QtQuick/Controls arrives whole, and the
+    # styles nothing loads must go before the dependency walk sees their
+    # plugins. cmake/VerifyPackageMacos.cmake fails the package if they stay.
+    install(CODE [[
+        foreach(_driscord_pruned_dir IN ITEMS
+                Fusion Imagine Material Universal iOS)
+            file(REMOVE_RECURSE "${CMAKE_INSTALL_PREFIX}/Driscord.app/Contents/Resources/qml/QtQuick/Controls/${_driscord_pruned_dir}")
+        endforeach()
+    ]] COMPONENT Runtime)
+
+    install(CODE "set(DRISCORD_QT_LIB_DIR \"${_driscord_qt_lib_dir}\")
+set(DRISCORD_OTOOL \"${DRISCORD_OTOOL}\")
+set(DRISCORD_LIPO \"${DRISCORD_LIPO}\")
+set(DRISCORD_BUNDLE \"\${CMAKE_INSTALL_PREFIX}/Driscord.app\")"
+        COMPONENT Runtime)
+    install(SCRIPT "${CMAKE_SOURCE_DIR}/cmake/DeployMacBundle.cmake"
+        COMPONENT Runtime)
+    unset(_driscord_mac_qml_modules)
+    unset(_driscord_mac_plugins)
+    unset(_driscord_app)
+    unset(_driscord_qt_qml_dir)
+    unset(_driscord_qt_lib_dir)
+endif()
+
 if(BUILD_TESTS)
     add_subdirectory(tests)
 endif()

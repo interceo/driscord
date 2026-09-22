@@ -124,9 +124,10 @@ Qt, Boost и артефакт Google WebRTC ищутся через окруже
 - libdatachannel v0.24.5, miniaudio, fmt, nlohmann/json
 
 Google WebRTC собирается отдельно командой `scripts/build_google_webrtc.sh` из
-revision в `third_party/google_webrtc_revision.txt`. Текущий pinned artifact —
-только Linux x86_64; другие архитектуры, Windows и macOS client build намеренно
-завершаются понятной ошибкой.
+revision в `third_party/google_webrtc_revision.txt`: нативно для Linux x86_64 и
+кросс-сборкой для Windows x64 (`DRISCORD_WEBRTC_TARGET=windows`) и macOS arm64
+(`DRISCORD_WEBRTC_TARGET=mac` + `DRISCORD_MACOS_SDK`). Прочие сочетания ОС и
+архитектуры завершаются понятной ошибкой.
 
 ## NixOS
 

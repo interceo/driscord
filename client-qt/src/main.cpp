@@ -34,9 +34,13 @@ UpdateManagerConfig makeUpdateConfig(const AppConfig& cfg)
     UpdateManagerConfig update;
     update.baseUrl = QString::fromUtf8(driscord::kUpdateBaseUrl);
     update.channel = QString::fromUtf8(driscord::kUpdateChannel);
-#ifdef Q_OS_WIN
+#if defined(Q_OS_WIN)
     update.pathTarget = QStringLiteral("windows-amd64");
     update.manifestTarget = QStringLiteral("windows/amd64");
+    update.archiveSuffix = QStringLiteral(".zip");
+#elif defined(Q_OS_MACOS)
+    update.pathTarget = QStringLiteral("macos-arm64");
+    update.manifestTarget = QStringLiteral("macos/arm64");
     update.archiveSuffix = QStringLiteral(".zip");
 #else
     update.pathTarget = QStringLiteral("linux-amd64");

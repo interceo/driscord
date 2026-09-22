@@ -32,8 +32,37 @@ windows)
         fi
     done
     ;;
+mac)
+    OUT_DIR="${DRISCORD_WEBRTC_OUT_DIR:-$SOURCE_DIR/out/driscord-release-mac}"
+    SDK_ROOT="${DRISCORD_WEBRTC_SDK_ROOT:-$PROJECT_ROOT/.cache/google-webrtc-sdk-mac}"
+    MACOS_SDK="${DRISCORD_MACOS_SDK:?the mac target needs DRISCORD_MACOS_SDK}"
+    MACOS_SDK="$(cd "$MACOS_SDK" && pwd)"
+    for probe in "SDKSettings.json" \
+        "System/Library/Frameworks/ScreenCaptureKit.framework"; do
+        if [ ! -e "$MACOS_SDK/$probe" ]; then
+            echo "ERROR: $MACOS_SDK is not a macOS SDK: $probe is missing" >&2
+            exit 1
+        fi
+    done
+    MACOS_SDK_VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["Version"])' \
+        "$MACOS_SDK/SDKSettings.json")"
+    MACOS_SDK_BUILD="$(python3 -c 'import plistlib,sys
+try:
+    with open(sys.argv[1], "rb") as f:
+        print(plistlib.load(f)["ProductBuildVersion"])
+except OSError:
+    print("")' "$MACOS_SDK/System/Library/CoreServices/SystemVersion.plist")"
+    # ScreenCaptureKit in the pinned revision guards on @available(macOS 15).
+    case "$MACOS_SDK_VERSION" in
+    1[0-4].* | [0-9].*)
+        echo "ERROR: macOS SDK $MACOS_SDK_VERSION is too old;" \
+            "modules/desktop_capture needs 15 or newer" >&2
+        exit 1
+        ;;
+    esac
+    ;;
 *)
-    echo "ERROR: DRISCORD_WEBRTC_TARGET must be 'linux' or 'windows'," \
+    echo "ERROR: DRISCORD_WEBRTC_TARGET must be 'linux', 'windows' or 'mac'," \
         "got '$TARGET'" >&2
     exit 1
     ;;
@@ -79,6 +108,8 @@ fi
 )
 if [ "$TARGET" = windows ]; then
     printf 'target_os = ["win"]\n' >> "$CHECKOUT_ROOT/.gclient"
+elif [ "$TARGET" = mac ]; then
+    printf 'target_os = ["mac"]\n' >> "$CHECKOUT_ROOT/.gclient"
 fi
 
 if [ -d "$SOURCE_DIR/.git" ]; then
@@ -133,6 +164,37 @@ with open(source_dir + "/build/win_toolchain.json", "w") as f:
 EOF
 fi
 
+if [ "$TARGET" = mac ]; then
+    # GN reaches the macOS SDK either through Xcode (xcodebuild/xcrun, absent
+    # here) or through a "hermetic" directory it only reads a plist from.
+    # FORCE_MAC_TOOLCHAIN selects the latter, and it must stay exported for
+    # every gn invocation: use_system_xcode is recomputed on each run rather
+    # than stored in args.gn, so a regen without it goes looking for Xcode.
+    export FORCE_MAC_TOOLCHAIN=1
+    XCODE_STUB="$SOURCE_DIR/build/mac_files/xcode_binaries/Contents"
+    # The version only has to clear build/config/c++/modules.gni's bucket
+    # assert. Clang modules stay off because use_custom_libcxx is false, so
+    # nothing else reads it and no Xcode toolchain is involved.
+    cmake -E make_directory "$XCODE_STUB"
+    cat > "$XCODE_STUB/version.plist" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleShortVersionString</key>
+	<string>26.5</string>
+	<key>ProductBuildVersion</key>
+	<string>17F77</string>
+</dict>
+</plist>
+EOF
+    SDK_LINK_DIR="$XCODE_STUB/Developer/Platforms/MacOSX.platform/Developer/SDKs"
+    cmake -E make_directory "$SDK_LINK_DIR"
+    cmake -E rm -f "$SDK_LINK_DIR/MacOSX$MACOS_SDK_VERSION.sdk"
+    cmake -E create_symlink "$MACOS_SDK" \
+        "$SDK_LINK_DIR/MacOSX$MACOS_SDK_VERSION.sdk"
+fi
+
 GN_ARGS=$(cat <<'EOF'
 is_debug=false
 is_component_build=false
@@ -151,6 +213,13 @@ if [ "$TARGET" = windows ]; then
     GN_ARGS="$GN_ARGS
 target_os=\"win\"
 target_cpu=\"x64\""
+elif [ "$TARGET" = mac ]; then
+    GN_ARGS="$GN_ARGS
+target_os=\"mac\"
+target_cpu=\"arm64\"
+mac_sdk_official_version=\"$MACOS_SDK_VERSION\"
+mac_sdk_official_build_version=\"$MACOS_SDK_BUILD\"
+rtc_rust=false"
 fi
 
 echo "==> Generating GN build..."
@@ -200,6 +269,15 @@ if [ "$TARGET" = windows ]; then
     fi
     cmake -E copy "$BUILTINS" \
         "$SDK_STAGING/src/$OUT_REL/obj/clang_rt.builtins-x86_64.lib"
+fi
+if [ "$TARGET" = mac ]; then
+    BUILTINS="$(echo "$SOURCE_DIR"/third_party/llvm-build/Release+Asserts/lib/clang/*/lib/darwin/libclang_rt.osx.a)"
+    if [ ! -f "$BUILTINS" ]; then
+        echo "ERROR: libclang_rt.osx.a not found in the checkout" >&2
+        exit 1
+    fi
+    cmake -E copy "$BUILTINS" \
+        "$SDK_STAGING/src/$OUT_REL/obj/libclang_rt.osx.a"
 fi
 cmake -E remove_directory "$SDK_ROOT"
 cmake -E rename "$SDK_STAGING" "$SDK_ROOT"
