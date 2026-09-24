@@ -125,6 +125,21 @@ scripts fail the package if it reappears.
 FastAPI/PostgreSQL service for auth, channels and invites. Runtime
 configuration is in `backend/api/.env`.
 
+## Releases
+
+Server and client release independently from this one repository, by tag
+stream: `server-vX.Y.Z` → the release-builder (homelab, `apps/shared/
+release-builder/policy.json`) builds the `driscord-api`/`driscord-signaling`
+images and Flux rolls them out; `client-vX.Y.Z` → it builds the Linux/Windows/
+macOS bundles into the update channel. A `-rc.N` suffix is a prerelease (beta
+channel, no Flux promotion). Bare `vX.Y.Z` tags predate the split; both streams
+continue above `v0.0.14`. Cut releases with the Release workflow
+(`.forgejo/workflows/release.yml`, Actions → Run workflow): it checks the
+version against the stream and requires green CI on the commit, then
+`scripts/forgejo_release.py` creates the tag and the release. Nothing versions
+the signaling/API protocol yet, so ship a breaking protocol change as a client
+release first and the server after it.
+
 ## Testing
 
 The integration gate starts the real signaling/SFU server in-process and tests

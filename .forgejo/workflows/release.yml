@@ -1,0 +1,59 @@
+name: Release
+
+# The release button: Actions → Release → Run workflow on a branch. It tags the
+# branch head as `server-vX.Y.Z` or `client-vX.Y.Z` and publishes a Forgejo
+# release; nothing is built here. The release-builder in the cluster polls
+# releases and builds what apps/shared/release-builder/policy.json declares for
+# the tag stream: server → api/signaling images that Flux rolls out, client →
+# the Linux/Windows/macOS bundles of the update channel. A version with a
+# prerelease suffix (1.4.0-rc.1) is a Forgejo prerelease and lands in beta.
+on:
+  workflow_dispatch:
+    inputs:
+      component:
+        description: What to release
+        type: choice
+        options: [server, client]
+        required: true
+      version:
+        description: Version, X.Y.Z or X.Y.Z-rc.N
+        type: string
+        required: true
+      dry_run:
+        description: Only run the checks, create nothing
+        type: boolean
+        default: false
+
+# One release at a time, so two runs cannot both pass the "above the newest
+# release" check with the same version.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Tag and publish
+    # The job only talks to the Forgejo API: the plain bookworm profile has
+    # python3 and the checkout helper, and its pool reaches Forgejo only.
+    runs-on: linux-bookworm
+    timeout-minutes: 10
+    env:
+      # The job's own short-lived token; on its own repository it may create
+      # tags and releases. The `permissions:` block above documents that
+      # intent — Forgejo does not narrow the token by it.
+      FORGEJO_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout exact event commit
+        run: forgejo-checkout
+
+      # Refuses an existing tag, a version not above the newest release of the
+      # stream (or the pre-split `v*` tags) and a commit whose CI is not green.
+      - name: Check and publish the release
+        env:
+          COMPONENT: ${{ inputs.component }}
+          VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: python3 scripts/forgejo_release.py
